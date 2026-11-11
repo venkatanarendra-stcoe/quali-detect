@@ -2,7 +2,7 @@ import { groupsModule } from "./groups/index.js";
 import { identityModule } from "./identity/index.js";
 import { platformIdentityModule } from "./platform-identity/index.js";
 import { platformTenantsModule } from "./platform-tenants/index.js";
-// import { roleAssignmentsModule } from "./role-assignments/index.js";
+import { roleAssignmentsModule } from "./role-assignments/index.js";
 import { rolesModule } from "./roles/index.js";
 import { systemModule } from "./system/index.js";
 import { usersModule } from "./users/index.js";
@@ -18,7 +18,7 @@ export const modules = [
   usersModule,
   groupsModule,
   rolesModule,
-  // roleAssignmentsModule,
+  roleAssignmentsModule,
   // workspacesModule,
   // workspaceMembersModule,
 ];

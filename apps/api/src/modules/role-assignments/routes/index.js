@@ -16,7 +16,7 @@ import {
  * the workspace: not visible -> 404, visible but not permitted -> 403.
  * @param {ReturnType<typeof import("../controllers/index.js").createRoleAssignmentController>} controller
  * @param {{ authorize: Function, scopes: any }} authz
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const roleAssignmentRoutes = (controller, authz) =>
   async function roleAssignments(app) {

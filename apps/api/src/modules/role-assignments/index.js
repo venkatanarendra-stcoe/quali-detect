@@ -4,7 +4,7 @@ import { createRoleAssignmentRepository } from "./repositories/index.js";
 import { roleAssignmentRoutes } from "./routes/index.js";
 import { createRoleAssignmentService } from "./services/index.js";
 
-/** @type {import("fastify").FastifyPluginAsync} */
+/** @type {import("../../../lib/route-kit.js").RouteRegistrarFn} */
 async function roleAssignmentsPlugin(app) {
   const repository = createRoleAssignmentRepository({ db: app.infra.db });
   const service = createRoleAssignmentService({
@@ -15,7 +15,7 @@ async function roleAssignmentsPlugin(app) {
   await app.register(roleAssignmentRoutes(createRoleAssignmentController({ service }), app.authz));
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const roleAssignmentsModule = {
   name: MODULE_NAME,
   description: "Role assignments to users and groups at tenant or workspace scope.",

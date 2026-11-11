@@ -46,6 +46,36 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
 
   const sa = await platformLogin();
 
+  /** A fresh tenant provisioned the production way, with its owner signed in and the tenant selected. */
+  const provisionTenant = async (label) => {
+    const email = `${label}.${suffix}@iso.example`;
+    const created = must(
+      await api("POST", "/platform/tenants", {
+        cookie: sa,
+        body: {
+          name: `${label} Org ${suffix}`,
+          slug: `${label}-${suffix}`,
+          admin: { email, name: `${label} Owner` },
+        },
+      }),
+      201,
+      `provision tenant ${label}`,
+    );
+    const tenant = { id: created.tenant.id, name: created.tenant.name };
+    const owner = await tenantLogin(email);
+    must(
+      await api("POST", `/me/invitations/${tenant.id}/accept`, { cookie: owner }),
+      200,
+      "accept",
+    );
+    must(
+      await api("PUT", "/me/active-tenant", { cookie: owner, body: { tenantId: tenant.id } }),
+      200,
+      "select tenant",
+    );
+    return { ...tenant, owner };
+  };
+
   // ---- tenant B, created the way production creates tenants
   const bOwnerEmail = `owner.${suffix}@iso.example`;
   const provisioned = must(
@@ -156,5 +186,6 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
     secrets: { tenantPassword, platformPassword, mfaCode },
     platformLoginOnly,
     platformLogin,
+    provisionTenant,
   };
 }

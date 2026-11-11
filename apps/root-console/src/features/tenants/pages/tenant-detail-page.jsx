@@ -32,7 +32,7 @@ const STATUS_ACTIONS = {
   active: ["suspend", "deactivate"],
   trial: ["suspend", "deactivate"],
   suspended: ["reactivate", "deactivate"],
-  deactivated: [],
+  deactivated: ["restore"],
 };
 const ACTIONS = {
   suspend: {
@@ -52,6 +52,15 @@ const ACTIONS = {
     title: "Reactivate this tenant?",
     description: "The tenant can use the application again.",
   },
+  restore: {
+    label: "Restore",
+    permission: "platform.tenant.restore",
+    destructive: false,
+    typed: false,
+    title: "Restore this tenant?",
+    description:
+      "The deactivated tenant returns to service with its data as it was. This is only possible during the retention window.",
+  },
   deactivate: {
     label: "Deactivate",
     permission: "platform.tenant.deactivate",
@@ -59,7 +68,7 @@ const ACTIONS = {
     typed: true,
     title: "Deactivate this tenant?",
     description:
-      "Deactivation ends the tenant's service. In this version it cannot be undone from the console. Data is retained.",
+      "Deactivation ends the tenant's service. A Platform Super Admin can restore it until the retention window ends; after that it is final. Data is retained.",
   },
 };
 const EVENT_LABEL = {
@@ -67,6 +76,7 @@ const EVENT_LABEL = {
   "tenant.suspended": "Suspended",
   "tenant.reactivated": "Reactivated",
   "tenant.deactivated": "Deactivated",
+  "tenant.restored": "Restored",
 };
 
 function Count({ label, value }) {
@@ -110,23 +120,25 @@ export function TenantDetailPage() {
         actions={
           <>
             <TenantStatusChip status={tenant.status} />
-            {STATUS_ACTIONS[tenant.status].map((action) => (
-              <DisabledWithReason
-                key={action}
-                reason={
-                  allowedActions.includes(action)
-                    ? null
-                    : `You need the ${ACTIONS[action].permission} permission.`
-                }
-              >
-                <Button
-                  variant={ACTIONS[action].destructive ? "outline" : "secondary"}
-                  onClick={() => setPending(action)}
+            {STATUS_ACTIONS[tenant.status]
+              .filter((action) => action !== "restore" || tenant.restorableUntil)
+              .map((action) => (
+                <DisabledWithReason
+                  key={action}
+                  reason={
+                    allowedActions.includes(action)
+                      ? null
+                      : `You need the ${ACTIONS[action].permission} permission.`
+                  }
                 >
-                  {ACTIONS[action].label}
-                </Button>
-              </DisabledWithReason>
-            ))}
+                  <Button
+                    variant={ACTIONS[action].destructive ? "outline" : "secondary"}
+                    onClick={() => setPending(action)}
+                  >
+                    {ACTIONS[action].label}
+                  </Button>
+                </DisabledWithReason>
+              ))}
           </>
         }
       />
@@ -144,8 +156,10 @@ export function TenantDetailPage() {
           className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           This tenant is deactivated
-          {tenant.deactivatedAt ? ` since ${date(tenant.deactivatedAt)}` : ""}. Deactivation is
-          final in this version.
+          {tenant.deactivatedAt ? ` since ${date(tenant.deactivatedAt)}` : ""}.{" "}
+          {tenant.restorableUntil
+            ? `A Platform Super Admin can restore it until ${date(tenant.restorableUntil)}.`
+            : "The retention window has ended, so deactivation is final."}
         </p>
       ) : null}
 

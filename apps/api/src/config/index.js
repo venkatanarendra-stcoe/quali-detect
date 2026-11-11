@@ -19,6 +19,14 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
   // Progressive sign-in / MFA throttling (ADR-010). Defaults keep 6-digit MFA brute force impractical; see the ADR for the math.
+  // How long after deactivation a Super Admin can still restore a tenant (AUTHORIZATION Q25). The length is an OPEN
+  // decision (OPEN_DECISIONS.md): 30 days is a provisional placeholder, not an approved retention period.
+  TENANT_DEACTIVATION_RETENTION_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(31536000)
+    .default(2592000),
   AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
   AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS: z.coerce.number().int().min(1).max(3600).default(10),
   AUTH_THROTTLE_LOGIN_CAP_SECONDS: z.coerce.number().int().min(1).max(86400).default(900),
@@ -180,6 +188,9 @@ export function loadConfig(env = process.env) {
       bodyLimitBytes: e.REQUEST_BODY_LIMIT_BYTES,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
       rateLimit: Object.freeze({ windowMs: e.RATE_LIMIT_WINDOW_MS, max: e.RATE_LIMIT_MAX }),
+    }),
+    tenants: Object.freeze({
+      deactivationRetentionSeconds: e.TENANT_DEACTIVATION_RETENTION_SECONDS,
     }),
     log: Object.freeze({ level: e.LOG_LEVEL }),
     openapi: Object.freeze({ enabled: e.OPENAPI_ENABLED ?? !production }),

@@ -66,6 +66,8 @@ const tenantDetailDto = z.object({
     status: z.enum(TENANT_STATUSES),
     createdAt: z.string(),
     deactivatedAt: z.string().nullable(),
+    /** Until when a Super Admin can restore a deactivated tenant; null when not deactivated or the window ended. */
+    restorableUntil: z.string().nullable(),
   }),
   subscription: z
     .object({

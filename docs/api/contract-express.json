@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 61,
+  "operationCount": 62,
   "operations": [
     {
       "method": "POST",
@@ -1369,6 +1369,10 @@
           {
             "code": "CONFLICT",
             "status": 409
+          },
+          {
+            "code": "TENANT_DEACTIVATION_EXPIRED",
+            "status": 409
           }
         ]
       },
@@ -1482,6 +1486,10 @@
           {
             "code": "CONFLICT",
             "status": 409
+          },
+          {
+            "code": "TENANT_DEACTIVATION_EXPIRED",
+            "status": 409
           }
         ]
       },
@@ -1542,6 +1550,10 @@
           {
             "code": "CONFLICT",
             "status": 409
+          },
+          {
+            "code": "TENANT_DEACTIVATION_EXPIRED",
+            "status": 409
           }
         ]
       },
@@ -1560,6 +1572,70 @@
         ]
       },
       "summary": "Reactivate a tenant (reason required; audited)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/tenants/{tenantId}/restore",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.restore",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "TENANT_DEACTIVATION_EXPIRED",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": "{ reason, confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Restore a tenant (reason required; audited)"
     },
     {
       "method": "POST",
@@ -1601,6 +1677,10 @@
         "domain": [
           {
             "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "TENANT_DEACTIVATION_EXPIRED",
             "status": 409
           }
         ]

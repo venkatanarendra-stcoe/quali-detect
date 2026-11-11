@@ -3,7 +3,7 @@
  * platform/tenant session separation, segregation of duties and the progressive sign-in/MFA throttling (ADR-010). Black box over HTTP against a running API: `scripts/security-suite.js` provisions a
  * disposable database, starts the API and sets SECURITY_* variables. Run with `pnpm test:security`.
  *
- * 68 of the 77 checks come from the audit in docs/STATUS_PHASE_1-4.md; the 9 THR checks were added with ADR-010. Controls (not counted in the 68) prove the legitimate
+ * 68 of the 77 checks come from the audit in docs/STATUS_PHASE_1-4.md plus 9 THR (ADR-010) and 6 RST (tenant restore window, AUTHORIZATION Q25) checks added later. Controls (not counted in the 68) prove the legitimate
  * requests SUCCEED, so a transport that stops mounting routes cannot make the "expect 404 / 401" checks pass vacuously.
  */
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ import { before, describe, it } from "node:test";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 77;
+const EXPECTED_CHECKS = 83;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -576,6 +576,84 @@ const sanitized = (response) => ({ status: response.status, error: response.json
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 7. Tenant restore window (6 checks, AUTHORIZATION Q25). A fresh tenant is deactivated and restored by a Platform Super
+//    Admin inside the window (the runner sets 4 s), then deactivated again and left past the window.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const scenario = () =>
+    once("restore-window", async () => {
+      const t = await w.provisionTenant("restore");
+      const asSa = (path, body) =>
+        w.api("POST", `/platform/tenants/${t.id}/${path}`, { cookie: S("sa")(w), body });
+      const deactivate = () =>
+        asSa("deactivate", { reason: "restore window check", confirm: t.name });
+      const out = { t };
+      out.activeRestore = await asSa("restore", { reason: "restore an active tenant" });
+      out.tenantRoute = await w.api("POST", `/platform/tenants/${t.id}/restore`, {
+        cookie: t.owner,
+        body: { reason: "tenant session" },
+      });
+      out.deactivated = await deactivate();
+      out.sessionWhileDeactivated = await w.api("GET", "/me", { cookie: t.owner });
+      out.restored = await asSa("restore", { reason: "restore inside the window" });
+      out.sessionAfterRestore = await w.api("GET", "/workspaces", { cookie: t.owner });
+      out.deactivatedAgain = await deactivate();
+      await sleep(4600);
+      out.expired = await asSa("restore", { reason: "restore after the window" });
+      out.sessionAfterExpiry = await w.api("GET", "/me", { cookie: t.owner });
+      return out;
+    });
+  const add = group("Tenant restore window");
+  add(
+    "RST-001",
+    "Super Admin restores a deactivated tenant inside the window (status back to active or trial)",
+    { status: 200 },
+    async () => (await scenario()).restored,
+    (r) => {
+      const tenant = r.json?.data?.tenant;
+      return ["active", "trial"].includes(tenant?.status) && tenant?.deactivatedAt === null
+        ? []
+        : [`unexpected tenant ${JSON.stringify(tenant)}`];
+    },
+  );
+  add(
+    "RST-002",
+    "while deactivated, a tenant session is refused",
+    { status: 403, code: "TENANT_SUSPENDED" },
+    async () => (await scenario()).sessionWhileDeactivated,
+  );
+  add(
+    "RST-003",
+    "after the restore the tenant session works again",
+    { status: 200 },
+    async () => (await scenario()).sessionAfterRestore,
+  );
+  add(
+    "RST-004",
+    "after the window the restore is refused with TENANT_DEACTIVATION_EXPIRED and the tenant stays unusable",
+    { status: 409, code: "TENANT_DEACTIVATION_EXPIRED" },
+    async () => {
+      const run = await scenario();
+      return Object.assign(run.expired, { stillRefused: run.sessionAfterExpiry.status });
+    },
+    (r) =>
+      r.stillRefused === 403 ? [] : [`tenant session answered ${r.stillRefused} after expiry`],
+  );
+  add(
+    "RST-005",
+    "a tenant session cannot reach the platform restore route",
+    NOT_FOUND,
+    async () => (await scenario()).tenantRoute,
+  );
+  add(
+    "RST-006",
+    "restoring a tenant that is not deactivated is a conflict",
+    { status: 409, code: "CONFLICT" },
+    async () => (await scenario()).activeRestore,
   );
 }
 

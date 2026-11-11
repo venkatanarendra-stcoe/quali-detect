@@ -1,0 +1,17 @@
+{
+  "note": "Differences from the Fastify baseline that were reviewed and accepted. `pnpm contract:parity` reports a matching difference as explained instead of failing. Anything not listed fails the gate.",
+  "accepted": [
+    {
+      "pattern": "POST /api/v1/platform/tenants/\\{tenantId\\}/restore",
+      "reason": "New operation (2026-11-11, AUTHORIZATION Q25): restore a deactivated tenant inside its retention window; permission platform.tenant.restore (Super Admin only); error TENANT_DEACTIVATION_EXPIRED."
+    },
+    {
+      "pattern": "POST /api/v1/platform/tenants.*: errorCodes differs",
+      "reason": "The derived (superset) domain error codes of the platform-tenants module now include TENANT_DEACTIVATION_EXPIRED, which only the restore action raises."
+    },
+    {
+      "pattern": "/api/v1/platform/tenants.* (200|201): response schema representation differs",
+      "reason": "Tenant detail responses gained the nullable field tenant.restorableUntil (Q25); allowedActions can now contain \"restore\"."
+    }
+  ]
+}

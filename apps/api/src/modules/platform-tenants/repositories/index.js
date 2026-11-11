@@ -11,6 +11,7 @@ const LIFECYCLE_ACTIONS = [
   "tenant.suspended",
   "tenant.reactivated",
   "tenant.deactivated",
+  "tenant.restored",
 ];
 
 /**

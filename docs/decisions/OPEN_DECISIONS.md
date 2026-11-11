@@ -18,7 +18,7 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | Billing/invoicing integration | Not finalized | Commercial decision |
 | SSO providers and protocols | Requirements include SSO | Confirm supported protocols |
 | Data retention periods | Not finalized | Compliance/business decision |
-| Retention window after which a deactivated tenant becomes terminal (AUTHORIZATION Q25) | Value not set; must be configurable | Open: propose a default with the Compliance decision (for example 30 days) |
+| Retention window after which a deactivated tenant becomes terminal (AUTHORIZATION Q25) | Implemented as `TENANT_DEACTIVATION_RETENTION_SECONDS` with a **provisional placeholder of 30 days**; the owner has not set the real value. Data handling at expiry (purge, crypto-shredding) stays Open; no purge job exists | Set the value with the Compliance decision |
 | Final progressive-throttling values (AUTHORIZATION Q24, ADR-010) | Defaults implemented and configurable (`AUTH_THROTTLE_*`); the owner has not set final values | Keep the ADR-010 defaults until decided |
 | Notification to the account owner when the throttle cap is reached; administrative reset of a throttled account | Event emitted as a log only (no outbox); no reset action | Deliver through the outbox when it exists; add a reset to the support tooling later |
 | Credential storage details (ADR-009 *Open* table) | KMS vs Vault adapter, resolve auditing, DEK rotation schedule, crypto-shredding | See ADR-009 |

@@ -1,23 +1,41 @@
-import { ConflictError, NotFoundError, ValidationError } from "../../../errors/app-error.js";
+import { ERROR_CODES } from "@qmentisai/contracts";
+import {
+  AppError,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
 import { LIFECYCLE } from "../constants/index.js";
 import { toLifecycleEvent, toPlanSummary, toTenantListItem } from "../mappers/index.js";
 
-const toDetailTenant = (t) => ({
+/** End of the restore window of a deactivated tenant, or null. A missing deactivation time fails closed (terminal). */
+const restoreDeadline = (tenant, retentionSeconds) =>
+  tenant.status === "deactivated" && tenant.deactivatedAt
+    ? new Date(tenant.deactivatedAt.getTime() + retentionSeconds * 1000)
+    : null;
+
+const toDetailTenant = (t, restorableUntil) => ({
   id: t.id,
   slug: t.slug,
   name: t.name,
   status: t.status,
   createdAt: t.createdAt,
   deactivatedAt: t.deactivatedAt,
+  restorableUntil,
 });
 
 /**
  * Root Console tenant use cases: list, provision, detail and lifecycle. Platform permissions are checked before (route
  * guard); here live the business rules. Every change is written to the platform audit log in the same transaction.
- * @param {{ repository: ReturnType<typeof import("../repositories/index.js").createPlatformTenantRepository>, audit: any, clock?: () => Date }} deps
+ * @param {{ repository: ReturnType<typeof import("../repositories/index.js").createPlatformTenantRepository>, audit: any, retentionSeconds: number, clock?: () => Date }} deps
  */
-export function createPlatformTenantService({ repository, audit, clock = () => new Date() }) {
+export function createPlatformTenantService({
+  repository,
+  audit,
+  retentionSeconds,
+  clock = () => new Date(),
+}) {
   const auditEntry = (actor, action, tenantId, extra = {}) => ({
     actorPlatformUserId: actor.platformUserId,
     action,
@@ -29,12 +47,20 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
     ...extra,
   });
   /** Lifecycle actions the caller may take on a tenant in its current status (validity AND permission). */
-  const allowedActions = (actor, status) =>
+  const allowedActions = (actor, tenant, now) =>
     Object.entries(LIFECYCLE)
       .filter(
-        ([, rule]) => rule.from.includes(status) && actor.permissions.includes(rule.permission),
+        ([, rule]) =>
+          rule.from.includes(tenant.status) &&
+          actor.permissions.includes(rule.permission) &&
+          (!rule.withinRetention || isRestorable(tenant, now)),
       )
       .map(([name]) => name);
+  /** Window check, made when the action is taken or listed (no purge job; data handling at expiry is Open). */
+  const isRestorable = (tenant, now) => {
+    const deadline = restoreDeadline(tenant, retentionSeconds);
+    return deadline !== null && now < deadline;
+  };
 
   async function detail(actor, tenantId) {
     const now = clock();
@@ -51,7 +77,10 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
     ]);
     const { subscription, ...usage } = aggregates;
     return {
-      tenant: toDetailTenant(tenant),
+      tenant: toDetailTenant(
+        tenant,
+        isRestorable(tenant, now) ? restoreDeadline(tenant, retentionSeconds).toISOString() : null,
+      ),
       subscription: subscription
         ? {
             status: subscription.status,
@@ -64,7 +93,7 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
       administrators,
       pendingAdministrators,
       lifecycle: events ? events.map(toLifecycleEvent) : null,
-      allowedActions: allowedActions(actor, tenant.status),
+      allowedActions: allowedActions(actor, tenant, now),
     };
   }
 
@@ -174,9 +203,9 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
     },
 
     /**
-     * suspend / reactivate / deactivate. Needs a reason; suspend and deactivate also need the tenant name typed exactly
+     * suspend / reactivate / deactivate / restore. Needs a reason; suspend and deactivate also need the tenant name typed exactly
      * (checked here as well as in the UI). Takes effect immediately: tenant sessions are refused with TENANT_SUSPENDED.
-     * @param {any} actor @param {string} tenantId @param {"suspend" | "reactivate" | "deactivate"} action @param {{ reason: string, confirm?: string }} input
+     * @param {any} actor @param {string} tenantId @param {"suspend" | "reactivate" | "deactivate" | "restore"} action @param {{ reason: string, confirm?: string }} input
      */
     async changeLifecycle(actor, tenantId, action, { reason, confirm }) {
       const rule = LIFECYCLE[action];
@@ -201,6 +230,18 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
             details: { from: tenant.status, action },
           });
         }
+        if (rule.withinRetention && !isRestorable(tenant, now)) {
+          throw new AppError(
+            ERROR_CODES.TENANT_DEACTIVATION_EXPIRED,
+            "This tenant can no longer be restored: its retention window has ended.",
+            {
+              details: {
+                deactivatedAt: tenant.deactivatedAt,
+                expiredAt: restoreDeadline(tenant, retentionSeconds),
+              },
+            },
+          );
+        }
         const to =
           action === "suspend"
             ? "suspended"
@@ -215,7 +256,11 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
             from: rule.from,
             to,
             deactivatedAt:
-              action === "deactivate" ? now : action === "reactivate" ? null : undefined,
+              action === "deactivate"
+                ? now
+                : action === "reactivate" || action === "restore"
+                  ? null
+                  : undefined,
           },
           tx,
         );
@@ -226,6 +271,7 @@ export function createPlatformTenantService({ repository, audit, clock = () => n
             metadata: {
               reason,
               changes: { before: { status: tenant.status }, after: { status: to } },
+              ...(action === "restore" ? { deactivatedAt: tenant.deactivatedAt } : {}),
             },
           }),
           { tx },

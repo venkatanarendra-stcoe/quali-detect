@@ -12,7 +12,11 @@ async function platformTenantsPlugin(app) {
     db,
     authzRepository: createAuthzRepository({ db }),
   });
-  const service = createPlatformTenantService({ repository, audit: app.audit });
+  const service = createPlatformTenantService({
+    repository,
+    audit: app.audit,
+    retentionSeconds: app.config.tenants.deactivationRetentionSeconds,
+  });
   await app.register(platformTenantRoutes(createPlatformTenantController({ service }), app.auth));
 }
 
@@ -20,7 +24,7 @@ async function platformTenantsPlugin(app) {
 export const platformTenantsModule = {
   name: MODULE_NAME,
   description:
-    "Root Console tenant management: list, provision, detail and lifecycle (suspend, reactivate, deactivate).",
+    "Root Console tenant management: list, provision, detail and lifecycle (suspend, reactivate, deactivate, restore).",
   prefix: API_PREFIX,
   plugin: platformTenantsPlugin,
 };

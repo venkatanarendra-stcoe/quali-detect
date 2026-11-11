@@ -64,7 +64,7 @@ export const platformTenantRoutes = (controller, auth) =>
       controller.detail,
     );
     // One route per action so each carries exactly its own permission.
-    for (const action of ["suspend", "reactivate", "deactivate"]) {
+    for (const action of ["suspend", "reactivate", "deactivate", "restore"]) {
       app.post(
         `/tenants/:tenantId/${action}`,
         {

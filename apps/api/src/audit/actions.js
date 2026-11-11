@@ -44,6 +44,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   TENANT_SUSPENDED: "tenant.suspended",
   TENANT_REACTIVATED: "tenant.reactivated",
   TENANT_DEACTIVATED: "tenant.deactivated",
+  TENANT_RESTORED: "tenant.restored",
   // Sensitive exports (any export of findings, audit data, user lists or evidence)
   EXPORT_REQUESTED: "export.requested",
   EXPORT_DOWNLOADED: "export.downloaded",

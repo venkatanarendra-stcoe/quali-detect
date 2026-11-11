@@ -16,6 +16,11 @@ const baseDoc = load("openapi-fastify-baseline.json");
 const newDoc = load("openapi-express.json");
 
 const key = (o) => `${o.method} ${o.path}`;
+const accepted = load("parity-accepted.json").accepted.map((a) => ({
+  ...a,
+  re: new RegExp(a.pattern),
+}));
+const explained = [];
 const hard = [];
 const notes = [];
 
@@ -123,6 +128,14 @@ for (const [k, a] of docA) {
   }
 }
 
+/** A difference matching an accepted entry is reported as explained (with its reason) instead of failing the gate. */
+for (const list of [hard, notes]) {
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const match = accepted.find((a) => a.re.test(list[i]));
+    if (match) (explained.unshift(`${list[i]}  ->  ${match.reason}`), list.splice(i, 1));
+  }
+}
+
 const lines = [
   "# Contract parity: Fastify baseline vs Express 5",
   "",
@@ -132,7 +145,9 @@ const lines = [
   `- OpenAPI operations: baseline ${docA.size}, Express ${docB.size}.`,
   `- **Contract differences (must be 0 or explained): ${hard.length}**`,
   ...hard.map((h) => `  - ${h}`),
-  `- Schema representation differences (informational): ${schemaDiffs}`,
+  `- Explained (accepted in parity-accepted.json): ${explained.length}`,
+  ...explained.map((e) => `  - ${e}`),
+  `- Schema representation differences (informational, unexplained): ${notes.length}`,
   ...notes.map((n) => `  - ${n}`),
   "",
   "## Known, accepted representation differences (normalized away above; reviewed once, not per operation)",

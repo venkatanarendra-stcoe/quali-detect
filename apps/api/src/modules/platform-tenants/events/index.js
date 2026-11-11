@@ -4,4 +4,5 @@ export const PLATFORM_TENANT_EVENT_TYPES = Object.freeze({
   SUSPENDED: "platform.tenant.suspended",
   REACTIVATED: "platform.tenant.reactivated",
   DEACTIVATED: "platform.tenant.deactivated",
+  RESTORED: "platform.tenant.restored",
 });

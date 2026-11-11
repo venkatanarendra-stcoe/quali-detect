@@ -14,6 +14,7 @@ export const PLATFORM_PERMISSION_CATALOG = Object.freeze(
     ["platform.tenant.suspend", "Suspend a tenant"],
     ["platform.tenant.reactivate", "Reactivate a tenant"],
     ["platform.tenant.deactivate", "Deactivate a tenant"],
+    ["platform.tenant.restore", "Restore a deactivated tenant within its retention window"],
     ["platform.plan.view", "See plans and versions"],
     ["platform.plan.manage", "Manage plans and versions"],
     ["platform.subscription.view", "See tenant subscriptions"],

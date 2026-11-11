@@ -19,6 +19,8 @@ export const ERROR_CODES = Object.freeze({
   // Tenant context (docs/AUTHORIZATION.md §5.9): the session's active tenant is suspended/deactivated, or the session has none.
   TENANT_SUSPENDED: "TENANT_SUSPENDED",
   TENANT_CONTEXT_REQUIRED: "TENANT_CONTEXT_REQUIRED",
+  // A deactivated tenant can no longer be restored: its retention window ended (AUTHORIZATION Q25).
+  TENANT_DEACTIVATION_EXPIRED: "TENANT_DEACTIVATION_EXPIRED",
   // Access management (docs/AUTHORIZATION.md §8, Recommended): stable codes for refused policy outcomes.
   LAST_TENANT_ADMIN: "LAST_TENANT_ADMIN",
   ROLE_IN_USE: "ROLE_IN_USE",

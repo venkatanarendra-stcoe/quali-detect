@@ -3938,6 +3938,10 @@
                             "deactivatedAt": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
                             }
                           },
                           "required": [
@@ -3946,7 +3950,8 @@
                             "name",
                             "status",
                             "createdAt",
-                            "deactivatedAt"
+                            "deactivatedAt",
+                            "restorableUntil"
                           ]
                         },
                         "subscription": {
@@ -4113,7 +4118,8 @@
                             "enum": [
                               "suspend",
                               "reactivate",
-                              "deactivate"
+                              "deactivate",
+                              "restore"
                             ]
                           }
                         }
@@ -4438,6 +4444,10 @@
                             "deactivatedAt": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
                             }
                           },
                           "required": [
@@ -4446,7 +4456,8 @@
                             "name",
                             "status",
                             "createdAt",
-                            "deactivatedAt"
+                            "deactivatedAt",
+                            "restorableUntil"
                           ]
                         },
                         "subscription": {
@@ -4613,7 +4624,8 @@
                             "enum": [
                               "suspend",
                               "reactivate",
-                              "deactivate"
+                              "deactivate",
+                              "restore"
                             ]
                           }
                         }
@@ -4963,6 +4975,10 @@
                             "deactivatedAt": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
                             }
                           },
                           "required": [
@@ -4971,7 +4987,8 @@
                             "name",
                             "status",
                             "createdAt",
-                            "deactivatedAt"
+                            "deactivatedAt",
+                            "restorableUntil"
                           ]
                         },
                         "subscription": {
@@ -5138,7 +5155,8 @@
                             "enum": [
                               "suspend",
                               "reactivate",
-                              "deactivate"
+                              "deactivate",
+                              "restore"
                             ]
                           }
                         }
@@ -5488,6 +5506,10 @@
                             "deactivatedAt": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
                             }
                           },
                           "required": [
@@ -5496,7 +5518,8 @@
                             "name",
                             "status",
                             "createdAt",
-                            "deactivatedAt"
+                            "deactivatedAt",
+                            "restorableUntil"
                           ]
                         },
                         "subscription": {
@@ -5663,7 +5686,8 @@
                             "enum": [
                               "suspend",
                               "reactivate",
-                              "deactivate"
+                              "deactivate",
+                              "restore"
                             ]
                           }
                         }
@@ -6013,6 +6037,10 @@
                             "deactivatedAt": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
                             }
                           },
                           "required": [
@@ -6021,7 +6049,8 @@
                             "name",
                             "status",
                             "createdAt",
-                            "deactivatedAt"
+                            "deactivatedAt",
+                            "restorableUntil"
                           ]
                         },
                         "subscription": {
@@ -6188,7 +6217,539 @@
                             "enum": [
                               "suspend",
                               "reactivate",
-                              "deactivate"
+                              "deactivate",
+                              "restore"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "tenant",
+                        "subscription",
+                        "usage",
+                        "administrators",
+                        "pendingAdministrators",
+                        "lifecycle",
+                        "allowedActions"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platform/tenants/{tenantId}/restore": {
+      "post": {
+        "tags": [
+          "Platform tenants"
+        ],
+        "summary": "Restore a tenant (reason required; audited)",
+        "security": [
+          {
+            "platformSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tenantId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tenant": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "active",
+                                "trial",
+                                "suspended",
+                                "deactivated"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "deactivatedAt": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "restorableUntil": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "slug",
+                            "name",
+                            "status",
+                            "createdAt",
+                            "deactivatedAt",
+                            "restorableUntil"
+                          ]
+                        },
+                        "subscription": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "startsAt": {
+                              "type": "string"
+                            },
+                            "endsAt": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "plan": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "key",
+                                "name",
+                                "version"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "startsAt",
+                            "endsAt",
+                            "plan"
+                          ]
+                        },
+                        "usage": {
+                          "type": "object",
+                          "properties": {
+                            "users": {
+                              "type": "object",
+                              "properties": {
+                                "active": {
+                                  "type": "number"
+                                },
+                                "invited": {
+                                  "type": "number"
+                                },
+                                "suspended": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "active",
+                                "invited",
+                                "suspended"
+                              ]
+                            },
+                            "workspaces": {
+                              "type": "object",
+                              "properties": {
+                                "active": {
+                                  "type": "number"
+                                },
+                                "archived": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "active",
+                                "archived"
+                              ]
+                            },
+                            "groups": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "users",
+                            "workspaces",
+                            "groups"
+                          ]
+                        },
+                        "administrators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "email"
+                            ]
+                          }
+                        },
+                        "pendingAdministrators": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "email"
+                            ]
+                          }
+                        },
+                        "lifecycle": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "action": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "actorName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "reason": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "action",
+                              "at",
+                              "actorName",
+                              "reason"
+                            ]
+                          }
+                        },
+                        "allowedActions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "suspend",
+                              "reactivate",
+                              "deactivate",
+                              "restore"
                             ]
                           }
                         }

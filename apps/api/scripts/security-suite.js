@@ -190,6 +190,8 @@ async function main() {
     AUTH_THROTTLE_MFA_BASE_DELAY_SECONDS: "1",
     AUTH_THROTTLE_MFA_CAP_SECONDS: "4",
     AUTH_THROTTLE_IP_FREE_MULTIPLIER: "6",
+    // Restore window of deactivated tenants: 4 s so the RST checks can cross it (production default: see config).
+    TENANT_DEACTIVATION_RETENTION_SECONDS: "4",
   });
 
   log("running the checks");

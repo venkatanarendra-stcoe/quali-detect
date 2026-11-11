@@ -15,7 +15,7 @@ import {
  * session; a tenant principal never reaches them (404).
  * @param {ReturnType<typeof import("../controllers/index.js").createPlatformTenantController>} controller
  * @param {{ requirePlatformPermission: (key: string) => any }} auth
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const platformTenantRoutes = (controller, auth) =>
   async function platformTenants(app) {

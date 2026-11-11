@@ -5,7 +5,7 @@ import { createPlatformTenantRepository } from "./repositories/index.js";
 import { platformTenantRoutes } from "./routes/index.js";
 import { createPlatformTenantService } from "./services/index.js";
 
-/** @type {import("fastify").FastifyPluginAsync} */
+/** @type {import("../../../lib/route-kit.js").RouteRegistrarFn} */
 async function platformTenantsPlugin(app) {
   const { db } = app.infra;
   const repository = createPlatformTenantRepository({
@@ -16,7 +16,7 @@ async function platformTenantsPlugin(app) {
   await app.register(platformTenantRoutes(createPlatformTenantController({ service }), app.auth));
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const platformTenantsModule = {
   name: MODULE_NAME,
   description:

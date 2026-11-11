@@ -6,7 +6,7 @@
 |---|---|
 | Language | JavaScript ES Modules |
 | Runtime | Node.js LTS |
-| Backend | Fastify |
+| Backend | Express 5 (ADR-007: accepted, migration pending; `apps/api` currently runs Fastify 5) |
 | Frontend | React + Vite |
 | UI | shadcn/ui |
 | CSS | Tailwind CSS |
@@ -29,6 +29,7 @@
 | Logging | Pino |
 | Date utilities | date-fns |
 | Lint/format | ESLint + Prettier |
+| Security regression suite | `node:test` through `pnpm test:security` (ADR-008; no extra dependency) |
 
 ## Language rules
 
@@ -41,7 +42,11 @@
 
 ## Backend framework note
 
-Fastify is the selected backend framework for a pure JavaScript implementation. Do not silently replace it with NestJS or another framework.
+> **Superseded by ADR-007 (2026-11-11): Express 5 replaces Fastify.** This was an explicit, recorded decision by the product owner, not a silent replacement. The migration has **not** started: `apps/api` runs Fastify 5 until cutover, the HTTP contract is frozen in `docs/api/` (`openapi-fastify-baseline.json`, `contract-fastify-baseline.md`), and `pnpm test:security` (ADR-008) is its safety net. NestJS and other decorator-based frameworks remain excluded.
+
+Previous text, kept for history: *Fastify is the selected backend framework for a pure JavaScript implementation. Do not silently replace it with NestJS or another framework.*
+
+**Dependencies expected from the migration (candidates; none added yet).** Each must be pinned and justified here when added: `express` (the framework), `cookie-parser` (session cookies), `cors` (credentialed CORS with the exact origin list), `pino-http` (request logging with the existing redaction and correlation id), and optionally `helmet` (security headers). OpenAPI generation is an open decision in ADR-007 (hand-written over the route registry, or a library). `fastify`, `fastify-plugin`, `@fastify/cookie`, `@fastify/cors` and `@fastify/swagger` are removed at cutover.
 
 ## Data and messaging responsibilities
 

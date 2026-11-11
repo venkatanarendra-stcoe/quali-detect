@@ -1,6 +1,7 @@
 # ADR-002: Start with a Modular Monolith and Separate Workers
 
 - **Status:** Accepted
+- **Note (2026-11-11):** the word "Fastify" below is superseded by ADR-007 (Express 5). The modular-monolith decision itself stands.
 - **Decision:** Implement backend domains in one modular Fastify application, with separate worker entry points for asynchronous workloads.
 
 ## Context

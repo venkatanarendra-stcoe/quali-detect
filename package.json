@@ -13,7 +13,9 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:security": "pnpm --filter @qmentisai/api test:security",
+    "contract:snapshot": "pnpm --filter @qmentisai/api contract:snapshot"
   },
   "devDependencies": {
     "@qmentisai/config": "workspace:*",

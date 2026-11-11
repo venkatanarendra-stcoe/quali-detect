@@ -18,7 +18,7 @@ If documents conflict, do not silently choose. Identify the conflict and ask for
 ## 2. Approved technology
 
 - JavaScript ES Modules only.
-- Node.js + Fastify backend.
+- Node.js + Express 5 backend (ADR-007; Fastify 5 until the migration lands).
 - React + Vite frontends.
 - shadcn/ui + Tailwind CSS.
 - PostgreSQL + Prisma.
@@ -31,7 +31,7 @@ Do not introduce TypeScript, NestJS or an alternative framework without an accep
 
 ## 3. Application boundaries
 
-- `apps/backend`: Fastify API and domain modules.
+- `apps/backend` (superseded: now `apps/api`): API and domain modules (Express 5 per ADR-007; Fastify 5 until the migration lands).
 - `apps/tenant-web`: tenant-facing application.
 - `apps/root-console`: platform administration.
 - `apps/workers`: asynchronous worker entry points.

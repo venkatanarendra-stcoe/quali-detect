@@ -1,6 +1,6 @@
 # Status report: Phases 1-4
 
-Date: 2026-11-11. Read-only audit of the repository at `/home/narendra/qmentisai-sec` (not a git repository). Nothing in code, schema, config or other docs was changed by this audit; the only file written is this one. Verification used throwaway infrastructure outside the repo (PostgreSQL 18 on port 55432, API, two Vite servers, headless Chrome, scratch scripts in the session scratchpad), all stopped and deleted afterwards. The forced `turbo build` left git-ignored `dist/` folders in the two frontends.
+Date: 2026-11-11. *Point-in-time report; later decisions are ADR-007 (Express 5) and ADR-008 (security suite). Correction made after the contract snapshot: the system routes live under `/api/v1/system/`, not `/api/v1/`.* Read-only audit of the repository at `/home/narendra/qmentisai-sec` (not a git repository). Nothing in code, schema, config or other docs was changed by this audit; the only file written is this one. Verification used throwaway infrastructure outside the repo (PostgreSQL 18 on port 55432, API, two Vite servers, headless Chrome, scratch scripts in the session scratchpad), all stopped and deleted afterwards. The forced `turbo build` left git-ignored `dist/` folders in the two frontends.
 
 Sources read: `CLAUDE.md`, `AGENTS.md`, `docs/technical/IMPLEMENTATION_PLAN.md`, `docs/AUTHORIZATION.md`, `docs/modules/*`, `docs/decisions/OPEN_DECISIONS.md`, and the whole repository.
 
@@ -151,7 +151,7 @@ Everything below is my default; each is revisitable:
 
 | Method and path | Audience | Required permission |
 |---|---|---|
-| GET `/health`, `/ready`, `/info`, `/modules`, `/modules/:name` | public | none |
+| GET `/health`, `/ready` (unversioned); GET `/api/v1/system/info`, `/api/v1/system/modules`, `/api/v1/system/modules/:name` | public | none |
 | POST `/api/v1/auth/login`, `/auth/logout` | public | none (login throttled) |
 | GET `/me`, `/me/permissions`, `/me/invitations`, `/me/tenants` | user | session only |
 | POST `/me/invitations/:tenantId/accept`; PUT `/me/active-tenant` | user | session only (active membership / pending invitation) |

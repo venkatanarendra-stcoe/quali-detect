@@ -1,0 +1,79 @@
+# ADR-008: Security regression suite (tenant isolation, authorization, session separation)
+
+- **Status:** Accepted (2026-11-11, on the product owner's instruction)
+- **Date:** 2026-11-11
+- **Decision owners:** Product owner (decision); Claude Code (implementation)
+- **Relation to `CLAUDE.md`:** `CLAUDE.md` lists "test-case structures" as out of scope. This ADR makes **one narrow exception**: this suite, nothing else. Unit tests, UI tests, coverage targets and general API behavior tests remain out of scope.
+
+## Context
+
+`docs/STATUS_PHASE_1-4.md` found that the security-critical behavior (tenant isolation, the 404/403 rule, platform/tenant session separation) had been verified only by scratch scripts that lived outside the repository. Nobody else could re-run them, and a change to the request pipeline could silently regress them. ADR-007 (Fastify to Express 5) rewrites exactly that pipeline, so the checks must exist in the repository, must run against any HTTP transport, and must be proven to fail when the behavior breaks.
+
+## Decision
+
+Add a committed **security regression suite**, run with `pnpm test:security`.
+
+**In scope (and only this):**
+
+1. Tenant isolation: another tenant's resources by id (read, change, delete, assign, add as member), list leakage, tenant never taken from a header, query or body.
+2. Authorization outcomes: a workspace the caller cannot see answers **404** with a body identical to a non-existent one; a visible resource without the permission answers **403**; escalation guard (SOD-3).
+3. Platform/tenant session separation: tenant session on platform routes (404), platform session on tenant routes (401), no session (401), platform session before MFA (401 `mfa_required`, no data), cookie-name confusion, cross-audience sign-in, cross-site Origin (CSRF) refusal.
+4. Tenant suspension takes effect immediately and does not affect another tenant (these three checks belong to the 68).
+
+**Out of scope:** unit tests, frontend/browser tests, load or performance tests, coverage thresholds, functional tests of other behavior, RabbitMQ and workers, CI configuration (no CI is in scope for the project).
+
+## Design
+
+- **Black box over HTTP.** The suite talks to a running API with `fetch`; it imports no API code. The same checks therefore run unchanged against Fastify now and Express after ADR-007.
+- **Runner** (`apps/api/scripts/security-suite.js`): provisions a **disposable PostgreSQL** (an ephemeral local cluster built with `initdb`/`pg_ctl` from `PG_BIN_DIR`, `/usr/lib/postgresql/*` or `PATH`, in a temporary directory on a free port; no Docker), applies migrations and the seed, starts the API as a child process with a clean environment, runs the tests, and always tears everything down. Alternatively `SECURITY_TEST_DATABASE_URL` selects an existing database, **refused unless its name contains "test"**; its URL is never printed. Exit codes of the runner: 0 passed, 1 a check failed, 2 the environment is unusable (with an explanation); pnpm reports 1 for any non-zero exit, so the message distinguishes them.
+- **Secrets are random per run** (mock passwords, MFA code); none is stored in the repository.
+- **World built through the public API only:** tenant A is the seeded demo tenant; tenant B is created through `POST /platform/tenants`, its administrator is invited and accepts, then creates a workspace, group, custom role and workspace role assignment. Everything created carries a random suffix, so the suite can be re-run on the same disposable database.
+- **Framework:** `node:test` (built into Node 22). **No new dependency.**
+- **68 checks** (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit. An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
+- **Controls** (16, not counted in the 68) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
+- Error responses are also checked for the error envelope and `meta.correlationId`, and the cross-tenant checks assert that the response body contains no identifier of the other tenant.
+
+## Validation that the suite can fail (performed 2026-11-11 in a separate git worktree, main tree untouched)
+
+| Deliberate bug | Result |
+|---|---|
+| Hidden workspaces answer 403 instead of 404 | 6 checks fail (`AUTHZ-001..005`, `AUTHZ-007`) |
+| User lookup by id only (no `tenantId`) | 5 checks fail (`ISO-007..010`, `ISO-035`), including the PATCH-suspend one |
+| Origin/CSRF check removed | `SESS-013` fails |
+| Platform MFA no longer required | `SESS-009` fails |
+| Workspace loader without the tenant filter | **not caught, correctly:** the visibility check on the caller's permission set independently answers 404, so nothing leaks. This is defense in depth; the suite asserts outcomes, not layers |
+
+## Rules for contributors
+
+- A new tenant-owned route family needs checks in this suite in the same work item: cross-tenant access by id (404), hidden-workspace behavior where it applies (404 vs 403), and a control that the legitimate request works.
+- Change to authentication, sessions, tenant context, authorization or the Express/Fastify pipeline: `pnpm test:security` must pass before commit.
+- Never point the suite at a real database; never weaken a check to make it pass.
+
+## Alternatives considered
+
+1. Keep scratch scripts outside the repo: not reproducible, not reviewable.
+2. A full test framework with unit tests: broader than the owner approved and in conflict with the project constraints.
+3. In-process `app.inject` tests: faster but Fastify-specific, so unusable as the gate for ADR-007.
+
+## Consequences
+
+### Positive
+- The security-critical behavior is protected by a repeatable, transport-independent gate that runs in about 7 seconds.
+- It is the acceptance gate for ADR-007.
+
+### Negative / trade-offs
+- Needs PostgreSQL server binaries on the machine (or a disposable database URL); no Docker.
+- Depends on the seeded demo data (`demo.*@demo.example`); a change to the seed must keep the suite working.
+- Covers only the scope above; it is not a general test suite.
+
+## Security and operational impact
+
+- Runs only against a disposable database it creates, or an explicit one whose name contains "test"; uses random credentials; leaves no files outside a temporary directory it deletes.
+- Audit-log immutability means rows created by a run in an external test database stay there (use a throw-away database).
+
+## Related documents
+
+- `docs/STATUS_PHASE_1-4.md` (the source of the 68 checks)
+- `docs/decisions/ADR-003-TENANT-ISOLATION.md`, `docs/AUTHORIZATION.md` §5.9 (404 vs 403), `docs/architecture/TENANT_ISOLATION.md`
+- `docs/decisions/ADR-007-REPLACE-FASTIFY-WITH-EXPRESS-5.md`
+- `apps/api/test/security/README.md`

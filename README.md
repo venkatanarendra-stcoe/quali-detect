@@ -8,7 +8,7 @@ Documentation lives in [`docs/`](docs/README.md) (source of truth). Agent rules:
 
 | Path                 | Package                   | Purpose                                                                                                     |
 | -------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `apps/api`           | `@qmentisai/api`          | Fastify API (modular monolith)                                                                              |
+| `apps/api`           | `@qmentisai/api`          | API (modular monolith; Express 5 per ADR-007, Fastify until migrated)                                       |
 | `apps/workers`       | `@qmentisai/workers`      | Separate worker entry points: pipeline, analysis, scan, notification, usage, scheduler                      |
 | `apps/tenant-web`    | `@qmentisai/tenant-web`   | Tenant Application (React + Vite)                                                                           |
 | `apps/root-console`  | `@qmentisai/root-console` | Platform administration (React + Vite)                                                                      |

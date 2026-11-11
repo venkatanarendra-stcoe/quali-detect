@@ -8,10 +8,10 @@ Hierarchy: **Tenant → Workspace → Repository → Pipeline → Execution → 
 
 ## Hard constraints (docs/README.md, docs/technical/TECH_STACK.md)
 - JavaScript ES Modules only: `.js` / `.jsx`, no TypeScript, no CommonJS. JSDoc on public functions and contracts; Zod at API, webhook, message and env boundaries.
-- Backend Fastify (never NestJS); Prisma + PostgreSQL; Redis (cache/locks/rate limit); RabbitMQ (durable jobs); Socket.IO (authorized realtime only); Pino; OpenAPI.
+- Backend **Express 5** per ADR-007 (never NestJS). `apps/api` still runs Fastify 5 until the migration lands: follow the existing code and the `docs/api/` contract baselines meanwhile; Prisma + PostgreSQL; Redis (cache/locks/rate limit); RabbitMQ (durable jobs); Socket.IO (authorized realtime only); Pino; OpenAPI.
 - Frontend React + Vite + shadcn/ui + Tailwind + React Router + TanStack Query/Table + Zustand + React Hook Form + Recharts + Lucide + Sonner.
 - pnpm workspaces + Turborepo; ESLint + Prettier; pinned dependency versions, commit the lockfile, justify every new dependency.
-- Out of scope now: Docker, Docker Compose, Kubernetes, deployment/CI config, test-case structures. Secure engineering and review still apply.
+- Out of scope now: Docker, Docker Compose, Kubernetes, deployment/CI config, test-case structures (sole exception: the security regression suite, ADR-008). Secure engineering and review still apply.
 
 ## Tenant isolation (docs/architecture/TENANT_ISOLATION.md, ADR-003)
 - Never query a tenant-owned record by ID alone; include trusted tenant scope and validate workspace/repository/pipeline parent-child links.
@@ -20,7 +20,7 @@ Hierarchy: **Tenant → Workspace → Repository → Pipeline → Execution → 
 - Platform (Root Console) access uses separate platform permissions; cross-tenant support access is scoped and audited.
 
 ## Backend (docs/architecture/BACKEND_ARCHITECTURE.md, API_STANDARDS.md)
-Modular monolith by domain + separate worker entry points. Module layout: `routes/ controllers/ services/ repositories/ schemas/ policies/ events/ listeners/ mappers/ constants/ index.js`. Thin routes; Prisma only inside repositories; DTO mappers (never expose Prisma models); transactions for multi-record changes.
+Modular monolith by domain + separate worker entry points. Module layout: `routes/ controllers/ services/ repositories/ schemas/ policies/ events/ listeners/ mappers/ constants/ index.js`. Thin routes (Express routers after ADR-007); Prisma only inside repositories; DTO mappers (never expose Prisma models); transactions for multi-record changes.
 Request lifecycle: parse → validate → authenticate → tenant/resource context → authorize → tenant status/entitlement → service → persist → durable event → standard response. Unauthenticated input must never choose tenant context.
 API: REST under `/api/v1` (platform under `/api/v1/platform`); Zod on params/query/body; pagination, explicit filter/sort; idempotency keys for side-effecting ops.
 Envelope: success `{ success: true, data, meta: { correlationId } }`; error `{ success: false, error: { code, message }, meta: { correlationId } }`. Stable machine codes; never leak stacks, SQL, secrets. Events: versioned envelope, validated at producer and consumer, idempotent handlers, outbox for DB+publish atomicity.
@@ -37,24 +37,31 @@ Layout (decided by the user in Phase 1): `apps/{api,workers,tenant-web,root-cons
 
 ## Workflow
 One module at a time: write/complete its spec from `docs/technical/MODULE_SPECIFICATION_TEMPLATE.md` (specs under `docs/modules/`), plan (files, DB/API/event changes, authz and tenant impact, risks), implement incrementally, then report files changed, checks actually run, limitations, open decisions. Update docs in the same work item when behavior changes; record changes in `docs/development/PROGRESS_TRACKER.md`.
+Security gate: any change to authentication, sessions, tenant context, authorization or the HTTP pipeline must keep `pnpm test:security` passing (ADR-008); new tenant-owned route families add checks to it. Contract changes: re-run `pnpm contract:snapshot` and review the diff in `docs/api/`.
 
 ## docs/ index
 - `README.md` — how to use the pack, status labels, key constraints
 - `ai-development/AGENT_INSTRUCTIONS.md` — common agent rules (stack, invariants, security, coding, scope)
 - `ai-development/TOOL_ADAPTERS.md` — how each AI tool should point back to docs
 - `architecture/OVERALL_ARCHITECTURE.md` — modular monolith, workers, data ownership, diagram
-- `architecture/BACKEND_ARCHITECTURE.md` — Fastify modules, domains, request lifecycle
+- `architecture/BACKEND_ARCHITECTURE.md` — modules (Express 5 target, ADR-007), domains, request lifecycle, middleware order
 - `architecture/FRONTEND_ARCHITECTURE.md` — frontend stack, feature layout, state rules, nav layouts (stale in parts)
 - `architecture/TENANT_ISOLATION.md` — enforcement points and query/cache/event rules
 - `architecture/WORKER_ARCHITECTURE.md` — worker types, job envelope, retries, cancellation
 - `architecture/INTEGRATION_ARCHITECTURE.md` — provider adapters, webhooks, credential security
-- `architecture/AUTHORIZATION.md` — RBAC model, permission matrix, navigation rules (prototype notes stale)
+- `architecture/AUTHORIZATION.md` — deleted prototype's RBAC notes (stale; the real spec is `AUTHORIZATION.md` below)
+- `AUTHORIZATION.md` — authoritative authorization spec: catalog, roles, resolution, 404/403, decisions log, implementation notes
+- `modules/access-management/` — SPEC.md (engine, enforcement, audit, entitlements, APIs) and SCREENS.md (T-/R- screens)
+- `api/` — Fastify-era contract baselines (OpenAPI JSON, per-operation table); regenerate with `pnpm contract:snapshot`
+- `STATUS_PHASE_1-4.md` — audit of phases 1-4: as-built architecture, verification, gaps
 - `decisions/ADR-001-JAVASCRIPT.md` — JavaScript ES Modules everywhere
 - `decisions/ADR-002-MODULAR-MONOLITH.md` — modular monolith + separate workers
 - `decisions/ADR-003-TENANT-ISOLATION.md` — isolation enforced at all layers
 - `decisions/ADR-004-FINDING-IDENTITY.md` — findings independent per pipeline
 - `decisions/ADR-005-UI-STACK.md` — React, Vite, shadcn/ui, Tailwind for both apps
 - `decisions/ADR-006-REPOSITORY-LAYOUT-AND-CODE-FIRST-UI.md` — layout, code-first UI, pinned versions (mock-first part stale)
+- `decisions/ADR-007-REPLACE-FASTIFY-WITH-EXPRESS-5.md` — Express 5 replaces Fastify (accepted; migration pending), acceptance gates, rollback
+- `decisions/ADR-008-SECURITY-REGRESSION-SUITE.md` — `pnpm test:security` scope and rules (the one allowed test suite)
 - `decisions/OPEN_DECISIONS.md` — unresolved business/technical decisions; do not guess
 - `design/DESIGN_SYSTEM.md` — tokens, mint rules, components, icons
 - `design/UX_GUIDELINES.md` — layout, navigation, tables, states, accessibility

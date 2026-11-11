@@ -22,7 +22,7 @@ Do not treat recommendations or open items as confirmed requirements.
 ## Important current project constraints
 
 - JavaScript (ES Modules), not TypeScript.
-- Backend: Node.js + Fastify.
+- Backend: Node.js + Express 5 (ADR-007; the code still runs Fastify 5 until the migration lands).
 - Frontend: React + Vite + shadcn/ui + Tailwind CSS.
 - Database: PostgreSQL + Prisma.
 - Redis for cache/coordination; RabbitMQ for durable asynchronous messaging.

@@ -4,7 +4,7 @@
 
 - Node.js LTS.
 - JavaScript ES Modules.
-- Fastify.
+- Express 5 (ADR-007: accepted, migration pending; the code currently runs Fastify 5).
 - Prisma.
 - PostgreSQL.
 - Redis.
@@ -33,7 +33,21 @@ module-name/
   index.js
 ```
 
-Fastify plugins should register module routes and dependencies. Avoid hidden global mutable state.
+Avoid hidden global mutable state: dependencies are built from configuration and passed explicitly.
+
+### Transport (ADR-007)
+
+The module convention and the layering are **framework-independent**. After the migration to Express 5:
+
+- `routes/` hold Express routers, registered only through one helper (`defineRoute({ audience, permission, schema, handler })`) that **requires** `audience` and throws at startup otherwise (the guarantee Fastify's `onRoute` hook gives today).
+- `controllers/` take `(req, res)` instead of `(request, reply)`; `res.success` / `res.paginated` produce the same envelopes.
+- Fastify plugins become **middleware and app factories**: `createApp({ config, modules })` builds the app; each module exports a factory returning a `Router`, mounted at its prefix; there is no plugin encapsulation, so dependencies are passed explicitly.
+- Services, repositories, policies, mappers, Zod schemas, the authorization engine and the Prisma/infra packages do not change.
+
+Until the migration lands, the code is Fastify: modules are `fastify-plugin` plugins registered by `plugins/modules.js`. The HTTP contract that both must satisfy is in `docs/api/`; `pnpm test:security` must pass on both.
+
+**Fixed middleware order** (a wrong order can bypass security; it reproduces current behavior, including that input validation errors are produced before authentication):
+correlation id, request logging, body parsing with limit, CORS, cookies, CSRF/Origin check on unsafe methods, input validation, authentication by route audience (`public`, `user`, `tenant`, `platform`), tenant context from the session only, `authorize(permission, scope)` (404 when not visible, 403 when not permitted), handler, envelope and error handler.
 
 ## Domain boundaries
 
@@ -67,7 +81,7 @@ The exact order of authentication, tenant resolution and authorization must be i
 
 ## Error handling
 
-Use stable error codes and a centralized Fastify error handler. Do not return stack traces, secrets, raw SQL errors or internal provider credentials.
+Use stable error codes and a centralized error handler (Express error-handling middleware after ADR-007; a Fastify error handler until then). Do not return stack traces, secrets, raw SQL errors or internal provider credentials.
 
 ## Database access
 

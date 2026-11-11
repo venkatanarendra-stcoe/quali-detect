@@ -1,0 +1,3831 @@
+{
+  "generatedFrom": {
+    "framework": "fastify 5.12.8",
+    "apiPackageVersion": "0.0.0",
+    "openapi": "3.0.3"
+  },
+  "envelopes": {
+    "success": {
+      "success": true,
+      "data": "<operation data>",
+      "meta": {
+        "correlationId": "<string>"
+      }
+    },
+    "paginated": {
+      "success": true,
+      "data": [
+        "<item>"
+      ],
+      "meta": {
+        "correlationId": "<string>",
+        "pagination": {
+          "page": 1,
+          "pageSize": 25,
+          "totalItems": 0,
+          "totalPages": 0
+        }
+      }
+    },
+    "error": {
+      "success": false,
+      "error": {
+        "code": "<stable code>",
+        "message": "<safe message>",
+        "details": "<optional object>"
+      },
+      "meta": {
+        "correlationId": "<string>"
+      }
+    }
+  },
+  "operationCount": 61,
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "module": "identity",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RATE_LIMITED",
+            "status": 429
+          },
+          {
+            "code": "SERVICE_UNAVAILABLE",
+            "status": 503
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ email, password }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ user, tenant, tenants, requiresTenantSelection }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Sign in (mock provider) and start a session cookie"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "module": "identity",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ loggedOut }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Sign out: revoke the session and clear the cookie (idempotent)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/groups",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, name, description, memberCount, createdAt, updatedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List groups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/groups",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.manage",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ name, description }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, memberCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Create a group (flat; grants nothing by itself)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/groups/{groupId}",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "groupId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ deleted }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Delete a group and its role assignments"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "groupId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, memberCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a group"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/groups/{groupId}",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "groupId"
+        ],
+        "query": [],
+        "body": "{ name, description }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, memberCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Update a group"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/groups/{groupId}/members",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "groupId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ userId, email, name, addedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List group members"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/groups/{groupId}/members/{userId}",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "groupId",
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ removed }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Remove a member from a group"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/groups/{groupId}/members/{userId}",
+      "module": "groups",
+      "audience": "tenant",
+      "permission": "group.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "groupId",
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ userId, email, name, addedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Add a tenant member to a group (idempotent; escalation-checked)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ user, tenant, membership, permissions, session }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Current user, active tenant and effective permissions per scope"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/active-tenant",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ tenantId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Switch the session's active tenant"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/invitations",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "[{ id, slug, name, status }]",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Tenants that invited the current user"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/me/invitations/{tenantId}/accept",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Accept an invitation (the membership becomes active)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/permissions",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, allWorkspaces, workspaces }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Effective permissions in the active tenant (advisory; optional workspace filter)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/tenants",
+      "module": "identity",
+      "audience": "user",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "[{ id, slug, name, status }]",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Tenants the user can switch to"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/permissions",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "[{ key, scope, description }]",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Permission catalog (tenant and workspace scope)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/auth/login",
+      "module": "platform-identity",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RATE_LIMITED",
+            "status": 429
+          },
+          {
+            "code": "SERVICE_UNAVAILABLE",
+            "status": 503
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ email, password }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ platformUser, mfaRequired }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Platform sign in (mock provider)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/auth/logout",
+      "module": "platform-identity",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ loggedOut }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Platform sign out (idempotent)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/auth/mfa/verify",
+      "module": "platform-identity",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RATE_LIMITED",
+            "status": 429
+          },
+          {
+            "code": "SERVICE_UNAVAILABLE",
+            "status": 503
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ code }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ platformUser, mfaVerified }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Complete mandatory MFA (mock: 6-digit code); issues a new verified session"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/me",
+      "module": "platform-identity",
+      "audience": "platform",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ platformUser, role, permissions, session }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Current platform user, role and platform permissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/plans",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.plan.view",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "[{ planVersionId, planKey, planName, version }]",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Published plan versions (for provisioning)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/tenants",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.view",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "status",
+          "plan",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, slug, name, status, plan, userCount, workspaceCount, createdAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List tenants (metadata and counts only)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/tenants",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.create",
+      "permissionScope": "platform",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ name, slug, status, planVersionId, admin }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Provision a tenant with its first administrator (invited)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/platform/tenants/{tenantId}",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.view",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Tenant detail: subscription, usage counts, administrators, lifecycle"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/tenants/{tenantId}/deactivate",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.deactivate",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": "{ reason, confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Deactivate a tenant (reason required; audited)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/tenants/{tenantId}/reactivate",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.reactivate",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": "{ reason, confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Reactivate a tenant (reason required; audited)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/platform/tenants/{tenantId}/suspend",
+      "module": "platform-tenants",
+      "audience": "platform",
+      "permission": "platform.tenant.suspend",
+      "permissionScope": "platform",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "tenantId"
+        ],
+        "query": [],
+        "body": "{ reason, confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ tenant, subscription, usage, administrators, pendingAdministrators, lifecycle, allowedActions }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Suspend a tenant (reason required; audited)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/role-assignments",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "role.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "subjectType",
+          "subjectId",
+          "roleId",
+          "status"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List tenant-scope role assignments"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/role-assignments",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "role_assignment.manage_tenant",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ subjectType, subjectId, roleId, expiresAt }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Assign a role to a user or group at tenant scope (escalation-checked)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/role-assignments/{assignmentId}",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "role_assignment.manage_tenant",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "assignmentId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ revoked }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Revoke a tenant-scope assignment (409 LAST_TENANT_ADMIN if it would leave no administrator)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/role-assignments/{assignmentId}",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "role_assignment.manage_tenant",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "assignmentId"
+        ],
+        "query": [],
+        "body": "{ status, expiresAt }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Suspend, reactivate or change the expiry of a tenant-scope assignment"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "kind",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, key, name, description, kind, tenantPermissions, workspacePermissions, assignmentCount, createdAt, updatedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List built-in and custom roles"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/roles",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.manage",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          },
+          {
+            "code": "ROLE_IN_USE",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ name, description, permissions, cloneFromRoleId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, key, name, description, kind, tenantPermissions, workspacePermissions, assignmentCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Create a custom role (from scratch or by cloning; escalation-checked)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/roles/{roleId}",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          },
+          {
+            "code": "ROLE_IN_USE",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "roleId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ deleted }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Delete an unassigned custom role"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles/{roleId}",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "roleId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, key, name, description, kind, tenantPermissions, workspacePermissions, assignmentCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a role"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/roles/{roleId}",
+      "module": "roles",
+      "audience": "tenant",
+      "permission": "role.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          },
+          {
+            "code": "ROLE_IN_USE",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "roleId"
+        ],
+        "query": [],
+        "body": "{ name, description, permissions }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, key, name, description, kind, tenantPermissions, workspacePermissions, assignmentCount, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Update a custom role (applies to all holders immediately)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/info",
+      "module": "system",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ name, version, environment, apiVersion }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Service information"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/modules",
+      "module": "system",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "search"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ name, description, prefix }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List registered modules (example collection endpoint)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/modules/{name}",
+      "module": "system",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "name"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ name, description, prefix }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get one registered module"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "status",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ userId, email, name, status, joinedAt, invitedAt, lastLoginAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List the tenant's members"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/users",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.manage",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ email, name }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ userId, email, name, status, joinedAt, invitedAt, lastLoginAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Invite a person to the tenant (counts against the seat limit; needs their acceptance)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/users/{userId}",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ removed }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Remove a member (or cancel an invitation) and everything it granted"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/{userId}",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ userId, email, name, status, joinedAt, invitedAt, lastLoginAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a member"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/users/{userId}",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "userId"
+        ],
+        "query": [],
+        "body": "{ status }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ userId, email, name, status, joinedAt, invitedAt, lastLoginAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Suspend or reactivate a member"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/{userId}/effective-permissions",
+      "module": "users",
+      "audience": "tenant",
+      "permission": "user.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "userId"
+        ],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ permissions, assignments }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Explain a member's effective permissions and the assignments behind them"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "status",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List the workspaces the caller can see"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "workspace.create",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ name, description, businessUnit, ownerUserId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Create a workspace (counts against the plan limit; the owner becomes its administrator)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "workspace.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a workspace"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/workspaces/{workspaceId}",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "workspace.update",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": "{ name, description, businessUnit, ownerUserId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Update a workspace (not while archived)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/archive",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "workspace.archive",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Archive a workspace (read-only until restored)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/members",
+      "module": "workspace-members",
+      "audience": "tenant",
+      "permission": "workspace.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ userId, email, name, status, addedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List workspace members"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workspaces/{workspaceId}/members/{userId}",
+      "module": "workspace-members",
+      "audience": "tenant",
+      "permission": "workspace.manage_members",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ removed, revokedAssignments }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Remove a member and their workspace-scope role assignments"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workspaces/{workspaceId}/members/{userId}",
+      "module": "workspace-members",
+      "audience": "tenant",
+      "permission": "workspace.manage_members",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "userId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ userId, email, name, status, addedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Add a tenant member to the workspace (idempotent)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/restore",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "workspace.archive",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, name, description, businessUnit, ownerUserId, ownerName, memberCount, status, archivedAt, createdAt, updatedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Restore an archived workspace"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/role-assignments",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "workspace.view_roles",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "subjectType",
+          "subjectId",
+          "roleId",
+          "status"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List workspace-scope role assignments"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/role-assignments",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "workspace.manage_members",
+      "permissionScope": "workspace",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": "{ subjectType, subjectId, roleId, expiresAt }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Assign a role at workspace scope (escalation-checked; adds the user to the roster)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workspaces/{workspaceId}/role-assignments/{assignmentId}",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "workspace.manage_members",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "assignmentId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ revoked }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Revoke a workspace-scope assignment (the workspace keeps an administrator)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/workspaces/{workspaceId}/role-assignments/{assignmentId}",
+      "module": "role-assignments",
+      "audience": "tenant",
+      "permission": "workspace.manage_members",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "LAST_TENANT_ADMIN",
+            "status": 409
+          },
+          {
+            "code": "ROLE_ESCALATION",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "assignmentId"
+        ],
+        "query": [],
+        "body": "{ status, expiresAt }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, subjectType, subject, role, scopeType, workspaceId, status, expiresAt, createdByUserId, createdAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Suspend, reactivate or change the expiry of a workspace-scope assignment"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "module": "system",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ status }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Liveness probe"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "module": "system",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "SERVICE_UNAVAILABLE",
+            "status": 503
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ status, checks }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Readiness probe"
+    }
+  ]
+}

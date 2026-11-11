@@ -1,0 +1,225 @@
+// ---------------------------------------------------------------- Source control: GitHub installations, repositories, webhooks
+// docs/modules/repositories-github/SPEC.md. No secret is stored here: App credentials come from the PlatformSecretProvider
+// (ADR-009 amendment) and installation tokens live in process memory only.
+
+enum ScmProvider {
+  github
+
+  @@map("scm_provider")
+}
+
+enum ScmInstallationStatus {
+  active
+  suspended
+  revoked
+
+  @@map("scm_installation_status")
+}
+
+enum ScmAccountType {
+  organization
+  user
+
+  @@map("scm_account_type")
+}
+
+enum ScmRepositorySelection {
+  all
+  selected
+
+  @@map("scm_repository_selection")
+}
+
+enum ScmLinkStatus {
+  linked
+  unlinked
+
+  @@map("scm_link_status")
+}
+
+enum RepositoryStatus {
+  active
+  unavailable
+  disconnected
+
+  @@map("repository_status")
+}
+
+enum ScmDeliveryOutcome {
+  accepted
+  duplicate
+  ignored
+  unknown_installation
+  rejected_payload
+
+  @@map("scm_delivery_outcome")
+}
+
+enum ScmEventKind {
+  push
+  pull_request
+  repository
+  installation
+  installation_repositories
+
+  @@map("scm_event_kind")
+}
+
+/// A GitHub App installation as GitHub describes it. Platform-level (no tenant): which tenant it belongs to is the
+/// `ScmInstallationLink`. The external installation id is unique per provider.
+model ScmInstallation {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  provider               ScmProvider
+  externalInstallationId String                 @map("external_installation_id")
+  accountExternalId      String                 @map("account_external_id")
+  accountLogin           String                 @map("account_login")
+  accountType            ScmAccountType         @map("account_type")
+  repositorySelection    ScmRepositorySelection @map("repository_selection")
+  permissions            Json                   @default("{}")
+  status                 ScmInstallationStatus  @default(active)
+  lastCheckedAt          DateTime?              @map("last_checked_at") @db.Timestamptz(6)
+  createdAt              DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  links ScmInstallationLink[]
+
+  @@unique([provider, externalInstallationId])
+  @@map("scm_installations")
+}
+
+/// Tenant-owned mapping installation -> tenant. A migration adds a partial unique index so an installation has at most one
+/// `linked` link at a time. Unlinking keeps the row (history); re-linking by the same tenant reuses it.
+model ScmInstallationLink {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  installationId   String        @map("installation_id") @db.Uuid
+  status           ScmLinkStatus @default(linked)
+  linkedByUserId   String        @map("linked_by_user_id") @db.Uuid
+  linkedAt         DateTime      @default(now()) @map("linked_at") @db.Timestamptz(6)
+  unlinkedByUserId String?       @map("unlinked_by_user_id") @db.Uuid
+  unlinkedAt       DateTime?     @map("unlinked_at") @db.Timestamptz(6)
+
+  tenant       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  installation ScmInstallation                @relation(fields: [installationId], references: [id], onDelete: Restrict)
+  workspaces   ScmInstallationLinkWorkspace[]
+  repositories Repository[]
+
+  @@unique([tenantId, installationId])
+  @@unique([tenantId, id])
+  @@index([installationId, status])
+  @@map("scm_installation_links")
+}
+
+/// Optional scope of a link: the workspaces allowed to use it. No rows = every workspace of the tenant.
+model ScmInstallationLinkWorkspace {
+  tenantId    String @map("tenant_id") @db.Uuid
+  linkId      String @map("link_id") @db.Uuid
+  workspaceId String @map("workspace_id") @db.Uuid
+
+  link      ScmInstallationLink @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Cascade)
+  workspace Workspace           @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([linkId, workspaceId])
+  @@index([tenantId, workspaceId])
+  @@map("scm_installation_link_workspaces")
+}
+
+/// A connected source repository. Identity per tenant is (provider, external repo id); `nodeId` is the secondary identity
+/// used by reconciliation. Never deleted: `status` moves between active, unavailable and disconnected.
+model Repository {
+  id                      String           @id @default(uuid()) @db.Uuid
+  tenantId                String           @map("tenant_id") @db.Uuid
+  workspaceId             String           @map("workspace_id") @db.Uuid
+  linkId                  String           @map("link_id") @db.Uuid
+  provider                ScmProvider
+  externalRepoId          String           @map("external_repo_id")
+  nodeId                  String?          @map("node_id")
+  fullName                String           @map("full_name")
+  name                    String
+  ownerLogin              String           @map("owner_login")
+  htmlUrl                 String?          @map("html_url")
+  visibility              String           @default("private")
+  defaultBranch           String?          @map("default_branch")
+  description             String?
+  displayName             String?          @map("display_name")
+  ownerUserId             String?          @map("owner_user_id") @db.Uuid
+  status                  RepositoryStatus @default(active)
+  enabled                 Boolean          @default(true)
+  archived                Boolean          @default(false)
+  consecutiveSyncFailures Int              @default(0) @map("consecutive_sync_failures")
+  lastSyncError           String?          @map("last_sync_error")
+  lastSyncedAt            DateTime?        @map("last_synced_at") @db.Timestamptz(6)
+  lastEventAt             DateTime?        @map("last_event_at") @db.Timestamptz(6)
+  connectedByUserId       String           @map("connected_by_user_id") @db.Uuid
+  connectedAt             DateTime         @default(now()) @map("connected_at") @db.Timestamptz(6)
+  disconnectedAt          DateTime?        @map("disconnected_at") @db.Timestamptz(6)
+  disconnectReason        String?          @map("disconnect_reason")
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workspace   Workspace               @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
+  link        ScmInstallationLink     @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Restrict)
+  groupAccess RepositoryGroupAccess[]
+  events      ScmEvent[]
+
+  @@unique([tenantId, provider, externalRepoId])
+  @@unique([tenantId, id])
+  @@index([tenantId, workspaceId, status])
+  @@index([tenantId, linkId])
+  @@index([tenantId, nodeId])
+  @@index([status, lastSyncedAt])
+  @@map("repositories")
+}
+
+/// Optional restriction of a repository to groups (`repository.manage_access`).
+model RepositoryGroupAccess {
+  tenantId     String @map("tenant_id") @db.Uuid
+  repositoryId String @map("repository_id") @db.Uuid
+  groupId      String @map("group_id") @db.Uuid
+
+  repository Repository @relation(fields: [tenantId, repositoryId], references: [tenantId, id], onDelete: Cascade)
+  group      Group      @relation(fields: [tenantId, groupId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([repositoryId, groupId])
+  @@index([tenantId, groupId])
+  @@map("repository_group_access")
+}
+
+/// One row per webhook delivery that passed the signature check. `deliveryId` is X-GitHub-Delivery (unique per provider);
+/// no payload is stored, only its hash. `tenantId` is null when the installation was unknown, unlinked or the payload invalid.
+model ScmWebhookDelivery {
+  id                     String             @id @default(uuid()) @db.Uuid
+  provider               ScmProvider
+  deliveryId             String             @map("delivery_id")
+  eventType              String             @map("event_type")
+  action                 String?
+  externalInstallationId String?            @map("external_installation_id")
+  tenantId               String?            @map("tenant_id") @db.Uuid
+  outcome                ScmDeliveryOutcome
+  payloadSha256          String             @map("payload_sha256")
+  receivedAt             DateTime           @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@unique([provider, deliveryId])
+  @@index([receivedAt])
+  @@index([tenantId, receivedAt])
+  @@map("scm_webhook_deliveries")
+}
+
+/// Normalized SCM event, written in the same transaction as its outbox row. Tenant-owned.
+model ScmEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  repositoryId String?      @map("repository_id") @db.Uuid
+  deliveryId   String       @map("delivery_id")
+  kind         ScmEventKind
+  normalized   Json
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  repository Repository? @relation(fields: [tenantId, repositoryId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, deliveryId, kind])
+  @@index([tenantId, repositoryId, createdAt])
+  @@map("scm_events")
+}

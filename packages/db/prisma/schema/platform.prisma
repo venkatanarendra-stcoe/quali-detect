@@ -81,6 +81,9 @@ model Tenant {
   dataKeys      TenantDataKey[]
   secrets       Secret[]
   outbox        OutboxMessage[]
+  scmLinks      ScmInstallationLink[]
+  repositories  Repository[]
+  scmEvents     ScmEvent[]
   processed     ProcessedMessage[]
 
   @@index([status])

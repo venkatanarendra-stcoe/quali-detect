@@ -24,6 +24,9 @@ model OutboxMessage {
   messageId   String       @map("message_id")
   type        String
   queue       String
+  /// Optional topic exchange and routing key (for example qmentis.scm.events / scm.github.push); null = the direct queue exchange.
+  exchange    String?
+  routingKey  String?      @map("routing_key")
   payload     Json
   status      OutboxStatus @default(pending)
   attempts    Int          @default(0)

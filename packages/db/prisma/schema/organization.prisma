@@ -19,9 +19,11 @@ model Workspace {
   createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  owner            TenantMembership?     @relation("WorkspaceOwner", fields: [tenantId, ownerUserId], references: [tenantId, userId], onDelete: Restrict, map: "workspaces_owner_fkey")
+  tenant           Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner            TenantMembership?              @relation("WorkspaceOwner", fields: [tenantId, ownerUserId], references: [tenantId, userId], onDelete: Restrict, map: "workspaces_owner_fkey")
   members          WorkspaceMember[]
+  repositories     Repository[]
+  scmLinkScopes    ScmInstallationLinkWorkspace[]
   userAssignments  UserRoleAssignment[]
   groupAssignments GroupRoleAssignment[]
 

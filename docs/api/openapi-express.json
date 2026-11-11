@@ -980,6 +980,61 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -1770,6 +1825,16 @@
             "required": true,
             "name": "tenantId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2005,6 +2070,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3106,6 +3281,61 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -3835,6 +4065,18 @@
             "platformSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4322,6 +4564,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4904,6 +5256,16 @@
             "required": true,
             "name": "tenantId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -5359,6 +5721,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5435,6 +5907,16 @@
             "required": true,
             "name": "tenantId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -5890,6 +6372,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5966,6 +6558,16 @@
             "required": true,
             "name": "tenantId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -6421,6 +7023,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6497,6 +7209,16 @@
             "required": true,
             "name": "tenantId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -6952,6 +7674,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7651,6 +8483,18 @@
             "tenantSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -7918,6 +8762,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9703,6 +10657,18 @@
             "tenantSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -9964,6 +10930,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12606,6 +13682,18 @@
             "tenantSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -12906,6 +13994,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14442,6 +15640,18 @@
             "tenantSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -14781,6 +15991,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16033,6 +17353,16 @@
             "required": true,
             "name": "workspaceId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -16374,6 +17704,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17567,6 +19007,18 @@
             "tenantSession": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -17866,6 +19318,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18655,6 +20217,16 @@
             "required": true,
             "name": "workspaceId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -18919,6 +20491,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18995,6 +20677,16 @@
             "required": true,
             "name": "workspaceId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$",
+              "description": "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT."
+            },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -19259,6 +20951,116 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {

@@ -43,6 +43,8 @@ export const groupRoutes = (controller, authz) =>
     app.post(
       "/groups",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: manage,
         schema: {

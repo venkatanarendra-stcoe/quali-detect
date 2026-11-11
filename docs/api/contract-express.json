@@ -101,7 +101,9 @@
       "permission": null,
       "permissionScope": null,
       "successStatus": 200,
-      "documentedErrorStatuses": [],
+      "documentedErrorStatuses": [
+        429
+      ],
       "errorCodes": {
         "transport": [
           {
@@ -200,7 +202,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -851,7 +855,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1099,7 +1105,9 @@
       "permission": null,
       "permissionScope": null,
       "successStatus": 200,
-      "documentedErrorStatuses": [],
+      "documentedErrorStatuses": [
+        429
+      ],
       "errorCodes": {
         "transport": [
           {
@@ -1340,7 +1348,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1457,7 +1467,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1521,7 +1533,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1585,7 +1599,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1649,7 +1665,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -1779,7 +1797,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -2069,7 +2089,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -2551,7 +2573,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -2977,7 +3001,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -3190,7 +3216,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -3473,7 +3501,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [
@@ -3621,7 +3651,9 @@
         400,
         401,
         403,
-        404
+        404,
+        409,
+        429
       ],
       "errorCodes": {
         "transport": [

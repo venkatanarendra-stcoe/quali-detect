@@ -12,6 +12,18 @@
     {
       "pattern": "/api/v1/platform/tenants.* (200|201): response schema representation differs",
       "reason": "Tenant detail responses gained the nullable field tenant.restorableUntil (Q25); allowedActions can now contain \"restore\"."
+    },
+    {
+      "pattern": "^POST .*: documentedErrorStatuses",
+      "reason": "Edge hardening (2026-11-11): creating and side-effect POSTs accept the optional Idempotency-Key header (409 IDEMPOTENCY_CONFLICT) and sign-in/write routes have per-route rate limits (429 RATE_LIMITED)."
+    },
+    {
+      "pattern": "^POST .*: errorCodes differs",
+      "reason": "Same change: IDEMPOTENCY_CONFLICT and RATE_LIMITED are now possible on these operations."
+    },
+    {
+      "pattern": "^OpenAPI POST .*: (response statuses|parameters .*header:Idempotency-Key)",
+      "reason": "Same change: the Idempotency-Key header parameter and the 400/409/429 responses are documented."
     }
   ]
 }

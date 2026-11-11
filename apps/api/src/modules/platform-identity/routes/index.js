@@ -19,6 +19,7 @@ export const platformIdentityRoutes = (controller) =>
     app.post(
       "/auth/login",
       {
+        rateLimit: "auth",
         config: { audience: "public" },
         schema: {
           tags: tag,
@@ -32,6 +33,7 @@ export const platformIdentityRoutes = (controller) =>
     app.post(
       "/auth/mfa/verify",
       {
+        rateLimit: "auth",
         config: { audience: "public" },
         schema: {
           tags: tag,
@@ -45,6 +47,7 @@ export const platformIdentityRoutes = (controller) =>
     app.post(
       "/auth/logout",
       {
+        rateLimit: "auth",
         config: { audience: "public" },
         schema: {
           tags: tag,

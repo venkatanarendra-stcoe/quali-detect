@@ -41,6 +41,8 @@ export const roleAssignmentRoutes = (controller, authz) =>
     app.post(
       "/role-assignments",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: manage,
         schema: {
@@ -104,6 +106,8 @@ export const roleAssignmentRoutes = (controller, authz) =>
     app.post(
       "/workspaces/:workspaceId/role-assignments",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: manageWs,
         schema: {

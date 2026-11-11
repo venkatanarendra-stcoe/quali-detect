@@ -14,7 +14,7 @@ const ERROR_DESCRIPTIONS = Object.freeze({
   401: "No valid session (UNAUTHENTICATED)",
   403: "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
   404: "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-  409: "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN)",
+  409: "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN, IDEMPOTENCY_CONFLICT)",
   429: "Too many attempts (RATE_LIMITED)",
 });
 const SUCCESS_DESCRIPTIONS = Object.freeze({ 200: "OK", 201: "Created" });
@@ -36,8 +36,19 @@ export const toOpenApiPath = (url) => url.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
  * @param {OpenAPIRegistry} registry
  * @param {import("./route-kit.js").RouteRecord} route
  */
-function registerRoute(registry, { method, url, audience, schema }) {
+function registerRoute(registry, { method, url, audience, schema, idempotent, rateLimit }) {
   const request = {};
+  if (idempotent)
+    request.headers = z.object({
+      "Idempotency-Key": z
+        .string()
+        .regex(/^[A-Za-z0-9._:-]{8,128}$/)
+        .optional()
+        .openapi({
+          description:
+            "Optional. Replays the stored response for the same tenant, user, route and request; reusing the key with a different request is 409 IDEMPOTENCY_CONFLICT.",
+        }),
+    });
   if (isZodSchema(schema.params)) request.params = schema.params;
   if (isZodSchema(schema.querystring)) request.query = schema.querystring;
   if (isZodSchema(schema.body)) request.body = { required: true, ...json(schema.body) };
@@ -54,7 +65,10 @@ function registerRoute(registry, { method, url, audience, schema }) {
     statuses.push(400);
   if (audience !== "public") statuses.push(401, 403);
   if (audience === "tenant" || audience === "platform" || schema.params) statuses.push(404);
-  if (audience === "public" && /\/auth\/(login|mfa\/verify)$/.test(url)) statuses.push(401, 429);
+  if (audience === "public" && /\/auth\/(login|mfa\/verify)$/.test(url)) statuses.push(401);
+  if (rateLimit || (audience === "public" && /\/auth\/(login|mfa\/verify)$/.test(url)))
+    statuses.push(429);
+  if (idempotent) statuses.push(400, 409);
   for (const status of new Set(statuses)) {
     responses[status] ??= { description: ERROR_DESCRIPTIONS[status], ...json(apiErrorSchema) };
   }

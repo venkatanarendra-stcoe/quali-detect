@@ -25,6 +25,7 @@ export const identityRoutes = (controller) =>
     app.post(
       "/auth/login",
       {
+        rateLimit: "auth",
         config: { audience: "public" },
         schema: {
           tags: tag,
@@ -38,6 +39,7 @@ export const identityRoutes = (controller) =>
     app.post(
       "/auth/logout",
       {
+        rateLimit: "auth",
         config: { audience: "public" },
         schema: {
           tags: tag,
@@ -88,6 +90,8 @@ export const identityRoutes = (controller) =>
     app.post(
       "/me/invitations/:tenantId/accept",
       {
+        rateLimit: "write",
+        idempotent: true,
         config: { audience: "user" },
         schema: {
           tags: tag,

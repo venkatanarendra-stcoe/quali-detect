@@ -37,6 +37,8 @@ export const workspaceRoutes = (controller, authz) =>
     app.post(
       "/workspaces",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: authz.authorize("workspace.create"),
         schema: {
@@ -81,6 +83,8 @@ export const workspaceRoutes = (controller, authz) =>
     app.post(
       "/workspaces/:workspaceId/archive",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: inWorkspace("workspace.archive"),
         schema: {
@@ -95,6 +99,8 @@ export const workspaceRoutes = (controller, authz) =>
     app.post(
       "/workspaces/:workspaceId/restore",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: inWorkspace("workspace.archive"),
         schema: {

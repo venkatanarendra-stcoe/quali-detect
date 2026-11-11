@@ -52,6 +52,8 @@ export const roleRoutes = (controller, authz) =>
     app.post(
       "/roles",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: manage,
         schema: {

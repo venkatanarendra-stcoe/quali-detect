@@ -11,6 +11,8 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * @property {{ audience: "public" | "user" | "tenant" | "platform" }} config REQUIRED. Who may call the route.
  * @property {import("express").RequestHandler | import("express").RequestHandler[]} [preHandler] authorization middleware, run after validation
  * @property {Record<string, any>} [schema] `params | querystring | body | headers` Zod schemas validate; `response`, `tags`, `summary`, `hide` document
+ * @property {"auth" | "write" | "webhook"} [rateLimit] per-route rate limit profile (limits in configuration)
+ * @property {boolean} [idempotent] accept the optional `Idempotency-Key` header (creating or side-effect endpoints)
  *
  * @typedef {(registrar: RouteRegistrar) => void | Promise<void>} RouteRegistrarFn  a module's route declarations
  *
@@ -19,6 +21,8 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * @property {string} url full URL pattern with `:param` placeholders
  * @property {string} audience
  * @property {string | null} permission permission key enforced by the route's authorization middleware
+ * @property {string | null} rateLimit per-route rate limit profile
+ * @property {boolean} idempotent whether `Idempotency-Key` is accepted
  * @property {Record<string, any>} schema
  *
  * @typedef {object} RouteRegistrar
@@ -33,7 +37,8 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * The ONLY way to register an HTTP route (ADR-007). It owns the three Express routers and assembles every route's
  * middleware chain in one fixed order, so no module can skip a step:
  *
- *   authentication by audience -> tenant context (tenant routes) -> validate(zod) -> authorize(...) -> handler
+ *   authentication by audience -> tenant context (tenant routes) -> per-route rate limit -> validate(zod) -> authorize(...)
+ *   -> Idempotency-Key -> handler
  *
  * (correlation id, request logging, security headers, CORS, rate limit, cookies, body limits and the CSRF origin check
  * are global and run before any router; the error handler and the JSON 404 run after.)
@@ -43,8 +48,10 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * platform at /api/v1/platform, each with its own authentication middleware.
  *
  * @param {{ chains: Record<string, readonly import("express").RequestHandler[]> }} authentication
+ * @param {{ forRoute: (profile: string, routeId: string) => import("express").RequestHandler }} limiters
+ * @param {{ forRoute: (routeId: string) => import("express").RequestHandler }} idempotency
  */
-export function createRouteKit({ chains }) {
+export function createRouteKit({ chains, limiters, idempotency }) {
   const routerOptions = { caseSensitive: true, strict: true };
   const routers = Object.freeze({
     root: Router(routerOptions),
@@ -78,10 +85,17 @@ export function createRouteKit({ chains }) {
 
         const preHandlers = [options.preHandler ?? []].flat();
         const validation = validate(options.schema);
+        const routeId = `${method.toUpperCase()} ${url}`;
+        if (options.rateLimit && !limiters)
+          throw new Error(`Route ${where}: rate limiting is not configured.`);
+        if (options.idempotent && audience === "public")
+          throw new Error(`Route ${where}: Idempotency-Key needs an authenticated route.`);
         const chain = [
           ...chains[audience],
+          ...(options.rateLimit ? [limiters.forRoute(options.rateLimit, routeId)] : []),
           ...(validation ? [validation] : []),
           ...preHandlers,
+          ...(options.idempotent ? [idempotency.forRoute(routeId)] : []),
           handler,
         ];
 
@@ -101,6 +115,8 @@ export function createRouteKit({ chains }) {
           url,
           audience,
           permission: preHandlers.map((h) => h.permission).find(Boolean) ?? null,
+          rateLimit: options.rateLimit ?? null,
+          idempotent: options.idempotent === true,
           schema: options.schema ?? {},
         });
       };

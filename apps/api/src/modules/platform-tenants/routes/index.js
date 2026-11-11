@@ -38,6 +38,8 @@ export const platformTenantRoutes = (controller, auth) =>
     app.post(
       "/tenants",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: auth.requirePlatformPermission("platform.tenant.create"),
         schema: {
@@ -68,6 +70,8 @@ export const platformTenantRoutes = (controller, auth) =>
       app.post(
         `/tenants/:tenantId/${action}`,
         {
+          rateLimit: "write",
+          idempotent: true,
           config,
           preHandler: auth.requirePlatformPermission(lifecyclePolicy.permissionFor(action)),
           schema: {

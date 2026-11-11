@@ -190,6 +190,11 @@ async function main() {
     AUTH_THROTTLE_MFA_BASE_DELAY_SECONDS: "1",
     AUTH_THROTTLE_MFA_CAP_SECONDS: "4",
     AUTH_THROTTLE_IP_FREE_MULTIPLIER: "6",
+    // Per-route limits: the checks sign in and create things far more often than a person would. The AUTH window is
+    // short (5 s) so the dedicated RATE check can exhaust it and the suite carries on a few seconds later.
+    RATE_LIMIT_AUTH_MAX: "200",
+    RATE_LIMIT_AUTH_WINDOW_MS: "5000",
+    RATE_LIMIT_WRITE_MAX: "5000",
     // Restore window of deactivated tenants: 4 s so the RST checks can cross it (production default: see config).
     TENANT_DEACTIVATION_RETENTION_SECONDS: "4",
   });

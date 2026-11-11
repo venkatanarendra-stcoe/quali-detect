@@ -19,6 +19,16 @@ const envSchema = z.object({
   // Global per-IP request limit applied before authentication (login throttling is separate and stricter).
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
+  // Per-route profiles (Redis-backed, stricter than the global limit). "auth": public sign-in endpoints, per IP.
+  // "write": authenticated create/side-effect endpoints, per tenant + user. "webhook": provider webhooks (per IP), ready for Phase 5.
+  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(900000),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).max(100000).default(30),
+  RATE_LIMIT_WRITE_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
+  RATE_LIMIT_WRITE_MAX: z.coerce.number().int().min(1).max(100000).default(120),
+  RATE_LIMIT_WEBHOOK_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
+  RATE_LIMIT_WEBHOOK_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
+  // Idempotency-Key: how long a stored response can be replayed.
+  IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(86400),
   // Progressive sign-in / MFA throttling (ADR-010). Defaults keep 6-digit MFA brute force impractical; see the ADR for the math.
   // How long after deactivation a Super Admin can still restore a tenant (AUTHORIZATION Q25). The length is an OPEN
   // decision (OPEN_DECISIONS.md): 30 days is a provisional placeholder, not an approved retention period.
@@ -122,6 +132,15 @@ function crossChecks(e, allowedOrigins) {
       }
     }
   }
+  for (const origin of allowedOrigins) {
+    // CORS with credentials: only exact origins (scheme://host[:port]); never "*" or a path.
+    if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(origin))
+      problems.push({
+        variable: "CORS_ALLOWED_ORIGINS",
+        message:
+          "every entry must be an exact origin such as https://app.example.com (no wildcard, path or trailing slash)",
+      });
+  }
   if (e.TRUST_PROXY?.trim() === "true")
     problems.push({
       variable: "TRUST_PROXY",
@@ -216,6 +235,18 @@ export function loadConfig(env = process.env) {
       bodyLimitBytes: e.REQUEST_BODY_LIMIT_BYTES,
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
       rateLimit: Object.freeze({ windowMs: e.RATE_LIMIT_WINDOW_MS, max: e.RATE_LIMIT_MAX }),
+      routeLimits: Object.freeze({
+        auth: Object.freeze({ windowMs: e.RATE_LIMIT_AUTH_WINDOW_MS, max: e.RATE_LIMIT_AUTH_MAX }),
+        write: Object.freeze({
+          windowMs: e.RATE_LIMIT_WRITE_WINDOW_MS,
+          max: e.RATE_LIMIT_WRITE_MAX,
+        }),
+        webhook: Object.freeze({
+          windowMs: e.RATE_LIMIT_WEBHOOK_WINDOW_MS,
+          max: e.RATE_LIMIT_WEBHOOK_MAX,
+        }),
+      }),
+      idempotencyTtlSeconds: e.IDEMPOTENCY_TTL_SECONDS,
     }),
     secrets: Object.freeze({
       enabled: e.SECRETS_ENABLED ?? false,

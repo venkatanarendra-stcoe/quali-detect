@@ -40,6 +40,8 @@ export const userRoutes = (controller, authz) =>
     app.post(
       "/users",
       {
+        rateLimit: "write",
+        idempotent: true,
         config,
         preHandler: manage,
         schema: {

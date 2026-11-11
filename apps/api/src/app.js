@@ -6,6 +6,8 @@ import { createLogger } from "./lib/logging.js";
 import { createOutboxRepository } from "@qmentisai/db";
 import { createOutbox } from "@qmentisai/infra";
 import { createRouteKit } from "./lib/route-kit.js";
+import { createIdempotency } from "./middleware/idempotency.js";
+import { createRouteLimiters } from "./middleware/route-limits.js";
 import { modules as defaultModules } from "./modules/index.js";
 import { createAuthentication } from "./middleware/authentication.js";
 import { createAuthorization } from "./middleware/authorization.js";
@@ -52,7 +54,11 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   const outbox = createOutbox({ repository: createOutboxRepository({ db: infra.db }) });
   // Secret storage foundation (ADR-009): only when enabled; config already validated the key and refused unsafe providers.
   const secrets = createSecrets({ config, infra, audit });
-  const routeKit = createRouteKit({ chains: authentication.chains });
+  const routeKit = createRouteKit({
+    chains: authentication.chains,
+    limiters: createRouteLimiters({ config, infra, logger }),
+    idempotency: createIdempotency({ config, infra, logger }),
+  });
 
   const app = express();
   app.disable("x-powered-by");

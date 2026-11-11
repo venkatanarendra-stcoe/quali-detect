@@ -91,3 +91,10 @@ Rules the Express migration must preserve:
 - A workspace the caller cannot see answers `404` with a body identical to a missing one; a visible resource without permission answers `403` (see `docs/AUTHORIZATION.md` §5.9). `pnpm test:security` (ADR-008) enforces this.
 
 Known gap against the request rules above: `Idempotency-Key` is not implemented yet (duplicates rely on unique constraints and return `409`).
+
+## HTTP edge (Express 5, 2026-11-11)
+
+- **Headers and CORS:** `helmet` on every response. CORS only for the configured origins (`CORS_ALLOWED_ORIGINS`: the tenant-web and Root Console origins, exact `scheme://host[:port]`, no wildcard, validated at startup); credentials are allowed only for those origins. A request from another origin gets no CORS headers, and an unsafe request carrying an unknown `Origin` is refused with `403` (CSRF check).
+- **Proxy and bodies:** `TRUST_PROXY` (default off; a hop count or addresses, never `true`). `REQUEST_BODY_LIMIT_BYTES` (413). A request body must be `application/json`; anything else is `415 UNSUPPORTED_MEDIA_TYPE`.
+- **Rate limits (Redis-backed, `RATE_LIMIT_*`):** a global per-IP limit, plus per-route profiles with their own counter per route: `auth` (public sign-in endpoints, per IP, strict), `write` (authenticated create/side-effect endpoints, per tenant + user), `webhook` (per IP, ready for provider webhooks). A refusal is `429 RATE_LIMITED` with `RateLimit` and `Retry-After` headers. Sign-in endpoints also have the progressive per-account throttle (ADR-010).
+- **Idempotency-Key:** optional header on POST endpoints that create resources or trigger side effects. Keys are scoped by tenant + user + route and stored in Redis for `IDEMPOTENCY_TTL_SECONDS` (default 24 h). Same key and same request: the stored 2xx response is replayed (`Idempotent-Replayed: true`). Same key with a different request, or while the first is still running: `409 IDEMPOTENCY_CONFLICT` (`details.reason`: `different_request` or `in_progress`). Failed requests are not stored.

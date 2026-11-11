@@ -11,7 +11,7 @@ import {
 /**
  * @param {ReturnType<typeof import("../controllers/index.js").createWorkspaceMemberController>} controller
  * @param {{ authorize: Function, scopes: any }} authz
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const workspaceMemberRoutes = (controller, authz) =>
   async function workspaceMembers(app) {

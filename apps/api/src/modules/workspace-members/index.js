@@ -4,7 +4,7 @@ import { createWorkspaceMemberRepository } from "./repositories/index.js";
 import { workspaceMemberRoutes } from "./routes/index.js";
 import { createWorkspaceMemberService } from "./services/index.js";
 
-/** @type {import("fastify").FastifyPluginAsync} */
+/** @type {import("../../../lib/route-kit.js").RouteRegistrarFn} */
 async function workspaceMembersPlugin(app) {
   const repository = createWorkspaceMemberRepository({ db: app.infra.db });
   const service = createWorkspaceMemberService({
@@ -17,7 +17,7 @@ async function workspaceMembersPlugin(app) {
   );
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const workspaceMembersModule = {
   name: MODULE_NAME,
   description: "Workspace rosters: add and remove tenant members of a workspace.",

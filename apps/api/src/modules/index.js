@@ -6,7 +6,7 @@ import { roleAssignmentsModule } from "./role-assignments/index.js";
 import { rolesModule } from "./roles/index.js";
 import { systemModule } from "./system/index.js";
 import { usersModule } from "./users/index.js";
-// import { workspaceMembersModule } from "./workspace-members/index.js";
+import { workspaceMembersModule } from "./workspace-members/index.js";
 import { workspacesModule } from "./workspaces/index.js";
 
 /** Modules registered by the application, in registration order. Add new domain modules here. */
@@ -20,5 +20,5 @@ export const modules = [
   rolesModule,
   roleAssignmentsModule,
   workspacesModule,
-  // workspaceMembersModule,
+  workspaceMembersModule,
 ];

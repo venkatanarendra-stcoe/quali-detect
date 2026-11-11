@@ -13,7 +13,7 @@ import {
  * the caller cannot see and 403 when visible but not permitted.
  * @param {ReturnType<typeof import("../controllers/index.js").createWorkspaceController>} controller
  * @param {{ authorize: Function, context: Function, scopes: any }} authz
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const workspaceRoutes = (controller, authz) =>
   async function workspaces(app) {

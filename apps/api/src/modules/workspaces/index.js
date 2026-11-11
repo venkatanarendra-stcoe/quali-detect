@@ -4,7 +4,7 @@ import { createWorkspaceRepository } from "./repositories/index.js";
 import { workspaceRoutes } from "./routes/index.js";
 import { createWorkspaceService } from "./services/index.js";
 
-/** @type {import("fastify").FastifyPluginAsync} */
+/** @type {import("../../../lib/route-kit.js").RouteRegistrarFn} */
 async function workspacesPlugin(app) {
   const repository = createWorkspaceRepository({ db: app.infra.db });
   const service = createWorkspaceService({
@@ -15,7 +15,7 @@ async function workspacesPlugin(app) {
   await app.register(workspaceRoutes(createWorkspaceController({ service }), app.authz));
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const workspacesModule = {
   name: MODULE_NAME,
   description:

@@ -50,7 +50,7 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
     .planVersionId;
 
   /** A fresh tenant provisioned the production way, with its owner signed in and the tenant selected. */
-  const provisionTenant = async (label) => {
+  const provisionTenant = async (label, { withPlan = true } = {}) => {
     const email = `${label}.${suffix}@iso.example`;
     const created = must(
       await api("POST", "/platform/tenants", {
@@ -58,7 +58,7 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
         body: {
           name: `${label} Org ${suffix}`,
           slug: `${label}-${suffix}`,
-          planVersionId,
+          ...(withPlan ? { planVersionId } : {}),
           admin: { email, name: `${label} Owner` },
         },
       }),

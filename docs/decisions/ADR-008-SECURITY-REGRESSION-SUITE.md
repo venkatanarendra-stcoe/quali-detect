@@ -14,7 +14,7 @@
 
 Add a committed **security regression suite**, run with `pnpm test:security`.
 
-**Allowed scope: ONLY the seven areas below (the fifth to seventh were added by the owner on 2026-11-11), run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
+**Allowed scope: ONLY the areas below (the fifth to the eighth were added by the owner on 2026-11-11), run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
 
 **In scope (and only this):**
 
@@ -28,6 +28,8 @@ Add a committed **security regression suite**, run with `pnpm test:security`.
 
 7. Secret storage foundation (ADR-009): tenant isolation of secret references, AAD binding, no plaintext at rest, in views or in audit entries, message guard. Checks `SEC-001..009`. They run **in-process** against the disposable database (the runner passes `SECURITY_DATABASE_URL`) and import the secret store wiring, because the store has no HTTP surface yet; this is the one place the suite is not purely black box, and it ends when an HTTP surface exists.
 
+8. HTTP edge (added 2026-11-11): audit-log tenant isolation on both read APIs (`AUD-001..007`), `Idempotency-Key` scoping by tenant and actor (`IDM-001..005`), entitlement denial and quota limits (`ENT-001..004`), CORS for unknown origins (`COR-001..003`) and the per-route rate limit (`RATE-001`). Twenty checks; the runner sets high global and write limits and a 200-request, 5-second auth window so the suite itself is never throttled.
+
 Also covered, as part of areas 1 to 3: tenant suspension takes effect immediately and does not affect another tenant (`SUSP-001..003`, part of the 68).
 
 **Out of scope:** feature tests, unit tests, frontend/browser tests, load or performance tests, coverage thresholds, functional tests of other behavior, RabbitMQ and workers, CI configuration (no CI is in scope for the project).
@@ -39,8 +41,8 @@ Also covered, as part of areas 1 to 3: tenant suspension takes effect immediatel
 - **Secrets are random per run** (mock passwords, MFA code); none is stored in the repository.
 - **World built through the public API only:** tenant A is the seeded demo tenant; tenant B is created through `POST /platform/tenants`, its administrator is invited and accepts, then creates a workspace, group, custom role and workspace role assignment. Everything created carries a random suffix, so the suite can be re-run on the same disposable database.
 - **Framework:** `node:test` (built into Node 22). **No new dependency.**
-- **92 checks**: the original 68 (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit, plus 9 added with ADR-010 (`THR-001..009`) 6 for the tenant restore window (`RST-001..006`) and 9 for the secret storage foundation (`SEC-001..009`). An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
-- **Controls** (17, not counted in the 92; the 17th proves that wrong passwords below the free attempts do not block a legitimate sign-in) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
+- **112 checks**: the original 68 (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit, plus 9 added with ADR-010 (`THR-001..009`) 6 for the tenant restore window (`RST-001..006`), 9 for the secret storage foundation (`SEC-001..009`) and 20 for the HTTP edge (`AUD`, `IDM`, `ENT`, `COR`, `RATE`). An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
+- **Controls** (17, not counted in the 112; the 17th proves that wrong passwords below the free attempts do not block a legitimate sign-in) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
 - Error responses are also checked for the error envelope and `meta.correlationId`, and the cross-tenant checks assert that the response body contains no identifier of the other tenant.
 
 ## Validation that the suite can fail (performed 2026-11-11 in a separate git worktree, main tree untouched)

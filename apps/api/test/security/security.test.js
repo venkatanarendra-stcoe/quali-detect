@@ -16,7 +16,7 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 92;
+const EXPECTED_CHECKS = 112;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -667,9 +667,10 @@ const sanitized = (response) => ({ status: response.status, error: response.json
 //    same disposable database: tenant isolation of secretRefs, AAD binding, no plaintext at rest / in views / in audit.
 // ---------------------------------------------------------------------------------------------------------------------
 let secretDb;
+const suiteDb = () => (secretDb ??= getDbClient({ datasourceUrl: env("SECURITY_DATABASE_URL") }));
 const secretsWorld = () =>
   once("secrets", async () => {
-    secretDb = getDbClient({ datasourceUrl: env("SECURITY_DATABASE_URL") });
+    suiteDb();
     const quiet = { warn() {}, error() {}, info() {} };
     const store = createSecrets({
       config: {
@@ -915,6 +916,402 @@ const done = (problems) => ({ status: 200, json: null, problems });
       return done(problems);
     },
     (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 9. HTTP edge (20 checks): audit-log isolation (AUD), Idempotency-Key scoping (IDM), entitlements (ENT), CORS (COR) and the
+//    per-route rate limit (RATE).
+// ---------------------------------------------------------------------------------------------------------------------
+const ALLOWED_ORIGIN = "http://localhost:5173";
+const EVIL_ORIGIN = "https://evil.example";
+const KEY = (label) => `suite-${label}-${randomBytes(6).toString("hex")}`;
+const edgeTenant = () => once("edge-tenant", () => w.provisionTenant("edge"));
+const tenantIdOf = (x, who) =>
+  x.api("GET", "/me", { cookie: S(who)(x) }).then((r) => r.json.data.tenant.id);
+{
+  const add = group("HTTP edge: audit logs", { noLeakOf: "B" });
+  const asA = (x, path) => x.api("GET", path, { cookie: S("admin")(x) });
+  add(
+    "AUD-001",
+    "tenant A's audit log lists only tenant A entries and no identifier of tenant B",
+    { status: 200 },
+    (x) => asA(x, "/audit-logs?pageSize=100"),
+    async (r, x) => {
+      const a = await tenantIdOf(x, "admin");
+      const problems =
+        r.json.data.length === 0 ? ["no audit entries returned (the check would be vacuous)"] : [];
+      for (const entry of r.json.data)
+        if (entry.tenantId !== a) problems.push(`entry ${entry.id} belongs to ${entry.tenantId}`);
+      return problems;
+    },
+  );
+  add(
+    "AUD-002",
+    "another tenant's owner sees only that tenant's entries, none of tenant A's",
+    { status: 200 },
+    async (x) => x.api("GET", "/audit-logs?pageSize=100", { cookie: (await edgeTenant()).owner }),
+    async (r, x) => {
+      const edge = await edgeTenant();
+      const problems = r.json.data.length === 0 ? ["no audit entries returned"] : [];
+      const body = JSON.stringify(r.json);
+      for (const id of ids({
+        ws: x.A.paymentsWs,
+        ws2: x.A.identityWs,
+        group: x.A.group,
+        user: x.A.user,
+        admin: x.A.adminUserId,
+      }))
+        if (body.includes(id)) problems.push(`leaks tenant A id ${id}`);
+      for (const entry of r.json.data)
+        if (entry.tenantId !== edge.id)
+          problems.push(`entry ${entry.id} belongs to ${entry.tenantId}`);
+      return problems;
+    },
+  );
+  add("AUD-003", "a tenant parameter cannot select another tenant's log", INVALID, (x) =>
+    asA(x, `/audit-logs?tenantId=${x.B.id}`),
+  );
+  add(
+    "AUD-004",
+    "filtering by another tenant's actor returns nothing, not tenant B's entries",
+    { status: 200 },
+    (x) => asA(x, `/audit-logs?actor=${x.B.userId}`),
+    (r) => (r.json.data.length === 0 ? [] : [`${r.json.data.length} entries returned`]),
+  );
+  add("AUD-005", "a user without audit_log.view_all is refused", FORBIDDEN, (x) =>
+    x.api("GET", "/audit-logs", { cookie: S("viewer")(x) }),
+  );
+}
+{
+  const add = group("HTTP edge: platform audit log");
+  add("AUD-006", "the platform audit log is not reachable with a tenant session", NOT_FOUND, (x) =>
+    x.api("GET", "/platform/audit-logs", { cookie: S("admin")(x) }),
+  );
+  add(
+    "AUD-007",
+    "the platform audit log lists platform events only and never a tenant's own audit entries",
+    { status: 200 },
+    (x) => x.api("GET", "/platform/audit-logs?pageSize=100", { cookie: S("sa")(x) }),
+    (r) => {
+      const problems = r.json.data.length === 0 ? ["no platform entries returned"] : [];
+      for (const entry of r.json.data)
+        if (/^(workspace|role|role_assignment|user|group|secret)\./.test(entry.action))
+          problems.push(`tenant action ${entry.action} in the platform log`);
+      return problems;
+    },
+  );
+}
+{
+  const add = group("HTTP edge: Idempotency-Key");
+  const post = (x, who, path, body, key, extra = {}) =>
+    x.api("POST", path, { cookie: S(who)(x), body, headers: { "idempotency-key": key }, ...extra });
+  /** A second Admin in the fresh tenant: invited by the owner, accepts, then receives the built-in Admin role at tenant scope. */
+  const secondAdmin = () =>
+    once("edge-second-admin", async () => {
+      const t = await edgeTenant();
+      const email = `second.${w.suffix}@iso.example`;
+      const invited = await w.api("POST", "/users", {
+        cookie: t.owner,
+        body: { email, name: "Second Admin" },
+      });
+      if (invited.status !== 201) throw new Error(`invite answered ${invited.status}`);
+      const login = await w.api("POST", "/auth/login", {
+        body: { email, password: w.secrets.tenantPassword },
+      });
+      await w.api("POST", `/me/invitations/${t.id}/accept`, { cookie: login.cookie });
+      await w.api("PUT", "/me/active-tenant", { cookie: login.cookie, body: { tenantId: t.id } });
+      const me = await w.api("GET", "/me", { cookie: login.cookie });
+      const role = (await w.api("GET", "/roles?q=Admin", { cookie: t.owner })).json.data.find(
+        (r) => r.name === "Admin",
+      );
+      const assigned = await w.api("POST", "/role-assignments", {
+        cookie: t.owner,
+        body: { subjectType: "user", subjectId: me.json.data.user.id, roleId: role.id },
+      });
+      if (assigned.status !== 201) throw new Error(`assignment answered ${assigned.status}`);
+      return { cookie: login.cookie };
+    });
+  const withCookie = (cookie, path, body, key) =>
+    w.api("POST", path, { cookie, body, headers: { "idempotency-key": key } });
+  const scenario = () =>
+    once("idem", async () => {
+      const t = await edgeTenant();
+      const second = await secondAdmin();
+      const key = KEY("same");
+      const body = { name: `Idem group ${w.suffix}` };
+      const first = await post(w, "admin", "/groups", body, key);
+      const replay = await post(w, "admin", "/groups", body, key);
+      const different = await post(w, "admin", "/groups", { name: `Other group ${w.suffix}` }, key);
+      const shared = KEY("shared");
+      const sharedBody = { name: `Shared key group ${w.suffix}` };
+      const mine = await post(w, "admin", "/groups", sharedBody, shared);
+      const otherTenant = await withCookie(t.owner, "/groups", sharedBody, shared);
+      const actorKey = KEY("actors");
+      const byOwner = await withCookie(
+        t.owner,
+        "/groups",
+        { name: `Actor group owner ${w.suffix}` },
+        actorKey,
+      );
+      const bySecond = await withCookie(
+        second.cookie,
+        "/groups",
+        { name: `Actor group second ${w.suffix}` },
+        actorKey,
+      );
+      const bad = await post(w, "admin", "/groups", body, "x");
+      return {
+        first,
+        second: replay,
+        different,
+        mine,
+        otherTenant,
+        byAdmin: byOwner,
+        byManager: bySecond,
+        bad,
+      };
+    });
+  add(
+    "IDM-001",
+    "same key and same request replays the stored response and creates nothing twice",
+    { status: 201 },
+    async () => (await scenario()).second,
+    async (r) => {
+      const { first } = await scenario();
+      const problems = [];
+      if (first.status !== 201) problems.push(`first answered ${first.status}`);
+      if (r.json.data.id !== first.json.data.id)
+        problems.push("the replay returned a different resource");
+      if (r.headers.get("idempotent-replayed") !== "true")
+        problems.push("missing Idempotent-Replayed header");
+      if (first.headers.get("idempotent-replayed"))
+        problems.push("the first response claims to be a replay");
+      return problems;
+    },
+  );
+  add(
+    "IDM-002",
+    "same key with a different request is refused",
+    { status: 409, code: "IDEMPOTENCY_CONFLICT" },
+    async () => (await scenario()).different,
+    (r) =>
+      r.json.error.details?.reason === "different_request"
+        ? []
+        : [`reason ${r.json.error.details?.reason}`],
+  );
+  add(
+    "IDM-003",
+    "the same key used by another tenant never replays tenant A's response",
+    { status: 201 },
+    async () => (await scenario()).otherTenant,
+    async (r) => {
+      const { mine } = await scenario();
+      const problems = [];
+      if (r.json.data.id === mine.json.data.id)
+        problems.push("tenant B received tenant A's resource");
+      if (r.headers.get("idempotent-replayed")) problems.push("tenant B got a replay");
+      if (JSON.stringify(r.json).includes(mine.json.data.id))
+        problems.push("tenant A's id appears in tenant B's response");
+      return problems;
+    },
+  );
+  add(
+    "IDM-004",
+    "the same key used by another administrator of the same tenant is a separate key (no replay, no conflict)",
+    { status: 201 },
+    async () => (await scenario()).byManager,
+    async (r) => {
+      const { byAdmin } = await scenario();
+      const problems = [];
+      if (byAdmin.status !== 201) problems.push(`owner answered ${byAdmin.status}`);
+      if (r.json.data.id === byAdmin.json.data.id)
+        problems.push("the second administrator received the owner's resource");
+      if (r.headers.get("idempotent-replayed"))
+        problems.push("the second administrator got a replay");
+      return problems;
+    },
+  );
+  add(
+    "IDM-005",
+    "a malformed Idempotency-Key is rejected before anything is created",
+    INVALID,
+    async () => (await scenario()).bad,
+  );
+}
+{
+  const add = group("HTTP edge: entitlements");
+  const noPlan = () =>
+    once("no-plan-tenant", () => w.provisionTenant("noplan", { withPlan: false }));
+  const limited = () =>
+    once("limited-tenant", async () => {
+      const t = await w.provisionTenant("limited");
+      const db = suiteDb();
+      const entry = await db.entitlementCatalog.findUnique({ where: { key: "workspaces.max" } });
+      await db.tenantEntitlement.create({
+        data: {
+          tenantId: t.id,
+          entitlementId: entry.id,
+          enabled: true,
+          limitValue: 1n,
+          source: "security-suite",
+        },
+      });
+      const first = await w.api("POST", "/workspaces", {
+        cookie: t.owner,
+        body: { name: `First ${w.suffix}` },
+      });
+      const second = await w.api("POST", "/workspaces", {
+        cookie: t.owner,
+        body: { name: `Second ${w.suffix}` },
+      });
+      return { first, second };
+    });
+  add(
+    "ENT-001",
+    "a tenant without a plan cannot create a workspace",
+    { status: 403, code: "ENTITLEMENT_REQUIRED" },
+    async () =>
+      w.api("POST", "/workspaces", {
+        cookie: (await noPlan()).owner,
+        body: { name: `Nope ${w.suffix}` },
+      }),
+    (r) =>
+      r.json.error.details?.entitlement === "workspaces.max"
+        ? []
+        : [`details ${JSON.stringify(r.json.error.details)}`],
+  );
+  add(
+    "ENT-002",
+    "a tenant without a plan cannot invite users",
+    { status: 403, code: "ENTITLEMENT_REQUIRED" },
+    async () =>
+      w.api("POST", "/users", {
+        cookie: (await noPlan()).owner,
+        body: { email: `nope.${w.suffix}@iso.example`, name: "Nope" },
+      }),
+  );
+  add(
+    "ENT-003",
+    "a tenant at its workspace limit is refused with QUOTA_EXCEEDED while the first workspace was allowed",
+    { status: 403, code: "QUOTA_EXCEEDED" },
+    async () => (await limited()).second,
+    async (r) => {
+      const { first } = await limited();
+      const problems = first.status === 201 ? [] : [`the first workspace answered ${first.status}`];
+      if (r.json.error.details?.limit !== 1) problems.push(`limit ${r.json.error.details?.limit}`);
+      return problems;
+    },
+  );
+  add(
+    "ENT-004",
+    "quota consumption is atomic and refuses beyond the limit (scans.monthly)",
+    { status: 200 },
+    async () => {
+      const t = await w.provisionTenant("quota");
+      const { createEntitlementService } = await import("../../src/entitlements/service.js");
+      const { createEntitlementRepository } = await import("../../src/entitlements/repository.js");
+      const service = createEntitlementService({
+        repository: createEntitlementRepository({ db: suiteDb() }),
+      });
+      const def = await suiteDb().quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+      await suiteDb().tenantQuota.create({
+        data: { tenantId: t.id, quotaDefinitionId: def.id, limitValue: 3n },
+      });
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          service
+            .consumeQuota({ tenantId: t.id, quotaKey: "scans.monthly", periodKey: "2026-11" })
+            .then(
+              () => "ok",
+              (e) => e.code,
+            ),
+        ),
+      );
+      const used = (
+        await suiteDb().tenantQuotaUsage.findFirst({
+          where: { tenantId: t.id, quotaDefinitionId: def.id },
+        })
+      )?.used;
+      const problems = [];
+      if (results.filter((v) => v === "ok").length !== 3)
+        problems.push(`allowed ${results.filter((v) => v === "ok").length} of 6, expected 3`);
+      if (results.filter((v) => v === "QUOTA_EXCEEDED").length !== 3)
+        problems.push(`refusals: ${results}`);
+      if (used !== 3n) problems.push(`recorded usage ${used}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+{
+  const add = group("HTTP edge: CORS and route limits");
+  const preflight = (origin) =>
+    client.request("OPTIONS", "/api/v1/me", {
+      headers: { origin, "access-control-request-method": "GET" },
+    });
+  add(
+    "COR-001",
+    "a preflight from an unknown origin gets no CORS permission",
+    { status: 200 },
+    () => preflight(EVIL_ORIGIN),
+    (r) => {
+      const problems = [];
+      if (r.headers.get("access-control-allow-origin"))
+        problems.push(`allow-origin ${r.headers.get("access-control-allow-origin")}`);
+      if (r.headers.get("access-control-allow-credentials")) problems.push("credentials allowed");
+      return problems;
+    },
+  );
+  add(
+    "COR-002",
+    "a preflight from the configured tenant-web origin is allowed with credentials, for that origin only",
+    { status: 204 },
+    () => preflight(ALLOWED_ORIGIN),
+    (r) => {
+      const problems = [];
+      if (r.headers.get("access-control-allow-origin") !== ALLOWED_ORIGIN)
+        problems.push(`allow-origin ${r.headers.get("access-control-allow-origin")}`);
+      if (r.headers.get("access-control-allow-credentials") !== "true")
+        problems.push("credentials not allowed");
+      return problems;
+    },
+  );
+  add(
+    "COR-003",
+    "a response to an unknown origin carries no CORS headers (the browser cannot read it)",
+    { status: 200 },
+    () => client.request("GET", "/health", { headers: { origin: EVIL_ORIGIN } }),
+    (r) =>
+      r.headers.get("access-control-allow-origin") ||
+      r.headers.get("access-control-allow-credentials")
+        ? ["CORS headers present"]
+        : [],
+  );
+  add(
+    "RATE-001",
+    "the per-route auth limit answers 429 RATE_LIMITED (scope route) after the configured number of requests, then recovers",
+    RATE_LIMITED,
+    async () => {
+      let last;
+      let count = 0;
+      for (; count < 400; count += 1) {
+        last = await w.api("POST", "/auth/logout");
+        if (last.status === 429) break;
+      }
+      await sleep(5400);
+      const after = await w.api("POST", "/auth/logout");
+      return Object.assign(last, { count, after });
+    },
+    (r) => {
+      const problems = [];
+      if (r.json.error.details?.scope !== "route")
+        problems.push(`scope ${r.json.error.details?.scope}`);
+      if (!(r.count >= 100 && r.count <= 210)) problems.push(`limited after ${r.count} requests`);
+      if (r.after.status !== 200)
+        problems.push(`still limited after the window (${r.after.status})`);
+      return problems;
+    },
   );
 }
 

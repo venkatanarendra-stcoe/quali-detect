@@ -124,12 +124,18 @@ export function createAuthentication({ db, config, audit, infra, logger, outbox 
   };
 
   /** CORS (credentialed, exact origin list) -- global, before anything reads the request. */
-  const corsMiddleware = cors({
-    origin: [...config.auth.allowedOrigins],
+  // An origin outside the list gets NO CORS headers at all (not even Allow-Credentials); the allowed origins are echoed
+  // exactly, with credentials.
+  const allowedOrigins = new Set(config.auth.allowedOrigins);
+  const allowedOptions = {
+    origin: true,
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     maxAge: 600,
-  });
+  };
+  const corsMiddleware = cors((req, callback) =>
+    callback(null, allowedOrigins.has(req.headers.origin) ? allowedOptions : { origin: false }),
+  );
 
   /** CSRF: a browser always sends Origin on cross-site unsafe requests; reject any that is not an allowed app origin. */
   const csrfOrigin = function csrfOriginMiddleware(req, _res, next) {

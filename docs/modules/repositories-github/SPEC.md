@@ -404,7 +404,32 @@ Decisions by the owner are marked **Decided**; every other item carries **Recomm
 
 ## 16. Implementation notes
 
-Implementation order and results are recorded per part below as the parts land (B migration, C adapter, D linking, E webhook, F repository APIs and jobs, G screens, H stub and suite). Deviations from this approved design are listed here.
+Implemented 2026-11-11 in parts A to H, each committed separately after `pnpm lint`, `pnpm build`, `pnpm test:security`, `pnpm contract:parity` and `pnpm check:connections` (apps/api scripts) passed.
+
+| Part | Result |
+|---|---|
+| A. Verification spike | §17; the owner's decisions D1..D10 are applied below. |
+| B. Prisma migration | `20261111220000_scm_github_repositories`: installations, tenant links (partial unique index: one linked tenant per installation), link workspace scope, repositories (status enum, `node_id`, failure counter), deliveries, normalized events; outbox gains `exchange` and `routing_key`. |
+| C. GitHub adapter | `packages/infra/src/scm/github`: app JWT, in-memory installation tokens (never persisted, never in messages), repository listing, retry classification, pinned `X-GitHub-Api-Version`, delivery list and redeliver. |
+| D. Linking flow | D4 documented flow (setup redirect, our OAuth authorize with our single-use state, installation verification) and D5 ownership checks, generic `409`. |
+| E. Webhook | Raw body, constant-time HMAC before parsing, tenant only from the link, delivery dedupe, persist then outbox, D8 fail-closed, identical `202`. |
+| F. Repository APIs and jobs | Connect, list, detail, edit, sync, enable/disable, disconnect, branches, pull requests; scheduled sync and delivery reconciler in the `scm` worker, retention purge. |
+| G. Screens | T-13, T-14 (with the `/integrations/github/setup` and `/callback` landing pages), T-22, T-23, T-24, T-42; `workspace-integrations` nav item `implemented: true`. Lint and build pass; **not browser-verified** (see limitations). |
+| H. Security suite | Local GitHub stub; `SCM-001..021`; suite is 133 checks (ADR-008 updated). |
+
+Deviations and interpretations of the approved design:
+
+- "One consumer persists normalized events": ingestion persists `scm_events` and the outbox message in one transaction; the `scm-events` consumer applies the resulting state changes (installation and repository changes). Trigger matching stays with the Pipelines module.
+- `repository.connected` and `repository.disconnected` are consumed only by `notification` until the Pipelines module exists.
+- Platform-scope messages (reconcile, scheduled sync, purge) carry no tenant and take no idempotency claim; their handlers are naturally idempotent.
+- Sync lists `GET /installation/repositories` for the installation instead of a per-repository lookup (Open item 24).
+- `pipelineCount` is `0` until the Pipelines module provides the real count.
+- The contract snapshot runs with dummy GitHub environment so the webhook route is part of the contract.
+- The suite runs the SCM-016/017 worker handlers in-process (ADR-008 area 9).
+- Wireframe §4.4 shows Workspace Integrations to Managers; the catalog (`integration.view` is Admin-only) wins, so Managers do not see T-42. Still Open.
+- A mutation test showed that removing the tenant filter from the repository scope resolver is not caught by SCM-008 alone, because the workspace-visibility layer also answers 404 (defense in depth); removing signature verification is caught by SCM-001/002/011.
+
+Limitations: the screens were not exercised in a browser in this work item; no live GitHub App was used (the stub implements the documented endpoints only), so the empirical rename/transfer test (Open item 22) and the redelivery GUID assumption (Open item 25) remain unverified.
 
 ## 17. Verification spike: GitHub facts against the official documentation (2026-11-11)
 

@@ -28,6 +28,7 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | Exact AI coding-tool event capabilities | Provider-specific | Verify before implementing each adapter |
 | ~~OpenAPI generation, middleware libraries and hardening for Express~~ | Decided by the owner with the migration (zod-to-openapi, cookie-parser, cors, pino-http, helmet, rate limit, trust proxy): see ADR-007 | Resolved |
 | Reasons for replacing Fastify (ADR-007) | Not stated with the instruction | Owner to record in the ADR |
+| GitHub integration leftovers (`docs/modules/repositories-github/SPEC.md` §15) | GHES / GitLab / Bitbucket (Q20); empirical repository rename and transfer test with a real App (Q22); per-tenant fairness on the shared `scm-events` consumer (Q23); `GET /repositories/{id}` for lighter sync (Q24); whether REST redelivery keeps the delivery GUID (Q25); Manager visibility of Workspace Integrations (wireframe §4.4 vs Admin-only `integration.view`) | Verify with a development GitHub App; owner to decide the rest |
 
 ## Rule
 

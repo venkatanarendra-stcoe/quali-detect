@@ -15,7 +15,7 @@ import {
  * `user.view` / `user.manage` are tenant permissions: callers without them get 403.
  * @param {ReturnType<typeof import("../controllers/index.js").createUserController>} controller
  * @param {{ authorize: Function }} authz
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const userRoutes = (controller, authz) =>
   async function users(app) {

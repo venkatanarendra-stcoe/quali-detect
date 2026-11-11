@@ -4,7 +4,7 @@ import { createUserRepository } from "./repositories/index.js";
 import { userRoutes } from "./routes/index.js";
 import { createUserService } from "./services/index.js";
 
-/** @type {import("fastify").FastifyPluginAsync} */
+/** @type {import("../../../lib/route-kit.js").RouteRegistrarFn} */
 async function usersPlugin(app) {
   const repository = createUserRepository({ db: app.infra.db });
   const service = createUserService({
@@ -16,7 +16,7 @@ async function usersPlugin(app) {
   await app.register(userRoutes(createUserController({ service }), app.authz));
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const usersModule = {
   name: MODULE_NAME,
   description:

@@ -1,9 +1,9 @@
 # Repositories and GitHub integration — Module Specification
 
-**Status:** Draft. Review decisions received 2026-11-11 but NOT yet applied: the verification spike (§17) found facts that differ from this text and work stopped for your decision. Nothing is implemented.
+**Status:** Approved (2026-11-11). Review decisions and spike decisions D1 to D10 are applied (§17.5); remaining open questions carry the label *Recommended — default applied* (§15).
 **Owner:** Product owner (decisions); Claude Code (specification)
 **Last updated:** 2026-11-11
-**Related ADRs:** ADR-003 (tenant isolation), ADR-004 (finding identity per pipeline), ADR-008 (security suite), ADR-009 (SecretStore), ADR-010, ADR-011 (outbox, message envelope)
+**Related ADRs:** ADR-003 (tenant isolation), ADR-004 (finding identity per pipeline), ADR-008 (security suite), ADR-009 (SecretStore and the platform-secret amendment), ADR-010, ADR-011 (outbox, message envelope)
 
 **Labels** (`docs/README.md`): **Confirmed** = stated in the docs, an accepted ADR or the owner's instruction; **Recommended** = my proposal; **Open** = needs your decision. Only Confirmed items are requirements.
 **Sources:** `docs/architecture/INTEGRATION_ARCHITECTURE.md` (IA), `docs/technical/SECURITY_GUIDELINES.md` (SG), `docs/design/TENANT_APPLICATION_DESIGN.md` (TAD §3.3, §3.14, §3b.2 to §3b.5), `docs/product/PRODUCT_REQUIREMENTS.md` (PR), `docs/product/GLOSSARY.md`, `docs/technical/EVENT_CONTRACTS.md` (EC), `docs/architecture/WORKER_ARCHITECTURE.md` (WA), `docs/AUTHORIZATION.md` (AZ), `docs/decisions/ADR-009` and `ADR-011`, `docs/technical/DATABASE_DESIGN.md` (DD: lists `repositories` and `repository_integrations`), `docs/decisions/OPEN_DECISIONS.md`.
@@ -44,7 +44,7 @@ Permission keys are the existing catalog (`packages/shared/src/permissions.js`, 
 | Admin, Manager | Restrict a repository to groups | workspace | `repository.manage_access` | Admin, Manager |
 | Admin, Manager | Disconnect | workspace | `repository.disconnect` | Admin, Manager |
 | GitHub (system) | Deliver webhooks | none (unauthenticated, signature only) | none | n/a |
-| Platform Super Admin | Configure the GitHub App at platform level | platform | `platform.integration_catalog.manage` (**Recommended**) | Super Admin |
+| Platform operator | Configure the GitHub App (credentials via PlatformSecretProvider, App settings on GitHub) | platform | deployment configuration, not an API; the Root Console shows App status only (`platform.integration_catalog.view`) | n/a |
 
 Rules: a user who cannot see a workspace gets **404** for everything in it; a visible workspace without the permission gets **403** (AZ §5.9, **Confirmed**). Connecting needs `repository.connect` in the target workspace; it does not require `integration.view` (the wizard only sees the installations it may use). **Open**: whether Managers and Dev Leads may use an installation they cannot manage (§15 Q9).
 
@@ -52,8 +52,8 @@ Rules: a user who cannot see a workspace gets **404** for everything in it; a vi
 
 | ID | Requirement | Priority | Status |
 |---|---|---|---|
-| REPO-001 | A tenant links GitHub through a GitHub App installation; the mapping installation id -> tenant is stored tenant-side | Must | Recommended |
-| REPO-002 | Installation linking proves the linking user controls the installation (user authorization at install time) and binds it with a single-use `state` | Must | Recommended |
+| REPO-001 | A tenant links GitHub through the single shared QmentisAI GitHub App; the installation -> tenant link is stored tenant-side | Must | Confirmed (owner decision Q3) |
+| REPO-002 | Installation linking follows the documented flow: setup redirect, our own OAuth authorization with our single-use `state`, installation verification, plus the organization-admin / personal-account rule (D5) | Must | Confirmed (owner decision D4, D5) |
 | REPO-003 | One installation belongs to exactly one tenant; a second claim is refused without disclosing the owner | Must | Confirmed (tenant isolation) + Recommended mechanism |
 | REPO-004 | List repositories visible to the installation and mark those already connected | Must | Confirmed (TAD §3b.2 step 3) |
 | REPO-005 | Connect a repository into a workspace; provider identity (provider + external repo id) is unique per tenant | Must | Confirmed (owner instruction) |
@@ -70,7 +70,7 @@ Rules: a user who cannot see a workspace gets **404** for everything in it; a vi
 | REPO-016 | Emit `repository.connected`, `repository.disconnected`, `scm.push.received`, `scm.pull_request.received` with versioned schemas | Must | Confirmed (owner instruction) |
 | REPO-017 | Every state change is audited in the same transaction | Must | Confirmed (SG audit rules) |
 | REPO-018 | `repositories.max` entitlement checked when connecting | Should | Recommended |
-| REPO-019 | Reconciliation sync repairs state missed by lost webhooks | Should | Recommended |
+| REPO-019 | Reconciliation is REQUIRED: (a) a delivery reconciler redelivers failed GitHub deliveries inside GitHub's 3-day window, (b) a scheduled repository sync covers gaps beyond it; both intervals configurable | Must | Confirmed (owner decision D1) |
 | REPO-020 | Branches and pull requests shown in the UI come from GitHub on demand (not stored in v1) | Should | Recommended |
 
 ## 5. Business rules
@@ -88,15 +88,22 @@ Rules: a user who cannot see a workspace gets **404** for everything in it; a vi
 
 Consequences: the design wizard's "manage webhooks" permission and per-repository "Webhook registration" check (TAD §3b.2 steps 5 and 6) do not apply to an App (the webhook belongs to the app); the validation matrix becomes Credentials, Repository metadata, Installation covers the repository, Test delivery (`ping`), Signature verification. The design documents already say mechanisms differ per provider and must be verified per adapter (TAD §3b, IA). **Verify with a spike before implementation** (Open Q1): the facts used here (installation tokens expire after about an hour, `X-Hub-Signature-256` is `sha256=` + HMAC-SHA256 of the raw body with the webhook secret, `X-GitHub-Delivery` is a GUID reused by redelivery, deliveries time out after about 10 seconds and payloads can be large, repository ids are stable across rename and transfer) come from my knowledge of GitHub, not from this repository.
 
-**R-2 Installation linking is a trust boundary (Recommended).** Anyone can paste an `installation_id`. Linking therefore requires: (1) a single-use `state` created by `POST .../start`, stored in Redis for a few minutes and bound to tenant + user + session; (2) GitHub's "request user authorization during installation" `code`, exchanged for a user token used **only** to call `GET /user/installations` and prove the user can see this installation; (3) the installation details fetched with the app's own JWT (account, permissions, repository selection). The user token is discarded immediately and never stored.
+**R-2 Installation linking is a trust boundary (Confirmed, owner decisions D4 and D5).** Anyone can open the setup URL with a spoofed `installation_id` (GitHub's own warning, §17.1 #18). Linking therefore uses only documented behavior: (1) GitHub redirects to our **setup URL** with `installation_id` (the install-URL `state` is ignored, §17.2 D4); (2) the tenant-web page calls the API, which creates a **single-use `state`** bound to tenant + user + session + installation id (Redis, minutes) and returns GitHub's authorize URL; (3) GitHub redirects back with `code` and our `state`; (4) the API consumes the state, exchanges the code for a **user-to-server token** (used for the checks below and discarded, never stored), and verifies the installation. Verification rules:
+- the installation appears in `GET /user/installations` for that user;
+- **organization installation:** the user's role in that organization must be `admin` and active (`GET /user/memberships/orgs/{org}`; this requires the **Members: read** organization permission on the App, added to the App's permission list in §11);
+- **personal-account installation:** the installation's account id must equal the authorized user's id (`GET /user`);
+- the QmentisAI user performing the link must hold `integration.manage` in the tenant (the route permission).
+Any failure is refused without saying why beyond what the user can act on (not admin, not theirs); an installation already linked to another tenant is the generic `409` of R-3.
 
-**R-3 One installation, one tenant (Confirmed rule, Recommended mechanism).** `(provider, external_installation_id)` is globally unique. A claim on an installation already linked to another tenant answers a generic `409 CONFLICT` (`reason: installation_unavailable`) that does not say who owns it.
+**R-3 One installation, one tenant (Confirmed).** An installation can have at most one *linked* tenant link at a time (partial unique index). A claim on an installation that is currently linked elsewhere answers a generic `409 CONFLICT` (`reason: installation_unavailable`) that does not say who owns it. After the owner unlinks, another tenant that passes the R-2 checks may link it.
 
-**R-4 Provider identity (Confirmed).** `(tenant_id, provider, external_repo_id)` is unique. The numeric GitHub repository id is the identity; `full_name` is display data that changes on rename or transfer. The same GitHub repository may be connected by two tenants through their own installations (two independent rows).
+**R-4 Provider identity (Confirmed; stability risk accepted, D6).** `(tenant_id, provider, external_repo_id)` is unique. The numeric GitHub repository id is the identity; `node_id` is stored as a **secondary identity** used by reconciliation (a repository missing by id but present by `node_id` is re-matched and the mismatch is logged and audited); `full_name` is display data that changes on rename or transfer. GitHub does not document that the numeric id survives rename or transfer (§17.2 D6): an empirical rename and transfer test with the development GitHub App is Open (§15 Q22). The same GitHub repository may be connected by two tenants through their own installations (two independent rows).
 
 **R-5 Workspace placement.** A repository belongs to exactly one workspace of the same tenant (validated on write; Recommended composite foreign key on `(tenant_id, workspace_id)`). Moving a repository between workspaces is **Open** (§15 Q12). A repository cannot be connected into an archived workspace.
 
-**R-6 Disconnect is soft (Recommended).** Disconnect marks the row `disconnected` and keeps its id, so findings and executions stay attributable (ADR-004). Reconnecting the same GitHub repository reactivates the same row. Events for disconnected repositories are ignored.
+**R-6 Nothing is ever deleted (Confirmed, owner decisions D2/D3, Q10).** Repository `status` is `active`, `unavailable` or `disconnected`; `enabled` (the `repository.toggle` switch) is separate. A sync that gets 404/403 for a repository (or no longer finds it among the installation's repositories) sets `unavailable` and increments `consecutive_sync_failures`; after **N consecutive failures** (`SCM_SYNC_FAILURES_BEFORE_DISCONNECT`, default 5) it becomes `disconnected`. A successful sync resets the counter and returns it to `active`. Both transitions are audited. The row, its id, findings and history stay, and reconnecting the same GitHub repository reactivates the same row.
+
+**Unlink (Q10).** Unlinking an installation sets the tenant link to `unlinked`, sets its repositories to `disconnected` (reason `installation_unlinked`, rows kept), emits `repository.disconnected` for each (the Pipelines module disables their pipelines), keeps history, findings and audit, and makes webhooks for that installation ignored (202 + log + metric, since no active link exists). **Re-linking** the same installation by the same tenant reactivates the link and restores those repositories to `active`, subject to the next sync. Everything is audited.
 
 **R-7 Untrusted input (Confirmed, SG).** Everything in a webhook payload (repository names, branch names, commit messages, PR titles, author logins) is untrusted. Published events carry identifiers, SHAs, counts, flags and validated short strings only; no commit message or PR body text travels in a message. Fork pull requests are flagged (`isFork`) so the pipeline module can refuse to run untrusted code with privileged tokens.
 
@@ -114,18 +121,22 @@ sequenceDiagram
   participant A as API
   participant G as GitHub
   U->>A: POST /integrations/github/installations/start
-  A-->>U: installUrl (with signed state, stored for 10 min)
-  U->>G: install the App on an account/organization
-  G-->>U: redirect to tenant-web callback (installation_id, code, state)
-  U->>A: POST /integrations/github/installations {installationId, code, state}
-  A->>A: check state (single use, same tenant/user/session)
-  A->>G: user token from code; GET /user/installations (is it theirs?)
+  A-->>U: installUrl (no state; the install URL state is ignored)
+  U->>G: install the App on an account or organization
+  G-->>U: redirect to the setup URL: tenant-web /integrations/github/setup?installation_id=...
+  U->>A: POST /integrations/github/installations/authorize {installationId}
+  A-->>U: authorizeUrl (our single-use state: tenant + user + session + installation)
+  U->>G: authorize the App as the user
+  G-->>U: redirect to tenant-web /integrations/github/callback?code=...&state=...
+  U->>A: POST /integrations/github/installations {code, state}
+  A->>A: consume state (single use, same tenant/user/session)
+  A->>G: code -> user token; GET /user/installations; org: GET /user/memberships/orgs/{org} (admin) or personal: GET /user (id = account id)
   A->>G: app JWT: GET /app/installations/{id}
-  A->>A: INSERT mapping (unique installation id) + audit + event, one transaction
-  A-->>U: installation (account, repository selection, status)
+  A->>A: one transaction: installation upsert + tenant link + audit + event
+  A-->>U: link (account, selection, status)
 ```
 
-Alternate: state expired or reused -> 400/409 with a restart hint; installation owned elsewhere -> generic 409; user cannot see the installation -> 403.
+Alternates: state missing, expired, reused or bound elsewhere -> 400 (restart); installation not in the user's installations, or user not an organization admin, or personal account id mismatch -> 403 `FORBIDDEN` with a plain reason; installation linked to another tenant -> generic 409 (R-3); user lacks `integration.manage` -> 403.
 
 ### 6.2 Connect repositories (workspace)
 1. `GET /workspaces/{id}/repositories/available?installationId=` lists what the installation can access (live from GitHub, paged), each with `alreadyConnected` (tenant-wide check by external id).
@@ -161,61 +172,74 @@ Requirements, all **Confirmed** (owner instruction) unless noted:
 - **Signature:** `X-Hub-Signature-256` must be `sha256=<64 hex>`; compute HMAC-SHA256 over the raw bytes with the platform webhook secret and compare with `crypto.timingSafeEqual` after checking lengths. Missing, malformed or wrong signature: `401` with a generic body, no parsing, nothing stored, counted per IP. The webhook secret is a platform-level SecretStore value (Q2).
 - **Tenant resolution:** read `installation.id` from the **verified** payload purely as a lookup key into `scm_installations`; the tenant is `mapping.tenantId`. Fields such as account login, organization, repository owner or anything resembling a tenant are never used for resolution. The repository is then found with `(tenantId, provider, externalRepoId)`; a payload naming a repository that is not connected for that tenant is ignored.
 - **Dedupe:** `scm_webhook_deliveries` unique on `(provider, delivery_id)`; redelivery (the same GUID) answers `202` without side effects. Outbox `messageId` is derived from the delivery id (`scm-github-<deliveryId>`), so even a crash between steps cannot publish twice (ADR-011).
-- **Unknown installation:** a validly signed delivery for an installation we do not know answers `202` with the **same body and timing class** as an accepted one; the drop is visible only in logs/metrics. (It happens legitimately for `installation.created` arriving before the setup redirect; reconciliation covers it.) An unsigned/forged request is `401`, which reveals nothing about installations.
+- **Unknown or unlinked installation (Q7):** a validly signed delivery for an installation with no active link answers `202` with the **same body and timing class** as an accepted one, plus a log line and a metric (`scm_webhook_deliveries_total{outcome="unknown_installation"}`); nothing tenant-scoped is stored. An invalid signature is `401`.
+- **Fail closed (D8):** a validly signed payload that has no `installation.id` (or a non-numeric one) is not processed, logged and counted (`outcome="rejected_payload"`), and answered `202` like an accepted delivery.
 - **Fast 2xx:** verification, dedupe insert, normalization and outbox insert are one database transaction (milliseconds); no GitHub API call and no pipeline work happens in the request.
 - **Rate limit:** the existing `webhook` profile per IP, plus a per-installation counter after resolution (Redis, tenant-scoped key), plus the global limit. IP allow-listing of GitHub's ranges is optional hardening (Q15).
-- **Replay:** GitHub sends no timestamp header, so replay protection is the delivery-id table (kept for a configurable window, **Open** Q13); a captured signed request replayed after the window would be accepted as new, which is why events must be idempotent downstream.
+- **Replay:** GitHub sends no timestamp header, so replay protection is the delivery-id table (kept 30 days by default, configurable, Q8); a captured signed request replayed after the window would be accepted as new, which is why events must be idempotent downstream.
 
 ### 6.4 Failure classes
 
 | Failure | Detection | Handling |
 |---|---|---|
-| **Installation revoked/uninstalled** | `installation` event `deleted`; token mint returns 404/401 | Mark installation `revoked`; repositories `error` (`reason: installation_revoked`) and `disconnected` after a grace period (**Open** Q10); emit `repository.disconnected` with reason; notify tenant admins (outbox -> notification worker); stop accepting its events |
-| **Installation suspended** | `installation` event `suspend` | Status `suspended`; repositories paused; resume on `unsuspend` |
-| **Permission removed / selection narrowed** | `installation` `new_permissions_accepted`, `installation_repositories` `removed`; 403/404 from API | Affected repositories `error` (`reason: access_removed`) with recovery text (re-grant on GitHub); retryable via Sync |
-| **Repository deleted** | `repository` `deleted`; 404 on sync | Status `disconnected` (`reason: repo_deleted`), audit + event; row kept |
+| **Installation revoked/uninstalled** | `installation` event `deleted`; token mint returns 404/401 | Installation `revoked`; link kept, its repositories `disconnected` (reason `installation_revoked`) immediately; `repository.disconnected` events; notify tenant admins (outbox -> notification worker); webhooks for it are ignored |
+| **Installation suspended** | `installation` event `suspend` / `unsuspend` | Status `suspended`; repositories `unavailable` while suspended, restored on `unsuspend` |
+| **Permission removed / selection narrowed** | `installation_repositories` `removed`; sync 403/404 | Repository `unavailable`, failure counter increments, `disconnected` after N (R-6); retryable via Sync |
+| **Repository deleted** | GitHub Apps do **not** receive `repository.deleted` (§17.2 D2); sync finds 404 or no longer lists it | `unavailable` -> `disconnected` after N consecutive failures (reason `repo_inaccessible`); never deleted; audited |
 | **Repository renamed** | `repository` `renamed`; `full_name` differs on sync | Update `full_name`/`name` (identity is the external id); audit |
-| **Repository transferred** | `repository` `transferred`; owner differs; access lost | If still reachable through the installation: update owner. Otherwise `error` (`reason: transferred_out`); never follow a transfer to another account automatically |
-| **Repository archived / made private** | `repository` event; sync | Reflect `archived`/`visibility`; archived is read-only (no new scans, Open Q) |
+| **Repository transferred** | `repository.transferred` goes only to the *receiving* account's installation (§17.2 D3); transfer-out shows as sync 403/404 | Same path as deleted. Never follow a transfer to another account automatically |
+| **Repository archived / privatized / publicized** | `repository` event; sync | Reflect `archived`/`visibility` |
 | **Webhook redelivery** | same `X-GitHub-Delivery` | `202`, no side effects (§6.3) |
-| **Webhook lost / endpoint down** | no event for a repository for a long time; GitHub shows failures | Scheduled reconciliation sync (Recommended, REPO-019) compares branches/PR heads and repository state |
-| **GitHub API rate limit** | `403/429` with rate-limit headers | Transient error: retry with the worker backoff (`TransientError`); honor `Retry-After`/reset time |
-| **GitHub outage** | 5xx, network | `PROVIDER_UNAVAILABLE` (502) to the API caller; transient retry in workers; health `degraded` |
-| **Tenant suspended/deactivated** | tenant status | Webhooks are still verified and answered `202`, but events are not published (worker ownership check fails closed); data retained |
-| **Token mint failure** | app JWT/installation token errors | Transient or `error` health, depending on cause; alert (§12) |
+| **Webhook lost / endpoint down** | GitHub does not retry automatically (§17.2 D1); delivery list shows failures | **Delivery reconciler** (§6.5a) redelivers failures inside the 3-day window; **scheduled repository sync** (§6.5b) covers anything older |
+| **Signed payload without `installation.id`** | schema check after signature | Fail closed: not processed, logged and counted, response identical to an accepted delivery (D8) |
+| **GitHub API rate limit** | `403/429` with rate-limit headers | Transient error: wait for `retry-after`/`x-ratelimit-reset`; secondary limits: serial requests, at least one minute when no reset is given, exponential backoff |
+| **GitHub outage** | 5xx, network | `PROVIDER_UNAVAILABLE` (502) to API callers; transient retry in workers |
+| **Tenant suspended/deactivated** | tenant status | Webhooks verified and answered `202`; events not processed (worker ownership check fails closed) |
+| **Token mint failure** | app JWT/installation token errors | Transient or `unavailable` depending on cause; alert (§12) |
 
-### 6.5 Sync
-`POST /repositories/{id}/sync` returns `202 { status: "queued" }` and enqueues a job (`scm.repository.sync_requested`, job kind, tenant scope). The worker re-validates that the repository belongs to the tenant, mints an installation token, refreshes metadata (name, default branch, visibility, archived, permissions), updates `health`, `last_synced_at`, and emits nothing unless state changed. Idempotent by `(repositoryId, minute bucket)`.
+### 6.5 Sync and reconciliation
+
+**(a) Delivery reconciler (D1, REQUIRED).** The scheduler worker enqueues `scm.deliveries.reconcile_requested` (platform job) every `SCM_RECONCILE_INTERVAL_SECONDS` (default 900). The handler lists the App's webhook deliveries with the app JWT (`GET /app/hook/deliveries`, §17.1 #20), groups attempts by GUID, and for each GUID younger than `SCM_RECONCILE_WINDOW_HOURS` (default 70, under GitHub's 3 days) whose attempts all failed, requests a redelivery (`POST /app/hook/deliveries/{id}/attempts`), at most `SCM_RECONCILE_MAX_REDELIVERIES` per run. A redelivery keeps the original GUID, so delivery-ID deduplication makes the whole thing idempotent: if we had already accepted it, the redelivery is a harmless duplicate.
+
+**(b) Scheduled repository sync (D1).** The scheduler enqueues `scm.repositories.sync_requested` every `SCM_SYNC_INTERVAL_SECONDS` (default 3600); the handler enqueues one `scm.repository.sync_requested` job (tenant scope) per due repository (`enabled`, not `disconnected`, `last_synced_at` older than the interval), batched.
+
+**(c) Repository sync job.** `POST /repositories/{id}/sync` (and (b)) enqueue `scm.repository.sync_requested`. The worker re-validates tenant ownership, mints an installation token, lists the installation's repositories (`GET /installation/repositories`, paged), finds the repository by external id, else by `node_id` (R-4), and applies the result: refresh metadata and reset the failure counter, or mark `unavailable`/`disconnected` per R-6. Idempotent by `(repositoryId, minute bucket)`. Rate-limit and outage failures are transient errors and never count as repository failures.
+
+**(d) Retention.** A scheduled job purges `scm_webhook_deliveries` older than `SCM_DELIVERY_RETENTION_DAYS` (default 30, configurable, Q8).
 
 ## 7. Data model
 
 Logical model (not a Prisma schema). Every tenant-owned row carries `tenantId` and is only read with it (ADR-003). Migrations and Prisma models are an implementation step.
 
-### 7.1 `scm_installations` (tenant-level mapping)
-`id`, `tenant_id`, `provider` (`github`), `external_installation_id` (string), `account_external_id`, `account_login`, `account_type` (`organization`|`user`), `repository_selection` (`all`|`selected`), `permissions` (JSON snapshot of granted permissions), `status` (`active`|`suspended`|`revoked`), `linked_by_user_id`, `linked_at`, `suspended_at`, `revoked_at`, `last_checked_at`.
-Unique: **`(provider, external_installation_id)` globally** (R-3). Index `(tenant_id, status)`. Contains no secrets.
+### 7.1 `scm_installations` (platform-level facts) and `scm_installation_links` (tenant-level mapping)
+`scm_installations`: `id`, `provider` (`github`), `external_installation_id` (string), `account_external_id`, `account_login`, `account_type` (`organization`|`user`), `repository_selection` (`all`|`selected`), `permissions` (JSON snapshot), `status` (`active`|`suspended`|`revoked`), `created_at`, `updated_at`, `last_checked_at`. Unique `(provider, external_installation_id)`. No tenant column, no secret.
+
+`scm_installation_links` (tenant-owned): `id`, `tenant_id`, `installation_id`, `status` (`linked`|`unlinked`), `linked_by_user_id`, `linked_at`, `unlinked_by_user_id`, `unlinked_at`. Unique `(tenant_id, installation_id)` (a re-link reuses the row) and a **partial unique index on `(installation_id) WHERE status = 'linked'`** (one installation, one tenant at a time, R-3). The webhook resolves `installation -> the single linked link -> tenant_id`.
+
+`scm_installation_link_workspaces` (tenant-owned, optional scope, T-14/T-42): `link_id`, `tenant_id`, `workspace_id`; no rows means every workspace of the tenant may use the connection. Enforced when connecting repositories (**Recommended — default applied**).
 
 ### 7.2 `repositories`
-`id`, `tenant_id`, `workspace_id`, `installation_id` (FK, same tenant), `provider`, `external_repo_id`, `full_name`, `name`, `owner_login`, `html_url`, `visibility`, `default_branch`, `description`, `display_name`, `owner_user_id` (QmentisAI owner), `status` (`connected`|`disabled`|`disconnected`), `health` (`healthy`|`degraded`|`error`), `health_reason`, `archived`, `last_synced_at`, `last_event_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `disconnect_reason`, timestamps.
-Unique: **`(tenant_id, provider, external_repo_id)`**. Indexes `(tenant_id, workspace_id, status)`, `(tenant_id, installation_id)`, `(tenant_id, full_name)`. Group restriction (`repository.manage_access`) reuses the group model through a join table `repository_group_access (tenant_id, repository_id, group_id)` (**Recommended**, Open Q12 for semantics).
+`id`, `tenant_id`, `workspace_id`, `link_id` (FK, same tenant), `provider`, `external_repo_id`, `node_id`, `full_name`, `name`, `owner_login`, `html_url`, `visibility`, `default_branch`, `description`, `display_name`, `owner_user_id`, `status` (`active`|`unavailable`|`disconnected`), `enabled` (boolean), `archived`, `consecutive_sync_failures` (int), `last_sync_error` (short code), `last_synced_at`, `last_event_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `disconnect_reason`, timestamps.
+Unique **`(tenant_id, provider, external_repo_id)`**. Indexes `(tenant_id, workspace_id, status)`, `(tenant_id, link_id)`, `(tenant_id, node_id)`. Health shown in the UI is derived: `active` with no failures = healthy, `active` with failures = degraded, `unavailable` = error, `disconnected` = disconnected. Group restriction (`repository.manage_access`) uses `repository_group_access (tenant_id, repository_id, group_id)` (Recommended — default applied; semantics follow workspace roles).
 
 ### 7.3 `scm_webhook_deliveries` and `scm_events`
-- `scm_webhook_deliveries`: `id`, `provider`, `delivery_id`, `event_type`, `action`, `external_installation_id`, `tenant_id` (null when the installation was unknown), `outcome` (`accepted`|`duplicate`|`ignored`|`unknown_installation`), `payload_sha256`, `received_at`. **Unique `(provider, delivery_id)`.** No raw payload is stored (untrusted, may be large); retention window **Open** (Q13).
-- `scm_events` (normalized, tenant-scoped): `id`, `tenant_id`, `repository_id`, `delivery_id`, `kind` (`push`|`pull_request`|`repository`|`installation`), `normalized` (JSON, the fields in §9, validated by the message catalog), `created_at`. Unique `(tenant_id, delivery_id, kind)`. Persisted in the same transaction as the outbox row.
+- `scm_webhook_deliveries`: `id`, `provider`, `delivery_id`, `event_type`, `action`, `external_installation_id`, `tenant_id` (null when unknown or unlinked), `outcome` (`accepted`|`duplicate`|`ignored`|`unknown_installation`|`rejected_payload`), `payload_sha256`, `received_at`. **Unique `(provider, delivery_id)`.** No raw payload is stored. Retention 30 days by default (`SCM_DELIVERY_RETENTION_DAYS`).
+- `scm_events` (normalized, tenant-scoped): `id`, `tenant_id`, `repository_id` (nullable for installation events), `delivery_id`, `kind` (`push`|`pull_request`|`repository`|`installation`|`installation_repositories`), `normalized` (JSON per §9), `created_at`. Unique `(tenant_id, delivery_id, kind)`. Written in the webhook transaction together with the outbox row.
+- The outbox (`outbox_messages`) gains optional `exchange` and `routing_key` columns so a row can target the topic exchange `qmentis.scm.events` (§9).
 
 ### 7.4 Relationship to pipelines (definition only)
 A repository has **N pipelines** (TAD §3.4, glossary: "independent security workflow configured for a repository"). The pipelines module will own `pipelines (tenant_id, repository_id, ...)` with a foreign key to `repositories(id)` within the same tenant. Each matching event creates **one execution per pipeline**, and finding identity stays per pipeline (ADR-004, **Confirmed**). This module guarantees only: a stable `repositories.id`, the `repository.disconnected` event so pipelines can be disabled, and soft disconnect so history survives. No pipeline column or table is added here.
 
-### 7.5 Credentials (ADR-009)
+### 7.5 Credentials (ADR-009 and its platform-secret amendment)
 | Secret | Level | Storage |
 |---|---|---|
-| GitHub App id, client id, slug | platform | configuration (not secret) |
-| App **private key** (PEM), **client secret**, **webhook secret** | **platform** | SecretStore, purpose `scm.github.app.*` (**Open Q2**: today's SecretStore is tenant-scoped; a platform scope needs an ADR-009 amendment, or v1 reads them from the environment/KMS at deploy) |
-| Installation id -> tenant mapping | tenant | `scm_installations` (no secret) |
-| Installation access token | per use | minted from the app JWT when needed, kept only in process memory until shortly before expiry, **never persisted, logged, returned or sent in a message** |
-| User-to-server token from the install redirect | per use | used for one call, discarded |
+| GitHub App id, client id, slug, API and web base URLs, API version | platform | configuration (not secret) |
+| App **private key** (PEM), **client secret**, **webhook secret** | **platform** | **PlatformSecretProvider** (ADR-009 amendment, decision Q2): read from the environment (or a mounted file) in development, from KMS/Vault in production. **Never stored in the database in v1.** The tenant SecretStore is unchanged and is not used for them |
+| Installation -> tenant link | tenant | `scm_installation_links` (no secret) |
+| Installation access token | per use | minted from the app JWT, cached in process memory only until shortly before `expires_at`, **never persisted, logged, returned or sent in a message**; no length or format assumptions (D9) |
+| User-to-server token from linking | per use | used for the D5 checks, then discarded |
 
-Redaction paths gain `privateKey`, `installationToken`, `webhookSecret` (the generic ones already exist).
+Production refuses to start with the GitHub integration enabled and the `env` platform-secret provider (mirrors the SecretStore rule), until a KMS/Vault provider exists. Redaction gains `privateKey`, `clientSecret`, `webhookSecret`, `installationToken`, `userToken`, `authorization` and token prefixes (`ghs_`, `ghu_`, `ghr_`).
 
 ## 8. API contract
 
@@ -224,12 +248,16 @@ All tenant routes: tenant session, `/api/v1`, standard envelope, Zod on params/q
 ### 8.1 Integration (tenant scope)
 | Method and path | Permission | Notes |
 |---|---|---|
-| `GET /integrations/github` | `integration.view` | App availability (configured?), installations summary |
-| `GET /integrations/github/installations` | `integration.view` | Tenant's installations: account, selection, status, repository count. No secrets |
-| `POST /integrations/github/installations/start` | `integration.manage` | Returns `{ installUrl }`; stores `state` |
-| `POST /integrations/github/installations` | `integration.manage` | Body `{ installationId, code, state }`; 201; `409 CONFLICT reason installation_unavailable` |
-| `POST /integrations/github/installations/{installationId}/refresh` | `integration.manage` | Re-reads account, permissions, status; 200 |
-| `DELETE /integrations/github/installations/{installationId}` | `integration.manage` | Unlinks in QmentisAI (repositories disconnected, event emitted); does **not** uninstall the App on GitHub (Open Q10); typed confirmation enforced server-side (`confirm` = account login) |
+| `GET /integrations` | `integration.view` | Catalog (T-13): GitHub (status Connected/Degraded/Not connected) and the other providers as "not available yet" |
+| `GET /integrations/github` | `integration.view` | App availability (configured on the platform?), links summary, capabilities |
+| `GET /integrations/github/installations` | `integration.view` | Tenant's links: account, type, selection, status, repository count, workspace scope. No secrets |
+| `POST /integrations/github/installations/start` | `integration.manage` | Returns `{ installUrl }` (no state) |
+| `POST /integrations/github/installations/authorize` | `integration.manage` | Body `{ installationId }`; stores the single-use state; returns `{ authorizeUrl }` |
+| `POST /integrations/github/installations` | `integration.manage` | Body `{ code, state }`; 201; D5 checks; generic `409 CONFLICT reason installation_unavailable` |
+| `POST /integrations/github/installations/{linkId}/refresh` | `integration.manage` | "Test connection": re-reads installation, checks token minting; 200 |
+| `PUT /integrations/github/installations/{linkId}/workspaces` | `integration.manage` | Body `{ workspaceIds: [] }` (empty = all); T-14 Scope and T-42 toggles |
+| `GET /integrations/github/installations/{linkId}/deliveries` | `integration.view` | Recent deliveries for the Webhooks table (outcome, event, time; no payload) |
+| `DELETE /integrations/github/installations/{linkId}` | `integration.manage` | Unlink (R-6/Q10); typed confirmation (`confirm` = account login); does not uninstall the App on GitHub |
 
 ### 8.2 Repositories (workspace scope)
 | Method and path | Permission and scope | Notes |
@@ -239,32 +267,42 @@ All tenant routes: tenant session, `/api/v1`, standard envelope, Zod on params/q
 | `POST /workspaces/{workspaceId}/repositories` | `repository.connect` in that workspace | Body `{ installationId, externalRepoId, displayName?, description?, ownerUserId? }`; 201; `409 CONFLICT reason repository_already_connected` (unique identity); `403 QUOTA_EXCEEDED/ENTITLEMENT_REQUIRED` |
 | `GET /repositories/{repositoryId}` | `repository.view` via a repository scope resolver (loads by id **and** tenant, yields the workspace) | 404 when absent or not visible |
 | `PATCH /repositories/{repositoryId}` | `repository.update` | `displayName`, `description`, `ownerUserId` (must be an active tenant member) |
-| `POST /repositories/{repositoryId}/sync` | `repository.sync` | 202 queued; rate limited |
-| `POST /repositories/{repositoryId}/disable` and `/enable` | `repository.toggle` | Disabled repositories ignore events and cannot be scanned |
+| `POST /repositories/{repositoryId}/sync` | `repository.sync` | 202 queued (job `scm.repository.sync_requested`); rate limited |
+| `POST /repositories/{repositoryId}/disable` and `/enable` | `repository.toggle` | Sets `enabled`; disabled repositories ignore events and cannot be scanned |
 | `DELETE /repositories/{repositoryId}` | `repository.disconnect` | Soft disconnect; body `{ confirm: <full name> }`; 200; emits `repository.disconnected` |
 | `GET /repositories/{repositoryId}/branches`, `GET .../pull-requests` | `repository.view` | Live read-through with a short tenant-scoped cache (REPO-020, Open Q16) |
 
 Response DTOs never include internal ids of other tenants, tokens, installation numbers beyond `installationId` (our id) and `externalInstallationId` for tenant admins only. `externalRepoId` is returned.
 
 ### 8.3 Webhook (public)
-`POST /api/v1/webhooks/github`: no session, no cookies, no CORS. Headers read: `X-Hub-Signature-256`, `X-GitHub-Delivery`, `X-GitHub-Event`, `Content-Type: application/json`. Responses: `202 {"success":true,"data":{"received":true},...}` (accepted, duplicate, ignored and unknown installation are indistinguishable), `401 UNAUTHENTICATED` (generic: bad or missing signature), `400 BAD_REQUEST` (signed but malformed), `413`, `415`, `429 RATE_LIMITED`. Documented in OpenAPI with `hide: false` and a security note that the signature, not a session, authenticates it.
+`POST /api/v1/webhooks/github`: no session, no cookies, no CORS. Headers read: `X-Hub-Signature-256`, `X-GitHub-Delivery`, `X-GitHub-Event`, `Content-Type: application/json`. Responses:
+- `401 UNAUTHENTICATED` (generic): missing, malformed or wrong signature. Nothing is parsed or stored (decision Q7).
+- `202 {"success":true,"data":{"received":true},...}`: a validly signed delivery. **Accepted, duplicate, ignored, unknown or unlinked installation, and a signed payload without `installation.id` are indistinguishable** (Q7, D8); the difference is only in logs and metrics.
+- `400 BAD_REQUEST` (signed but not JSON), `413`, `415`, `429 RATE_LIMITED`.
 
 ## 9. Events and asynchronous work
 
-All messages use the ADR-011 envelope (`kind: "event"`, `scope: "tenant"`, `schemaVersion: 1`, `subject: { type: "repository", id }`, `initiator`: `{ type: "user", id }` for UI-driven events and `{ type: "system", id: "github-webhook" }` for webhook-driven ones). They are registered in the message catalog (`@qmentisai/contracts`). Payloads carry no free text from GitHub beyond the validated strings noted.
+All messages use the ADR-011 envelope (`kind: "event"` unless stated, `scope: "tenant"`, `schemaVersion: 1`, `subject: { type: "repository", id }`, `initiator`: a user for UI-driven events, `{ type: "system", id: "github-webhook" }` for webhook-driven ones). They are registered in the message catalog. Payloads carry no free text from GitHub beyond validated short strings.
 
-| Type | Emitted when | Payload (v1) | Queue (**Open** Q11) |
+**Routing (decision Q11).** Webhook-derived events go to the **topic exchange `qmentis.scm.events`** with routing key **`scm.github.<event>`** (`scm.github.push`, `scm.github.pull_request`, `scm.github.repository`, `scm.github.installation`, `scm.github.installation_repositories`). The outbox row carries `exchange` and `routing_key`. **One consumer** (queue `scm-events`, bound to `scm.github.#`) applies the normalized events to repository and installation state (rename, archive, suspend, revoke, last event time, selection changes); **trigger matching and executions belong to the Pipelines module**, which will bind its own queue to the same exchange. Per-tenant fairness (a noisy tenant delaying others on the shared consumer) is Open (Q23). `repository.connected` / `repository.disconnected` go to the direct queues `notification` (and `pipeline` once it exists). Jobs use the direct queue `scm`.
+
+| Type | Kind | Emitted when | Payload (v1) |
 |---|---|---|---|
-| `repository.connected` | after connect commits (outbox) | `repositoryId`, `workspaceId`, `provider`, `externalRepoId`, `fullName`, `defaultBranch`, `installationRef` | `pipeline`, `notification` |
-| `repository.disconnected` | disconnect, installation revoked/unlinked, repository deleted | `repositoryId`, `workspaceId`, `provider`, `reason` (`user`\|`installation_revoked`\|`installation_unlinked`\|`repo_deleted`\|`access_removed`) | `pipeline`, `notification` |
-| `scm.push.received` | verified push for a connected, enabled repository | `repositoryId`, `deliveryId`, `ref`, `branch` (null for tags), `before`, `after`, `created`, `deleted`, `forced`, `commitCount`, `headCommitSha`, `pusherLogin` | `pipeline` |
-| `scm.pull_request.received` | verified pull_request (`opened`, `reopened`, `synchronize`, `closed`, `ready_for_review`, `edited` filtered) | `repositoryId`, `deliveryId`, `action`, `number`, `headSha`, `baseSha`, `headRef`, `baseRef`, `isFork`, `draft`, `merged`, `authorLogin` | `pipeline` |
+| `repository.connected` | event | after connect commits | `repositoryId`, `workspaceId`, `provider`, `externalRepoId`, `fullName`, `defaultBranch`, `linkId` |
+| `repository.disconnected` | event | disconnect, unlink, revoke, inaccessible | `repositoryId`, `workspaceId`, `provider`, `reason` (`user`\|`installation_unlinked`\|`installation_revoked`\|`repo_inaccessible`) |
+| `scm.push.received` | event | verified push for a linked, active, enabled repository | `repositoryId`, `deliveryId`, `ref`, `branch` (null for tags), `before`, `after`, `created`, `deleted`, `forced`, `commitCount`, `headCommitSha`, `pusherLogin` |
+| `scm.pull_request.received` | event | verified pull_request (relevant actions) | `repositoryId`, `deliveryId`, `action`, `number`, `headSha`, `baseSha`, `headRef`, `baseRef`, `isFork` (unknown = true), `draft`, `merged`, `authorLogin` (all null-tolerant, D7) |
+| `scm.repository.changed` | event | verified `repository` event | `repositoryId`, `deliveryId`, `action`, `fullName`, `archived`, `visibility`, `defaultBranch` |
+| `scm.installation.changed` | event | verified `installation` event | `linkId`, `deliveryId`, `action` |
+| `scm.installation_repositories.changed` | event | verified `installation_repositories` event | `linkId`, `deliveryId`, `action`, `repositoriesAdded`, `repositoriesRemoved` (external ids) |
+| `scm.repository.sync_requested` | job | sync endpoint, scheduled sync | `repositoryId` |
+| `scm.repositories.sync_requested` | job, scope platform | scheduler | `intervalSeconds` |
+| `scm.deliveries.reconcile_requested` | job, scope platform | scheduler | `windowHours`, `maxRedeliveries` |
+| `maintenance.scm.purge_requested` | job, scope platform | scheduler | `retentionDays` |
 
-- `messageId` = `scm-github-<deliveryId>[-<queue>]`; `idempotencyKey` is not needed (the id is deterministic); `correlationId` = the delivery id for webhook events, the request id for UI events.
-- Consumers (pipeline module) re-validate tenant and repository ownership (the verifier gets a `repository.*` check: repository exists, belongs to the tenant, `status = connected`), deduplicate through `processed_messages`, and treat unknown future `schemaVersion` as unsupported (DLQ), per the catalog rules.
-- Internal jobs: `scm.repository.sync_requested` (job, tenant scope, from the sync endpoint and from reconciliation).
-- Retries/DLQ: the standard tiers (WA). Webhook ingestion itself never retries (GitHub redelivers on failure); outbox publication retries with the relay's backoff.
-- Ordering is not guaranteed; consumers use `after`/`headSha` and `occurredAt` to ignore stale events.
+- `messageId` = `scm-github-<deliveryId>`; the outbox is unique per `(messageId, queue)`, so a crash between steps cannot publish twice.
+- Consumers re-validate tenant and repository ownership, deduplicate through `processed_messages`, treat unknown future `schemaVersion` as unsupported (DLQ), and use `after`/`headSha`/`occurredAt` to ignore stale events. Ordering is not guaranteed.
+- Retries/DLQ: standard tiers. Webhook ingestion never retries (GitHub does not redeliver automatically, §17.2 D1); the reconciler and the scheduled sync compensate.
 
 ## 10. Frontend requirements
 
@@ -276,7 +314,7 @@ See `SCREENS.md`. Common rules: TanStack Query with tenant-scoped keys, URL stat
 - **Webhook hardening:** §6.3. No parsing before the signature check; constant-time comparison; no raw-payload persistence; no tenant hints from payload fields; identical answers for accepted, duplicate, ignored and unknown installation; rate limits; body size limit.
 - **Installation takeover resistance:** R-2 and R-3. State is single-use and bound; user authorization proves access; installation ids are never accepted from a client alone.
 - **Credentials:** §7.5 and ADR-009; tokens never in responses, logs (redaction), messages, audit payloads or error messages; secrets for the App are platform-level and read only by the processes that need them.
-- **Least privilege on GitHub (Recommended):** Metadata (read, mandatory), Contents (read), Pull requests (read); Checks/Commit statuses (write) optional and off by default; no write to code. Subscribed events: `push`, `pull_request`, `installation`, `installation_repositories`, `repository`, `meta`, `github_app_authorization`.
+- **Least privilege on GitHub (Confirmed, D5):** repository permissions Metadata (read, mandatory), Contents (read), Pull requests (read); **organization permission Members (read)**, required by the organization-admin check of R-2; Checks/Commit statuses (write) optional and off by default; no write to code. Subscribed events: `push`, `pull_request`, `repository`, `installation_repositories`, `meta`, `github_app_authorization`; `installation` is delivered to every App by default. Also enable *Request user authorization* only as needed by the callback URL we register. Webhook content type JSON, SSL verification on.
 - **Untrusted content:** R-7; fork PRs flagged; this module never executes repository content.
 - **Audit (same transaction):** `scm_installation.linked`, `scm_installation.unlinked`, `scm_installation.status_changed`, `repository.connected`, `repository.updated`, `repository.synced` (state changes only), `repository.enabled`, `repository.disabled`, `repository.disconnected`. Webhook deliveries are not audited per delivery (volume); outcomes are metrics, and security-relevant refusals (bad signature spikes) raise alerts.
 - **Privacy:** commit messages, PR text and author e-mail addresses are not stored or published; logins only where listed in §9.
@@ -303,6 +341,8 @@ Internal: access management (permissions, scope resolvers), workspaces, audit, e
 - [ ] A payload cannot cause events in a tenant other than its installation's tenant.
 - [ ] No token, private key or secret appears in any response, log, message or audit entry.
 - [ ] Installation revoked, repository deleted/renamed/transferred and permission-removed paths update state and emit the specified events.
+- [ ] Reconciliation: a failed delivery inside the window is redelivered by the reconciler and processed once; a repository that disappears becomes `unavailable`, then `disconnected` after N consecutive failures, with both transitions audited.
+- [ ] Linking an installation the user does not administer (organization or personal) is refused.
 - [ ] Security-suite checks in §14.1 pass; `pnpm test:security` count and ADR-008 updated.
 - [ ] OpenAPI, contract snapshot and parity report updated; PROGRESS_TRACKER updated.
 
@@ -323,35 +363,48 @@ The suite needs a **local GitHub stub** (an HTTP server started by the runner, s
 | SCM-010 | Same `(provider, external repo id)` connected twice in one tenant -> `409`; allowed once in each of two tenants |
 | SCM-011 | A tenant session or platform session cannot use the webhook route as an authentication path (the route ignores cookies) |
 | SCM-012 | Responses and audit entries contain no token or key material (the stub issues recognizable fake tokens; the suite searches for them) |
+| SCM-013 | Linking an installation of an organization where the user's role is `member` -> rejected, no link created |
+| SCM-014 | Linking a personal-account installation whose account id differs from the authorized user -> rejected |
+| SCM-015 | A signed payload without `installation.id` -> `202` like an accepted delivery, but nothing processed and nothing persisted for any tenant |
+| SCM-016 | Reconciler: a failed delivery is redelivered once; a second reconciliation run does not redeliver it again; the redelivered GUID produces one event only |
+| SCM-017 | A repository that stops being listed becomes `unavailable`, then `disconnected` after N failures; rows are never deleted; both transitions appear in the audit log |
 | Controls | Admin links via the stub; manager connects; a signed push is accepted (so denials are not vacuous) |
 
-## 15. Open questions
+## 15. Open questions and their disposition
 
-1. **GitHub App feasibility spike (R-1):** confirm token lifetimes, webhook headers, payload limits, event list and the install/redirect flow against current GitHub documentation before building. Also confirm GitHub App vs OAuth fallback for customers that cannot install an App.
-2. **Platform-level secrets:** ADR-009's SecretStore is tenant-scoped (per-tenant keys, tenant foreign keys). Options: (a) amend ADR-009 with a *platform scope* (data key with a null tenant, separate AAD) **Recommended**; (b) read the App secrets from environment/KMS in v1. Production cannot enable SecretStore until a KMS/Vault adapter exists (ADR-009), which also blocks (a) in production.
-3. **One shared App vs bring-your-own App:** one platform App (simplest, one webhook secret, **Recommended**) or per-tenant Apps (isolation of secrets, more setup, per-tenant webhook URL/secret).
-4. **Screen identifiers:** T-13/T-14/T-22/T-23/T-24/T-42 are not defined anywhere in the repository (the wireframe specs are missing). `SCREENS.md` proposes a mapping; please confirm or correct it.
-5. **Permission names:** keep the catalog keys (`connect`, `disconnect`) instead of `create`/`delete`? (**Recommended**: keep.)
-6. **Wizard deviation:** for an App, drop "manage webhooks" and per-repository webhook registration from the wizard and replace the validation matrix (§R-1). Accept?
-7. **Webhook response for unknown installations:** `202` (recommended, no information) vs `404/410` (lets GitHub show failures for uninstalled apps).
-8. **Token cache:** process memory only (recommended) vs a tenant-scoped Redis cache encrypted with SecretStore.
-9. **Who may use an installation:** can a Manager connect repositories from an installation they cannot `integration.view`? Recommended: yes, through the available-repositories endpoint only, never seeing installation details.
-10. **Installation unlink semantics:** unlink only in QmentisAI (recommended) or also uninstall on GitHub; grace period before auto-disconnecting repositories of a revoked installation.
-11. **Queue routing** for `scm.*` and `repository.*` (recommended: `pipeline`, plus `notification` for connection events).
-12. **Moving a repository between workspaces** and the semantics of group restriction (`repository.manage_access`) relative to workspace roles.
-13. **Retention** of `scm_webhook_deliveries` (replay window) and `scm_events`; purge job (Open in OPEN_DECISIONS already for outbox rows).
-14. **Webhook body size limit** (default 1 MiB proposed; GitHub payloads can be much larger for large pushes: accept and reduce, or refuse).
-15. **GitHub IP allow-listing** for the webhook route (optional hardening; ranges change).
-16. **Branches and pull requests** in the UI: live read-through (recommended) vs stored; cache TTL.
-17. **Entitlement `repositories.max`** and its placeholder value; whether disabled repositories count.
-18. **Archived/read-only repositories** and what the pipeline module does with them.
-19. **Fork pull requests:** flag only (this spec) vs refuse to publish events for forks until the pipeline module defines a policy.
-20. **GitHub Enterprise Server / GitLab / Bitbucket:** timing and whether the adapter contract is written now.
-21. **"Sync frequency"** (TAD §3b.5): reconciliation interval and who can change it.
+Decisions by the owner are marked **Decided**; every other item carries **Recommended — default applied** (the default is in force, revisit any time).
+
+| Q | Topic | Disposition |
+|---|---|---|
+| 1 | GitHub App feasibility spike | **Decided**: done (§17); differences resolved by D1 to D10 |
+| 2 | Platform-level secrets | **Decided**: ADR-009 amended with a PlatformSecretProvider (environment in development, KMS/Vault in production); App private key, client secret and webhook secret are never stored in the database in v1; the tenant SecretStore is unchanged |
+| 3 | Shared App vs bring-your-own | **Decided**: one shared QmentisAI GitHub App in v1; bring-your-own App and GitHub Enterprise Server stay Open (later work item) |
+| 4 | Screen identifiers | **Decided**: taken from `TENANT_APP_WIREFRAME_SPEC.md` (T-13, T-14, T-22, T-23, T-24, T-42); see `SCREENS.md` |
+| 5 | Permission names | **Decided**: keep `repository.connect` / `repository.disconnect` |
+| 6 | Wizard deviation for an App | Recommended — default applied: no per-repository webhook registration; the wireframe text "Webhooks will be registered automatically" becomes "Events arrive through the GitHub App; signatures are verified on every delivery" |
+| 7 | Webhook responses | **Decided**: invalid signature `401`; valid signature with unknown/unlinked installation `202` identical to accepted, plus log and metric |
+| 8 | Token cache | Recommended — default applied: process memory only; delivery-ID retention **Decided** at 30 days (`SCM_DELIVERY_RETENTION_DAYS`) |
+| 9 | Who may use an installation | Recommended — default applied: a role with `repository.connect` in a workspace may select repositories from the tenant's linked installations through the available-repositories endpoint (and only if the workspace is in the link's scope); installation details need `integration.view` |
+| 10 | Unlink semantics | **Decided**: repositories `disconnected` (not deleted), pipelines disabled, history/findings/audit retained, webhooks ignored, re-link restores, all audited (R-6). Not uninstalling on GitHub |
+| 11 | Routing | **Decided**: topic exchange `qmentis.scm.events`, routing key `scm.github.<event>`, one consumer applies normalized events, trigger matching belongs to Pipelines; per-tenant fairness stays **Open** (Q23) |
+| 12 | Moving a repository between workspaces; group restriction | Recommended — default applied: moving is not supported in v1 (disconnect and reconnect keeps the same row only within the same workspace); group restriction inherits workspace roles and further limits visibility to the listed groups |
+| 13 | Retention of events | Recommended — default applied: `scm_webhook_deliveries` 30 days; `scm_events` follow the outbox/processed-message retention decision (Open in OPEN_DECISIONS) |
+| 14 | Webhook body limit | Recommended — default applied: 1 MiB default (`SCM_WEBHOOK_BODY_LIMIT_BYTES`); larger signed deliveries get `413` and the reconciler/sync covers the gap (GitHub's cap is 25 MB) |
+| 15 | IP allow-listing | Recommended — default applied: not enabled in v1 (ranges change); documented as optional hardening |
+| 16 | Branches and pull requests in the UI | Recommended — default applied: live read-through from GitHub, 60 s tenant-scoped cache, nothing stored |
+| 17 | Entitlement `repositories.max` | Recommended — default applied: added to the catalog with a placeholder limit in the seed (disconnected repositories do not count) |
+| 18 | Archived repositories | Recommended — default applied: shown read-only; the Pipelines module decides execution policy |
+| 19 | Fork pull requests | Recommended — default applied: events are published with `isFork` (unknown = fork); the Pipelines module decides policy |
+| 20 | GHES, GitLab, Bitbucket | **Open** (later work items; the adapter interface is provider-neutral) |
+| 21 | Sync frequency | Recommended — default applied: `SCM_SYNC_INTERVAL_SECONDS` 3600; changing it is a platform setting |
+| 22 | Repository id stability | **Decided**: risk accepted; `node_id` stored as secondary identity; the empirical rename and transfer test with the development GitHub App is **Open** |
+| 23 | Per-tenant fairness on the shared `scm-events` consumer | **Open** |
+| 24 | `GET /repositories/{id}` (by numeric id) as a lighter per-repository sync call | **Open**: not covered by the spike; sync lists the installation's repositories instead |
+| 25 | Redelivery GUID in the REST API | **Open**: the docs are silent whether `POST .../attempts` keeps the GUID; the reconciler assumes it does (best-practices page) and dedupes either way |
 
 ## 16. Implementation notes
 
-Not implemented. Expected implementation order: (1) message catalog entries and event payload schemas; (2) migrations and repositories; (3) platform-secret decision (Q2) and GitHub client (app JWT, installation tokens, stub for tests); (4) installation linking APIs; (5) repository APIs with the repository scope resolver; (6) webhook route (route-kit `webhook` option, raw body) and ingestion service; (7) workers: ownership checks for `repository.*`, sync job; (8) screens; (9) security-suite checks §14.1, OpenAPI, contract snapshot, docs. Deviations from this approved design will be recorded here.
+Implementation order and results are recorded per part below as the parts land (B migration, C adapter, D linking, E webhook, F repository APIs and jobs, G screens, H stub and suite). Deviations from this approved design are listed here.
 
 ## 17. Verification spike: GitHub facts against the official documentation (2026-11-11)
 
@@ -401,10 +454,24 @@ Method: the pages below were fetched from `docs.github.com` on 2026-11-11 by web
 ### 17.3 Gaps (documentation silent; verify before relying)
 `setup_action` and `state` on the setup redirect; whether a deleted repository triggers `installation_repositories` `removed`; whether a REST redelivery gets a new id (the best-practices page says the header GUID is unchanged); installation fields in the webhook payload; the `hooks` key of `GET /meta`; which credential `GET /installation/repositories` takes.
 
-### 17.4 Proposed spec changes (awaiting your approval; not yet applied to the sections above)
+### 17.4 Proposed spec changes (approved by the owner and applied; see §17.5)
 1. §6.4 and §9: replace "GitHub redelivers" with "no automatic redelivery"; make reconciliation a Must (scheduled and on `repository.sync`), detecting deleted/transferred/inaccessible repositories by 404/403.
 2. R-2 and §6.1: use the documented sequence setup redirect (`installation_id`) -> our own OAuth authorize with our `state` -> `GET /user/installations` check; drop reliance on `state` in the install URL.
 3. D5: choose between (a) tenant-admin gate only, (b) additionally require organization role `admin` via the Members: read permission (Recommended), (c) both with a per-tenant setting.
 4. D6: add an empirical check (sandbox rename and transfer) to the implementation plan, and a reconciliation fallback that re-matches a repository by `node_id` if the numeric id ever mismatches.
 5. D7 and D8: payload normalization must be null-safe, and the adapter spec records "verified on a real delivery" as an acceptance criterion.
 6. §8 and §9: nothing else changes; the owner's other review decisions (permissions, platform-secret amendment to ADR-009, single shared App, 202 for unknown installations, unlink semantics, `scm` exchange with routing keys `scm.github.<event>`, 30-day delivery retention, defaults for the remaining open questions) are not affected by the spike and remain to be applied after you answer D1 to D11.
+
+### 17.5 Spike decisions applied (owner, 2026-11-11)
+
+| Id | Decision | Where applied |
+|---|---|---|
+| D1 | Reconciliation REQUIRED: delivery reconciler (App deliveries API, 3-day window, idempotent through delivery-ID dedupe) and scheduled repository sync; intervals configurable | REPO-019, §6.4, §6.5 |
+| D2/D3 | Sync 404/403 -> repository `unavailable`; after N consecutive failures -> `disconnected`; never deleted; both transitions audited | R-6, §6.4, §7.2 |
+| D4 | Documented flow only: setup redirect, our OAuth authorize with our single-use state, installation verification; install-URL state ignored | R-2, §6.1, §8.1 |
+| D5 | Option (b) plus the personal-account rule; organization role `admin` via `GET /user/memberships/orgs/{org}` (Members: read added to the App); personal installation account id must equal the authorized user id; linker needs `integration.manage`; generic 409 on conflicts | R-2, R-3, §11 |
+| D6 | Risk accepted; `node_id` secondary identity used in reconciliation; empirical rename/transfer test is Open | R-4, Q22 |
+| D7 | Null-tolerant normalization; unknown fork status = fork | §9 |
+| D8 | Signed payload without `installation.id` -> not processed, logged and counted, response identical to accepted | §6.3, §8.3 |
+| D9 | No token length or format assumptions anywhere | §7.5 |
+| D10 | `X-GitHub-Api-Version` pinned from configuration (`GITHUB_API_VERSION`); `Accept: application/vnd.github+json` | adapter (part C) |

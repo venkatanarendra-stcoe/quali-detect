@@ -64,6 +64,16 @@ Create, rotate and delete are audited with the standard immutable audit service:
 - **Security suite:** `SEC-001..009` (cross-tenant ref, wrong purpose, AAD binding to the secret id, ciphertext moved across tenants, no plaintext at rest, API view without value or key versions, audit without value, rotate/delete, message guard). They run in-process against the disposable database because the store has no HTTP surface yet (ADR-008). A deliberate AAD bug was caught by `SEC-003`.
 - **Deferred (item 6):** the re-encryption job for DEK rotation. Rotation of a secret's value (`rotate`) works and moves it to the tenant's current DEK version; master-key and DEK rotation campaigns are Open (see OPEN_DECISIONS).
 
+## Amendment 2026-11-11: platform-level secrets (PlatformSecretProvider)
+
+Some secrets belong to the platform, not to a tenant: the GitHub App private key, client secret and webhook secret (docs/modules/repositories-github/SPEC.md). The tenant `SecretStore` (per-tenant data keys, tenant foreign keys) is **unchanged** and is not used for them.
+
+- **PlatformSecretProvider**: a small server-only interface, `get(name) -> string | null`, plus `has(name)`, for named platform secrets (`github.app.private_key`, `github.app.client_secret`, `github.app.webhook_secret`). Providers: **environment** (development; also `<NAME>_FILE` to read a mounted file) and **KMS/Vault** (production; adapters not implemented yet).
+- **Never stored in the database in v1.** Nothing in `secrets` or `tenant_data_keys` holds a platform secret; a database dump contains none of them.
+- **Production rule** (same as the master key): with the integration enabled and the `env` provider selected in production, startup is refused until a KMS/Vault provider exists. Configuration names the variable, never the value.
+- **Handling:** values are read at startup or on demand, kept in memory, never logged (redaction paths `privateKey`, `clientSecret`, `webhookSecret`), never returned by an API and never placed in a message or audit entry.
+- **Open:** the first production provider (KMS or Vault) and rotation procedure for the webhook secret (GitHub allows one secret per App, so rotation needs a short window; to be designed with the first provider).
+
 ## Alternatives considered
 
 1. **Database-level encryption (pgcrypto) with one application key:** one key for every tenant, no per-tenant blast-radius limit, keys travel in SQL. Rejected.

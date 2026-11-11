@@ -1,4 +1,4 @@
-// import { groupsModule } from "./groups/index.js";
+import { groupsModule } from "./groups/index.js";
 import { identityModule } from "./identity/index.js";
 import { platformIdentityModule } from "./platform-identity/index.js";
 import { platformTenantsModule } from "./platform-tenants/index.js";
@@ -16,7 +16,7 @@ export const modules = [
   platformIdentityModule,
   platformTenantsModule,
   usersModule,
-  // groupsModule,
+  groupsModule,
   // rolesModule,
   // roleAssignmentsModule,
   // workspacesModule,

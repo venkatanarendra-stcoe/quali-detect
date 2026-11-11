@@ -18,7 +18,7 @@ import {
  * Tenant-level routes: `group.view` / `group.manage` are tenant permissions, so callers without them get 403.
  * @param {ReturnType<typeof import("../controllers/index.js").createGroupController>} controller
  * @param {{ authorize: Function }} authz
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const groupRoutes = (controller, authz) =>
   async function groups(app) {

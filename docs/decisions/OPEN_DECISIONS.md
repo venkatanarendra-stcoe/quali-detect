@@ -18,6 +18,9 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | Billing/invoicing integration | Not finalized | Commercial decision |
 | SSO providers and protocols | Requirements include SSO | Confirm supported protocols |
 | Data retention periods | Not finalized | Compliance/business decision |
+| Retention window after which a deactivated tenant becomes terminal (AUTHORIZATION Q25) | Value not set; must be configurable | Open: propose a default with the Compliance decision (for example 30 days) |
+| Progressive throttling curve for MFA and sign-in (AUTHORIZATION Q24) | Thresholds, delay growth and cap not set; must be configurable | Open: propose values when implementing |
+| Credential storage details (ADR-009 *Open* table) | KMS vs Vault adapter, resolve auditing, DEK rotation schedule, crypto-shredding | See ADR-009 |
 | Exact AI coding-tool event capabilities | Provider-specific | Verify before implementing each adapter |
 | ~~OpenAPI generation, middleware libraries and hardening for Express~~ | Decided by the owner with the migration (zod-to-openapi, cookie-parser, cors, pino-http, helmet, rate limit, trust proxy): see ADR-007 | Resolved |
 | Reasons for replacing Fastify (ADR-007) | Not stated with the instruction | Owner to record in the ADR |

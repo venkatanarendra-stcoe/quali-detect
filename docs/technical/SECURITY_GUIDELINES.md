@@ -28,7 +28,7 @@
 
 ## Secrets and credentials
 
-- Encrypt integration credentials at rest.
+- Encrypt integration credentials at rest through the `SecretStore` (envelope encryption, per-tenant keys; ADR-009).
 - Restrict decryption to services that require the secret.
 - Never log tokens, passwords, private keys or secret scan values.
 - Redact secrets from snippets, reports and error messages.

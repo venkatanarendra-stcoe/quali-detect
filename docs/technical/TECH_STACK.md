@@ -29,7 +29,7 @@
 | Logging | Pino |
 | Date utilities | date-fns |
 | Lint/format | ESLint + Prettier |
-| Security regression suite | `node:test` through `pnpm test:security` (ADR-008; no extra dependency) |
+| Security regression suite | `node:test` through `pnpm test:security` (ADR-008; no extra dependency; scope limited to isolation, authorization, session separation and segregation of duties) |
 
 ## Language rules
 

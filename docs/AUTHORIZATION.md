@@ -396,42 +396,46 @@ Identity/authentication (sessions, user status); tenant context (ADR-003); works
 
 ## 15. Decisions log (former open questions)
 
-Status: **Resolved** = your decision in the 2026-11-11 review; **Recommended — default applied** = I applied my Recommended default so you can revisit it. Questions 1–23 keep their original numbers.
+Status: **Resolved** = the owner's decision in the 2026-11-11 review; **Confirmed (2026-11-11)** = a former *Confirmed (2026-11-11)* that the owner confirmed in full on 2026-11-11, with the two exceptions recorded as Q24 and Q25 (which replace the earlier MFA-lockout default and the earlier "deactivated is terminal" default). Questions 1–23 keep their original numbers. Inline labels such as *Recommended* in §§3–14 are not rewritten here; where they refer to a row of this log, the log governs, and the labels are updated when those sections are next revised.
 
 | Q | Question | Status | Decision / default applied |
 |---|---|---|---|
-| 1 | Where are the wireframe specs? | Recommended — default applied | The derived tables stand until the wireframe specs are provided; reconcile then |
+| 1 | Where are the wireframe specs? | Confirmed (2026-11-11) | The derived tables stand until the wireframe specs are provided; reconcile then |
 | 2 | Does Admin hold review/approve? | Resolved (decision 5) | Admin keeps `finding.review`; loses `approval.approve`/`approval.reject` by default |
-| 3 | Tenant-wide non-Admin assignments? | Recommended — default applied | Allowed for any role; only Admin carries tenant administration keys, so a tenant-wide Manager gains none |
-| 4 | Who assigns remediation? | Recommended — default applied | Dev Lead (and Admin); not Lead |
-| 5 | Developer scope for remediation | Recommended — default applied | Only findings assigned to them |
-| 6 | Guest/Viewer capabilities | Recommended — default applied | Read-only incl. redacted evidence; no comments, no activity, no export |
-| 7 | Suppression and accepted risk | Recommended — default applied | Provisional keys (`finding.suppress`, `finding.accept_risk`: Admin, Lead); full workflow and SoD deferred to the Findings spec |
-| 8 | Manual scans (DAST, Asset Discovery) | Recommended — default applied | `scan.run_manual`: Admin, Manager, Lead, Dev Lead; no approval step |
-| 9 | Groups | Resolved (decision 4) + Recommended — default applied | Flat; groups managed by Admin (`group.manage`); manual membership only (SSO/SCIM sync deferred) |
-| 10 | SoD edge cases | Recommended — default applied | No break-glass, no override; only SOD-1..3; a second eligible approver is required |
-| 11 | Custom-role limits | Recommended — default applied | Review + approve in one role is allowed with a UI warning; roles are tenant-wide (no per-workspace roles); no count limit in v1 |
-| 12 | Assignment features | Resolved (decisions 2, 3) + Recommended — default applied | `expiresAt` yes (data only); no deny rules; no approval workflow for tenant-scope grants |
-| 13 | 403 body content | Recommended — default applied | Generic message and `details.reason` code; never the permission key |
-| 14 | New error codes | Recommended — default applied | Add `LAST_TENANT_ADMIN`, `ROLE_IN_USE`, `ROLE_ESCALATION`, `TENANT_SUSPENDED`; SoD is `FORBIDDEN` with `details.reason: separation_of_duties` |
-| 15 | Support access | Recommended — default applied | Default 1 h, maximum 8 h, second approver required, tenant Admins notified, read-only |
-| 16 | Effective-permission explain endpoint | Recommended — default applied | Included for `user.view` holders, audited |
-| 17 | Staleness bound | Recommended — default applied | Per-request resolution; any cache is tenant-scoped with TTL ≤ 30 s and event invalidation; revocation also removes realtime room membership |
-| 18 | Audit retention | Recommended — default applied | Retain indefinitely until a compliance decision; no deletion job in v1 |
-| 19 | Users across tenants; platform identity | Resolved (decision 1) + Recommended — default applied | Users global with `tenant_memberships`; platform users in a separate `platform_users` store |
-| 20 | Archived workspaces | Recommended — default applied | Reads follow permissions; mutations denied except restore (`workspace.archive`) |
-| 21 | Platform roles | Recommended — default applied | Only Super Admin and Support; Support never bypasses approval |
-| 22 | Last workspace Admin | Recommended — default applied | Every workspace keeps at least one workspace-scope Admin assignment |
-| 23 | `directory.search` as its own key | Recommended — default applied | Kept as a separate tenant-scope key |
+| 3 | Tenant-wide non-Admin assignments? | Confirmed (2026-11-11) | Allowed for any role; only Admin carries tenant administration keys, so a tenant-wide Manager gains none |
+| 4 | Who assigns remediation? | Confirmed (2026-11-11) | Dev Lead (and Admin); not Lead |
+| 5 | Developer scope for remediation | Confirmed (2026-11-11) | Only findings assigned to them |
+| 6 | Guest/Viewer capabilities | Confirmed (2026-11-11) | Read-only incl. redacted evidence; no comments, no activity, no export |
+| 7 | Suppression and accepted risk | Confirmed (2026-11-11) | Provisional keys (`finding.suppress`, `finding.accept_risk`: Admin, Lead); full workflow and SoD deferred to the Findings spec |
+| 8 | Manual scans (DAST, Asset Discovery) | Confirmed (2026-11-11) | `scan.run_manual`: Admin, Manager, Lead, Dev Lead; no approval step |
+| 9 | Groups | Resolved (decision 4) + Confirmed (2026-11-11) | Flat; groups managed by Admin (`group.manage`); manual membership only (SSO/SCIM sync deferred) |
+| 10 | SoD edge cases | Confirmed (2026-11-11) | No break-glass, no override; only SOD-1..3; a second eligible approver is required |
+| 11 | Custom-role limits | Confirmed (2026-11-11) | Review + approve in one role is allowed with a UI warning; roles are tenant-wide (no per-workspace roles); no count limit in v1 |
+| 12 | Assignment features | Resolved (decisions 2, 3) + Confirmed (2026-11-11) | `expiresAt` yes (data only); no deny rules; no approval workflow for tenant-scope grants |
+| 13 | 403 body content | Confirmed (2026-11-11) | Generic message and `details.reason` code; never the permission key |
+| 14 | New error codes | Confirmed (2026-11-11) | Add `LAST_TENANT_ADMIN`, `ROLE_IN_USE`, `ROLE_ESCALATION`, `TENANT_SUSPENDED`; SoD is `FORBIDDEN` with `details.reason: separation_of_duties` |
+| 15 | Support access | Confirmed (2026-11-11) | Default 1 h, maximum 8 h, second approver required, tenant Admins notified, read-only |
+| 16 | Effective-permission explain endpoint | Confirmed (2026-11-11) | Included for `user.view` holders, audited |
+| 17 | Staleness bound | Confirmed (2026-11-11) | Per-request resolution; any cache is tenant-scoped with TTL ≤ 30 s and event invalidation; revocation also removes realtime room membership |
+| 18 | Audit retention | Confirmed (2026-11-11) | Retain indefinitely until a compliance decision; no deletion job in v1 |
+| 19 | Users across tenants; platform identity | Resolved (decision 1) + Confirmed (2026-11-11) | Users global with `tenant_memberships`; platform users in a separate `platform_users` store |
+| 20 | Archived workspaces | Confirmed (2026-11-11) | Reads follow permissions; mutations denied except restore (`workspace.archive`) |
+| 21 | Platform roles | Confirmed (2026-11-11) | Only Super Admin and Support; Support never bypasses approval |
+| 22 | Last workspace Admin | Confirmed (2026-11-11) | Every workspace keeps at least one workspace-scope Admin assignment |
+| 23 | `directory.search` as its own key | Confirmed (2026-11-11) | Kept as a separate tenant-scope key |
+| 24 | MFA failure handling (replaces the earlier "5 wrong codes per user per 15 minutes, then refuse even the right code" default) | Confirmed (2026-11-11) | **No hard account lock.** Second-factor and sign-in failures are throttled **progressively, per account and per IP**: each consecutive failure lengthens the delay before the next attempt is evaluated (429 `RATE_LIMITED` with `retryAfterSeconds`), up to a cap, so someone who knows a platform password can slow the real user but never lock them out. Failures are audited (`platform.auth.mfa_failed`). **Open / configurable:** thresholds, delay growth, cap and decay (see `OPEN_DECISIONS.md`). Tenant-user MFA policy stays Open |
+| 25 | Deactivated tenants (replaces the earlier "deactivated is terminal" default) | Confirmed (2026-11-11) | A deactivated tenant **can be reactivated by a Platform Super Admin until its retention window expires; after that deactivation is terminal.** Reactivation is audited with a reason; before the window ends the tenant's data is retained untouched. **Open / configurable:** the window length (see `OPEN_DECISIONS.md`) and the effect of expiry on data (retention and purge belong to the Compliance decision; ADR-009 notes crypto-shredding as an option) |
 
-Still genuinely open: nothing blocks implementation; every row above remains revisitable.
+Still genuinely open (configurable values, do not guess): the progressive-throttling parameters (Q24), the deactivation retention window and the effect of its expiry (Q25), and tenant-user MFA policy. Nothing blocks implementation.
 
 ## 16. Implementation notes
 **Identity (2026-11-11):** mock authentication, sessions, tenant context, `GET /api/v1/me` (+ `/me/tenants`, `PUT /me/active-tenant`) and the platform auth context are implemented in `apps/api` (modules `identity`, `platform-identity`, `authorization`). Sessions: random 256-bit token in an HttpOnly cookie, only its SHA-256 hash stored (`sessions` / `platform_sessions`, separate cookies `qm_session` / `qm_platform_session` and paths); idle + absolute expiry. Tenant is derived only from `session.activeTenantId`; suspended/deactivated tenants → 403 `TENANT_SUSPENDED`; no active tenant → 403 `TENANT_CONTEXT_REQUIRED` on tenant routes. Every route must declare `config.audience` (`public|user|tenant|platform`), enforced at startup. Tenant session on a platform route → 404; platform session on a tenant route → 401. Deviation: seeded users have no credentials, so the mock provider checks a shared password from `MOCK_AUTH_PASSWORD` / `MOCK_PLATFORM_AUTH_PASSWORD` (refused in production). SSO/MFA hooks: `auth/providers`, `auth/mfa-policy.js`, `authMethod`/`mfaVerifiedAt` on sessions. Superseded by the next paragraph for guards and resolver.
 
+**Tenant lifecycle decision (Q25, 2026-11-11):** deactivated tenants are reactivatable by a Super Admin until the retention window expires, then terminal. *Current code treats deactivation as terminal immediately* (`reactivate` is allowed only from `suspended`); the change is pending.
+
 **Platform tenants (2026-11-11):** `GET/POST /platform/tenants`, `GET /platform/tenants/{id}`, `POST /platform/tenants/{id}/suspend|reactivate|deactivate` and `GET /platform/plans` (module `platform-tenants`) use `platform.tenant.view|create|suspend|reactivate|deactivate` and `platform.plan.view`; details and defaults applied: `docs/modules/access-management/SCREENS.md`.
 
-**Platform MFA (2026-11-11):** Root Console sign-in is mandatory two-step. `requiresMfa({ audience: "platform" })` is always true: a platform session without `mfaVerifiedAt` gets 401 `details.reason: mfa_required` on every platform route, so no profile or data is returned. The mock verifier is `POST /api/v1/platform/auth/mfa/verify` with the 6-digit code `MOCK_PLATFORM_MFA_CODE` (required while mock auth is enabled). A correct code revokes the unverified session and issues a NEW verified one (the pre-MFA token is dead); wrong codes are audited (`platform.auth.mfa_failed`) and limited to 5 per user per 15 minutes, after which even the right code is refused (429) until the window ends. Trade-off: that per-user limit lets someone who knows a platform password lock that user's MFA for a window; per-user lockout vs IP-only limiting is Open. Tenant sessions have no MFA requirement yet (Open: per-tenant policy). A real provider (TOTP, WebAuthn, or an IdP asserting MFA) replaces the mock by setting `mfaVerifiedAt`.
+**Platform MFA (2026-11-11):** Root Console sign-in is mandatory two-step. `requiresMfa({ audience: "platform" })` is always true: a platform session without `mfaVerifiedAt` gets 401 `details.reason: mfa_required` on every platform route, so no profile or data is returned. The mock verifier is `POST /api/v1/platform/auth/mfa/verify` with the 6-digit code `MOCK_PLATFORM_MFA_CODE` (required while mock auth is enabled). A correct code revokes the unverified session and issues a NEW verified one (the pre-MFA token is dead); wrong codes are audited (`platform.auth.mfa_failed`). **Decision Q24 (2026-11-11):** there is no hard account lock; failures are throttled progressively per account and per IP (parameters Open/configurable). *Current code still has the earlier fixed rule* (5 wrong codes per user per 15 minutes, after which even the right code is refused until the window ends, which lets someone who knows a platform password lock that user's MFA for a window); replacing it is a pending code change. Tenant sessions have no MFA requirement yet (Open: per-tenant policy). A real provider (TOTP, WebAuthn, or an IdP asserting MFA) replaces the mock by setting `mfaVerifiedAt`.
 
 **Access management (2026-11-11):** the central engine (`resolveEffectivePermissions`, `can`, escalation helpers) lives in `@qmentisai/shared`; `apps/api` enforces it with `authorize(permissionKey, scopeResolver)`, an immutable audit service, entitlement/quota helpers and CRUD for users, groups, roles, role assignments, workspaces and workspace members. Details, defaults applied and deviations: `docs/modules/access-management/SPEC.md`. Not implemented: SoD checks on approvals (no findings yet), permission caching, Idempotency-Key, Socket.IO room updates.
 

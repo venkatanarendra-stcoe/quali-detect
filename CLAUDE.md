@@ -11,7 +11,7 @@ Hierarchy: **Tenant → Workspace → Repository → Pipeline → Execution → 
 - Backend **Express 5** per ADR-007 (never NestJS; `apps/api` is migrated, Fastify is gone); follow the route kit and the `docs/api/` contract; Prisma + PostgreSQL; Redis (cache/locks/rate limit); RabbitMQ (durable jobs); Socket.IO (authorized realtime only); Pino; OpenAPI.
 - Frontend React + Vite + shadcn/ui + Tailwind + React Router + TanStack Query/Table + Zustand + React Hook Form + Recharts + Lucide + Sonner.
 - pnpm workspaces + Turborepo; ESLint + Prettier; pinned dependency versions, commit the lockfile, justify every new dependency.
-- Out of scope now: Docker, Docker Compose, Kubernetes, deployment/CI config, test-case structures (sole exception: the security regression suite, ADR-008). Secure engineering and review still apply.
+- Out of scope now: Docker, Docker Compose, Kubernetes, deployment/CI config, feature/unit test-case structures (sole exception: the security regression suite run by `pnpm test:security`, ADR-008, whose scope is only tenant isolation, authorization 404/403, platform/tenant session separation and segregation of duties). Secure engineering and review still apply.
 
 ## Tenant isolation (docs/architecture/TENANT_ISOLATION.md, ADR-003)
 - Never query a tenant-owned record by ID alone; include trusted tenant scope and validate workspace/repository/pipeline parent-child links.
@@ -62,6 +62,7 @@ Security gate: any change to authentication, sessions, tenant context, authoriza
 - `decisions/ADR-006-REPOSITORY-LAYOUT-AND-CODE-FIRST-UI.md` — layout, code-first UI, pinned versions (mock-first part stale)
 - `decisions/ADR-007-REPLACE-FASTIFY-WITH-EXPRESS-5.md` — Express 5 replaces Fastify (implemented; gates, behavior differences, rollback)
 - `decisions/ADR-008-SECURITY-REGRESSION-SUITE.md` — `pnpm test:security` scope and rules (the one allowed test suite)
+- `decisions/ADR-009-INTEGRATION-CREDENTIAL-STORAGE.md` — SecretStore, AES-256-GCM envelope encryption, per-tenant keys, secrets never in messages/logs
 - `decisions/OPEN_DECISIONS.md` — unresolved business/technical decisions; do not guess
 - `design/DESIGN_SYSTEM.md` — tokens, mint rules, components, icons
 - `design/UX_GUIDELINES.md` — layout, navigation, tables, states, accessibility

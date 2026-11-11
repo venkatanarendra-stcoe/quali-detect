@@ -98,7 +98,7 @@ Do not mix platform administration permissions with tenant authorization.
 
 ## 9. Current scope exclusions
 
-Do not add test-case directories or test-case implementation, Docker, Docker Compose, Kubernetes, deployment or CI/CD setup as part of the current project initialization scope. Do not interpret this as permission to ignore secure engineering or code review.
+Do not add feature or unit test-case directories or test-case implementation (the sole exception is the security regression suite, `pnpm test:security`, ADR-008: tenant isolation, authorization 404/403, platform/tenant session separation and segregation of duties), Docker, Docker Compose, Kubernetes, deployment or CI/CD setup as part of the current project initialization scope. Do not interpret this as permission to ignore secure engineering or code review.
 
 ## 10. Work protocol
 

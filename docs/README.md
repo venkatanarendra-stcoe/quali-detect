@@ -30,5 +30,5 @@ Do not treat recommendations or open items as confirmed requirements.
 - pnpm workspaces + Turborepo monorepo.
 - Two separate frontends: Tenant Application and Root Console.
 - Backend starts as a modular monolith with separate worker entry points.
-- Do not add test-case structures, Docker, Docker Compose or deployment setup to the current initialization scope.
+- Do not add feature or unit test-case structures, Docker, Docker Compose or deployment setup to the current initialization scope. The one exception is the security regression suite (`pnpm test:security`, ADR-008): tenant isolation, authorization (404/403), platform/tenant session separation and segregation of duties only.
 - Do not silently change approved architecture or product decisions.

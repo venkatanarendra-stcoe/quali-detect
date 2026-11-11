@@ -1,7 +1,8 @@
-# ADR-008: Security regression suite (tenant isolation, authorization, session separation)
+# ADR-008: Security regression suite (tenant isolation, authorization, session separation, segregation of duties)
 
 - **Status:** Accepted (2026-11-11, on the product owner's instruction)
 - **Date:** 2026-11-11
+- **Amended:** 2026-11-11 (owner instruction): segregation of duties added to the allowed scope; scope and constraint wording restated below. The ADR keeps its number; no second ADR was created for the same decision.
 - **Decision owners:** Product owner (decision); Claude Code (implementation)
 - **Relation to `CLAUDE.md`:** `CLAUDE.md` lists "test-case structures" as out of scope. This ADR makes **one narrow exception**: this suite, nothing else. Unit tests, UI tests, coverage targets and general API behavior tests remain out of scope.
 
@@ -13,14 +14,18 @@
 
 Add a committed **security regression suite**, run with `pnpm test:security`.
 
+**Allowed scope: ONLY the four areas below, run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
+
 **In scope (and only this):**
 
 1. Tenant isolation: another tenant's resources by id (read, change, delete, assign, add as member), list leakage, tenant never taken from a header, query or body.
 2. Authorization outcomes: a workspace the caller cannot see answers **404** with a body identical to a non-existent one; a visible resource without the permission answers **403**; escalation guard (SOD-3).
 3. Platform/tenant session separation: tenant session on platform routes (404), platform session on tenant routes (401), no session (401), platform session before MFA (401 `mfa_required`, no data), cookie-name confusion, cross-audience sign-in, cross-site Origin (CSRF) refusal.
-4. Tenant suspension takes effect immediately and does not affect another tenant (these three checks belong to the 68).
+4. Segregation of duties: no self-escalation (SOD-3, check `AUTHZ-015`, part of the 68). SOD-1 (a reviewer cannot approve their own decision) and SOD-2 (a decision awaiting approval cannot be edited by its reviewer) get checks **in the same work item that builds the review/approval workflow**, because they cannot be exercised before it exists; adding them changes the count of checks and requires updating this ADR and the integrity test.
 
-**Out of scope:** unit tests, frontend/browser tests, load or performance tests, coverage thresholds, functional tests of other behavior, RabbitMQ and workers, CI configuration (no CI is in scope for the project).
+Also covered, as part of areas 1 to 3: tenant suspension takes effect immediately and does not affect another tenant (`SUSP-001..003`, part of the 68).
+
+**Out of scope:** feature tests, unit tests, frontend/browser tests, load or performance tests, coverage thresholds, functional tests of other behavior, RabbitMQ and workers, CI configuration (no CI is in scope for the project).
 
 ## Design
 

@@ -2,7 +2,7 @@
   "name": "@qmentisai/api",
   "version": "0.0.0",
   "private": true,
-  "description": "Fastify API (modular monolith)",
+  "description": "Express 5 API (modular monolith)",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
@@ -19,17 +19,21 @@
     "contract:snapshot": "node scripts/snapshot-contract.js"
   },
   "dependencies": {
-    "@fastify/cookie": "catalog:",
-    "@fastify/cors": "catalog:",
-    "@fastify/swagger": "catalog:",
+    "@asteasolutions/zod-to-openapi": "catalog:",
     "@qmentisai/contracts": "workspace:*",
     "@qmentisai/db": "workspace:*",
     "@qmentisai/infra": "workspace:*",
     "@qmentisai/shared": "workspace:*",
-    "fastify": "catalog:",
-    "fastify-plugin": "catalog:",
-    "zod": "catalog:",
-    "zod-to-json-schema": "catalog:"
+    "cookie-parser": "catalog:",
+    "cors": "catalog:",
+    "express": "catalog:",
+    "express-rate-limit": "catalog:",
+    "helmet": "catalog:",
+    "pino": "catalog:",
+    "pino-http": "catalog:",
+    "rate-limit-redis": "catalog:",
+    "swagger-ui-express": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@qmentisai/config": "workspace:*",

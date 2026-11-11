@@ -20,7 +20,7 @@ export function createAuthResolvers({ db, config, sessions }) {
   return Object.freeze({
     /**
      * Tenant-audience session -> `{ session, user }`, or null when there is no valid session or the user is not active.
-     * @param {import("fastify").FastifyRequest} request
+     * @param {import("express").Request} request
      */
     async resolveUserSession(request) {
       const session = await sessions.tenant.resolve(readSessionCookie(request, "tenant", config));
@@ -68,7 +68,7 @@ export function createAuthResolvers({ db, config, sessions }) {
 
     /**
      * Platform-audience session -> `{ session, platformUser, role, permissions }` or null. Reads only the platform cookie.
-     * @param {import("fastify").FastifyRequest} request
+     * @param {import("express").Request} request
      */
     async resolvePlatformContext(request) {
       const session = await sessions.platform.resolve(

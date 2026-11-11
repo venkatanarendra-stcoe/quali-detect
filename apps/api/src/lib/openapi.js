@@ -1,20 +1,13 @@
+import { z } from "zod";
+import {
+  extendZodWithOpenApi,
+  OpenAPIRegistry,
+  OpenApiGeneratorV3,
+} from "@asteasolutions/zod-to-openapi";
 import { apiErrorSchema } from "@qmentisai/contracts";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { isZodSchema } from "./validation.js";
 
-/**
- * Converts a Zod schema to an OpenAPI 3 compatible JSON Schema.
- * @param {import("zod").ZodTypeAny} schema
- */
-export function toOpenApiSchema(schema) {
-  const { $schema: _ignored, ...json } = zodToJsonSchema(schema, {
-    target: "openApi3",
-    $refStrategy: "none",
-  });
-  return json;
-}
-
-const REQUEST_PARTS = ["params", "querystring", "body", "headers"];
+extendZodWithOpenApi(z);
 
 const ERROR_DESCRIPTIONS = Object.freeze({
   400: "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
@@ -24,41 +17,87 @@ const ERROR_DESCRIPTIONS = Object.freeze({
   409: "Conflicts with current state (CONFLICT, ROLE_IN_USE, LAST_TENANT_ADMIN)",
   429: "Too many attempts (RATE_LIMITED)",
 });
+const SUCCESS_DESCRIPTIONS = Object.freeze({ 200: "OK", 201: "Created" });
 const SECURITY_BY_AUDIENCE = Object.freeze({
   user: [{ tenantSession: [] }],
   tenant: [{ tenantSession: [] }],
   platform: [{ platformSession: [] }],
 });
-const errorBody = () => ({ ...toOpenApiSchema(apiErrorSchema), description: undefined });
+
+const json = (schema) => ({ content: { "application/json": { schema } } });
+
+/** Express `:param` placeholders -> OpenAPI `{param}`. @param {string} url */
+export const toOpenApiPath = (url) => url.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
 
 /**
- * @fastify/swagger `transform` hook: turns the Zod schemas on a route into JSON Schema so OpenAPI is generated from
- * the same schemas that validate requests, adds the security requirement implied by the route's `config.audience`, and
- * documents the standard error envelope for the statuses that audience can produce (explicit response schemas win).
- * @param {{ schema?: Record<string, unknown>, url: string, route?: { config?: { audience?: string }, method?: string | string[] } }} input
+ * Registers one route (from the route kit's table) in the registry: request parts and responses come from the SAME Zod
+ * schemas that validate the request, the security requirement is implied by the audience, and the standard error envelope
+ * is documented for the statuses that audience can produce (explicit response schemas win).
+ * @param {OpenAPIRegistry} registry
+ * @param {import("./route-kit.js").RouteRecord} route
  */
-export function swaggerTransform({ schema, url, route }) {
-  const converted = { ...schema };
-  for (const part of REQUEST_PARTS) {
-    if (isZodSchema(converted[part])) converted[part] = toOpenApiSchema(converted[part]);
+function registerRoute(registry, { method, url, audience, schema }) {
+  const request = {};
+  if (isZodSchema(schema.params)) request.params = schema.params;
+  if (isZodSchema(schema.querystring)) request.query = schema.querystring;
+  if (isZodSchema(schema.body)) request.body = { required: true, ...json(schema.body) };
+
+  const responses = {};
+  for (const [status, value] of Object.entries(schema.response ?? {})) {
+    responses[status] = {
+      description: SUCCESS_DESCRIPTIONS[status] ?? "Response",
+      ...(isZodSchema(value) ? json(value) : {}),
+    };
   }
-  const response = Object.fromEntries(
-    Object.entries(converted.response ?? {}).map(([status, value]) => [
-      status,
-      isZodSchema(value) ? toOpenApiSchema(value) : value,
-    ]),
-  );
-  const audience = route?.config?.audience;
   const statuses = [];
-  if (REQUEST_PARTS.some((part) => converted[part])) statuses.push(400);
-  if (audience && audience !== "public") statuses.push(401, 403);
-  if (audience === "tenant" || audience === "platform" || converted.params) statuses.push(404);
+  if (isZodSchema(schema.params) || isZodSchema(schema.querystring) || isZodSchema(schema.body))
+    statuses.push(400);
+  if (audience !== "public") statuses.push(401, 403);
+  if (audience === "tenant" || audience === "platform" || schema.params) statuses.push(404);
   if (audience === "public" && /\/auth\/(login|mfa\/verify)$/.test(url)) statuses.push(401, 429);
-  for (const status of [...new Set(statuses)]) {
-    response[status] ??= { description: ERROR_DESCRIPTIONS[status], ...errorBody() };
+  for (const status of new Set(statuses)) {
+    responses[status] ??= { description: ERROR_DESCRIPTIONS[status], ...json(apiErrorSchema) };
   }
-  if (Object.keys(response).length > 0) converted.response = response;
-  if (audience && SECURITY_BY_AUDIENCE[audience])
-    converted.security = SECURITY_BY_AUDIENCE[audience];
-  return { schema: converted, url };
+
+  registry.registerPath({
+    method,
+    path: toOpenApiPath(url),
+    tags: schema.tags,
+    summary: schema.summary,
+    ...(SECURITY_BY_AUDIENCE[audience] ? { security: SECURITY_BY_AUDIENCE[audience] } : {}),
+    ...(Object.keys(request).length > 0 ? { request } : {}),
+    responses,
+  });
+}
+
+/**
+ * Generates the OpenAPI 3.0.3 document from the route kit's table (`@asteasolutions/zod-to-openapi`). Routes with
+ * `schema.hide` are left out. The table is the single source: nothing is documented that is not routed, and vice versa.
+ * @param {{ config: any, routes: import("./route-kit.js").RouteRecord[] }} input
+ */
+export function buildOpenApiDocument({ config, routes }) {
+  const registry = new OpenAPIRegistry();
+  registry.registerComponent("securitySchemes", "tenantSession", {
+    type: "apiKey",
+    in: "cookie",
+    name: "qm_session",
+  });
+  registry.registerComponent("securitySchemes", "platformSession", {
+    type: "apiKey",
+    in: "cookie",
+    name: "qm_platform_session",
+  });
+  for (const route of routes) {
+    if (route.schema.hide) continue;
+    registerRoute(registry, { ...route, method: route.method.toLowerCase() });
+  }
+  return new OpenApiGeneratorV3(registry.definitions).generateDocument({
+    openapi: "3.0.3",
+    info: {
+      title: "QmentisAI API",
+      version: config.app.version,
+      description:
+        "Versioned REST API (/api/v1). Responses use the standard success/error envelope. Authentication uses HttpOnly session cookies (tenant: qm_session, platform: qm_platform_session).",
+    },
+  });
 }

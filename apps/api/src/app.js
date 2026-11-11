@@ -1,48 +1,115 @@
-import Fastify, { LogController } from "fastify";
-import { resolveCorrelationId } from "./lib/correlation.js";
-import { buildLoggerOptions } from "./lib/logging.js";
-import { zodSerializerCompiler, zodValidatorCompiler } from "./lib/validation.js";
+import express from "express";
+import swaggerUi from "swagger-ui-express";
+import helmet from "helmet";
+import { buildOpenApiDocument } from "./lib/openapi.js";
+import { createLogger } from "./lib/logging.js";
+import { createRouteKit } from "./lib/route-kit.js";
 import { modules as defaultModules } from "./modules/index.js";
-import auditPlugin from "./plugins/audit.js";
-import authenticationPlugin from "./plugins/authentication.js";
-import authorizationPlugin from "./plugins/authorization.js";
-import entitlementsPlugin from "./plugins/entitlements.js";
-import correlationPlugin from "./plugins/correlation.js";
-import envelopePlugin from "./plugins/envelope.js";
-import errorHandlerPlugin from "./plugins/error-handler.js";
-import infrastructurePlugin from "./plugins/infrastructure.js";
-import modulesPlugin from "./plugins/modules.js";
-import openapiPlugin from "./plugins/openapi.js";
-import readinessPlugin from "./plugins/readiness.js";
+import { createAuthentication } from "./middleware/authentication.js";
+import { createAuthorization } from "./middleware/authorization.js";
+import { correlation } from "./middleware/correlation.js";
+import { envelope } from "./middleware/envelope.js";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { requestLogger } from "./middleware/request-logger.js";
+import { bodyParsing, globalRateLimit, securityHeaders } from "./middleware/security.js";
+import { createAudit } from "./runtime/audit.js";
+import { createEntitlements } from "./runtime/entitlements.js";
+import { createInfrastructure } from "./runtime/infrastructure.js";
+import { registerModules } from "./runtime/modules.js";
+import { createReadiness } from "./runtime/readiness.js";
 
 /**
- * Builds the Fastify application. Everything is created per call (no module-level state), so several instances can
- * coexist. Plugin order matters: error handling and envelopes first, OpenAPI before routes, modules last.
- * @param {{ config: ReturnType<typeof import("./config/index.js").loadConfig>, modules?: import("./plugins/modules.js").ApiModule[], loggerOptions?: object }} options
+ * Builds the Express application (ADR-007). Everything is created per call (no module-level state), so several
+ * instances can coexist.
+ *
+ * Global middleware, in this order (matches the request lifecycle in BACKEND_ARCHITECTURE.md):
+ *   correlation id -> request logging (pino-http, redaction) -> [Swagger UI, when enabled] -> security headers -> CORS ->
+ *   global rate limit -> cookies -> response envelope helpers -> body limits -> CSRF origin check
+ * Then the routers, each route running: authentication by audience -> tenant context -> validate(zod) -> authorize ->
+ * handler (assembled only by the route kit, `lib/route-kit.js`). Last: JSON 404 and the centralized error handler.
+ *
+ * @param {{ config: ReturnType<typeof import("./config/index.js").loadConfig>, modules?: import("./runtime/modules.js").ApiModule[], loggerOptions?: object }} options
+ * @returns {Promise<{ app: import("express").Express, ctx: object, routes: import("./lib/route-kit.js").RouteRecord[], openapi: () => object, close: () => Promise<void> }>}
  */
-export async function buildApp({ config, modules = defaultModules, loggerOptions }) {
-  const app = Fastify({
-    logger: loggerOptions ?? buildLoggerOptions(config),
-    genReqId: resolveCorrelationId,
-    logController: new LogController({ requestIdLogLabel: "correlationId" }),
-    requestIdHeader: false,
-    bodyLimit: config.http.bodyLimitBytes,
+export async function createApp({ config, modules = defaultModules, loggerOptions }) {
+  const logger = createLogger(config, loggerOptions);
+  const readiness = createReadiness({ logger });
+  const { infra, close: closeInfrastructure } = createInfrastructure({ config, logger, readiness });
+  const audit = createAudit({ infra, logger });
+  const { auth, middleware: authentication } = createAuthentication({
+    db: infra.db,
+    config,
+    audit,
+    infra,
+    logger,
   });
+  const authz = createAuthorization({ db: infra.db });
+  const entitlements = createEntitlements({ infra });
+  const routeKit = createRouteKit({ chains: authentication.chains });
 
-  app.setValidatorCompiler(zodValidatorCompiler);
-  app.setSerializerCompiler(zodSerializerCompiler);
-  app.decorate("config", config);
+  const app = express();
+  app.disable("x-powered-by");
+  app.disable("etag");
+  app.set("trust proxy", config.http.trustProxy);
+  app.set("case sensitive routing", true);
+  app.set("strict routing", true);
+  app.set("query parser", "simple");
 
-  await app.register(correlationPlugin);
-  await app.register(envelopePlugin);
-  await app.register(errorHandlerPlugin);
-  await app.register(readinessPlugin);
-  await app.register(infrastructurePlugin);
-  await app.register(auditPlugin);
-  await app.register(authenticationPlugin);
-  await app.register(authorizationPlugin);
-  await app.register(entitlementsPlugin);
-  await app.register(openapiPlugin);
-  await app.register(modulesPlugin, { modules });
-  return app;
+  app.use(correlation());
+  app.use(...requestLogger({ logger, config }));
+  if (config.openapi.enabled) {
+    // Interactive docs: own relaxed CSP (Swagger UI needs inline scripts); loads the document from the JSON route.
+    app.use(
+      "/api/v1/docs",
+      helmet({ contentSecurityPolicy: false }),
+      swaggerUi.serve,
+      swaggerUi.setup(undefined, { swaggerOptions: { url: "/api/v1/openapi.json" } }),
+    );
+  }
+  app.use(securityHeaders());
+  app.use(authentication.cors);
+  app.use(globalRateLimit({ config, infra }));
+  app.use(authentication.cookies);
+  app.use(envelope());
+  app.use(...bodyParsing({ config }));
+  app.use(authentication.csrfOrigin);
+
+  const ctx = {
+    config,
+    log: logger,
+    infra,
+    readiness,
+    audit,
+    auth,
+    authz,
+    entitlements,
+  };
+  await registerModules({ ctx, modules, routeKit });
+
+  let document;
+  if (config.openapi.enabled) {
+    const openapi = () => (document ??= buildOpenApiDocument({ config, routes: routeKit.table }));
+    routeKit
+      .registrar("/api/v1")
+      .get(
+        "/openapi.json",
+        { config: { audience: "public" }, schema: { hide: true } },
+        (_req, res) => res.json(openapi()),
+      );
+  }
+
+  app.use("/api/v1/platform", routeKit.routers.platform);
+  app.use("/api/v1", routeKit.routers.tenant);
+  app.use(routeKit.routers.root);
+  app.use(notFoundHandler());
+  app.use(errorHandler({ logger }));
+
+  return {
+    app,
+    ctx,
+    routes: routeKit.table,
+    openapi: () => buildOpenApiDocument({ config, routes: routeKit.table }),
+    /** Releases RabbitMQ, Redis and Prisma. The HTTP server is closed by the caller first. */
+    close: closeInfrastructure,
+  };
 }

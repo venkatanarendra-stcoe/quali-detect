@@ -1,15 +1,14 @@
-import fp from "fastify-plugin";
 import { ZodError } from "zod";
 import { ERROR_CODES } from "@qmentisai/contracts";
 import { AppError, ERROR_HTTP_STATUS, ValidationError } from "../errors/app-error.js";
 import { formatZodIssues } from "../lib/validation.js";
 
 /** Builds the standard error envelope. Only code, a safe message and optional safe details leave the process. */
-function errorEnvelope(request, code, message, details) {
+function errorEnvelope(req, code, message, details) {
   return {
     success: false,
     error: { code, message, ...(details ? { details } : {}) },
-    meta: { correlationId: request.id },
+    meta: { correlationId: req.id },
   };
 }
 
@@ -35,7 +34,7 @@ export function toPublicError(error) {
       details: validation.details,
     };
   }
-  const status = Number(error?.statusCode);
+  const status = Number(error?.statusCode ?? error?.status);
   if (status === 413)
     return {
       statusCode: 413,
@@ -61,34 +60,39 @@ export function toPublicError(error) {
   };
 }
 
-/** Centralized error and not-found handling for the whole application. */
-export default fp(
-  async function errorHandlerPlugin(app) {
-    app.setNotFoundHandler((request, reply) =>
-      reply
-        .status(ERROR_HTTP_STATUS[ERROR_CODES.RESOURCE_NOT_FOUND])
-        .send(
-          errorEnvelope(
-            request,
-            ERROR_CODES.RESOURCE_NOT_FOUND,
-            "The requested resource was not found.",
-          ),
-        ),
-    );
+/**
+ * JSON 404 for every unmatched route (same envelope as every other error). Mounted after all routers.
+ * @returns {import("express").RequestHandler}
+ */
+export function notFoundHandler() {
+  return function notFound(req, res) {
+    res
+      .status(ERROR_HTTP_STATUS[ERROR_CODES.RESOURCE_NOT_FOUND])
+      .json(
+        errorEnvelope(req, ERROR_CODES.RESOURCE_NOT_FOUND, "The requested resource was not found."),
+      );
+  };
+}
 
-    app.setErrorHandler((error, request, reply) => {
-      const publicError = toPublicError(error);
-      if (publicError.statusCode >= 500)
-        request.log.error({ err: error, code: publicError.code }, "Request failed");
-      else
-        request.log.info(
-          { code: publicError.code, statusCode: publicError.statusCode },
-          "Request rejected",
-        );
-      return reply
-        .status(publicError.statusCode)
-        .send(errorEnvelope(request, publicError.code, publicError.message, publicError.details));
-    });
-  },
-  { name: "error-handler" },
-);
+/**
+ * Centralized error middleware (must be last). Maps any thrown value (including body-parser errors) to the stable
+ * public error envelope; stacks, SQL and provider details are logged with the correlation id and never returned.
+ * @param {{ logger: import("pino").Logger }} deps
+ * @returns {import("express").ErrorRequestHandler}
+ */
+export function errorHandler({ logger }) {
+  // Express identifies error middleware by arity: the fourth parameter must stay.
+  // eslint-disable-next-line no-unused-vars
+  return function handleError(error, req, res, next) {
+    const publicError = toPublicError(error);
+    const log = req.log ?? logger;
+    if (publicError.statusCode >= 500)
+      log.error({ err: error, code: publicError.code }, "Request failed");
+    else
+      log.info({ code: publicError.code, statusCode: publicError.statusCode }, "Request rejected");
+    if (res.headersSent) return req.socket.destroy();
+    res
+      .status(publicError.statusCode)
+      .json(errorEnvelope(req, publicError.code, publicError.message, publicError.details));
+  };
+}

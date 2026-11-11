@@ -40,26 +40,40 @@ export function parseWith(schema, data, source = "body") {
   return result.data;
 }
 
-/**
- * Fastify validator compiler: route `schema.params | querystring | body | headers` are Zod schemas. Parsed values
- * (coercions, defaults, transforms) replace the raw input, so handlers always receive validated data.
- * Invalid input becomes a `ValidationError` handled by the central error handler.
- * @type {import("fastify").FastifySchemaCompiler<unknown>}
- */
-export const zodValidatorCompiler = ({ schema, httpPart }) => {
-  if (!isZodSchema(schema)) {
-    throw new TypeError(`Route ${httpPart ?? "schema"} must be a Zod schema.`);
-  }
-  return (data) => {
-    const result = schema.safeParse(data);
-    return result.success
-      ? { value: result.data }
-      : { error: new ValidationError(formatZodIssues(result.error), { source: httpPart }) };
-  };
-};
+const VALIDATED_PARTS = Object.freeze([
+  ["params", "params"],
+  ["body", "body"],
+  ["querystring", "query"],
+  ["headers", "headers"],
+]);
+
+/** Express 5 exposes `req.query` as a getter only; validated (coerced) values replace it as an own property. */
+function replaceRequestPart(req, key, value) {
+  Object.defineProperty(req, key, { value, writable: true, configurable: true, enumerable: true });
+}
 
 /**
- * Fastify serializer compiler: response schemas are documentation (OpenAPI); bodies are serialized as JSON.
- * @type {import("fastify").FastifySerializerCompiler<unknown>}
+ * Per-route validation middleware. `schema.params | querystring | body | headers` are Zod schemas; the parsed values
+ * (coercions, defaults, transforms) replace the raw input, so handlers only ever see validated data. Invalid input
+ * becomes a `ValidationError` (400 VALIDATION_FAILED) with the same `source` labels as before the Express migration.
+ * It runs after authentication and tenant context (ADR-007 order), so unauthenticated callers never learn the schema.
+ * @param {Record<string, unknown>} [schema] the route's `schema` option
+ * @returns {import("express").RequestHandler | null} null when the route validates nothing
  */
-export const zodSerializerCompiler = () => (data) => JSON.stringify(data);
+export function validate(schema = {}) {
+  const parts = VALIDATED_PARTS.filter(([part]) => schema[part] !== undefined);
+  for (const [part] of parts) {
+    if (!isZodSchema(schema[part])) throw new TypeError(`Route ${part} must be a Zod schema.`);
+  }
+  if (parts.length === 0) return null;
+  return function validateRequest(req, _res, next) {
+    for (const [part, key] of parts) {
+      const result = schema[part].safeParse(req[key]);
+      if (!result.success)
+        return next(new ValidationError(formatZodIssues(result.error), { source: part }));
+      if (key === "headers") continue; // headers stay as received; validation is the check
+      replaceRequestPart(req, key, result.data);
+    }
+    next();
+  };
+}

@@ -9,7 +9,7 @@ import { createSystemService } from "./services/index.js";
 /**
  * Module plugin: builds the module's dependency graph from app decorators (no globals) and registers its routes.
  * Pattern for every module: repository -> service -> controller -> routes, plus policies, mappers, events, listeners.
- * @type {import("fastify").FastifyPluginAsync}
+ * @type {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 async function systemPlugin(app) {
   const repository = createSystemRepository({ modules: app.modules });
@@ -24,7 +24,7 @@ async function systemPlugin(app) {
 /**
  * The module descriptor registered in src/modules/index.js. The plugin mounts at the root because it owns both the
  * root probes and its own versioned prefix.
- * @type {import("../../plugins/modules.js").ApiModule}
+ * @type {import("../../runtime/modules.js").ApiModule}
  */
 export const systemModule = {
   name: MODULE_NAME,

@@ -12,7 +12,7 @@ import {
 /**
  * Operational probes, mounted at the root (unversioned, unauthenticated, no tenant data).
  * @param {ReturnType<typeof import("../controllers/index.js").createSystemController>} controller
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const probeRoutes = (controller) =>
   async function probes(app) {
@@ -46,7 +46,7 @@ export const probeRoutes = (controller) =>
  * Versioned module routes. Every route declares Zod schemas for what it accepts and returns; they validate input
  * and generate OpenAPI.
  * @param {ReturnType<typeof import("../controllers/index.js").createSystemController>} controller
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const apiRoutes = (controller) =>
   async function api(app) {

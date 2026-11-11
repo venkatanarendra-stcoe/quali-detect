@@ -1,5 +1,7 @@
-import { buildApp } from "./app.js";
+import { createApp } from "./app.js";
 import { ConfigError, describeConfig, loadConfig } from "./config/index.js";
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 let config;
 try {
@@ -10,20 +12,47 @@ try {
   process.exit(1);
 }
 
-const app = await buildApp({ config });
+const { app, ctx, close } = await createApp({ config });
+const log = ctx.log;
 
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, async () => {
-    app.log.info({ signal }, "Shutting down");
-    await app.close();
+let server;
+let shuttingDown = false;
+
+/** Graceful shutdown: stop accepting connections, let in-flight requests finish, then close Prisma, Redis and RabbitMQ. */
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info({ signal }, "Shutting down");
+  const forced = setTimeout(() => {
+    log.error("Shutdown timed out; forcing exit");
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forced.unref();
+  try {
+    if (server) {
+      await new Promise((resolve) => {
+        server.close(resolve);
+        server.closeIdleConnections();
+      });
+    }
+    await close();
     process.exit(0);
-  });
+  } catch (error) {
+    log.error({ err: error }, "Shutdown failed");
+    process.exit(1);
+  }
 }
 
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void shutdown(signal));
+
 try {
-  await app.listen({ host: config.http.host, port: config.http.port });
-  app.log.info(describeConfig(config), "API started");
+  server = await new Promise((resolve, reject) => {
+    const listening = app.listen(config.http.port, config.http.host, () => resolve(listening));
+    listening.once("error", reject);
+  });
+  log.info(describeConfig(config), "API started");
 } catch (error) {
-  app.log.fatal({ err: error }, "API failed to start");
+  log.fatal({ err: error }, "API failed to start");
+  await close();
   process.exit(1);
 }

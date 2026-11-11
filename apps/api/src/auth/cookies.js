@@ -23,20 +23,20 @@ const baseOptions = (kind, config) => ({
   path: KINDS[kind].path,
 });
 
-/** @param {import("fastify").FastifyReply} reply @param {SessionKind} kind @param {object} config @param {string} token @param {Date} expiresAt */
+/** @param {import("express").Response} reply @param {SessionKind} kind @param {object} config @param {string} token @param {Date} expiresAt */
 export function setSessionCookie(reply, kind, config, token, expiresAt) {
-  reply.setCookie(cookieName(kind, config), token, {
+  reply.cookie(cookieName(kind, config), token, {
     ...baseOptions(kind, config),
     expires: expiresAt,
   });
 }
 
-/** @param {import("fastify").FastifyReply} reply @param {SessionKind} kind @param {object} config */
+/** @param {import("express").Response} reply @param {SessionKind} kind @param {object} config */
 export function clearSessionCookie(reply, kind, config) {
   reply.clearCookie(cookieName(kind, config), baseOptions(kind, config));
 }
 
-/** @param {import("fastify").FastifyRequest} request @param {SessionKind} kind @param {object} config @returns {string | undefined} */
+/** @param {import("express").Request} request @param {SessionKind} kind @param {object} config @returns {string | undefined} */
 export function readSessionCookie(request, kind, config) {
   return request.cookies?.[cookieName(kind, config)];
 }

@@ -1,4 +1,4 @@
-export { buildApp } from "./app.js";
+export { createApp } from "./app.js";
 export { ConfigError, describeConfig, loadConfig } from "./config/index.js";
 export {
   AppError,

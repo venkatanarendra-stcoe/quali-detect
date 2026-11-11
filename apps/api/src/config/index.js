@@ -12,6 +12,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   REQUEST_BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).max(52428800).default(1048576),
   OPENAPI_ENABLED: booleanFlag.optional(),
+  // Express "trust proxy": "false" (default), a number of trusted proxy hops, or a list of addresses/subnets such as
+  // "loopback, 10.0.0.0/8". "true" is refused: it would trust any client-supplied X-Forwarded-For.
+  TRUST_PROXY: z.string().optional(),
+  // Global per-IP request limit applied before authentication (login throttling is separate and stricter).
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
   // The identity module needs the database, so it is required.
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url().optional(),
@@ -32,6 +38,19 @@ const envSchema = z.object({
     .regex(/^\d{6}$/, "must be exactly 6 digits")
     .optional(),
 });
+
+/**
+ * Parses TRUST_PROXY into the value accepted by Express `app.set("trust proxy", value)`.
+ * @param {string | undefined} raw
+ * @returns {false | number | string}
+ */
+function parseTrustProxy(raw) {
+  const value = raw?.trim();
+  if (!value || value === "false") return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  if (value === "true") return false;
+  return value;
+}
 
 /** Raised when the environment is invalid. The message lists variable names and problems, never values. */
 export class ConfigError extends Error {
@@ -58,6 +77,12 @@ function crossChecks(e, allowedOrigins) {
   const problems = [];
   const production = e.NODE_ENV === "production";
   const mock = e.MOCK_AUTH_ENABLED ?? !production;
+  if (e.TRUST_PROXY?.trim() === "true")
+    problems.push({
+      variable: "TRUST_PROXY",
+      message:
+        'must not be "true" (it trusts any client-supplied X-Forwarded-For); use a hop count or addresses',
+    });
   if (production && e.MOCK_AUTH_ENABLED === true)
     problems.push({
       variable: "MOCK_AUTH_ENABLED",
@@ -144,6 +169,8 @@ export function loadConfig(env = process.env) {
       host: e.API_HOST,
       port: e.API_PORT,
       bodyLimitBytes: e.REQUEST_BODY_LIMIT_BYTES,
+      trustProxy: parseTrustProxy(e.TRUST_PROXY),
+      rateLimit: Object.freeze({ windowMs: e.RATE_LIMIT_WINDOW_MS, max: e.RATE_LIMIT_MAX }),
     }),
     log: Object.freeze({ level: e.LOG_LEVEL }),
     openapi: Object.freeze({ enabled: e.OPENAPI_ENABLED ?? !production }),

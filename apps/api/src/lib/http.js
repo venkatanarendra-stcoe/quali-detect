@@ -19,7 +19,7 @@ export const atLeastOne = (shape) =>
 /**
  * Trusted context of the caller for services: tenant and user come from the authenticated session, the permissions
  * from the authorization engine. Never build this from request input.
- * @param {import("fastify").FastifyRequest} request
+ * @param {import("express").Request} request
  */
 export const actorFrom = (request) => ({
   tenantId: request.principal.tenant.id,

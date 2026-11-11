@@ -8,6 +8,7 @@ import {
   SelectTenantPage,
 } from "@/features/auth/index.js";
 import { RequirePermission } from "@/features/authorization/index.js";
+import { ConnectAliasRedirect, RepositoryAliasRedirect } from "@/features/repositories/index.js";
 import { WorkspaceScope } from "@/features/workspaces/index.js";
 import { AppLayout } from "./layouts/app-layout.jsx";
 import { LandingRedirect, LegacyRepositoriesRedirect } from "./landing.jsx";
@@ -41,6 +42,8 @@ export function AppRouter() {
                 <Route key={r.path} path={r.path} element={guarded(r)} />
               ))}
               <Route path="repositories" element={<LegacyRepositoriesRedirect />} />
+              <Route path="repositories/connect" element={<ConnectAliasRedirect />} />
+              <Route path="repositories/:repositoryId" element={<RepositoryAliasRedirect />} />
               <Route path="workspaces/:workspaceId" element={<WorkspaceScope />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="edit" element={<Navigate to="../settings" replace />} />
@@ -48,7 +51,7 @@ export function AppRouter() {
                   <Route
                     key={r.path}
                     path={r.path}
-                    element={guarded({ ...r, scope: "workspace" })}
+                    element={guarded({ scope: "workspace", ...r })}
                   />
                 ))}
                 <Route path="*" element={<NotFoundState />} />

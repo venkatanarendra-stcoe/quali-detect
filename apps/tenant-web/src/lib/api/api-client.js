@@ -34,7 +34,7 @@ export function createApiClient({
   async function send(
     method,
     path,
-    { query, body, signal, skipUnauthenticatedHandler = false } = {},
+    { query, body, signal, headers: extraHeaders = {}, skipUnauthenticatedHandler = false } = {},
   ) {
     const correlationId = newCorrelationId();
     const controller = new AbortController();
@@ -57,6 +57,7 @@ export function createApiClient({
           Accept: "application/json",
           [CORRELATION_HEADER]: correlationId,
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...extraHeaders,
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: controller.signal,

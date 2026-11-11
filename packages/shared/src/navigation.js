@@ -57,7 +57,7 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
     item("workspace-roles", "workspace.view_roles", "workspace", true),
     item("activity", "workspace.view_activity", "workspace", true),
     item("workspace-settings", "workspace.update", "workspace", true),
-    item("workspace-integrations", "integration.view", "tenant", false),
+    item("workspace-integrations", "integration.view", "tenant", true),
   ]),
 ]);
 

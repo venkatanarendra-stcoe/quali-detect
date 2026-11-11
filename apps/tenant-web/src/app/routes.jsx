@@ -1,6 +1,18 @@
 import { AuditLogsPage } from "@/features/audit/index.js";
+import {
+  GitHubCallbackPage,
+  GitHubSetupPage,
+  IntegrationDetailPage,
+  IntegrationsCatalogPage,
+  WorkspaceIntegrationsPage,
+} from "@/features/integrations/index.js";
 import { OverviewPage } from "@/features/organization/pages/overview-page.jsx";
 import { PlannedModulePage } from "@/features/placeholders/pages/planned-module-page.jsx";
+import {
+  ConnectRepositoryPage,
+  RepositoriesPage,
+  RepositoryDetailPage,
+} from "@/features/repositories/index.js";
 import {
   CreateWorkspacePage,
   WorkspaceDashboardPage,
@@ -57,7 +69,25 @@ export const ORG_ROUTES = [
     path: "integrations",
     permission: "integration.view",
     scope: "tenant",
-    element: planned("Integrations", "Source-control and tool integrations are planned."),
+    element: <IntegrationsCatalogPage />,
+  },
+  {
+    path: "integrations/github",
+    permission: "integration.view",
+    scope: "tenant",
+    element: <IntegrationDetailPage />,
+  },
+  {
+    path: "integrations/github/setup",
+    permission: "integration.manage",
+    scope: "tenant",
+    element: <GitHubSetupPage />,
+  },
+  {
+    path: "integrations/github/callback",
+    permission: "integration.manage",
+    scope: "tenant",
+    element: <GitHubCallbackPage />,
   },
   {
     itemId: "roles",
@@ -94,7 +124,17 @@ export const WORKSPACE_ROUTES = [
     itemId: "repositories",
     path: "repositories",
     permission: "repository.view",
-    element: planned("Repositories", "Repository connection and sync are planned."),
+    element: <RepositoriesPage />,
+  },
+  {
+    path: "repositories/connect",
+    permission: "repository.connect",
+    element: <ConnectRepositoryPage />,
+  },
+  {
+    path: "repositories/:repositoryId",
+    permission: "repository.view",
+    element: <RepositoryDetailPage />,
   },
   {
     itemId: "pipelines",
@@ -132,6 +172,13 @@ export const WORKSPACE_ROUTES = [
     permission: "workspace.update",
     element: <WorkspaceSettingsPage />,
   },
+  {
+    itemId: "workspace-integrations",
+    path: "integrations",
+    permission: "integration.view",
+    scope: "tenant",
+    element: <WorkspaceIntegrationsPage />,
+  },
 ];
 
 const AVAILABLE = new Set(
@@ -143,5 +190,5 @@ export const isRouteAvailable = (itemId) => AVAILABLE.has(itemId);
 
 /** URL segment of a workspace section -> navigation item id (for keeping the section when switching workspaces). */
 export const SECTION_ITEM = Object.freeze(
-  Object.fromEntries(WORKSPACE_ROUTES.map((r) => [r.path, r.itemId])),
+  Object.fromEntries(WORKSPACE_ROUTES.filter((r) => r.itemId).map((r) => [r.path, r.itemId])),
 );

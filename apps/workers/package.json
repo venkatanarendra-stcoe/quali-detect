@@ -14,7 +14,8 @@
     "./scan": "./src/scan/index.js",
     "./notification": "./src/notification/index.js",
     "./usage": "./src/usage/index.js",
-    "./scheduler": "./src/scheduler/index.js"
+    "./scheduler": "./src/scheduler/index.js",
+    "./outbox": "./src/outbox/index.js"
   },
   "scripts": {
     "lint": "eslint .",
@@ -29,7 +30,9 @@
     "start:usage": "node --env-file-if-exists=.env src/usage/main.js",
     "dev:usage": "node --watch --env-file-if-exists=.env src/usage/main.js",
     "start:scheduler": "node --env-file-if-exists=.env src/scheduler/main.js",
-    "dev:scheduler": "node --watch --env-file-if-exists=.env src/scheduler/main.js"
+    "dev:scheduler": "node --watch --env-file-if-exists=.env src/scheduler/main.js",
+    "start:outbox": "node --env-file-if-exists=.env src/outbox/main.js",
+    "dev:outbox": "node --watch --env-file-if-exists=.env src/outbox/main.js"
   },
   "dependencies": {
     "@qmentisai/contracts": "workspace:*",

@@ -1,0 +1,60 @@
+// ---------------------------------------------------------------- Messaging: transactional outbox + consumer idempotency
+
+enum OutboxStatus {
+  pending
+  sent
+  dead
+
+  @@map("outbox_status")
+}
+
+enum ProcessedMessageStatus {
+  processing
+  done
+
+  @@map("processed_message_status")
+}
+
+/// Transactional outbox: a message is written in the SAME database transaction as the state change that caused it, and a
+/// relay publishes it to RabbitMQ afterwards (publisher confirms), so the change and the message cannot diverge.
+/// `payload` is the full validated message envelope. One row per target queue (fan-out = several rows with the same messageId).
+model OutboxMessage {
+  id          String       @id @default(uuid()) @db.Uuid
+  tenantId    String?      @map("tenant_id") @db.Uuid
+  messageId   String       @map("message_id")
+  type        String
+  queue       String
+  payload     Json
+  status      OutboxStatus @default(pending)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now()) @map("available_at") @db.Timestamptz(6)
+  lastError   String?      @map("last_error")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt      DateTime?    @map("sent_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([messageId, queue])
+  @@index([status, availableAt])
+  @@index([tenantId])
+  @@map("outbox_messages")
+}
+
+/// Consumer idempotency: one row per (tenant, consumer, idempotency key). The key is the message's `idempotencyKey`, or its
+/// `messageId`. A second delivery finds the row and is skipped; a claim abandoned by a crashed worker is reclaimed after a TTL.
+model ProcessedMessage {
+  id             String                 @id @default(uuid()) @db.Uuid
+  tenantId       String                 @map("tenant_id") @db.Uuid
+  consumer       String
+  idempotencyKey String                 @map("idempotency_key")
+  messageId      String                 @map("message_id")
+  status         ProcessedMessageStatus @default(processing)
+  claimedAt      DateTime               @default(now()) @map("claimed_at") @db.Timestamptz(6)
+  completedAt    DateTime?              @map("completed_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, consumer, idempotencyKey])
+  @@index([completedAt])
+  @@map("processed_messages")
+}

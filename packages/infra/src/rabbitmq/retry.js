@@ -12,11 +12,16 @@ export class TransientError extends Error {
   }
 }
 
-/** Throw from a handler when retrying cannot help (the message goes to the dead-letter queue). */
+/**
+ * Throw from a handler (or from the ownership check) when retrying cannot help: the message goes to the dead-letter queue.
+ * `options.reason` is a short machine code stored in the `x-failure-reason` header (default "non-retryable").
+ */
 export class NonRetryableError extends Error {
-  constructor(message, options) {
-    super(message, options);
+  /** @param {string} message @param {{ reason?: string, cause?: unknown }} [options] */
+  constructor(message, options = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "NonRetryableError";
+    this.reason = options.reason ?? "non-retryable";
   }
 }
 

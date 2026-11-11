@@ -1,3 +1,4 @@
+import { QUEUE_NAMES, createEventEnvelope } from "@qmentisai/contracts";
 import { visibleWorkspaceIds } from "@qmentisai/shared";
 import { ValidationError, ConflictError, NotFoundError } from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
@@ -5,6 +6,7 @@ import { AUDIT_ACTIONS } from "../../../audit/actions.js";
 import { ENTITLEMENT_KEYS } from "../../../entitlements/keys.js";
 import { MUTABLE_FIELDS } from "../constants/index.js";
 import { toWorkspaceDto } from "../mappers/index.js";
+import { WORKSPACE_EVENT_TYPES } from "../events/index.js";
 import { workspacePolicy } from "../policies/index.js";
 
 const pick = (record, fields) => Object.fromEntries(fields.map((f) => [f, record[f]]));
@@ -14,10 +16,10 @@ const pick = (record, fields) => Object.fromEntries(fields.map((f) => [f, record
  * workspaces are read-only, the owner must be an active tenant member, plan limits, audit in the same transaction.
  * @param {{
  *   repository: ReturnType<typeof import("../repositories/index.js").createWorkspaceRepository>,
- *   audit: any, entitlements: any,
+ *   audit: any, entitlements: any, outbox: ReturnType<typeof import("@qmentisai/infra").createOutbox>,
  * }} deps
  */
-export function createWorkspaceService({ repository, audit, entitlements }) {
+export function createWorkspaceService({ repository, audit, entitlements, outbox }) {
   const auditEntry = (actor, action, workspace, extra = {}) => ({
     tenantId: actor.tenantId,
     actorUserId: actor.userId,
@@ -109,6 +111,24 @@ export function createWorkspaceService({ repository, audit, entitlements }) {
             }),
             { tx },
           );
+          // The "workspace created" event is committed with the workspace (transactional outbox); the relay publishes it.
+          await outbox.enqueue(tx, {
+            queue: QUEUE_NAMES.NOTIFICATION,
+            message: createEventEnvelope({
+              type: WORKSPACE_EVENT_TYPES.CREATED,
+              schemaVersion: 1,
+              tenantId: actor.tenantId,
+              workspaceId: created.id,
+              correlationId: actor.requestId,
+              initiator: { type: "user", id: actor.userId },
+              subject: { type: "workspace", id: created.id },
+              payload: {
+                workspaceId: created.id,
+                name: created.name,
+                ownerUserId: created.ownerUserId ?? null,
+              },
+            }),
+          });
           return created;
         });
         // Re-read: the roster entry added inside the transaction changes the member count.

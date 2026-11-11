@@ -3,7 +3,8 @@ import { z } from "zod";
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  REDIS_URL: z.string().url(),
+  // Redis is the idempotency store only when no database is configured; with DATABASE_URL the durable processed_messages table is used.
+  REDIS_URL: z.string().url().optional(),
   RABBITMQ_URL: z.string().url(),
   DATABASE_URL: z.string().url().optional(),
   WORKER_PREFETCH: z.coerce.number().int().min(1).max(100).default(5),
@@ -12,6 +13,12 @@ const envSchema = z.object({
   WORKER_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(1).default(60000),
   WORKER_IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().min(60).default(86400),
   WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
+  WORKER_CLAIM_TTL_SECONDS: z.coerce.number().int().min(10).default(900),
+  OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
+  OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
+  OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
+  OUTBOX_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1).default(1000),
+  OUTBOX_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(1).default(60000),
 });
 
 /** Raised when the environment is invalid. Lists variable names and problems, never values. */
@@ -50,6 +57,11 @@ export function loadWorkerConfig(env = process.env) {
       { variable: "WORKER_RETRY_MAX_DELAY_MS", message: "must be >= WORKER_RETRY_BASE_DELAY_MS" },
     ]);
   }
+  if (!e.DATABASE_URL && !e.REDIS_URL) {
+    throw new ConfigError([
+      { variable: "DATABASE_URL", message: "required (or REDIS_URL) for the idempotency store" },
+    ]);
+  }
   return Object.freeze({
     environment: e.NODE_ENV,
     logLevel: e.LOG_LEVEL,
@@ -64,5 +76,13 @@ export function loadWorkerConfig(env = process.env) {
     }),
     idempotencyTtlSeconds: e.WORKER_IDEMPOTENCY_TTL_SECONDS,
     shutdownTimeoutMs: e.WORKER_SHUTDOWN_TIMEOUT_MS,
+    claimTtlSeconds: e.WORKER_CLAIM_TTL_SECONDS,
+    outbox: Object.freeze({
+      batchSize: e.OUTBOX_BATCH_SIZE,
+      pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS,
+      maxAttempts: e.OUTBOX_MAX_ATTEMPTS,
+      baseDelayMs: e.OUTBOX_RETRY_BASE_DELAY_MS,
+      maxDelayMs: e.OUTBOX_RETRY_MAX_DELAY_MS,
+    }),
   });
 }

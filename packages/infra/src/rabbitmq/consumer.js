@@ -1,4 +1,4 @@
-import { jobEnvelopeSchema } from "@qmentisai/contracts";
+import { parseMessage } from "@qmentisai/contracts";
 import { childLogger } from "../logging.js";
 import { classifyError, computeBackoffDelay, resolveRetryPolicy } from "./retry.js";
 import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./topology.js";
@@ -6,13 +6,14 @@ import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./top
 /**
  * @typedef {object} JobContext
  * @property {number} attempt 1-based delivery attempt of this message.
- * @property {object} log Logger bound to messageId, correlationId, tenantId and eventType.
+ * @property {object} log Logger bound to messageId, correlationId, tenantId and type.
  */
 
 /**
  * Consumer for one worker queue.
  *
- * Per message: parse JSON -> validate with `jobEnvelopeSchema` -> require tenantId (default) -> idempotency claim -> run handler.
+ * Per message: parse JSON -> validate with `parseMessage` (envelope + catalogued payload) -> require tenantId (default) ->
+ * `verify` (tenant and resource ownership, re-validated against the database) -> idempotency claim -> run handler.
  * Success acks. Failure is classified: transient and attempts left -> republished to the retry tier (bounded exponential
  * backoff with jitter) ; otherwise -> the dead-letter queue with the failure reason. Malformed or tenant-less messages go
  * straight to the dead-letter queue. A message is acked only after its retry/dead-letter copy is confirmed by the broker,
@@ -22,11 +23,13 @@ import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./top
  * @param {{
  *   connection: ReturnType<typeof import("./connection.js").createRabbitConnection>,
  *   queue: string,
- *   handler: (envelope: import("zod").infer<typeof jobEnvelopeSchema>, context: JobContext) => Promise<void>,
+ *   handler: (envelope: ReturnType<typeof parseMessage>, context: JobContext) => Promise<void>,
+ *   verify?: (envelope: ReturnType<typeof parseMessage>, context: JobContext) => Promise<void>,
  *   logger?: object,
  *   prefetch?: number,
  *   retryPolicy?: Parameters<typeof resolveRetryPolicy>[0],
- *   idempotency?: ReturnType<typeof import("./idempotency.js").createRedisIdempotencyStore>,
+ *   idempotency?: { begin: Function, complete: Function, release: Function },
+ *   allowUnknownTypes?: boolean,
  *   requireTenant?: boolean,
  *   unknownErrorAs?: "transient" | "non-retryable",
  *   random?: () => number,
@@ -36,11 +39,13 @@ export function createConsumer({
   connection,
   queue,
   handler,
+  verify,
   logger,
   prefetch = 5,
   retryPolicy,
   idempotency,
   requireTenant = true,
+  allowUnknownTypes = false,
   unknownErrorAs = "non-retryable",
   random = Math.random,
 }) {
@@ -116,9 +121,9 @@ export function createConsumer({
     const attempt = Number(message.properties.headers?.["x-attempt"] ?? 0);
     let envelope;
     try {
-      envelope = jobEnvelopeSchema.parse(JSON.parse(message.content.toString("utf8")));
-    } catch {
-      await deadLetter(message, "invalid-envelope", attempt);
+      envelope = parseMessage(JSON.parse(message.content.toString("utf8")), { allowUnknownTypes });
+    } catch (error) {
+      await deadLetter(message, error?.reason ?? "invalid-envelope", attempt);
       return;
     }
     if (requireTenant && !envelope.tenantId) {
@@ -130,14 +135,33 @@ export function createConsumer({
       messageId: envelope.messageId,
       correlationId: envelope.correlationId,
       tenantId: envelope.tenantId,
-      eventType: envelope.eventType,
+      type: envelope.type,
     });
+    // Tenant and resource ownership are re-validated against the database before anything runs: the tenantId inside a
+    // message is only a claim. Failures are classified like handler failures (NonRetryableError -> dead-letter queue).
+    if (verify) {
+      try {
+        await verify(envelope, { attempt: attempt + 1, log: jobLog });
+      } catch (error) {
+        await settleFailure(
+          message,
+          attempt,
+          error,
+          jobLog,
+          classifyError(error, { unknownAs: unknownErrorAs }),
+        );
+        return;
+      }
+    }
+
     const claim =
       idempotency && envelope.tenantId
         ? {
             tenantId: envelope.tenantId,
             scope: queue,
-            key: envelope.idempotencyKey ?? envelope.messageId,
+            key:
+              (envelope.kind === "job" ? envelope.idempotencyKey : undefined) ?? envelope.messageId,
+            messageId: envelope.messageId,
           }
         : null;
 
@@ -190,7 +214,8 @@ export function createConsumer({
       );
       return;
     }
-    const reason = kind === "transient" ? "max-attempts-exceeded" : "non-retryable";
+    const reason =
+      kind === "transient" ? "max-attempts-exceeded" : (error?.reason ?? "non-retryable");
     await deadLetter(message, reason, failed, { err: error });
   }
 

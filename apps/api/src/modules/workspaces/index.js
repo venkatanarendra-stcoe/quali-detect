@@ -11,6 +11,7 @@ async function workspacesPlugin(app) {
     repository,
     audit: app.audit,
     entitlements: app.entitlements,
+    outbox: app.outbox,
   });
   await app.register(workspaceRoutes(createWorkspaceController({ service }), app.authz));
 }

@@ -1,25 +1,6 @@
 import { z } from "zod";
 
 /**
- * Common event/message envelope (docs/technical/EVENT_CONTRACTS.md). Each event type must define its own
- * required fields and payload schema on top of this base.
- */
-export const eventEnvelopeSchema = z.object({
-  messageId: z.string(),
-  eventType: z.string(),
-  schemaVersion: z.number().int().positive(),
-  occurredAt: z.string().datetime(),
-  tenantId: z.string().optional(),
-  workspaceId: z.string().optional(),
-  repositoryId: z.string().optional(),
-  pipelineId: z.string().optional(),
-  executionId: z.string().optional(),
-  correlationId: z.string(),
-  actor: z.object({ type: z.string(), id: z.string() }).optional(),
-  payload: z.record(z.unknown()),
-});
-
-/**
  * Pagination block of a collection response `meta` (Recommended shape; the docs require pagination but do not fix the fields).
  */
 export const paginationMetaSchema = z.object({

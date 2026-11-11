@@ -80,6 +80,8 @@ model Tenant {
   platformAudit PlatformAuditLog[]
   dataKeys      TenantDataKey[]
   secrets       Secret[]
+  outbox        OutboxMessage[]
+  processed     ProcessedMessage[]
 
   @@index([status])
   @@map("tenants")

@@ -5,4 +5,5 @@ export const WORKER_NAMES = Object.freeze([
   "notification",
   "usage",
   "scheduler",
+  "outbox",
 ]);

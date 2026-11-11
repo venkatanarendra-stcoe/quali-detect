@@ -1,12 +1,13 @@
-import { jobEnvelopeSchema, createJobEnvelope } from "@qmentisai/contracts";
+import { createEventEnvelope, createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import { childLogger } from "../logging.js";
 import { EXCHANGES, assertTopology, mainQueueName } from "./topology.js";
 import { resolveRetryPolicy } from "./retry.js";
 
 /**
- * Publishes validated job envelopes to a worker queue with persistent delivery and broker confirms.
- * Every message is validated with `jobEnvelopeSchema` before it leaves the process. Note: publishing is not atomic with a
- * database write; use the transactional outbox (docs/technical/EVENT_CONTRACTS.md) when state changes must reliably produce a message.
+ * Publishes validated messages (jobs and events share one envelope family) to a worker queue with persistent delivery and
+ * broker confirms. Every message is validated with `parseMessage` (envelope + catalogued payload) before it leaves the
+ * process. Publishing is not atomic with a database write: when a state change must reliably produce a message, write it
+ * to the transactional outbox in the same transaction (`createOutbox`) and let the relay call this publisher.
  * @param {{ connection: ReturnType<typeof import("./connection.js").createRabbitConnection>, logger?: object, retryPolicy?: object }} options
  */
 export function createPublisher({ connection, logger, retryPolicy }) {
@@ -38,12 +39,12 @@ export function createPublisher({ connection, logger, retryPolicy }) {
 
   const publisher = {
     /**
-     * Validates and publishes an envelope to `queue`. Resolves after the broker confirms.
-     * @param {{ queue: string, envelope: import("zod").input<typeof jobEnvelopeSchema> }} input
-     * @returns {Promise<import("zod").infer<typeof jobEnvelopeSchema>>} the validated envelope that was sent
+     * Validates and publishes a message to `queue`. Resolves after the broker confirms.
+     * @param {{ queue: string, envelope: unknown, allowUnknownTypes?: boolean }} input
+     * @returns {Promise<ReturnType<typeof parseMessage>>} the validated message that was sent
      */
-    async publish({ queue, envelope }) {
-      const valid = jobEnvelopeSchema.parse(envelope);
+    async publish({ queue, envelope, allowUnknownTypes = true }) {
+      const valid = parseMessage(envelope, { allowUnknownTypes });
       const ch = await channel();
       if (!declared.has(queue)) {
         await assertTopology(ch, { queue, retryPolicy: policy });
@@ -59,9 +60,14 @@ export function createPublisher({ connection, logger, retryPolicy }) {
             contentType: "application/json",
             messageId: valid.messageId,
             correlationId: valid.correlationId,
-            timestamp: Math.floor(Date.parse(valid.createdAt) / 1000),
-            type: valid.eventType,
-            headers: { "x-attempt": 0, "x-schema-version": valid.schemaVersion },
+            timestamp: Math.floor(Date.parse(valid.occurredAt) / 1000),
+            type: valid.type,
+            headers: {
+              "x-attempt": 0,
+              "x-schema-version": valid.schemaVersion,
+              "x-envelope-version": valid.envelopeVersion,
+              "x-kind": valid.kind,
+            },
           },
           (error) => (error ? reject(error) : resolve(undefined)),
         );
@@ -70,7 +76,7 @@ export function createPublisher({ connection, logger, retryPolicy }) {
         {
           queue: mainQueueName(queue),
           messageId: valid.messageId,
-          eventType: valid.eventType,
+          type: valid.type,
           correlationId: valid.correlationId,
         },
         "Job published",
@@ -83,6 +89,9 @@ export function createPublisher({ connection, logger, retryPolicy }) {
      */
     publishJob: ({ queue, envelope }) =>
       publisher.publish({ queue, envelope: createJobEnvelope(envelope) }),
+    /** Builds an event (filling messageId, correlationId, occurredAt) and publishes it. @param {{ queue: string, envelope: Parameters<typeof createEventEnvelope>[0] }} input */
+    publishEvent: ({ queue, envelope }) =>
+      publisher.publish({ queue, envelope: createEventEnvelope(envelope) }),
     async close() {
       const current = channelPromise;
       channelPromise = null;

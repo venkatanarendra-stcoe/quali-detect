@@ -62,6 +62,7 @@ Security gate: any change to authentication, sessions, tenant context, authoriza
 - `decisions/ADR-006-REPOSITORY-LAYOUT-AND-CODE-FIRST-UI.md` — layout, code-first UI, pinned versions (mock-first part stale)
 - `decisions/ADR-007-REPLACE-FASTIFY-WITH-EXPRESS-5.md` — Express 5 replaces Fastify (implemented; gates, behavior differences, rollback)
 - `decisions/ADR-008-SECURITY-REGRESSION-SUITE.md` — `pnpm test:security` scope and rules (the one allowed test suite)
+- `decisions/ADR-011-TRANSACTIONAL-OUTBOX-AND-MESSAGE-ENVELOPE.md` — one job/event envelope family, outbox + relay, DB idempotency, ownership re-validation
 - `decisions/ADR-009-INTEGRATION-CREDENTIAL-STORAGE.md` — SecretStore, AES-256-GCM envelope encryption, per-tenant keys, secrets never in messages/logs
 - `decisions/OPEN_DECISIONS.md` — unresolved business/technical decisions; do not guess
 - `design/DESIGN_SYSTEM.md` — tokens, mint rules, components, icons

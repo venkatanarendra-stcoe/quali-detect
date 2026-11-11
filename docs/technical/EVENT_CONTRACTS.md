@@ -6,27 +6,26 @@ Define stable, versioned contracts for events exchanged between API modules, wor
 
 ## Common envelope
 
+Jobs and events share one envelope family (`@qmentisai/contracts`, see `docs/architecture/WORKER_ARCHITECTURE.md`). An event:
+
 ```json
 {
+  "envelopeVersion": 1,
+  "kind": "event",
   "messageId": "unique-message-id",
-  "eventType": "pipeline.execution.requested",
+  "type": "organization.workspace.created",
   "schemaVersion": 1,
   "occurredAt": "2026-01-01T00:00:00.000Z",
   "tenantId": "tenant-id",
   "workspaceId": "workspace-id",
-  "repositoryId": "repository-id",
-  "pipelineId": "pipeline-id",
-  "executionId": "execution-id",
   "correlationId": "correlation-id",
-  "actor": {
-    "type": "USER",
-    "id": "actor-id"
-  },
-  "payload": {}
+  "initiator": { "type": "user", "id": "user-id" },
+  "subject": { "type": "workspace", "id": "workspace-id" },
+  "payload": { "workspaceId": "workspace-id", "name": "Payments", "ownerUserId": "user-id" }
 }
 ```
 
-Fields that do not apply to an event may be omitted, but the schema must explicitly define required fields for each event type.
+A job has `"kind": "job"`, no `subject`, and optional `taskId` and `idempotencyKey`. Optional context ids (`repositoryId`, `pipelineId`, `executionId`) may be omitted when they do not apply. Each `type` is registered in the message catalog (`message-types.js`) with its kind, current `schemaVersion` and payload schema.
 
 ## Event naming
 
@@ -56,4 +55,4 @@ Use domain-qualified names, for example:
 
 ## Reliability
 
-Use a transactional outbox or another documented reliable publication strategy when database state changes must reliably result in a message. Do not assume a database write and RabbitMQ publish are atomic.
+Database state changes that must reliably result in a message use the transactional outbox (`outbox.enqueue(tx, ...)` in the same transaction; the relay publishes with publisher confirms; ADR-011). Delivery is at-least-once, so every consumer is idempotent (`processed_messages`). Do not assume a database write and a RabbitMQ publish are atomic.

@@ -25,6 +25,36 @@ export const MESSAGE_TYPES = Object.freeze({
       ownerUserId: uuid.nullable(),
     }),
   }),
+  "repository.connected": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({
+      repositoryId: uuid,
+      workspaceId: uuid,
+      provider: z.enum(["github"]),
+      externalRepoId: z.string().min(1).max(64),
+      fullName: z.string().min(1).max(300),
+      defaultBranch: z.string().max(255).nullable(),
+      linkId: uuid,
+    }),
+  }),
+  "repository.disconnected": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({
+      repositoryId: uuid,
+      workspaceId: uuid,
+      provider: z.enum(["github"]),
+      reason: z.enum([
+        "user",
+        "installation_unlinked",
+        "installation_revoked",
+        "repo_inaccessible",
+      ]),
+    }),
+  }),
   /** A sign-in or MFA failure streak reached the throttle cap (ADR-010); the account owner should be told. No e-mail address travels in the message. */
   "identity.account.throttle_cap_reached": Object.freeze({
     kind: "event",

@@ -20,6 +20,18 @@ export function createNotificationHandler() {
           "Notification: workspace created",
         );
         return;
+      case "repository.connected":
+      case "repository.disconnected":
+        log.info(
+          {
+            attempt,
+            repositoryId: message.payload.repositoryId,
+            workspaceId: message.payload.workspaceId,
+            reason: message.payload.reason,
+          },
+          `Notification: ${message.type}`,
+        );
+        return;
       case "identity.account.throttle_cap_reached":
         // Delivery channel (e-mail) belongs to the notification module; for now the alert is recorded.
         log.warn(

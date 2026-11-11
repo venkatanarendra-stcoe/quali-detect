@@ -45,6 +45,17 @@ export const AUDIT_ACTIONS = Object.freeze({
   TENANT_REACTIVATED: "tenant.reactivated",
   TENANT_DEACTIVATED: "tenant.deactivated",
   TENANT_RESTORED: "tenant.restored",
+  // Source control (docs/modules/repositories-github/SPEC.md)
+  SCM_INSTALLATION_LINKED: "scm_installation.linked",
+  SCM_INSTALLATION_UNLINKED: "scm_installation.unlinked",
+  SCM_INSTALLATION_SCOPE_UPDATED: "scm_installation.scope_updated",
+  SCM_INSTALLATION_STATUS_CHANGED: "scm_installation.status_changed",
+  REPOSITORY_CONNECTED: "repository.connected",
+  REPOSITORY_UPDATED: "repository.updated",
+  REPOSITORY_ENABLED: "repository.enabled",
+  REPOSITORY_DISABLED: "repository.disabled",
+  REPOSITORY_UNAVAILABLE: "repository.unavailable",
+  REPOSITORY_DISCONNECTED: "repository.disconnected",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

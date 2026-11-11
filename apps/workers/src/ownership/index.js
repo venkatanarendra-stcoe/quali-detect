@@ -7,6 +7,14 @@ import { USABLE_TENANT_STATUSES } from "@qmentisai/shared";
  * envelope is validated and before the handler, so a forged or misrouted message cannot act on another tenant's data.
  * @type {Record<string, (db: any, message: any) => Promise<boolean>>}
  */
+const repositoryInTenant = async (db, message) =>
+  Boolean(
+    await db.repository.findFirst({
+      where: { id: message.payload.repositoryId, tenantId: message.tenantId },
+      select: { id: true },
+    }),
+  );
+
 const RESOURCE_CHECKS = {
   // The account an alert is about must exist, and a tenant account must belong to the tenant of the message.
   "identity.account.throttle_cap_reached": async (db, message) => {
@@ -24,6 +32,9 @@ const RESOURCE_CHECKS = {
       (await db.platformUser.findUnique({ where: { id: accountId }, select: { id: true } })),
     );
   },
+  // Connected and disconnected repositories stay in the tenant forever (rows are never deleted), so both events check the row.
+  "repository.connected": async (db, message) => repositoryInTenant(db, message),
+  "repository.disconnected": async (db, message) => repositoryInTenant(db, message),
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({

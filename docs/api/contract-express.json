@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 64,
+  "operationCount": 74,
   "operations": [
     {
       "method": "GET",
@@ -770,6 +770,682 @@
         ]
       },
       "summary": "Add a tenant member to a group (idempotent; escalation-checked)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Integrations catalog (GitHub is live; the rest are listed as not available)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/github",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ configured, status, installations }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "GitHub integration overview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/github/installations",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "GitHub installations linked to this organization"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/github/installations",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ code, state }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Verify the user's authorization and link the installation (organization admin or account owner required)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/integrations/github/installations/{linkId}",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "linkId"
+        ],
+        "query": [],
+        "body": "{ confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ unlinked, repositoriesDisconnected }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Unlink the installation: repositories are disconnected, nothing is deleted"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/github/installations/{linkId}/deliveries",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "linkId"
+        ],
+        "query": [
+          "page",
+          "pageSize"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, receivedAt, event, action, outcome, signatureVerified }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Recent webhook deliveries of this installation (no payloads)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/github/installations/{linkId}/refresh",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "linkId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Test the connection: re-read the installation and mint a token"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/integrations/github/installations/{linkId}/workspaces",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "linkId"
+        ],
+        "query": [],
+        "body": "{ workspaceIds }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Set the workspaces allowed to use the connection (empty = all)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/github/installations/authorize",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ installationId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ authorizeUrl }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "After the setup redirect: create the single-use state and return GitHub's authorize URL"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/github/installations/start",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": "integration.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ installUrl }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Start linking: the GitHub page where the App is installed"
     },
     {
       "method": "GET",

@@ -165,6 +165,28 @@ async function startApi(env) {
   throw new EnvironmentError("The API did not become healthy within 30 seconds.");
 }
 
+/** Starts the local GitHub stand-in (no network) and returns the App settings the API and the tests need. */
+async function startGitHub() {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { startGitHubStub } = await import("../test/security/helpers/github-stub.js");
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
+  const clientId = "Iv1.suite";
+  const clientSecret = randomBytes(12).toString("hex");
+  const stub = await startGitHubStub({ publicKeyPem: publicKey, clientId, clientSecret });
+  cleanups.push(() => stub.close());
+  return {
+    stub,
+    privateKey,
+    clientId,
+    clientSecret,
+    webhookSecret: randomBytes(16).toString("hex"),
+  };
+}
+
 async function main() {
   const databaseUrl = await provisionDatabase();
   log("applying migrations and seed");
@@ -175,8 +197,21 @@ async function main() {
   const tenantPassword = randomBytes(12).toString("hex");
   const platformPassword = randomBytes(12).toString("hex");
   const mfaCode = String(randomInt(100000, 1000000));
+  log("starting the local GitHub stub");
+  const gh = await startGitHub();
   log("starting the API");
   const baseUrl = await startApi({
+    GITHUB_APP_ENABLED: "true",
+    GITHUB_APP_ID: "12345",
+    GITHUB_APP_CLIENT_ID: gh.clientId,
+    GITHUB_APP_SLUG: "qmentis-suite",
+    GITHUB_API_BASE_URL: gh.stub.url,
+    GITHUB_WEB_BASE_URL: gh.stub.url,
+    GITHUB_OAUTH_REDIRECT_URI: "http://localhost:5173/integrations/github/callback",
+    GITHUB_APP_PRIVATE_KEY: gh.privateKey,
+    GITHUB_APP_CLIENT_SECRET: gh.clientSecret,
+    GITHUB_APP_WEBHOOK_SECRET: gh.webhookSecret,
+    SCM_SYNC_FAILURES_BEFORE_DISCONNECT: "3",
     DATABASE_URL: databaseUrl,
     MOCK_AUTH_PASSWORD: tenantPassword,
     MOCK_PLATFORM_AUTH_PASSWORD: platformPassword,
@@ -216,6 +251,8 @@ async function main() {
           SECURITY_MFA_CODE: mfaCode,
           // Direct database access for the SEC checks (secret storage has no HTTP surface yet); same disposable database.
           SECURITY_DATABASE_URL: databaseUrl,
+          SECURITY_GITHUB_STUB_URL: gh.stub.url,
+          SECURITY_GITHUB_WEBHOOK_SECRET: gh.webhookSecret,
           PGSSLMODE: process.env.PGSSLMODE ?? "",
         },
         stdio: "inherit",

@@ -16,7 +16,7 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 112;
+const EXPECTED_CHECKS = 118;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1312,6 +1312,236 @@ const tenantIdOf = (x, who) =>
         problems.push(`still limited after the window (${r.after.status})`);
       return problems;
     },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 10. GitHub integration: installation linking (SCM). The App is a local stub (no network); see helpers/github-stub.js.
+// ---------------------------------------------------------------------------------------------------------------------
+const STUB = env("SECURITY_GITHUB_STUB_URL");
+const stubCtl = (path, body) =>
+  fetch(STUB + path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
+let installationCounter = 0;
+const nextInstallationId = () => 700000000 + (Date.now() % 1000000) * 10 + installationCounter++;
+/**
+ * The documented linking sequence against the stub: set up GitHub's side, ask for our single-use state, then verify.
+ * `orgRole`: the user's role in the organization ("admin", "member"); omit for a personal account.
+ */
+async function linkFlow(
+  cookie,
+  { installationId = nextInstallationId(), account, user, orgRole, listed = true, repos = [] },
+) {
+  await stubCtl("/__control/installation", { id: installationId, account, repos });
+  const code = `code-${randomBytes(6).toString("hex")}`;
+  await stubCtl("/__control/code", {
+    code,
+    user,
+    installationIds: listed ? [installationId] : [],
+    orgRoles: orgRole ? { [account.login]: { role: orgRole, state: "active" } } : {},
+  });
+  const auth = await w.api("POST", "/integrations/github/installations/authorize", {
+    cookie,
+    body: { installationId: String(installationId) },
+  });
+  if (auth.status !== 200) return { auth, installationId };
+  const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
+  const link = await w.api("POST", "/integrations/github/installations", {
+    cookie,
+    body: { code, state },
+  });
+  return { auth, state, code, link, installationId };
+}
+const orgAccount = (label) => ({
+  id: 880000 + Math.floor(Math.random() * 90000),
+  login: `acme-${label}-${randomBytes(3).toString("hex")}`,
+  type: "Organization",
+});
+const ghUser = () => ({
+  id: 550000 + Math.floor(Math.random() * 90000),
+  login: `dev-${randomBytes(3).toString("hex")}`,
+});
+{
+  const add = group("GitHub integration: linking");
+  const asA = () => S("admin")(w);
+  const scenario = () =>
+    once("scm-linking", async () => {
+      const edge = await edgeTenant();
+      const user = ghUser();
+      const account = orgAccount("a");
+      const adminLink = await linkFlow(asA(), { account, user, orgRole: "admin" });
+      // tenant E (a different tenant) tries to link the very same installation with a perfectly valid GitHub user
+      const sameInstallation = await (async () => {
+        const code = `code-${randomBytes(6).toString("hex")}`;
+        await stubCtl("/__control/code", {
+          code,
+          user,
+          installationIds: [adminLink.installationId],
+          orgRoles: { [account.login]: { role: "admin", state: "active" } },
+        });
+        const auth = await w.api("POST", "/integrations/github/installations/authorize", {
+          cookie: edge.owner,
+          body: { installationId: String(adminLink.installationId) },
+        });
+        const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
+        const link = await w.api("POST", "/integrations/github/installations", {
+          cookie: edge.owner,
+          body: { code, state },
+        });
+        return { auth, state, link };
+      })();
+      const memberAccount = orgAccount("m");
+      const memberLink = await linkFlow(asA(), {
+        account: memberAccount,
+        user: ghUser(),
+        orgRole: "member",
+      });
+      const personalUser = ghUser();
+      const personalMismatch = await linkFlow(asA(), {
+        account: { id: personalUser.id + 1, login: personalUser.login, type: "User" },
+        user: personalUser,
+      });
+      const personalOwn = await linkFlow(asA(), {
+        account: { id: personalUser.id, login: personalUser.login, type: "User" },
+        user: personalUser,
+      });
+      const notListed = await linkFlow(asA(), {
+        account: orgAccount("n"),
+        user: ghUser(),
+        orgRole: "admin",
+        listed: false,
+      });
+      // state: single use, and bound to the tenant that asked for it
+      const stateUse = await linkFlow(asA(), {
+        account: orgAccount("s"),
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      const reused = await w.api("POST", "/integrations/github/installations", {
+        cookie: asA(),
+        body: { code: stateUse.code, state: stateUse.state },
+      });
+      const foreignState = await (async () => {
+        const installationId = nextInstallationId();
+        const account = orgAccount("f");
+        const u = ghUser();
+        await stubCtl("/__control/installation", { id: installationId, account });
+        const code = `code-${randomBytes(6).toString("hex")}`;
+        await stubCtl("/__control/code", {
+          code,
+          user: u,
+          installationIds: [installationId],
+          orgRoles: { [account.login]: { role: "admin", state: "active" } },
+        });
+        const auth = await w.api("POST", "/integrations/github/installations/authorize", {
+          cookie: asA(),
+          body: { installationId: String(installationId) },
+        });
+        const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
+        return w.api("POST", "/integrations/github/installations", {
+          cookie: edge.owner,
+          body: { code, state },
+        });
+      })();
+      const viewerStart = await w.api("POST", "/integrations/github/installations/start", {
+        cookie: S("viewer")(w),
+      });
+      const listA = await w.api("GET", "/integrations/github/installations", { cookie: asA() });
+      const listEdge = await w.api("GET", "/integrations/github/installations", {
+        cookie: edge.owner,
+      });
+      return {
+        stateUse,
+        memberAccount,
+        adminLink,
+        sameInstallation,
+        memberLink,
+        personalMismatch,
+        personalOwn,
+        notListed,
+        reused,
+        foreignState,
+        viewerStart,
+        listA,
+        listEdge,
+        account,
+      };
+    });
+  add(
+    "SCM-005",
+    "linking an installation that is already linked to another tenant is a generic 409 and leaves the first link untouched",
+    { status: 409, code: "CONFLICT" },
+    async () => (await scenario()).sameInstallation.link,
+    async (r) => {
+      const x = await scenario();
+      const problems = [];
+      if (x.adminLink.link.status !== 201)
+        problems.push(`the first link answered ${x.adminLink.link.status}`);
+      if (r.json.error.details?.reason !== "installation_unavailable")
+        problems.push(`reason ${r.json.error.details?.reason}`);
+      const text = JSON.stringify(r.json);
+      if (text.includes(x.account.login) || text.includes(x.adminLink.link.json.data.id))
+        problems.push("the refusal reveals the other tenant's link or account");
+      if (
+        !x.listA.json.data.items.some(
+          (l) => l.id === x.adminLink.link.json.data.id && l.status === "linked",
+        )
+      )
+        problems.push("the first tenant's link changed");
+      if (x.listEdge.json.data.items.length !== 0)
+        problems.push("the second tenant ended up with a link");
+      return problems;
+    },
+  );
+  add(
+    "SCM-013",
+    "linking an organization installation as a plain member of that organization is refused and creates no link",
+    FORBIDDEN,
+    async () => (await scenario()).memberLink.link,
+    async () => {
+      const x = await scenario();
+      return x.listA.json.data.items.some((l) => l.account.login === x.memberAccount.login)
+        ? ["a link was created for the organization"]
+        : [];
+    },
+  );
+  add(
+    "SCM-014",
+    "linking a personal-account installation whose account is not the authorized user is refused, while the account owner can link it",
+    FORBIDDEN,
+    async () => (await scenario()).personalMismatch.link,
+    async () => {
+      const x = await scenario();
+      return x.personalOwn.link.status === 201
+        ? []
+        : [`the account owner got ${x.personalOwn.link.status}`];
+    },
+  );
+  add(
+    "SCM-018",
+    "an installation the authorized user cannot see is refused",
+    FORBIDDEN,
+    async () => (await scenario()).notListed.link,
+  );
+  add(
+    "SCM-019",
+    "the single-use state works once only, and another tenant cannot consume it",
+    { status: 400, code: "BAD_REQUEST" },
+    async () => (await scenario()).reused,
+    async () => {
+      const x = await scenario();
+      const problems = [];
+      if (x.stateUse.link.status !== 201)
+        problems.push(`the first use answered ${x.stateUse.link.status}`);
+      if (x.foreignState.status !== 400)
+        problems.push(`another tenant's use answered ${x.foreignState.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-020",
+    "only holders of integration.manage can start linking",
+    FORBIDDEN,
+    async () => (await scenario()).viewerStart,
   );
 }
 

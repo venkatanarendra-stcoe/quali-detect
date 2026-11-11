@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SecretConfigError, parseMasterKey } from "@qmentisai/infra";
+import { SecretConfigError, parseMasterKey, readGitHubAppConfig } from "@qmentisai/infra";
 import { PACKAGE_INFO } from "./package-info.js";
 
 const booleanFlag = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -225,6 +225,9 @@ export function loadConfig(env = process.env) {
           .map((o) => o.trim())
           .filter(Boolean);
   const problems = crossChecks(e, allowedOrigins);
+  // GitHub App settings are validated by the shared reader (also used by the workers); secrets are not read here.
+  const github = readGitHubAppConfig(env, { production });
+  problems.push(...github.problems);
   if (problems.length > 0) throw new ConfigError(problems);
   const mockEnabled = e.MOCK_AUTH_ENABLED ?? !production;
   return Object.freeze({
@@ -248,6 +251,9 @@ export function loadConfig(env = process.env) {
       }),
       idempotencyTtlSeconds: e.IDEMPOTENCY_TTL_SECONDS,
     }),
+    github: github.enabled
+      ? Object.freeze({ enabled: true, ...github.config })
+      : Object.freeze({ enabled: false }),
     secrets: Object.freeze({
       enabled: e.SECRETS_ENABLED ?? false,
       provider: e.SECRET_KEY_PROVIDER,
@@ -315,5 +321,6 @@ export function describeConfig(config) {
     corsOrigins: config.auth.allowedOrigins.length,
     mockAuthEnabled: config.auth.mock.enabled,
     secretsEnabled: config.secrets.enabled,
+    githubEnabled: config.github.enabled,
   };
 }

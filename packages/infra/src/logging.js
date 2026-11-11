@@ -14,6 +14,9 @@ export const REDACT_PATHS = Object.freeze([
   "clientSecret",
   "apiKey",
   "plaintext",
+  "webhookSecret",
+  "installationToken",
+  "userToken",
   "masterKey",
   "secretValue",
   "dek",
@@ -35,6 +38,9 @@ export const REDACT_PATHS = Object.freeze([
   "*.clientSecret",
   "*.apiKey",
   "*.privateKey",
+  "*.webhookSecret",
+  "*.installationToken",
+  "*.userToken",
 ]);
 
 /** Minimal logger contract used by this package (a Pino logger satisfies it). */

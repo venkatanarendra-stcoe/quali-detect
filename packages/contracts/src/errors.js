@@ -23,6 +23,8 @@ export const ERROR_CODES = Object.freeze({
   TENANT_DEACTIVATION_EXPIRED: "TENANT_DEACTIVATION_EXPIRED",
   // Idempotency-Key reused with a different request, or while the first request is still running.
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+  // An upstream provider (GitHub) is unreachable or rate limited; retry later.
+  PROVIDER_UNAVAILABLE: "PROVIDER_UNAVAILABLE",
   // Access management (docs/AUTHORIZATION.md §8, Recommended): stable codes for refused policy outcomes.
   LAST_TENANT_ADMIN: "LAST_TENANT_ADMIN",
   ROLE_IN_USE: "ROLE_IN_USE",

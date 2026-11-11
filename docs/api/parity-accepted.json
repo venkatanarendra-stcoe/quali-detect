@@ -28,6 +28,10 @@
     {
       "pattern": "(extra operation: |OpenAPI: extra )GET /api/v1/(platform/)?audit-logs",
       "reason": "New operations (2026-11-11): read access to the tenant audit log (audit_log.view_all) and the platform audit log (platform.audit_log.view); filters actor, action, date range, result."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )(GET|POST|PUT|DELETE|PATCH) /api/v1/(integrations|repositories|workspaces/\\{workspaceId\\}/repositories|webhooks)",
+      "reason": "New operations of the repositories and GitHub integration module (docs/modules/repositories-github/SPEC.md \u00a78): integrations catalog and installation lifecycle, repositories, and the GitHub webhook route."
     }
   ]
 }

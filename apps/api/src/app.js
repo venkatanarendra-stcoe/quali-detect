@@ -19,6 +19,7 @@ import { bodyParsing, globalRateLimit, securityHeaders } from "./middleware/secu
 import { createAudit } from "./runtime/audit.js";
 import { createEntitlements } from "./runtime/entitlements.js";
 import { createInfrastructure } from "./runtime/infrastructure.js";
+import { createScm } from "./runtime/scm.js";
 import { createSecrets } from "./runtime/secrets.js";
 import { registerModules } from "./runtime/modules.js";
 import { createReadiness } from "./runtime/readiness.js";
@@ -55,6 +56,8 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   const entitlements = createEntitlements({ infra });
   // Secret storage foundation (ADR-009): only when enabled; config already validated the key and refused unsafe providers.
   const secrets = createSecrets({ config, infra, audit });
+  // GitHub integration (docs/modules/repositories-github/SPEC.md): null unless GITHUB_APP_ENABLED.
+  const scm = createScm({ config, logger });
   const routeKit = createRouteKit({
     chains: authentication.chains,
     limiters: createRouteLimiters({ config, infra, logger }),
@@ -99,6 +102,7 @@ export async function createApp({ config, modules = defaultModules, loggerOption
     entitlements,
     outbox,
     secrets,
+    scm,
   };
   await registerModules({ ctx, modules, routeKit });
 

@@ -3,7 +3,7 @@ import { identityModule } from "./identity/index.js";
 import { platformIdentityModule } from "./platform-identity/index.js";
 import { platformTenantsModule } from "./platform-tenants/index.js";
 // import { roleAssignmentsModule } from "./role-assignments/index.js";
-// import { rolesModule } from "./roles/index.js";
+import { rolesModule } from "./roles/index.js";
 import { systemModule } from "./system/index.js";
 import { usersModule } from "./users/index.js";
 // import { workspaceMembersModule } from "./workspace-members/index.js";
@@ -17,7 +17,7 @@ export const modules = [
   platformTenantsModule,
   usersModule,
   groupsModule,
-  // rolesModule,
+  rolesModule,
   // roleAssignmentsModule,
   // workspacesModule,
   // workspaceMembersModule,

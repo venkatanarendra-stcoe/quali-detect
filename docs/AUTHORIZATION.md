@@ -6,7 +6,7 @@
 **Related ADRs:** ADR-003 (tenant isolation), ADR-004 (finding identity), ADR-002 (modular monolith)
 **Template:** `docs/technical/MODULE_SPECIFICATION_TEMPLATE.md` (the template lives under `technical/`)
 
-> **Provenance and status labels.** Every requirement carries a label from `docs/README.md`: **Confirmed** (stated in the docs or in your instructions), **Recommended** (my proposal), **Open** (needs your decision). A fourth label, **Recommended — default applied**, marks former open questions that you asked me to resolve with my Recommended default so you can revisit them (§15). Only Confirmed items are requirements; defaults applied are provisional.
+> **Provenance and status labels.** Every requirement carries a label from `docs/README.md`: **Confirmed** (stated in the docs or in your instructions), **Recommended** (my proposal), **Open** (needs your decision). Former open questions that were resolved with a Recommended default were confirmed in full on 2026-11-11 (§15, rows 1–23) and carry **Confirmed (2026-11-11)**; Q24 and Q25 replace two of those defaults. Only Confirmed items are requirements; items still labelled Recommended (the permission catalog and default bundles, §5.2 to §5.5 and the API/event/frontend proposals) remain proposals unless a §15 row confirms them.
 >
 > **Missing inputs.** `docs/TENANT_APP_WIREFRAME_SPEC.md` and `docs/ROOT_CONSOLE_WIREFRAME_SPEC.md` do not exist in the repository, so their §4 tables could not be used. The role/permission tables below are instead derived from `docs/product/PROJECT_CONTEXT.md`, `docs/design/TENANT_APPLICATION_DESIGN.md` (per-screen "Users" lines), `docs/design/ROOT_CONSOLE_DESIGN.md`, `docs/technical/SECURITY_GUIDELINES.md`, and the deleted prototype's matrix preserved in `docs/architecture/AUTHORIZATION.md`. **All of those tables are Recommended.** If the wireframe specs exist elsewhere, send them and I will reconcile.
 >
@@ -23,7 +23,7 @@ Applied from your review. Each is **Confirmed**.
 | 3 | **Grant-only model: no deny rules.** Segregation of duties stays an explicit rule (reviewer ≠ approver on the same finding decision). | AUTHZ-019, §5.8 |
 | 4 | **Groups are flat** (no nesting). | AUTHZ-021, §5.7, §7 |
 | 5 | **The Admin built-in role does NOT include `approval.approve` / `approval.reject` by default**; tenants can grant them through a custom role. (Your wording was `finding.approve`; in this catalog the keys are `approval.approve` and `approval.reject`. `finding.review` stays with Admin.) | §5.4, §5.6, §5.7, §14 |
-| 6 | **Every other open question uses my Recommended default**, marked "Recommended — default applied". | §15 |
+| 6 | **Every other open question used the Recommended default, now Confirmed (2026-11-11)** (exceptions Q24 and Q25). | §15 |
 
 **Assumption I had to make for decision 5 (please confirm).** Rule AUTHZ-009 (no escalation: you can only grant what you hold) would stop an Admin, who lacks `approval.approve`, from creating or assigning a custom role that contains it. To make decision 5 workable, a tenant Admin (holder of `role.manage` / `role_assignment.manage_tenant`, or `workspace.manage_members` inside a workspace) **may define and assign roles containing any tenant or workspace catalog key to other subjects**, never to themselves (SOD-3), and `platform.*` is never assignable. Segregation of duties still applies at the moment of approval.
 
@@ -61,7 +61,7 @@ Define who may do what in QmentisAI: a centralized, backend-enforced authorizati
 | Guest / Viewer | Read-only | workspace | Confirmed |
 | Custom role holder | Whatever the tenant defines, within limits (§5.6) | tenant + workspace | Confirmed (custom roles exist) |
 | Platform Super Admin | Root Console administration | `platform.*` only | Confirmed |
-| Platform Support | Read-oriented support, diagnostics through scoped access | `platform.*` only | Recommended (named in ROOT_CONSOLE_DESIGN 3.1 as "platform support") |
+| Platform Support | Read-oriented support, diagnostics through scoped access | `platform.*` only | Confirmed (Q21: only Super Admin and Support exist) |
 | System (workers) | Executes jobs | none: workers revalidate tenant and resource; they never act with user privileges | Confirmed (WORKER_ARCHITECTURE) |
 
 Authorization uses built-in roles, tenant-defined custom roles and workspace-specific assignments; **group membership alone does not grant permissions; role assignments to groups do** (Confirmed, PROJECT_CONTEXT).
@@ -189,7 +189,7 @@ Platform permissions are evaluated only for platform principals (Root Console us
 | `platform.support.use_access` | Use an active grant to view diagnostics in one tenant | grant-bound | grant-bound |
 | `platform.support.approve_access` | Approve a support-access request (second person) | ✓ | |
 
-Only a Platform Super Admin role is Confirmed; Support is named in the design docs; other platform roles (Billing, read-only Auditor) are not defined: **Recommended — default applied** (Q21): only Super Admin and Support exist. Platform users are stored and authenticated separately from tenant users, in `platform_users` (**Recommended — default applied**, Q19); tenant users are the global `users` with tenant memberships (decision 1).
+Only a Platform Super Admin role is Confirmed; Support is named in the design docs; other platform roles (Billing, read-only Auditor) are not defined: **Confirmed (2026-11-11)** (Q21): only Super Admin and Support exist. Platform users are stored and authenticated separately from tenant users, in `platform_users` (**Confirmed (2026-11-11)**, Q19); tenant users are the global `users` with tenant memberships (decision 1).
 
 ### 5.6 Built-in and custom roles
 
@@ -202,26 +202,26 @@ Only a Platform Super Admin role is Confirmed; Support is named in the design do
 - Created by cloning a built-in role or from scratch; edits apply to all holders immediately.
 - Deleting a role that has active assignments is blocked until they are reassigned.
 - Creating/editing/deleting requires `role.manage` and is audited with a before/after key diff.
-- A custom role holding both `finding.review` and `approval.approve` is allowed (SoD is enforced per decision, §5.8) but the UI warns. (Recommended — default applied, Q11.)
+- A custom role holding both `finding.review` and `approval.approve` is allowed (SoD is enforced per decision, §5.8) but the UI warns. (Confirmed (2026-11-11), Q11.)
 
 ### 5.7 Assignments (Confirmed unless noted)
 - Subjects: **user** or **group**. Scopes: **tenant** or **workspace**.
-- Tenant-scope assignment of role R grants R's tenant-scope keys, and R's workspace-scope keys in **every** workspace of the tenant (Recommended). Because only Admin carries tenant administration keys by default, tenant-wide Manager/Lead/etc. do not gain organization administration (the earlier concern). Non-Admin tenant-wide assignments are allowed (Recommended — default applied, Q3).
+- Tenant-scope assignment of role R grants R's tenant-scope keys, and R's workspace-scope keys in **every** workspace of the tenant (Recommended). Because only Admin carries tenant administration keys by default, tenant-wide Manager/Lead/etc. do not gain organization administration (the earlier concern). Non-Admin tenant-wide assignments are allowed (Confirmed (2026-11-11), Q3).
 - Workspace-scope assignment grants R's **workspace-scope keys only**, in that workspace only. Tenant-scope keys in the role are ignored at workspace scope, so a workspace Admin is never a tenant Admin (Recommended).
 - Assignment = (tenant, subject, role, scope, workspace?) unique, kept in two tables (`user_role_assignments`, `group_role_assignments`); the subject user must have an **active tenant membership** in that tenant (decision 1); created by someone allowed to manage it: `role_assignment.manage_tenant` (tenant scope) or `workspace.manage_members` in that workspace, plus the escalation check (AUTHZ-009, with the tenant-Admin exception).
 - Group membership grants nothing by itself; a user gains a group's roles only while the group has the assignment **and** the user is a member (Confirmed). Groups are flat: membership is not inherited through other groups (decision 4).
-- Assignments of inactive users or users without an active membership, suspended assignments, **expired assignments** (`expiresAt` in the past, decision 2), deleted roles or removed group memberships contribute nothing. There are no deny rules: effective permissions are the union of what applicable assignments grant (decision 3). Archived workspaces: reads follow permissions; mutations are denied except restore by `workspace.archive` (Recommended — default applied, Q20).
-- Every workspace keeps at least one active workspace-scope Admin assignment (Recommended — default applied, Q22); the tenant must always keep at least one active tenant Admin (Confirmed for the latter).
+- Assignments of inactive users or users without an active membership, suspended assignments, **expired assignments** (`expiresAt` in the past, decision 2), deleted roles or removed group memberships contribute nothing. There are no deny rules: effective permissions are the union of what applicable assignments grant (decision 3). Archived workspaces: reads follow permissions; mutations are denied except restore by `workspace.archive` (Confirmed (2026-11-11), Q20).
+- Every workspace keeps at least one active workspace-scope Admin assignment (Confirmed (2026-11-11), Q22); the tenant must always keep at least one active tenant Admin (Confirmed for the latter).
 
 ### 5.8 Segregation of duties
 - **SOD-1 (required).** The user who recorded a TP/FP decision on a finding cannot approve or reject **that decision**, even if they hold `approval.approve`/`approval.reject` (for example a person who is both Analyst and Lead through different assignments or groups, or an Admin who was granted approval through a custom role). Compare **user ids**, not roles or assignment paths. Applies to every client of the API (UI, tokens, API keys owned by the same user).
-- **SOD-2 (Recommended).** A decision awaiting approval cannot be edited by its reviewer; the reviewer may withdraw it. A rejected decision returns to review; any eligible approver other than the current reviewer decides the next version.
-- **SOD-3 (Recommended).** No self-escalation: a user cannot assign themselves a role that adds permissions they do not hold, nor approve their own role-change or support-access request.
-- **No override.** Not even Admin bypasses SOD-1. No "break-glass" path exists in v1 (Recommended — default applied, Q10).
+- **SOD-2 (Confirmed, Q10).** A decision awaiting approval cannot be edited by its reviewer; the reviewer may withdraw it. A rejected decision returns to review; any eligible approver other than the current reviewer decides the next version.
+- **SOD-3 (Confirmed, Q10).** No self-escalation: a user cannot assign themselves a role that adds permissions they do not hold, nor approve their own role-change or support-access request.
+- **No override.** Not even Admin bypasses SOD-1. No "break-glass" path exists in v1 (Confirmed (2026-11-11), Q10).
 - A SoD denial is a 403 (the caller can see the item), recorded in the audit log with both user ids and the decision id.
 - Consequence (default applied, Q10): a tenant whose only reviewer is also its only approver cannot approve that reviewer's decisions; a second eligible person is required.
 
-### 5.9 403 vs 404 rule (Recommended; confirm)
+### 5.9 403 vs 404 rule (rule Recommended, implemented and covered by the security suite; error-body content Confirmed, Q13)
 The rule prevents confirming that a resource exists to someone who may not see it.
 
 | Situation | Response |
@@ -234,14 +234,14 @@ The rule prevents confirming that a resource exists to someone who may not see i
 | Create/list under a parent (`POST /workspaces/{id}/repositories`) | parent not visible → 404; visible but no create permission → 403 |
 | Collection endpoints of workspace-scoped data | never 403: return only visible items (possibly empty); `400` for invalid filters |
 | Collection endpoints of tenant-scoped data (users, roles, audit log) | `403` when the caller lacks the tenant permission |
-| Tenant suspended or deactivated | `403` (Recommended — default applied, Q14: `TENANT_SUSPENDED`); reads/writes denied except as policy allows |
+| Tenant suspended or deactivated | `403` (Confirmed (2026-11-11), Q14: `TENANT_SUSPENDED`); reads/writes denied except as policy allows |
 | Tenant principal calling `/api/v1/platform/*` | `404` (the platform surface is not revealed); platform principal lacking the permission → `403` |
 
 Implementation constraints: look the resource up with `id` **and** `tenantId` first; use the same response body, headers and comparable work for "missing" and "not visible" (no timing oracle); log the real reason server-side with the correlation id; never include permission names or resource details in a 404. Whether 403 bodies may name the required permission is Open (Q13).
 
 ### 5.10 Platform and support access (Confirmed principles, mechanics Recommended)
 - Root Console uses separate platform permissions (ADR-003). A platform user has no tenant roles through that identity.
-- Support diagnostics require an explicit **grant**: tenant, scope, stated reason, requester, approver (`platform.support.approve_access`, a different person), start and expiry (default 1 h, maximum 8 h), read-only unless a future spec says otherwise. Every use and the grant lifecycle are audited and visible to the tenant's Admins (Recommended — default applied, Q15).
+- Support diagnostics require an explicit **grant**: tenant, scope, stated reason, requester, approver (`platform.support.approve_access`, a different person), start and expiry (default 1 h, maximum 8 h), read-only unless a future spec says otherwise. Every use and the grant lifecycle are audited and visible to the tenant's Admins (Confirmed (2026-11-11), Q15).
 
 ### 5.11 Evaluation preconditions (Recommended)
 Before roles are even considered: valid session; user active; **active tenant membership for the session's active tenant** (decision 1); tenant active; tenant entitlement/quota checks (feature availability) are a **separate** gate after authorization and never grant permissions.
@@ -311,12 +311,12 @@ A user with several memberships chooses an active tenant. The backend verifies a
 | `GroupRoleAssignment` | same as above with groupId instead of userId | group membership alone grants nothing |
 | `Group` / `GroupMember` | tenantId, groupId, userId | flat (decision 4); a member must have an active tenant membership |
 | `Session` | id, userId, activeTenantId?, token hash, createdAt, lastSeenAt, expiresAt, revokedAt | carries the active tenant (decision 1) |
-| `PlatformRole` / `PlatformUser` | role: id, key, name, permissions[]; user: id, email, name, status, role | separate store from tenant users and roles (Recommended — default applied, Q19) |
+| `PlatformRole` / `PlatformUser` | role: id, key, name, permissions[]; user: id, email, name, status, role | separate store from tenant users and roles (Confirmed (2026-11-11), Q19) |
 | `PlatformRoleAssignment` | one role per platform user in v1 (a column on `platform_users`) | no tenant columns; split into a join table if multiple roles are needed |
 | `SupportAccessGrant` | id, tenantId, scope, reason, requestedBy, approvedBy, startsAt, expiresAt, revokedAt | audited; read-only |
 | `AuthorizationAudit` | (existing audit log) actor, action, target, before/after, correlationId | immutable |
 
-Rules: every tenant-owned row carries `tenantId` and is queried with it (TENANT_ISOLATION); `workspaceId` must belong to the same tenant (validated on write); role-permission lists are validated against the catalog on write; retention of audit data: Recommended — default applied (Q18), no deletion job in v1.
+Rules: every tenant-owned row carries `tenantId` and is queried with it (TENANT_ISOLATION); `workspaceId` must belong to the same tenant (validated on write); role-permission lists are validated against the catalog on write; retention of audit data: Confirmed (2026-11-11) (Q18), no deletion job in v1.
 
 ## 8. API contract (Recommended; paths under `/api/v1`)
 
@@ -332,11 +332,11 @@ Rules: every tenant-owned row carries `tenantId` and is queried with it (TENANT_
 | `GET /groups`, `POST /groups`, `PATCH /groups/{id}`, `PUT/DELETE /groups/{id}/members/{userId}` | `group.view` / `group.manage` | membership alone grants nothing |
 | `GET /me/permissions?workspaceId=` | authenticated | effective permissions for the UI; **advisory**, never authoritative |
 | `GET /me/tenants`, `PUT /me/active-tenant` | authenticated | list own memberships; switch the session's active tenant (requires an active membership; re-resolves permissions; audited) |
-| `GET /users/{userId}/effective-permissions?workspaceId=` | `user.view` | explainable resolution for admins (Recommended — default applied, Q16) |
+| `GET /users/{userId}/effective-permissions?workspaceId=` | `user.view` | explainable resolution for admins (Confirmed (2026-11-11), Q16) |
 | `GET/POST /platform/roles`, `GET/POST /platform/users`, `…/role-assignments` | `platform.user.view` / `.manage` | platform principals only |
 | `POST /platform/support-access`, `POST …/{id}/approve`, `POST …/{id}/revoke` | `platform.support.*` | reason, expiry, approver ≠ requester |
 
-Common rules (API_STANDARDS): Zod validation of params/query/body; standard envelope with `meta.correlationId`; pagination, explicit filter/sort; idempotency keys on assignment creation. **Error codes** (existing: `FORBIDDEN`, `RESOURCE_NOT_FOUND`, `UNAUTHENTICATED`, `CONFLICT`); proposed additions to `@qmentisai/contracts`: `LAST_TENANT_ADMIN`, `ROLE_IN_USE`, `ROLE_ESCALATION`, `TENANT_SUSPENDED`; SoD is `FORBIDDEN` with `details.reason` (Recommended — default applied, Q14).
+Common rules (API_STANDARDS): Zod validation of params/query/body; standard envelope with `meta.correlationId`; pagination, explicit filter/sort; idempotency keys on assignment creation. **Error codes** (existing: `FORBIDDEN`, `RESOURCE_NOT_FOUND`, `UNAUTHENTICATED`, `CONFLICT`); proposed additions to `@qmentisai/contracts`: `LAST_TENANT_ADMIN`, `ROLE_IN_USE`, `ROLE_ESCALATION`, `TENANT_SUSPENDED`; SoD is `FORBIDDEN` with `details.reason` (Confirmed (2026-11-11), Q14).
 
 ## 9. Events and asynchronous work (Recommended)
 
@@ -349,7 +349,7 @@ Common rules (API_STANDARDS): Zod validation of params/query/body; standard enve
 | `identity.tenant_membership.added` / `.suspended` / `.removed` | membership change | invalidate caches for that user and tenant; revoke the user's sessions' active tenant if it was this one; leave realtime rooms |
 | `platform.support_access.granted` / `.revoked` | grant lifecycle | notify tenant Admins; audit |
 
-Standard job/event envelope; handlers idempotent; tenant context revalidated; delivered through the transactional outbox; retries for transient failures only. Permission changes must not rely on the event being processed to be **safe**: the request-time check always reads current assignments (or a cache entry invalidated within a bounded TTL, Recommended — default applied, Q17).
+Standard job/event envelope; handlers idempotent; tenant context revalidated; delivered through the transactional outbox; retries for transient failures only. Permission changes must not rely on the event being processed to be **safe**: the request-time check always reads current assignments (or a cache entry invalidated within a bounded TTL, Confirmed (2026-11-11), Q17).
 
 ## 10. Frontend requirements
 - Navigation is defined **once** in `@qmentisai/shared` and evaluated by the central authorization engine with the effective permissions from `GET /me/permissions`; components never check role names and never re-implement rules (CLAUDE.md, Confirmed).

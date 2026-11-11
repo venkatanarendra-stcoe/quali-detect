@@ -48,7 +48,7 @@ export function createWorkspaceRepository({ db }) {
     },
     ensureMember: ({ tenantId, workspaceId, userId, addedByUserId }, client = db) =>
       client.workspaceMember.upsert({
-        where: { workspaceId_userId: { workspaceId, userId } },
+        where: { workspaceId_userId: { workspaceId, userId }, tenantId },
         create: { tenantId, workspaceId, userId, addedByUserId, status: "active" },
         update: { status: "active" },
       }),

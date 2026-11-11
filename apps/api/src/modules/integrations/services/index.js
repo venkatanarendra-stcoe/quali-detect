@@ -228,7 +228,7 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
           let restored = 0;
           if (previous) {
             link = await repository.reactivateLink(
-              { id: previous.id, linkedByUserId: actor.userId },
+              { tenantId: actor.tenantId, id: previous.id, linkedByUserId: actor.userId },
               tx,
             );
             restored = (

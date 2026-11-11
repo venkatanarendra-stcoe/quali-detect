@@ -30,9 +30,9 @@ export function createIntegrationRepository({ db }) {
         where: { tenantId_installationId: { tenantId, installationId } },
       }),
     createLink: (data, client = db) => client.scmInstallationLink.create({ data }),
-    reactivateLink: ({ id, linkedByUserId }, client = db) =>
+    reactivateLink: ({ tenantId, id, linkedByUserId }, client = db) =>
       client.scmInstallationLink.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           status: "linked",
           linkedByUserId,
@@ -124,7 +124,7 @@ export function createIntegrationRepository({ db }) {
       }),
     upsertWorkspaceSetting: ({ tenantId, workspaceId, linkId, enabled, userId }, client = db) =>
       client.scmWorkspaceLinkSetting.upsert({
-        where: { workspaceId_linkId: { workspaceId, linkId } },
+        where: { workspaceId_linkId: { workspaceId, linkId }, tenantId },
         create: { tenantId, workspaceId, linkId, enabled, updatedByUserId: userId },
         update: { enabled, updatedByUserId: userId },
       }),

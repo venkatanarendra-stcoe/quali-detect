@@ -112,7 +112,7 @@ export function createRoleAssignmentRepository({ db }) {
       client.groupMember.count({ where: { tenantId, groupId, userId } }).then((n) => n > 0),
     ensureWorkspaceMember: ({ tenantId, workspaceId, userId, addedByUserId }, client = db) =>
       client.workspaceMember.upsert({
-        where: { workspaceId_userId: { workspaceId, userId } },
+        where: { workspaceId_userId: { workspaceId, userId }, tenantId },
         create: { tenantId, workspaceId, userId, addedByUserId, status: "active" },
         update: {},
       }),

@@ -16,9 +16,10 @@ import { createAuditService } from "../../src/audit/audit-service.js";
 import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
+import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 138;
+const EXPECTED_CHECKS = 264;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -2414,6 +2415,28 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       return problems;
     },
   );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 11. Data-access isolation (ADR-008 area 10): every tenant-scoped repository function is called IN PROCESS with another
+//     tenant's id and must answer nothing / refuse / leave the owner's rows unchanged. One check per function; the entries
+//     live in helpers/direct-repos.js. Runs against the disposable database like the SEC and SCM-016/017 checks.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Data-access isolation (in-process)");
+  const dalWorld = () => once("dal", () => buildDalWorld(suiteDb()));
+  for (const { id, name, entry } of buildDalEntries())
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({
+        status: 200,
+        json: null,
+        problems: await runDalEntry(entry, await dalWorld()),
+      }),
+      (r) => r.problems,
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

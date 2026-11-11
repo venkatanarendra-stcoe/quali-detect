@@ -97,7 +97,7 @@ export function createGroupRepository({ db }) {
     },
     upsertMember: ({ tenantId, groupId, userId, addedByUserId }, client = db) =>
       client.groupMember.upsert({
-        where: { groupId_userId: { groupId, userId } },
+        where: { groupId_userId: { groupId, userId }, tenantId },
         create: { tenantId, groupId, userId, addedByUserId },
         update: {},
         include: memberInclude,

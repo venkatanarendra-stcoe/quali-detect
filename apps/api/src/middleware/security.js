@@ -62,6 +62,8 @@ export function globalRateLimit({ config, infra, logger }) {
   };
 }
 
+/** Paths whose body is read raw by their own route (see the route kit `webhook` option). */
+export const WEBHOOK_PATH_PREFIX = "/api/v1/webhooks/";
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
@@ -84,5 +86,9 @@ export function bodyParsing({ config }) {
       );
     next();
   };
-  return [guard, express.json({ limit: config.http.bodyLimitBytes, strict: true })];
+  // Provider webhooks keep their raw body for signature verification (the route parses it itself, after the check).
+  const json = express.json({ limit: config.http.bodyLimitBytes, strict: true });
+  const skipWebhooks = (middleware) => (req, res, next) =>
+    req.path.startsWith(WEBHOOK_PATH_PREFIX) ? next() : middleware(req, res, next);
+  return [skipWebhooks(guard), skipWebhooks(json)];
 }

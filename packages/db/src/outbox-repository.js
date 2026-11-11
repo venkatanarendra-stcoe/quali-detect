@@ -18,9 +18,9 @@ export function createOutboxRepository({ db }) {
      * Writes one outbox row. Pass the TRANSACTION client of the state change. `message` must already be a validated envelope.
      * Idempotent per (messageId, queue): enqueueing the same message for the same queue twice is a no-op.
      * @param {any} client Prisma transaction client (or client)
-     * @param {{ queue: string, message: { messageId: string, type: string, tenantId?: string } & Record<string, unknown> }} input
+     * @param {{ queue: string, exchange?: string, routingKey?: string, message: { messageId: string, type: string, tenantId?: string } & Record<string, unknown> }} input
      */
-    async enqueue(client, { queue, message }) {
+    async enqueue(client, { queue, exchange, routingKey, message }) {
       return client.outboxMessage.upsert({
         where: { messageId_queue: { messageId: message.messageId, queue } },
         create: {
@@ -28,6 +28,8 @@ export function createOutboxRepository({ db }) {
           messageId: message.messageId,
           type: message.type,
           queue,
+          exchange: exchange ?? null,
+          routingKey: routingKey ?? null,
           payload: message,
         },
         update: {},
@@ -41,7 +43,7 @@ export function createOutboxRepository({ db }) {
      * The batch stops at the first failure so an unavailable broker does not hold the transaction open row by row.
      * @param {{
      *   limit: number, maxAttempts: number, nextDelayMs: (attempts: number) => number, now?: () => Date,
-     *   publish: (row: { id: string, tenantId: string | null, messageId: string, type: string, queue: string, payload: any, attempts: number }) => Promise<void>,
+     *   publish: (row: { id: string, tenantId: string | null, messageId: string, type: string, queue: string, exchange: string | null, routingKey: string | null, payload: any, attempts: number }) => Promise<void>,
      * }} options
      * @returns {Promise<{ claimed: number, sent: number, failed: number, dead: number }>}
      */
@@ -50,7 +52,7 @@ export function createOutboxRepository({ db }) {
         db,
         async (tx) => {
           const rows = await tx.$queryRaw`
-            SELECT id, tenant_id AS "tenantId", message_id AS "messageId", type, queue, payload, attempts
+            SELECT id, tenant_id AS "tenantId", message_id AS "messageId", type, queue, exchange, routing_key AS "routingKey", payload, attempts
             FROM outbox_messages
             WHERE status = 'pending' AND available_at <= now()
             ORDER BY created_at, id

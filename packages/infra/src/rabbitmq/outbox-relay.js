@@ -40,7 +40,12 @@ export function createOutboxRelay({
 
   const publishRow = async (row) => {
     try {
-      await publisher.publish({ queue: row.queue, envelope: row.payload });
+      await publisher.publish({
+        queue: row.queue,
+        exchange: row.exchange ?? undefined,
+        routingKey: row.routingKey ?? undefined,
+        envelope: row.payload,
+      });
     } catch (error) {
       // An invalid stored envelope can never succeed: do not retry it forever.
       if (error?.name === "ZodError" || error?.name === "MessageContractError")

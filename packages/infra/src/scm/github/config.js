@@ -67,6 +67,12 @@ export function readGitHubAppConfig(env, { production }) {
     syncFailuresBeforeDisconnect: int("SCM_SYNC_FAILURES_BEFORE_DISCONNECT", 5, 1, 100),
     deliveryRetentionDays: int("SCM_DELIVERY_RETENTION_DAYS", 30, 1, 3650),
     webhookBodyLimitBytes: int("SCM_WEBHOOK_BODY_LIMIT_BYTES", 1048576, 1024, 26214400),
+    webhookInstallationLimitPerMinute: int(
+      "SCM_WEBHOOK_INSTALLATION_LIMIT_PER_MINUTE",
+      1200,
+      10,
+      1000000,
+    ),
   };
   return { enabled: true, problems, config: problems.length > 0 ? null : Object.freeze(config) };
 }

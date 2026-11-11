@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { AUDIENCES, PLATFORM_PREFIX } from "../middleware/authentication.js";
 import { validate } from "./validation.js";
 
@@ -12,6 +12,7 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * @property {import("express").RequestHandler | import("express").RequestHandler[]} [preHandler] authorization middleware, run after validation
  * @property {Record<string, any>} [schema] `params | querystring | body | headers` Zod schemas validate; `response`, `tags`, `summary`, `hide` document
  * @property {"auth" | "write" | "webhook"} [rateLimit] per-route rate limit profile (limits in configuration)
+ * @property {{ limitBytes: number }} [webhook] public provider-webhook route: the RAW body is kept as a Buffer (`req.body`) so the handler can verify the signature before parsing; the global JSON parser skips these paths
  * @property {boolean} [idempotent] accept the optional `Idempotency-Key` header (creating or side-effect endpoints)
  *
  * @typedef {(registrar: RouteRegistrar) => void | Promise<void>} RouteRegistrarFn  a module's route declarations
@@ -90,7 +91,14 @@ export function createRouteKit({ chains, limiters, idempotency }) {
           throw new Error(`Route ${where}: rate limiting is not configured.`);
         if (options.idempotent && audience === "public")
           throw new Error(`Route ${where}: Idempotency-Key needs an authenticated route.`);
+        if (options.webhook && audience !== "public")
+          throw new Error(
+            `Route ${where}: webhook routes must be public (the signature authenticates them).`,
+          );
         const chain = [
+          ...(options.webhook
+            ? [express.raw({ type: "application/json", limit: options.webhook.limitBytes })]
+            : []),
           ...chains[audience],
           ...(options.rateLimit ? [limiters.forRoute(options.rateLimit, routeId)] : []),
           ...(validation ? [validation] : []),
@@ -117,6 +125,7 @@ export function createRouteKit({ chains, limiters, idempotency }) {
           permission: preHandlers.map((h) => h.permission).find(Boolean) ?? null,
           rateLimit: options.rateLimit ?? null,
           idempotent: options.idempotent === true,
+          webhook: Boolean(options.webhook),
           schema: options.schema ?? {},
         });
       };

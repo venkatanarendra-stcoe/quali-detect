@@ -7,7 +7,7 @@
  * requests SUCCEED, so a transport that stops mounting routes cannot make the "expect 404 / 401" checks pass vacuously.
  */
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { getDbClient } from "@qmentisai/db";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
@@ -16,7 +16,7 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 118;
+const EXPECTED_CHECKS = 124;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1542,6 +1542,213 @@ const ghUser = () => ({
     "only holders of integration.manage can start linking",
     FORBIDDEN,
     async () => (await scenario()).viewerStart,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 11. GitHub integration: webhook (SCM). The signature authenticates GitHub; the tenant comes only from the stored link.
+// ---------------------------------------------------------------------------------------------------------------------
+const WEBHOOK_SECRET = env("SECURITY_GITHUB_WEBHOOK_SECRET");
+const signBody = (body, secret = WEBHOOK_SECRET) =>
+  `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+/** POSTs a delivery to the webhook. `signature: null` omits the header; `secret` signs with another key. */
+async function deliver({
+  event = "installation",
+  payload,
+  rawBody,
+  secret,
+  signature,
+  deliveryId = randomUUID(),
+  cookie,
+  contentType = "application/json",
+}) {
+  const body = rawBody ?? JSON.stringify(payload);
+  const headers = {
+    "content-type": contentType,
+    "x-github-delivery": deliveryId,
+    "x-github-event": event,
+  };
+  if (signature !== null) headers["x-hub-signature-256"] = signature ?? signBody(body, secret);
+  if (cookie) headers.cookie = cookie;
+  const response = await fetch(`${env("SECURITY_API_URL")}/api/v1/webhooks/github`, {
+    method: "POST",
+    headers,
+    body,
+  });
+  const text = await response.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: response.status, json, deliveryId };
+}
+const noCorrelation = (json) => JSON.stringify({ ...json, meta: undefined });
+const rowsFor = async (deliveryId) => {
+  const db = suiteDb();
+  return {
+    delivery: await db.scmWebhookDelivery.findUnique({
+      where: { provider_deliveryId: { provider: "github", deliveryId } },
+    }),
+    events: await db.scmEvent.findMany({ where: { deliveryId } }),
+    outbox: await db.outboxMessage.findMany({ where: { messageId: `scm-github-${deliveryId}` } }),
+  };
+};
+{
+  const add = group("GitHub integration: webhook");
+  const linked = () =>
+    once("scm-webhook-link", async () => {
+      const account = orgAccount("w");
+      const flow = await linkFlow(S("admin")(w), { account, user: ghUser(), orgRole: "admin" });
+      if (flow.link.status !== 201) throw new Error(`link answered ${flow.link.status}`);
+      return {
+        installationId: flow.installationId,
+        linkId: flow.link.json.data.id,
+        tenantId: (await w.api("GET", "/me", { cookie: S("admin")(w) })).json.data.tenant.id,
+      };
+    });
+  const installationPayload = (installationId, action = "suspend") => ({
+    action,
+    installation: { id: Number(installationId), account: { login: "x" } },
+  });
+  add(
+    "SCM-001",
+    "a delivery with a forged signature is rejected with 401 and nothing is stored",
+    { status: 401, code: "UNAUTHENTICATED" },
+    async () => {
+      const l = await linked();
+      const r = await deliver({
+        payload: installationPayload(l.installationId),
+        secret: "not-the-webhook-secret",
+      });
+      return Object.assign(r, { rows: await rowsFor(r.deliveryId) });
+    },
+    (r) =>
+      r.rows.delivery || r.rows.events.length || r.rows.outbox.length
+        ? ["a forged delivery left rows behind"]
+        : [],
+  );
+  add(
+    "SCM-002",
+    "missing, malformed and mismatched signatures are all rejected with 401",
+    { status: 401, code: "UNAUTHENTICATED" },
+    async () => {
+      const l = await linked();
+      const payload = installationPayload(l.installationId);
+      const missing = await deliver({ payload, signature: null });
+      const malformed = await deliver({ payload, signature: "sha256=zz" });
+      const wrongPrefix = await deliver({ payload, signature: `sha1=${"a".repeat(64)}` });
+      const otherBody = await deliver({
+        payload,
+        signature: signBody(JSON.stringify({ different: true })),
+      });
+      return Object.assign(missing, { others: [malformed, wrongPrefix, otherBody] });
+    },
+    (r) => r.others.filter((o) => o.status !== 401).map((o) => `answered ${o.status}`),
+  );
+  add(
+    "SCM-006",
+    "a signed delivery for an unknown installation is answered exactly like an accepted one and stores nothing tenant-scoped",
+    { status: 202 },
+    async () => {
+      const l = await linked();
+      const known = await deliver({ payload: installationPayload(l.installationId, "unsuspend") });
+      const unknown = await deliver({
+        payload: installationPayload(nextInstallationId(), "unsuspend"),
+      });
+      return Object.assign(unknown, { known, rows: await rowsFor(unknown.deliveryId) });
+    },
+    (r) => {
+      const problems = [];
+      if (r.known.status !== 202)
+        problems.push(`the known installation answered ${r.known.status}`);
+      if (noCorrelation(r.json) !== noCorrelation(r.known.json))
+        problems.push("the unknown installation's answer differs from an accepted one");
+      if (r.rows.delivery?.outcome !== "unknown_installation" || r.rows.delivery?.tenantId)
+        problems.push(`delivery row ${JSON.stringify(r.rows.delivery)}`);
+      if (r.rows.events.length || r.rows.outbox.length)
+        problems.push("an unknown installation produced events");
+      return problems;
+    },
+  );
+  add(
+    "SCM-011",
+    "a signed-in tenant session grants nothing on the webhook: without a valid signature it is 401",
+    { status: 401, code: "UNAUTHENTICATED" },
+    async () => {
+      const l = await linked();
+      return deliver({
+        payload: installationPayload(l.installationId),
+        signature: "sha256=" + "0".repeat(64),
+        cookie: S("admin")(w),
+      });
+    },
+  );
+  add(
+    "SCM-015",
+    "a signed payload without installation.id is not processed, yet is answered like an accepted delivery",
+    { status: 202 },
+    async () => {
+      await linked();
+      const r = await deliver({
+        event: "push",
+        payload: { ref: "refs/heads/main", repository: { id: 1 } },
+      });
+      return Object.assign(r, { rows: await rowsFor(r.deliveryId) });
+    },
+    (r) => {
+      const problems = [];
+      if (r.rows.delivery?.outcome !== "rejected_payload")
+        problems.push(`outcome ${r.rows.delivery?.outcome}`);
+      if (r.rows.events.length || r.rows.outbox.length)
+        problems.push("a payload without installation.id produced events");
+      return problems;
+    },
+  );
+  add(
+    "SCM-021",
+    "an installation event of a linked installation creates one normalized event and one outbox message in that tenant, and a duplicate delivery id creates no second",
+    { status: 202 },
+    async () => {
+      const l = await linked();
+      const deliveryId = randomUUID();
+      const first = await deliver({
+        payload: installationPayload(l.installationId, "new_permissions_accepted"),
+        deliveryId,
+      });
+      const duplicate = await deliver({
+        payload: installationPayload(l.installationId, "new_permissions_accepted"),
+        deliveryId,
+      });
+      return Object.assign(first, {
+        duplicate,
+        rows: await rowsFor(deliveryId),
+        tenantId: l.tenantId,
+        linkId: l.linkId,
+      });
+    },
+    (r) => {
+      const problems = [];
+      if (r.duplicate.status !== 202) problems.push(`the duplicate answered ${r.duplicate.status}`);
+      if (r.rows.events.length !== 1 || r.rows.events[0].tenantId !== r.tenantId)
+        problems.push(`events ${JSON.stringify(r.rows.events.map((e) => e.tenantId))}`);
+      if (r.rows.outbox.length !== 1) problems.push(`${r.rows.outbox.length} outbox rows`);
+      else {
+        const o = r.rows.outbox[0];
+        if (
+          o.tenantId !== r.tenantId ||
+          o.exchange !== "qmentis.scm.events" ||
+          o.routingKey !== "scm.github.installation"
+        )
+          problems.push(`outbox ${o.tenantId} ${o.exchange} ${o.routingKey}`);
+        if (JSON.stringify(o.payload).includes("secret"))
+          problems.push("secret-like content in the message");
+      }
+      if (r.rows.delivery?.outcome !== "accepted")
+        problems.push(`outcome ${r.rows.delivery?.outcome}`);
+      return problems;
+    },
   );
 }
 

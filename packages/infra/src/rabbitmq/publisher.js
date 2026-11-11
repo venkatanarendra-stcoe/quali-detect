@@ -40,20 +40,25 @@ export function createPublisher({ connection, logger, retryPolicy }) {
   const publisher = {
     /**
      * Validates and publishes a message to `queue`. Resolves after the broker confirms.
-     * @param {{ queue: string, envelope: unknown, allowUnknownTypes?: boolean }} input
+     * @param {{ queue: string, exchange?: string, routingKey?: string, envelope: unknown, allowUnknownTypes?: boolean }} input `exchange` + `routingKey` publish to a topic exchange (SCM events); otherwise to the direct jobs exchange
      * @returns {Promise<ReturnType<typeof parseMessage>>} the validated message that was sent
      */
-    async publish({ queue, envelope, allowUnknownTypes = true }) {
+    async publish({ queue, exchange, routingKey, envelope, allowUnknownTypes = true }) {
       const valid = parseMessage(envelope, { allowUnknownTypes });
       const ch = await channel();
-      if (!declared.has(queue)) {
+      if (exchange) {
+        if (!declared.has(`x:${exchange}`)) {
+          await ch.assertExchange(exchange, "topic", { durable: true });
+          declared.add(`x:${exchange}`);
+        }
+      } else if (!declared.has(queue)) {
         await assertTopology(ch, { queue, retryPolicy: policy });
         declared.add(queue);
       }
       await new Promise((resolve, reject) => {
         ch.publish(
-          EXCHANGES.JOBS,
-          queue,
+          exchange ?? EXCHANGES.JOBS,
+          exchange ? routingKey : queue,
           Buffer.from(JSON.stringify(valid)),
           {
             persistent: true,

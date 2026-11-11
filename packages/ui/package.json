@@ -5,7 +5,7 @@
   "description": "Design tokens (CSS variables) and the Tailwind v4 preset shared by both apps",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0"
   },
   "exports": {
     ".": "./src/index.js",

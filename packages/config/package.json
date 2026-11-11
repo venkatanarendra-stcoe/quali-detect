@@ -5,7 +5,7 @@
   "description": "Shared ESLint flat config and Prettier config",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0"
   },
   "exports": {
     "./eslint/base": "./eslint/base.js",

@@ -23,7 +23,7 @@ Phase 1 (repository foundation) contains skeletons only: no business logic.
 
 ## Requirements
 
-Node.js >= 22.12 (LTS, see `.nvmrc`) and pnpm 12 (`corepack enable`).
+Node.js >= 22.22 (LTS, see `.nvmrc`; react-router 8 needs it) and pnpm 12 (`corepack enable`).
 
 ## Commands
 

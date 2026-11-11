@@ -44,3 +44,12 @@ Deviations from `docs/AUTHORIZATION.md` §8: `GET /me/permissions` is in the ide
 
 ## 7. Open items
 Q13 (naming permissions in 403 bodies); permission caching and invalidation; Idempotency-Key header; group assignment cleanup when a group is emptied; email delivery of invitations; whether suspended memberships should keep workspace rosters.
+
+## Audit log read APIs (2026-11-11)
+
+| Operation | Permission | Notes |
+|---|---|---|
+| `GET /api/v1/audit-logs` | `audit_log.view_all` (tenant) | Session tenant only; `actor`, `action`, `from`, `to`, `result`, `sort` (`createdAt`, `action`), `page`, `pageSize`; unknown parameters (including `tenantId`) are `400` |
+| `GET /api/v1/platform/audit-logs` | `platform.audit_log.view` (platform) | Platform events; additionally `tenantId`; a tenant session gets `404` |
+
+`result` is derived from the action name (`*_failed`, `*_denied`, `*throttle_cap_reached` are failures); entries are append-only. Screens: T-19 and R-28 (`SCREENS.md`).

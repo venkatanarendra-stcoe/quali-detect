@@ -16,7 +16,8 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "check:connections": "node --env-file-if-exists=.env scripts/check-connections.js",
     "test:security": "node scripts/security-suite.js",
-    "contract:snapshot": "node scripts/snapshot-contract.js"
+    "contract:snapshot": "node scripts/snapshot-contract.js",
+    "contract:parity": "node scripts/contract-parity.js"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "catalog:",

@@ -1,4 +1,4 @@
-/** Trusted context of the platform caller (session, never request input). @param {import("fastify").FastifyRequest} request */
+/** Trusted context of the platform caller (session, never request input). @param {import("express").Request} request */
 const actorFrom = (request) => ({
   platformUserId: request.principal.platform.platformUser.id,
   permissions: request.principal.platform.permissions,

@@ -3,3 +3,4 @@ export * from "./hash.js";
 export * from "./redis/index.js";
 export * from "./rabbitmq/index.js";
 export * from "./secrets/index.js";
+export * from "./scm/index.js";

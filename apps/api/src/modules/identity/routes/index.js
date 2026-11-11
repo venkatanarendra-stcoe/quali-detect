@@ -15,9 +15,9 @@ import {
 } from "../schemas/index.js";
 
 /**
- * Identity routes under /api/v1. Each declares its audience (see plugins/authentication.js).
+ * Identity routes under /api/v1. Each declares its audience (see middleware/authentication.js).
  * @param {ReturnType<typeof import("../controllers/index.js").createIdentityController>} controller
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const identityRoutes = (controller) =>
   async function identity(app) {

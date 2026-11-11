@@ -7,7 +7,7 @@ import { createIdentityService } from "./services/index.js";
 
 /**
  * Module plugin: repository -> service -> controller -> routes, built from app decorators (no globals).
- * @type {import("fastify").FastifyPluginAsync}
+ * @type {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 async function identityPlugin(app) {
   const repository = createIdentityRepository({ db: app.infra.db });
@@ -22,7 +22,7 @@ async function identityPlugin(app) {
   await app.register(identityRoutes(controller));
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const identityModule = {
   name: MODULE_NAME,
   description:

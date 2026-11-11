@@ -1,5 +1,5 @@
 // import { groupsModule } from "./groups/index.js";
-// import { identityModule } from "./identity/index.js";
+import { identityModule } from "./identity/index.js";
 // import { platformIdentityModule } from "./platform-identity/index.js";
 // import { platformTenantsModule } from "./platform-tenants/index.js";
 // import { roleAssignmentsModule } from "./role-assignments/index.js";
@@ -12,7 +12,7 @@ import { systemModule } from "./system/index.js";
 /** Modules registered by the application, in registration order. Add new domain modules here. */
 export const modules = [
   systemModule,
-  // identityModule,
+  identityModule,
   // platformIdentityModule,
   // platformTenantsModule,
   // usersModule,

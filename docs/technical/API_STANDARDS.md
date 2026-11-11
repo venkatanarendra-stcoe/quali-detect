@@ -77,7 +77,7 @@ Maintain OpenAPI documentation alongside route schemas. Document authentication,
 
 ## Contract baseline and transport independence
 
-The API contract is independent of the HTTP framework (ADR-007). The Fastify-era contract is frozen in `docs/api/`:
+The API contract is independent of the HTTP framework (ADR-007). The Fastify-era contract is frozen in `docs/api/` as the reference; `pnpm contract:snapshot` writes the Express twins (`openapi-express.json`, `contract-express.*`) and `pnpm contract:parity` diffs them (`parity-report.md`):
 
 - `openapi-fastify-baseline.json`: the OpenAPI document exactly as served.
 - `contract-fastify-baseline.json` and `.md`: one record per operation (method, path, audience, permission and its scope, success status, documented error statuses, **transport** error codes (exact) and **domain** error codes (a per-module superset), response envelope and `data` shape).
@@ -86,7 +86,7 @@ The API contract is independent of the HTTP framework (ADR-007). The Fastify-era
 Rules the Express migration must preserve:
 
 - Same paths under `/api/v1` (platform under `/api/v1/platform`), statuses, envelopes, cookie names/paths/flags and stable error codes.
-- **Validation precedes authentication:** invalid input answers `400 VALIDATION_FAILED` before `401`/`403`/`404` are decided. Changing this order needs an ADR.
+- **Authentication precedes validation (ADR-007, changed from the Fastify era):** an unauthenticated caller gets `401` regardless of input, and an unusable tenant `403`, before input is validated; invalid input then answers `400 VALIDATION_FAILED` before authorization (`403`/`404`) is decided. Public routes (login) validate first. Changing this order needs an ADR.
 - A route without a declared audience must refuse to register; platform routes only under `/api/v1/platform/`.
 - A workspace the caller cannot see answers `404` with a body identical to a missing one; a visible resource without permission answers `403` (see `docs/AUTHORIZATION.md` §5.9). `pnpm test:security` (ADR-008) enforces this.
 

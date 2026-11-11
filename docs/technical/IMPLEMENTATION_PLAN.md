@@ -15,7 +15,7 @@ Build foundational capabilities before implementing the full product modules. Wo
 
 ## Phase 2 — Backend foundation
 
-- Backend application bootstrap (built on Fastify; transport replaced by Express 5 per ADR-007, migration pending).
+- Backend application bootstrap (Express 5 per ADR-007; originally built on Fastify).
 - Configuration validation.
 - Centralized logging and error handling.
 - Prisma and PostgreSQL connection.

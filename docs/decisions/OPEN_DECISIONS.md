@@ -19,8 +19,7 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | SSO providers and protocols | Requirements include SSO | Confirm supported protocols |
 | Data retention periods | Not finalized | Compliance/business decision |
 | Exact AI coding-tool event capabilities | Provider-specific | Verify before implementing each adapter |
-| OpenAPI generation after the Express 5 migration (ADR-007) | Hand-written over the route registry vs a library | Recommended: hand-written first |
-| Middleware libraries and hardening with the Express migration (`cookie-parser`, `cors`, `pino-http`, `helmet`, `trust proxy`, global rate limit) | Libraries vs hand-written; now vs later | Recommended: libraries, adopted with the migration |
+| ~~OpenAPI generation, middleware libraries and hardening for Express~~ | Decided by the owner with the migration (zod-to-openapi, cookie-parser, cors, pino-http, helmet, rate limit, trust proxy): see ADR-007 | Resolved |
 | Reasons for replacing Fastify (ADR-007) | Not stated with the instruction | Owner to record in the ADR |
 
 ## Rule

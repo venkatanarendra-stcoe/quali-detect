@@ -18,7 +18,7 @@ If documents conflict, do not silently choose. Identify the conflict and ask for
 ## 2. Approved technology
 
 - JavaScript ES Modules only.
-- Node.js + Express 5 backend (ADR-007; Fastify 5 until the migration lands).
+- Node.js + Express 5 backend (ADR-007).
 - React + Vite frontends.
 - shadcn/ui + Tailwind CSS.
 - PostgreSQL + Prisma.

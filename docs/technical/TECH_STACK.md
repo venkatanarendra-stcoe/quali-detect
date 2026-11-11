@@ -60,7 +60,7 @@ Previous text, kept for history: *Fastify is the selected backend framework for 
 | `@asteasolutions/zod-to-openapi` | 7.3.4 | OpenAPI 3.0.3 generated from the same Zod schemas that validate requests. v7 is the last line that supports Zod 3 (v8+ need Zod 4, which the workspace does not use) |
 | `swagger-ui-express` | 5.0.1 | Interactive docs at `/api/v1/docs`, only when `OPENAPI_ENABLED` (off in production by default). Its transitive `@scarf/scarf` install script (telemetry) is explicitly denied in `allowBuilds` |
 
-Removed at cutover: `fastify`, `fastify-plugin`, `@fastify/cookie`, `@fastify/cors`, `@fastify/swagger`, `zod-to-json-schema`.
+Removed by the migration: `fastify`, `fastify-plugin`, `@fastify/cookie`, `@fastify/cors`, `@fastify/swagger`, `zod-to-json-schema`.
 
 New configuration: `TRUST_PROXY` (hop count or addresses; `true` is refused), `RATE_LIMIT_WINDOW_MS` (60000), `RATE_LIMIT_MAX` (600).
 

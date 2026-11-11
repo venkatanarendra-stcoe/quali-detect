@@ -1,8 +1,8 @@
 # ADR-007: Replace Fastify with Express 5
 
-- **Status:** Accepted (2026-11-11, on the product owner's instruction). **The migration has not started: `apps/api` still runs on Fastify 5.** The Fastify code remains the reference implementation until cutover.
+- **Status:** Accepted (2026-11-11, on the product owner's instruction). **Implemented on branch `feat/express-migration` (2026-11-11): `apps/api` runs on Express 5; all acceptance gates below passed; pending merge.** The Fastify-era contract stays in `docs/api/*fastify-baseline*` as the frozen reference.
 - **Date:** 2026-11-11
-- **Decision owners:** Product owner (decision); Claude Code (documentation, migration baselines; implementation of the migration is a separate, later work item)
+- **Decision owners:** Product owner (decision); Claude Code (documentation, baselines and the implementation)
 - **Supersedes:** the framework choice in `docs/technical/TECH_STACK.md` ("Backend framework note") and the Fastify wording in `BACKEND_ARCHITECTURE.md`, `ADR-002` (its modular-monolith decision stands; only the word "Fastify" is superseded) and `CLAUDE.md`.
 
 ## Context
@@ -52,7 +52,7 @@ Replace Fastify with **Express 5** as the HTTP transport of `apps/api`. Keep the
 | `bodyLimit` | `express.json({ limit })` plus handlers that keep the existing 400/413/415 error codes |
 | `trustProxy` (not configured today) | `app.set("trust proxy", ...)` driven by configuration (closes an audit gap) |
 
-**Required middleware order** (this is the part where a mistake could bypass security; it must reproduce current behavior, in which input validation errors are produced before authentication):
+**Required middleware order as originally proposed** (superseded by the order recorded under *Implementation outcome*, where validation follows authentication on the owner's instruction):
 
 1. correlation id, 2. request logging, 3. body parsing with limit, 4. CORS, 5. cookies, 6. CSRF/Origin check on unsafe methods, 7. input validation, 8. authentication by route audience (`public`, `user`, `tenant`, `platform`), 9. tenant context from the session, 10. `authorize(permission, scope)` (404 for not visible, 403 for not permitted), 11. handler, 12. envelope/error handler.
 
@@ -97,14 +97,37 @@ Replace Fastify with **Express 5** as the HTTP transport of `apps/api`. Keep the
 - Opportunity to close audit gaps while the pipeline is rewritten: `trust proxy`, security headers (`helmet`) and a global rate limit are *decisions for the migration spec*, not part of this ADR.
 - No change to sessions, cookies, database, queues, workers or frontend behavior.
 
-## Open decisions (not decided here; do not guess)
+## Decisions taken with the migration (by the owner's dependency list, 2026-11-11)
 
-| Topic | Options | Recommendation |
-|---|---|---|
-| OpenAPI generation | hand-written generator over the route registry (reuses `toOpenApiSchema`) vs a library such as `@asteasolutions/zod-to-openapi` | Hand-written first (no new dependency; the registry already holds every schema); revisit if it grows |
-| Middleware libraries | small hand-written code vs `cookie-parser`, `cors`, `pino-http`, `helmet` | Libraries for cookies/CORS/logging/headers (well-audited), each pinned and justified |
-| Side-by-side entry points during the migration | separate Express entry vs a switch inside `server.js` | Separate entry point selected by configuration, removed at cutover |
-| Whether to adopt `helmet`, `trust proxy` and a global rate limit with this migration | now vs later | Now: the pipeline is being rewritten anyway |
+| Topic | Decision |
+|---|---|
+| OpenAPI generation | `@asteasolutions/zod-to-openapi` 7.3.4 over the route kit's table (v7 is the last line supporting Zod 3). Served at the same path `/api/v1/openapi.json`; `swagger-ui-express` adds `/api/v1/docs` when `OPENAPI_ENABLED` |
+| Middleware libraries | `cors`, `cookie-parser`, `pino-http`, `helmet`, `express-rate-limit` + `rate-limit-redis` adopted (pinned, justified in `TECH_STACK.md`) |
+| `trust proxy`, `helmet`, global rate limit | Adopted now: `TRUST_PROXY` (hop count or addresses; `true` refused), `RATE_LIMIT_WINDOW_MS`/`RATE_LIMIT_MAX` (default 600 per minute per IP, before authentication, Redis-backed when configured, probes exempt) |
+| Side-by-side entry points | Not needed: the migration is one branch; `src/server.js` stayed the entry point so the security suite ran unchanged |
+| Validation vs authentication order | **Changed on the owner's instruction** (see differences below) |
+
+## Implementation outcome (verified 2026-11-11)
+
+**Structure.** `createApp({ config, modules })` in `src/app.js` (returns `{ app, ctx, routes, openapi, close }`); `src/server.js` listens and shuts down gracefully (stop accepting, drain, then close RabbitMQ, Redis, Prisma; exit 0). `src/lib/route-kit.js` is the only way to register a route: it requires `config.audience`, enforces the platform-path placement rules at startup, rejects duplicates, mounts tenant routes on a router at `/api/v1` and platform routes on a separate router at `/api/v1/platform`, and assembles each route's chain. `src/middleware/` holds correlation, request logging, security (helmet, global rate limit, body parsing), authentication (per-audience chains, CSRF origin check, CORS, cookies), authorization, envelope and error handling; `src/runtime/` holds the factories that replaced plugins (readiness, infrastructure, audit, entitlements, module registration). Modules keep their folders; `routes/` still declares the same options (`config.audience`, `preHandler`, Zod `schema`) and controllers, services and repositories are unchanged.
+
+**Middleware order** (global, then per route): correlation id, pino-http (redaction), [Swagger UI when enabled], helmet, CORS, global rate limit, cookies, envelope helpers, body limit (413) and content-type guard (415), CSRF origin check; then per route: authentication by audience, tenant context (tenant routes, from the session only), `validate(zod)`, `authorize(permission, scope)` (404 hidden / 403 forbidden), handler; then JSON 404 and the centralized error handler.
+
+**Gates (all passed).**
+1. Contract parity: `pnpm contract:parity` compares `contract-express.json`/`openapi-express.json` with the Fastify baselines: 61 operations, 0 differences in path, method, audience, permission, success status, documented error statuses, error codes, request parts, envelope; OpenAPI schemas equal after normalizing generator spelling (`docs/api/parity-report.md`).
+2. `pnpm test:security`: 85 tests (68 checks, 16 controls, integrity) pass, unchanged, against the Express server.
+3. `pnpm lint`, `pnpm build`, `pnpm format:check` pass; no Fastify import remains anywhere.
+4. Browser flows against the Express API on a throwaway PostgreSQL: login for each seeded role and navigation (56 checks), T-06/07/08/40/44 and tenant flows (49), R-04/05/06 (41), Root Console login/MFA/navigation (30); 0 server errors. Gate 5 (latency comparison) was not run (informational).
+
+## Behavior differences from the Fastify transport (reviewed; none changes the documented contract)
+
+1. **Validation now runs after authentication and tenant context** (owner's order). An unauthenticated caller sending invalid input gets `401 UNAUTHENTICATED` instead of `400`; a tenant route with a suspended tenant answers `403 TENANT_SUSPENDED` before validating. Public routes (login, MFA) still validate first. `API_STANDARDS.md` is updated.
+2. Request with `Content-Type: application/json` and an empty body: Fastify answered 400 before the route; now routes that declare a body schema answer `400 VALIDATION_FAILED`, routes without one (for example logout) succeed.
+3. Added: helmet security headers, a global per-IP rate limit (`429 RATE_LIMITED`), `TRUST_PROXY`, Swagger UI at `/api/v1/docs` (only with `OPENAPI_ENABLED`, relaxed CSP on that path only), ETag disabled. Login throttling is unchanged.
+4. Body errors keep their codes: oversize `413 PAYLOAD_TOO_LARGE`, malformed JSON `400 BAD_REQUEST`, other content types with a body `415 UNSUPPORTED_MEDIA_TYPE` (emulated by a guard).
+5. OpenAPI: generated by a different library. Success response descriptions are `OK`/`Created` instead of `Default Response`; strict objects no longer carry `additionalProperties: false`; free-form maps are spelled `{ nullable: true }`. The error responses documented per audience are unchanged.
+6. Log lines come from pino-http: same redaction, `correlationId`, method, path and status; message strings may differ slightly from Fastify's.
+7. Routing is case-sensitive and strict (no trailing-slash matching), as before; unknown paths and methods answer the JSON 404 envelope.
 
 ## Related documents
 

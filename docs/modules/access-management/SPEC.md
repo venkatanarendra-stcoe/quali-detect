@@ -16,7 +16,7 @@ Central authorization engine (pure, shared by API and frontends), API enforcemen
 No role names anywhere. "Tenant administrator" is capability-based: holds `role.manage` **and** `role_assignment.manage_tenant`; such callers may grant keys they lack (decision 5) but never to themselves. **Recommended — default applied.**
 
 ## 3. Enforcement (`apps/api`)
-- Every route declares `config.audience`; tenant routes add `preHandler: app.authz.authorize(key, scopeResolver)`.
+- Every route declares `config.audience` (the Express route kit refuses to start otherwise); tenant routes add `preHandler: authz.authorize(key, scopeResolver)` (Express middleware that runs after authentication, tenant context and validation).
 - `authorize` loads the resource with the session's tenant filter (nothing -> 404), hides workspaces the caller cannot see (same 404), then `can()` (false -> 403). Key and resolver scope are validated at startup. Tenant-level collections answer 403; workspace-data collections return only visible items.
 - Permissions are resolved per request (no cache), so changes apply on the next request.
 - Invariants: tenant keeps >= 1 administrator (409 `LAST_TENANT_ADMIN`); workspace keeps >= 1 administrator assignment (409 `CONFLICT`, `details.reason: last_workspace_administrator`); both serialized with advisory locks and rolled back on violation.

@@ -28,9 +28,9 @@ export const AUDIENCES = Object.freeze(["public", "user", "tenant", "platform"])
  * two surfaces are separate Express routers with their own authentication middleware (`middleware.tenant`, `middleware.platform`).
  * Unsafe methods are checked against the allowed browser origins (CSRF defense on top of SameSite=Lax cookies).
  *
- * @param {{ db: any, config: any, audit: any, infra: any, logger: import("pino").Logger }} deps
+ * @param {{ db: any, config: any, audit: any, infra: any, logger: import("pino").Logger, outbox: any }} deps
  */
-export function createAuthentication({ db, config, audit, infra, logger }) {
+export function createAuthentication({ db, config, audit, infra, logger, outbox }) {
   if (!db) throw new Error("The identity module requires DATABASE_URL.");
 
   const sessions = Object.freeze({
@@ -49,7 +49,7 @@ export function createAuthentication({ db, config, audit, infra, logger }) {
     limiter,
     decaySeconds: throttle.decaySeconds,
     ipFreeMultiplier: throttle.ipFreeMultiplier,
-    onCapReached: createThrottleNotifier({ db, audit: authAudit, logger }),
+    onCapReached: createThrottleNotifier({ db, audit: authAudit, logger, outbox }),
   };
   const auth = Object.freeze({
     sessions,

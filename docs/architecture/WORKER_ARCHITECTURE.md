@@ -33,6 +33,10 @@ State changes that must produce a message write it to `outbox_messages` **in the
 
 The **outbox relay** (`apps/workers`, `start:outbox`) claims due rows with `SELECT ... FOR UPDATE SKIP LOCKED`, publishes each with a **publisher confirm** and marks the batch sent in the same transaction. Any number of relay instances can run at once: each takes different rows and none waits for another. Failures reschedule the row with bounded exponential backoff and jitter; an envelope that can never be valid is marked `dead` immediately, and rows are marked `dead` after `OUTBOX_MAX_ATTEMPTS` (default 100). A broker outage does not stop the relay: rows stay pending and publishing resumes by itself when the broker is back. If a relay dies after publishing but before marking, the row is published again: delivery is **at-least-once**, consumers deduplicate.
 
+## Scheduled maintenance (scheduler worker)
+
+The scheduler worker consumes the `scheduler` queue and, while running, enqueues `maintenance.sessions.purge_requested` through the outbox every `SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS` (default 1 h, also at startup). The messageId is derived from the time bucket and the outbox is unique per (messageId, queue), so several scheduler instances produce one job. The handler deletes tenant and platform sessions that expired, or were revoked, more than `SCHEDULER_SESSION_RETENTION_SECONDS` (default 24 h) ago; it is naturally idempotent because platform-level messages (catalog scope `platform`) carry no tenant to key an idempotency claim on.
+
 ## Consumer pipeline
 
 Per message: parse and validate (`invalid-envelope`, `unknown-type`, `invalid-payload`, `unsupported-version` go straight to the dead-letter queue) -> require `tenantId` -> **ownership verification** -> **idempotency claim** -> handler -> acknowledge.

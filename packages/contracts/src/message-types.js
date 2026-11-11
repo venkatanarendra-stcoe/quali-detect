@@ -6,12 +6,18 @@ import { messageEnvelopeSchema } from "./messages.js";
  * Producers and consumers both validate against it (`parseMessage`). Add a type here when a module starts publishing it;
  * a payload change that is not backward compatible bumps `schemaVersion` and keeps the old schema until consumers moved.
  * Never put credentials in a payload: send a `secretRef` (ADR-009).
+ *
+ * `scope` says whose message it is: "tenant" (tenantId REQUIRED, ownership is re-validated), "platform" (platform-level
+ * work such as maintenance: tenantId must be ABSENT) or "any" (tenantId optional, for example an alert about a platform
+ * account or a tenant account). Platform-scope messages have no tenant to key an idempotency claim on, so their
+ * handlers must be naturally idempotent.
  */
 const uuid = z.string().uuid();
 
 export const MESSAGE_TYPES = Object.freeze({
   "organization.workspace.created": Object.freeze({
     kind: "event",
+    scope: "tenant",
     schemaVersion: 1,
     payload: z.object({
       workspaceId: uuid,
@@ -19,7 +25,28 @@ export const MESSAGE_TYPES = Object.freeze({
       ownerUserId: uuid.nullable(),
     }),
   }),
+  /** A sign-in or MFA failure streak reached the throttle cap (ADR-010); the account owner should be told. No e-mail address travels in the message. */
+  "identity.account.throttle_cap_reached": Object.freeze({
+    kind: "event",
+    scope: "any",
+    schemaVersion: 1,
+    payload: z.object({
+      audience: z.enum(["tenant", "platform", "platform-mfa"]),
+      accountId: uuid,
+      throttleScope: z.enum(["account", "ip"]),
+    }),
+  }),
+  /** Scheduled maintenance: delete expired and revoked sessions older than the retention period. */
+  "maintenance.sessions.purge_requested": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z.object({ retentionSeconds: z.number().int().min(0).max(31536000) }),
+  }),
 });
+
+/** @param {string} type @returns {(typeof MESSAGE_TYPES)[string] | undefined} */
+export const getMessageType = (type) => MESSAGE_TYPES[type];
 
 /** A message that is structurally valid but does not match the catalog (wrong kind, version or payload). */
 export class MessageContractError extends Error {
@@ -45,6 +72,13 @@ export function parseMessage(raw, { allowUnknownTypes = false } = {}) {
     if (allowUnknownTypes) return envelope;
     throw new MessageContractError(`Unknown message type "${envelope.type}".`, "unknown-type");
   }
+  if (entry.scope === "tenant" && !envelope.tenantId)
+    throw new MessageContractError(`"${envelope.type}" needs a tenantId.`, "missing-tenant");
+  if (entry.scope === "platform" && envelope.tenantId)
+    throw new MessageContractError(
+      `"${envelope.type}" is platform-level and must not carry a tenantId.`,
+      "tenant-not-allowed",
+    );
   if (entry.kind !== envelope.kind)
     throw new MessageContractError(`"${envelope.type}" is a ${entry.kind}.`, "kind-mismatch");
   if (envelope.schemaVersion > entry.schemaVersion)

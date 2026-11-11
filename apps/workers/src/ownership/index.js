@@ -8,6 +8,22 @@ import { USABLE_TENANT_STATUSES } from "@qmentisai/shared";
  * @type {Record<string, (db: any, message: any) => Promise<boolean>>}
  */
 const RESOURCE_CHECKS = {
+  // The account an alert is about must exist, and a tenant account must belong to the tenant of the message.
+  "identity.account.throttle_cap_reached": async (db, message) => {
+    const { audience, accountId } = message.payload;
+    if (audience === "tenant")
+      return Boolean(
+        message.tenantId &&
+        (await db.tenantMembership.findFirst({
+          where: { tenantId: message.tenantId, userId: accountId, status: "active" },
+          select: { id: true },
+        })),
+      );
+    return Boolean(
+      !message.tenantId &&
+      (await db.platformUser.findUnique({ where: { id: accountId }, select: { id: true } })),
+    );
+  },
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({
@@ -28,6 +44,15 @@ const RESOURCE_CHECKS = {
  */
 export function createOwnershipVerifier({ db }) {
   return async function verify(message) {
+    // Platform-level messages (no tenant) skip the tenant checks; the catalog already refused tenant-scope messages without one.
+    if (!message.tenantId) {
+      const check = RESOURCE_CHECKS[message.type];
+      if (check && !(await check(db, message)))
+        throw new NonRetryableError("The referenced account does not exist.", {
+          reason: "resource-not-found",
+        });
+      return;
+    }
     const tenant = await db.tenant.findUnique({
       where: { id: message.tenantId },
       select: { id: true, status: true },

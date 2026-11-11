@@ -20,6 +20,18 @@ export function createNotificationHandler() {
           "Notification: workspace created",
         );
         return;
+      case "identity.account.throttle_cap_reached":
+        // Delivery channel (e-mail) belongs to the notification module; for now the alert is recorded.
+        log.warn(
+          {
+            attempt,
+            audience: message.payload.audience,
+            accountId: message.payload.accountId,
+            throttleScope: message.payload.throttleScope,
+          },
+          "Notification: account reached the sign-in throttle cap",
+        );
+        return;
       default:
         throw new NonRetryableError(`The notification worker does not handle "${message.type}".`, {
           reason: "unsupported-message-type",

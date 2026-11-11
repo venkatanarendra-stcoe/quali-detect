@@ -1,4 +1,4 @@
-import { parseMessage } from "@qmentisai/contracts";
+import { getMessageType, parseMessage } from "@qmentisai/contracts";
 import { childLogger } from "../logging.js";
 import { classifyError, computeBackoffDelay, resolveRetryPolicy } from "./retry.js";
 import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./topology.js";
@@ -126,7 +126,7 @@ export function createConsumer({
       await deadLetter(message, error?.reason ?? "invalid-envelope", attempt);
       return;
     }
-    if (requireTenant && !envelope.tenantId) {
+    if (requireTenant && !envelope.tenantId && !getMessageType(envelope.type)) {
       await deadLetter(message, "missing-tenant", attempt, { messageId: envelope.messageId });
       return;
     }

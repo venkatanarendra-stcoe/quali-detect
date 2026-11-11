@@ -23,6 +23,20 @@ const WORKSPACE_ADMIN_EXCLUDED = new Set(["approval.approve", "approval.reject"]
 const role = (key, name, description, permissions) =>
   Object.freeze({ key, name, description, permissions: Object.freeze([...new Set(permissions)]) });
 
+/**
+ * Capabilities, as sets of permission keys, used to pick a built-in role BY WHAT IT CAN DO instead of by its name:
+ * a role "administers the tenant" when it holds both tenant keys, and "administers a workspace" when it holds every
+ * workspace-scope key except the approval decisions (the Admin bundle). Renaming or re-keying a role cannot silently
+ * change who becomes an administrator; changing a bundle can, and then the capability simply selects a different role.
+ */
+export const TENANT_ADMINISTRATOR_KEYS = Object.freeze([
+  "role.manage",
+  "role_assignment.manage_tenant",
+]);
+export const WORKSPACE_ADMINISTRATOR_KEYS = Object.freeze(
+  permissionKeysByScope("workspace").filter((key) => !WORKSPACE_ADMIN_EXCLUDED.has(key)),
+);
+
 /** @type {ReadonlyArray<Readonly<RoleDefinition>>} */
 export const BUILT_IN_ROLES = Object.freeze([
   role(

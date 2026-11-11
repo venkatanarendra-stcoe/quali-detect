@@ -1,5 +1,5 @@
 import { QUEUE_NAMES, createEventEnvelope } from "@qmentisai/contracts";
-import { visibleWorkspaceIds } from "@qmentisai/shared";
+import { WORKSPACE_ADMINISTRATOR_KEYS, visibleWorkspaceIds } from "@qmentisai/shared";
 import { ValidationError, ConflictError, NotFoundError } from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
 import { AUDIT_ACTIONS } from "../../../audit/actions.js";
@@ -82,8 +82,11 @@ export function createWorkspaceService({ repository, audit, entitlements, outbox
             },
             tx,
           );
-          // The owner administers the new workspace (every workspace keeps at least one workspace administrator).
-          const admin = await repository.findBuiltInRole("admin", tx);
+          // The owner administers the new workspace (every workspace keeps at least one workspace administrator): the role is chosen by capability, not by name.
+          const admin = await repository.findBuiltInRoleWithCapability(
+            WORKSPACE_ADMINISTRATOR_KEYS,
+            tx,
+          );
           await repository.ensureMember(
             {
               tenantId: actor.tenantId,

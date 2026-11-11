@@ -16,10 +16,17 @@ import {
  * is set, else Redis), RabbitMQ connection, a consumer for the worker's
  * queue, and graceful shutdown on SIGINT/SIGTERM (stop consuming, wait for in-flight jobs up to the timeout, close
  * connections). A second signal exits immediately. Startup failures (bad config, unreachable broker) exit with code 1.
- * @param {{ name: string, queue: string, handler: Function, verifyOwnership?: boolean }} options `verifyOwnership` re-validates tenant and resource ownership against the database before the handler (needs DATABASE_URL)
+ * @param {{ name: string, queue: string, handler: Function, verifyOwnership?: boolean, requireTenant?: boolean, onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options `onReady` runs after the consumer started (for example a ticker) and may return a stop function `verifyOwnership` re-validates tenant and resource ownership against the database before the handler (needs DATABASE_URL)
  * @returns {Promise<{ stop: () => Promise<void> }>}
  */
-export async function runWorker({ name, queue, handler, verifyOwnership = false }) {
+export async function runWorker({
+  name,
+  queue,
+  handler,
+  verifyOwnership = false,
+  requireTenant = true,
+  onReady,
+}) {
   let config;
   try {
     config = loadWorkerConfig();
@@ -54,12 +61,15 @@ export async function runWorker({ name, queue, handler, verifyOwnership = false 
     prefetch: config.prefetch,
     retryPolicy: config.retryPolicy,
     idempotency,
+    requireTenant,
   });
 
+  let stopHook = null;
   let stopping = null;
   const stop = () => {
     stopping ??= (async () => {
       logger.info("Shutting down");
+      await stopHook?.();
       await consumer.stop({ timeoutMs: config.shutdownTimeoutMs });
       await connection.close();
       if (redis) await closeRedis(redis);
@@ -99,6 +109,7 @@ export async function runWorker({ name, queue, handler, verifyOwnership = false 
     await stop().catch(() => {});
     process.exit(1);
   }
+  stopHook = (await onReady?.({ db, config, logger })) ?? null;
   logger.info({ queue }, "Worker running");
   return { stop };
 }

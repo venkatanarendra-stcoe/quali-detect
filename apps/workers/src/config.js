@@ -14,6 +14,9 @@ const envSchema = z.object({
   WORKER_IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().min(60).default(86400),
   WORKER_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
   WORKER_CLAIM_TTL_SECONDS: z.coerce.number().int().min(10).default(900),
+  // Scheduler: session purge. Expired/revoked sessions are kept this long (investigation window) before deletion.
+  SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(3600),
+  SCHEDULER_SESSION_RETENTION_SECONDS: z.coerce.number().int().min(0).default(86400),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -77,6 +80,10 @@ export function loadWorkerConfig(env = process.env) {
     idempotencyTtlSeconds: e.WORKER_IDEMPOTENCY_TTL_SECONDS,
     shutdownTimeoutMs: e.WORKER_SHUTDOWN_TIMEOUT_MS,
     claimTtlSeconds: e.WORKER_CLAIM_TTL_SECONDS,
+    scheduler: Object.freeze({
+      sessionPurgeIntervalSeconds: e.SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS,
+      sessionRetentionSeconds: e.SCHEDULER_SESSION_RETENTION_SECONDS,
+    }),
     outbox: Object.freeze({
       batchSize: e.OUTBOX_BATCH_SIZE,
       pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS,

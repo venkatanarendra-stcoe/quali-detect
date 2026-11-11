@@ -1,4 +1,5 @@
 import { ERROR_CODES } from "@qmentisai/contracts";
+import { TENANT_ADMINISTRATOR_KEYS } from "@qmentisai/shared";
 import {
   AppError,
   ConflictError,
@@ -164,8 +165,14 @@ export function createPlatformTenantService({
               tx,
             );
           }
-          const adminRole = await repository.findBuiltInRole("admin", tx);
-          if (!adminRole) throw new Error("The built-in Admin role is missing; run the seed.");
+          const adminRole = await repository.findBuiltInRoleWithCapability(
+            TENANT_ADMINISTRATOR_KEYS,
+            tx,
+          );
+          if (!adminRole)
+            throw new Error(
+              "No built-in role holds the tenant administrator capability; run the seed.",
+            );
           const user = await repository.upsertUser(input.admin, tx);
           await repository.createInvitedMembership({ tenantId: tenant.id, userId: user.id }, tx);
           await repository.createTenantAssignment(

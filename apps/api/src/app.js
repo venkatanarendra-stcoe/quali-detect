@@ -41,17 +41,18 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   const readiness = createReadiness({ logger });
   const { infra, close: closeInfrastructure } = createInfrastructure({ config, logger, readiness });
   const audit = createAudit({ infra, logger });
+  // Transactional outbox (writer side): modules enqueue messages inside their transactions; the relay worker publishes them.
+  const outbox = createOutbox({ repository: createOutboxRepository({ db: infra.db }) });
   const { auth, middleware: authentication } = createAuthentication({
     db: infra.db,
     config,
     audit,
     infra,
     logger,
+    outbox,
   });
   const authz = createAuthorization({ db: infra.db });
   const entitlements = createEntitlements({ infra });
-  // Transactional outbox (writer side): modules enqueue messages inside their transactions; the relay worker publishes them.
-  const outbox = createOutbox({ repository: createOutboxRepository({ db: infra.db }) });
   // Secret storage foundation (ADR-009): only when enabled; config already validated the key and refused unsafe providers.
   const secrets = createSecrets({ config, infra, audit });
   const routeKit = createRouteKit({

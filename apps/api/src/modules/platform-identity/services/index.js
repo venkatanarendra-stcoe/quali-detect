@@ -17,8 +17,11 @@ export function createPlatformIdentityService({ repository, auth, clock = () => 
       const result = await auth.providers
         .get(PROVIDER_ID)
         .authenticate({ audience: "platform", identifier: email, secret: password });
-      if (!result)
+      if (!result) {
+        await auth.throttles.platform.recordFailure({ ip, identifier: email });
         throw new AppError(ERROR_CODES.UNAUTHENTICATED, "The email or password is incorrect.");
+      }
+      await auth.throttles.platform.recordSuccess({ identifier: email });
       if (previousSessionId) await auth.sessions.platform.revoke(previousSessionId);
       const { token, session } = await auth.sessions.platform.issue({
         subjectId: result.subjectId,
@@ -70,11 +73,13 @@ export function createPlatformIdentityService({ repository, auth, clock = () => 
         code,
       });
       if (!verified) {
+        await auth.throttles.platformMfa.recordFailure({ ip, identifier: session.platformUserId });
         await auth.audit.platform({ ...audit, action: "platform.auth.mfa_failed" });
         throw new AppError(ERROR_CODES.UNAUTHENTICATED, "The verification code is incorrect.", {
           details: { reason: "mfa_invalid" },
         });
       }
+      await auth.throttles.platformMfa.recordSuccess({ identifier: session.platformUserId });
       await auth.sessions.platform.revoke(session.id);
       const issued = await auth.sessions.platform.issue({
         subjectId: session.platformUserId,

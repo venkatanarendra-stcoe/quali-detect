@@ -38,7 +38,11 @@ export function createIdentityService({
       const result = await auth.providers
         .get(PROVIDER_ID)
         .authenticate({ audience: "tenant", identifier: email, secret: password });
-      if (!result) throw new AppError(ERROR_CODES.UNAUTHENTICATED, INVALID_CREDENTIALS);
+      if (!result) {
+        await auth.throttles.tenant.recordFailure({ ip, identifier: email });
+        throw new AppError(ERROR_CODES.UNAUTHENTICATED, INVALID_CREDENTIALS);
+      }
+      await auth.throttles.tenant.recordSuccess({ identifier: email });
 
       if (previousSessionId) await auth.sessions.tenant.revoke(previousSessionId);
       const tenants = (await repository.listActiveTenants({ userId: result.subjectId })).filter(

@@ -181,6 +181,15 @@ async function main() {
     MOCK_AUTH_PASSWORD: tenantPassword,
     MOCK_PLATFORM_AUTH_PASSWORD: platformPassword,
     MOCK_PLATFORM_MFA_CODE: mfaCode,
+    // Short progressive-throttle curve so the THR checks can reach the cap in seconds (production defaults are in
+    // config and ADR-010): 3 free failures, then waits of 1 s, 2 s, 4 s (cap). IP counters tolerate 6x the free attempts.
+    AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS: "3",
+    AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS: "1",
+    AUTH_THROTTLE_LOGIN_CAP_SECONDS: "4",
+    AUTH_THROTTLE_MFA_FREE_ATTEMPTS: "3",
+    AUTH_THROTTLE_MFA_BASE_DELAY_SECONDS: "1",
+    AUTH_THROTTLE_MFA_CAP_SECONDS: "4",
+    AUTH_THROTTLE_IP_FREE_MULTIPLIER: "6",
   });
 
   log("running the checks");

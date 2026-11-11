@@ -18,6 +18,15 @@ const envSchema = z.object({
   // Global per-IP request limit applied before authentication (login throttling is separate and stricter).
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
+  // Progressive sign-in / MFA throttling (ADR-010). Defaults keep 6-digit MFA brute force impractical; see the ADR for the math.
+  AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
+  AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS: z.coerce.number().int().min(1).max(3600).default(10),
+  AUTH_THROTTLE_LOGIN_CAP_SECONDS: z.coerce.number().int().min(1).max(86400).default(900),
+  AUTH_THROTTLE_MFA_FREE_ATTEMPTS: z.coerce.number().int().min(0).max(20).default(3),
+  AUTH_THROTTLE_MFA_BASE_DELAY_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  AUTH_THROTTLE_MFA_CAP_SECONDS: z.coerce.number().int().min(1).max(86400).default(3600),
+  AUTH_THROTTLE_IP_FREE_MULTIPLIER: z.coerce.number().int().min(1).max(100).default(10),
+  AUTH_THROTTLE_DECAY_SECONDS: z.coerce.number().int().min(60).max(604800).default(86400),
   // The identity module needs the database, so it is required.
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url().optional(),
@@ -181,6 +190,20 @@ export function loadConfig(env = process.env) {
       rabbitmqUrl: e.RABBITMQ_URL,
     }),
     auth: Object.freeze({
+      throttle: Object.freeze({
+        login: Object.freeze({
+          freeAttempts: e.AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS,
+          baseDelaySeconds: e.AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS,
+          capSeconds: e.AUTH_THROTTLE_LOGIN_CAP_SECONDS,
+        }),
+        mfa: Object.freeze({
+          freeAttempts: e.AUTH_THROTTLE_MFA_FREE_ATTEMPTS,
+          baseDelaySeconds: e.AUTH_THROTTLE_MFA_BASE_DELAY_SECONDS,
+          capSeconds: e.AUTH_THROTTLE_MFA_CAP_SECONDS,
+        }),
+        ipFreeMultiplier: e.AUTH_THROTTLE_IP_FREE_MULTIPLIER,
+        decaySeconds: e.AUTH_THROTTLE_DECAY_SECONDS,
+      }),
       sessionTtlSeconds: e.SESSION_TTL_SECONDS,
       idleTimeoutSeconds: e.SESSION_IDLE_TIMEOUT_SECONDS,
       cookieSecure: e.COOKIE_SECURE ?? production,

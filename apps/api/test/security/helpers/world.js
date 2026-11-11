@@ -153,7 +153,7 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
     guestRoleId,
     sessions: { admin, manager, lead, developer, viewer, bOwner, sa },
     UNKNOWN: "00000000-0000-4000-8000-000000000000",
-    secrets: { tenantPassword, platformPassword },
+    secrets: { tenantPassword, platformPassword, mfaCode },
     platformLoginOnly,
     platformLogin,
   };

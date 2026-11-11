@@ -14,7 +14,7 @@
 
 Add a committed **security regression suite**, run with `pnpm test:security`.
 
-**Allowed scope: ONLY the four areas below, run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
+**Allowed scope: ONLY the five areas below (the fifth was added by the owner with ADR-010), run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
 
 **In scope (and only this):**
 
@@ -23,6 +23,8 @@ Add a committed **security regression suite**, run with `pnpm test:security`.
 3. Platform/tenant session separation: tenant session on platform routes (404), platform session on tenant routes (401), no session (401), platform session before MFA (401 `mfa_required`, no data), cookie-name confusion, cross-audience sign-in, cross-site Origin (CSRF) refusal.
 4. Segregation of duties: no self-escalation (SOD-3, check `AUTHZ-015`, part of the 68). SOD-1 (a reviewer cannot approve their own decision) and SOD-2 (a decision awaiting approval cannot be edited by its reviewer) get checks **in the same work item that builds the review/approval workflow**, because they cannot be exercised before it exists; adding them changes the count of checks and requires updating this ADR and the integrity test.
 
+5. Sign-in and MFA throttling (added 2026-11-11 with ADR-010, owner instruction): progressive delay after the free attempts, identical behavior for existing and non-existing accounts (no enumeration), per-IP limit, refused attempts do not extend the wait, no hard lock. Checks `THR-001..009`.
+
 Also covered, as part of areas 1 to 3: tenant suspension takes effect immediately and does not affect another tenant (`SUSP-001..003`, part of the 68).
 
 **Out of scope:** feature tests, unit tests, frontend/browser tests, load or performance tests, coverage thresholds, functional tests of other behavior, RabbitMQ and workers, CI configuration (no CI is in scope for the project).
@@ -30,12 +32,12 @@ Also covered, as part of areas 1 to 3: tenant suspension takes effect immediatel
 ## Design
 
 - **Black box over HTTP.** The suite talks to a running API with `fetch`; it imports no API code. The same checks therefore run unchanged against Fastify now and Express after ADR-007.
-- **Runner** (`apps/api/scripts/security-suite.js`): provisions a **disposable PostgreSQL** (an ephemeral local cluster built with `initdb`/`pg_ctl` from `PG_BIN_DIR`, `/usr/lib/postgresql/*` or `PATH`, in a temporary directory on a free port; no Docker), applies migrations and the seed, starts the API as a child process with a clean environment, runs the tests, and always tears everything down. Alternatively `SECURITY_TEST_DATABASE_URL` selects an existing database, **refused unless its name contains "test"**; its URL is never printed. Exit codes of the runner: 0 passed, 1 a check failed, 2 the environment is unusable (with an explanation); pnpm reports 1 for any non-zero exit, so the message distinguishes them.
+- **Runner** (`apps/api/scripts/security-suite.js`): provisions a **disposable PostgreSQL** (an ephemeral local cluster built with `initdb`/`pg_ctl` from `PG_BIN_DIR`, `/usr/lib/postgresql/*` or `PATH`, in a temporary directory on a free port; no Docker), applies migrations and the seed, starts the API as a child process with a clean environment, runs the tests, and always tears everything down. Alternatively `SECURITY_TEST_DATABASE_URL` selects an existing database, **refused unless its name contains "test"**; its URL is never printed. The runner starts the API with a short throttle curve (3 free failures, waits of 1 s, 2 s, 4 s cap) so the THR checks finish in seconds; production defaults are in ADR-010. Exit codes of the runner: 0 passed, 1 a check failed, 2 the environment is unusable (with an explanation); pnpm reports 1 for any non-zero exit, so the message distinguishes them.
 - **Secrets are random per run** (mock passwords, MFA code); none is stored in the repository.
 - **World built through the public API only:** tenant A is the seeded demo tenant; tenant B is created through `POST /platform/tenants`, its administrator is invited and accepts, then creates a workspace, group, custom role and workspace role assignment. Everything created carries a random suffix, so the suite can be re-run on the same disposable database.
 - **Framework:** `node:test` (built into Node 22). **No new dependency.**
-- **68 checks** (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit. An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
-- **Controls** (16, not counted in the 68) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
+- **77 checks**: the original 68 (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit, plus 9 added with ADR-010 (`THR-001..009`). An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
+- **Controls** (17, not counted in the 77; the 17th proves that wrong passwords below the free attempts do not block a legitimate sign-in) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
 - Error responses are also checked for the error envelope and `meta.correlationId`, and the cross-tenant checks assert that the response body contains no identifier of the other tenant.
 
 ## Validation that the suite can fail (performed 2026-11-11 in a separate git worktree, main tree untouched)

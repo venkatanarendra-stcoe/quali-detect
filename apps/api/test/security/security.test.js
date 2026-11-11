@@ -1,9 +1,9 @@
 /**
- * Security regression suite (ADR-008). Scope, deliberately narrow: tenant isolation, 404/403 authorization behavior, and
- * platform/tenant session separation. Black box over HTTP against a running API: `scripts/security-suite.js` provisions a
+ * Security regression suite (ADR-008). Scope, deliberately narrow: tenant isolation, 404/403 authorization behavior,
+ * platform/tenant session separation, segregation of duties and the progressive sign-in/MFA throttling (ADR-010). Black box over HTTP against a running API: `scripts/security-suite.js` provisions a
  * disposable database, starts the API and sets SECURITY_* variables. Run with `pnpm test:security`.
  *
- * The 68 checks come from the audit in docs/STATUS_PHASE_1-4.md. Controls (not counted in the 68) prove the legitimate
+ * 68 of the 77 checks come from the audit in docs/STATUS_PHASE_1-4.md; the 9 THR checks were added with ADR-010. Controls (not counted in the 68) prove the legitimate
  * requests SUCCEED, so a transport that stops mounting routes cannot make the "expect 404 / 401" checks pass vacuously.
  */
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ import { before, describe, it } from "node:test";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 68;
+const EXPECTED_CHECKS = 77;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -367,6 +367,219 @@ const ids = (obj) => Object.values(obj).filter((v) => typeof v === "string" && v
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// 6. Progressive throttling (9 checks, ADR-010). Runs after suspension and uses short waits: the runner configures
+//    3 free failures, then waits of 1 s, 2 s, 4 s (cap). Existing and non-existing accounts must be indistinguishable.
+// ---------------------------------------------------------------------------------------------------------------------
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const RATE_LIMITED = { status: 429, code: "RATE_LIMITED" };
+const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+const memo = new Map();
+const once = (key, fn) => {
+  if (!memo.has(key)) memo.set(key, fn());
+  return memo.get(key);
+};
+
+/**
+ * One scripted streak against a sign-in endpoint: 4 wrong attempts (3 free + the one that arms the wait), an immediate
+ * 5th (refused), the CORRECT credentials during the wait, a burst of refused attempts, then the correct credentials
+ * after the wait. `credentials(isRight)` builds the request body.
+ */
+async function streak(x, path, credentials, { cookie } = {}) {
+  const timed = async (body) => {
+    const started = performance.now();
+    const response = await x.api("POST", path, { body, cookie });
+    return { response, ms: performance.now() - started };
+  };
+  const wrong = [];
+  for (let i = 0; i < 5; i += 1) wrong.push(await timed(credentials(false)));
+  const duringWait = await timed(credentials(true));
+  const burst = [];
+  for (let i = 0; i < 4; i += 1) burst.push(await timed(credentials(false)));
+  const waitSeconds = wrong.at(-1).response.json?.error?.details?.retryAfterSeconds ?? 1;
+  await sleep(waitSeconds * 1000 + 400);
+  const afterWait = await timed(credentials(true));
+  return { wrong, duringWait, burst, afterWait };
+}
+const statuses = (run) => run.wrong.map((a) => a.response.status);
+const refusal = (run) => run.wrong.at(-1).response;
+const tenantStreak = (email, exists) =>
+  once(`tenant:${email}`, () =>
+    streak(w, "/auth/login", (right) => ({
+      email,
+      password: right && exists ? w.secrets.tenantPassword : "definitely-wrong-password",
+    })),
+  );
+const platformStreak = (email, exists) =>
+  once(`platform:${email}`, () =>
+    streak(w, "/platform/auth/login", (right) => ({
+      email,
+      password: right && exists ? w.secrets.platformPassword : "definitely-wrong-password",
+    })),
+  );
+const EXPECTED_STATUSES = [401, 401, 401, 401, 429];
+const retryAfterOf = (response) => response.json?.error?.details?.retryAfterSeconds;
+const sanitized = (response) => ({ status: response.status, error: response.json?.error });
+
+{
+  const add = group("Progressive throttling");
+  const ghostEmail = (x) => `ghost.${x.suffix}@nowhere.example`;
+  const existingEmail = "demo.analyst@demo.example";
+
+  add(
+    "THR-001",
+    "existing tenant account: wrong passwords are refused with 429 after the free attempts",
+    RATE_LIMITED,
+    async () => {
+      const run = await tenantStreak(existingEmail, true);
+      const problems = [];
+      if (JSON.stringify(statuses(run)) !== JSON.stringify(EXPECTED_STATUSES))
+        problems.push(`statuses ${statuses(run)}`);
+      return Object.assign(refusal(run), { problems });
+    },
+    (r) => {
+      const problems = [...(r.problems ?? [])];
+      if (!(retryAfterOf(r) >= 1 && retryAfterOf(r) <= 4))
+        problems.push(`retryAfterSeconds ${retryAfterOf(r)} is not within 1..cap`);
+      return problems;
+    },
+  );
+  add(
+    "THR-002",
+    "non-existing tenant account: the same 429 after the same number of attempts",
+    RATE_LIMITED,
+    async (x) => {
+      const run = await tenantStreak(ghostEmail(x), false);
+      return Object.assign(refusal(run), {
+        problems:
+          JSON.stringify(statuses(run)) !== JSON.stringify(EXPECTED_STATUSES)
+            ? [`statuses ${statuses(run)}`]
+            : [],
+      });
+    },
+    (r) => r.problems ?? [],
+  );
+  add(
+    "THR-003",
+    "no account enumeration: existing and non-existing accounts get identical errors, retry hints and comparable timing",
+    { status: 200 },
+    async (x) => {
+      const real = await tenantStreak(existingEmail, true);
+      const ghost = await tenantStreak(ghostEmail(x), false);
+      const problems = [];
+      real.wrong.forEach((a, i) => {
+        const b = ghost.wrong[i];
+        if (JSON.stringify(sanitized(a.response)) !== JSON.stringify(sanitized(b.response)))
+          problems.push(
+            `attempt ${i + 1} differs: ${JSON.stringify(sanitized(a.response))} vs ${JSON.stringify(sanitized(b.response))}`,
+          );
+      });
+      const gap = Math.abs(
+        median(real.wrong.map((a) => a.ms)) - median(ghost.wrong.map((a) => a.ms)),
+      );
+      if (gap > 150) problems.push(`median response times differ by ${Math.round(gap)} ms`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "THR-004",
+    "correct credentials are also refused while the wait lasts",
+    RATE_LIMITED,
+    async () => (await tenantStreak(existingEmail, true)).duringWait.response,
+  );
+  add(
+    "THR-005",
+    "refused attempts do not extend the wait (no hard lock by spamming)",
+    { status: 200 },
+    async () => {
+      const run = await tenantStreak(existingEmail, true);
+      const first = retryAfterOf(refusal(run));
+      const problems = run.burst
+        .filter((a) => a.response.status !== 429 || retryAfterOf(a.response) > first)
+        .map(
+          (a) =>
+            `burst attempt answered ${a.response.status} retry ${retryAfterOf(a.response)} (first wait ${first})`,
+        );
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "THR-006",
+    "after the wait the correct password signs in (the account was never locked)",
+    { status: 200 },
+    async () => (await tenantStreak(existingEmail, true)).afterWait.response,
+  );
+  add(
+    "THR-007",
+    "per-IP limit: failures across many different accounts end in 429 for a never-seen account",
+    RATE_LIMITED,
+    async (x) => {
+      let last;
+      let attempts = 0;
+      for (; attempts < 40; attempts += 1) {
+        last = await x.api("POST", "/auth/login", {
+          body: {
+            email: `spray.${attempts}.${x.suffix}@nowhere.example`,
+            password: "definitely-wrong-password",
+          },
+        });
+        if (last.status === 429) break;
+      }
+      await sleep((retryAfterOf(last) ?? 1) * 1000 + 400);
+      return Object.assign(last, { attempts });
+    },
+    (r) => (r.attempts >= 1 && r.attempts < 40 ? [] : [`no 429 after ${r.attempts} attempts`]),
+  );
+  add(
+    "THR-008",
+    "platform MFA: wrong codes are throttled progressively, the right code works after the wait",
+    { status: 200 },
+    async (x) => {
+      const cookie = await x.platformLoginOnly();
+      const run = await streak(
+        x,
+        "/platform/auth/mfa/verify",
+        (right) => ({ code: right ? x.secrets.mfaCode : "000000" }),
+        { cookie },
+      );
+      const problems = [];
+      if (JSON.stringify(statuses(run)) !== JSON.stringify(EXPECTED_STATUSES))
+        problems.push(`statuses ${statuses(run)}`);
+      if (run.duringWait.response.status !== 429)
+        problems.push(`right code during the wait answered ${run.duringWait.response.status}`);
+      if (run.afterWait.response.status !== 200)
+        problems.push(`right code after the wait answered ${run.afterWait.response.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "THR-009",
+    "platform sign-in: existing and non-existing accounts are indistinguishable",
+    { status: 200 },
+    async (x) => {
+      const real = await platformStreak("superadmin@qmentis.example", true);
+      const ghost = await platformStreak(`ghost.${x.suffix}@nowhere.example`, false);
+      const problems = [];
+      if (JSON.stringify(statuses(real)) !== JSON.stringify(EXPECTED_STATUSES))
+        problems.push(`statuses ${statuses(real)}`);
+      real.wrong.forEach((a, i) => {
+        if (
+          JSON.stringify(sanitized(a.response)) !==
+          JSON.stringify(sanitized(ghost.wrong[i].response))
+        )
+          problems.push(`attempt ${i + 1} differs`);
+      });
+      if (real.afterWait.response.status !== 200)
+        problems.push("the platform account was locked out");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 const allChecks = groups.flatMap((g) => g.checks);
 
 /** @param {{ status: number, json: any }} response @param {Expected} expected @param {string} where */
@@ -486,6 +699,18 @@ describe("security regression suite", () => {
       "B owner reads B's workspace role assignments",
       (x) => x.api("GET", `/workspaces/${x.B.ws}/role-assignments`, { cookie: S("bOwner")(x) }),
       (r) => assert.ok(r.json.data.some((a) => a.id === w.B.assignment)),
+    );
+    ok(
+      "two wrong passwords then the right one still sign in (below the free attempts)",
+      async (x) => {
+        for (let i = 0; i < 2; i += 1)
+          await x.api("POST", "/auth/login", {
+            body: { email: "demo.developer@demo.example", password: "definitely-wrong-password" },
+          });
+        return x.api("POST", "/auth/login", {
+          body: { email: "demo.developer@demo.example", password: x.secrets.tenantPassword },
+        });
+      },
     );
     ok(
       "platform session (after MFA) reads /platform/me",

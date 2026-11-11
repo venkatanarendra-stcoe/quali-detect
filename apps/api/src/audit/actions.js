@@ -11,6 +11,9 @@ export const AUDIT_ACTIONS = Object.freeze({
   PLATFORM_AUTH_LOGOUT: "platform.auth.logout",
   PLATFORM_AUTH_MFA_VERIFIED: "platform.auth.mfa_verified",
   PLATFORM_AUTH_MFA_FAILED: "platform.auth.mfa_failed",
+  // A sign-in or MFA failure streak reached the throttle cap (ADR-010)
+  AUTH_THROTTLE_CAP_REACHED: "auth.throttle_cap_reached",
+  PLATFORM_AUTH_THROTTLE_CAP_REACHED: "platform.auth.throttle_cap_reached",
   // Permission changes
   ROLE_CREATED: "role.created",
   ROLE_UPDATED: "role.updated",

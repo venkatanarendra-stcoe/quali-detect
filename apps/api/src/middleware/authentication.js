@@ -7,6 +7,7 @@ import { createAuthAudit } from "../auth/audit.js";
 import { createAuthResolvers } from "../auth/context.js";
 import { createAuthProviders } from "../auth/providers/index.js";
 import { createLoginThrottle } from "../auth/login-throttle.js";
+import { createThrottleNotifier } from "../auth/throttle-notifier.js";
 import { createSessionService } from "../auth/session-service.js";
 import { createSessionStore } from "../auth/session-store.js";
 import { createMemoryRateLimiter } from "../lib/memory-rate-limiter.js";
@@ -42,20 +43,31 @@ export function createAuthentication({ db, config, audit, infra, logger }) {
 
   const resolvers = createAuthResolvers({ db, config, sessions });
 
+  const authAudit = createAuthAudit({ audit });
+  const { throttle } = config.auth;
+  const throttleBase = {
+    limiter,
+    decaySeconds: throttle.decaySeconds,
+    ipFreeMultiplier: throttle.ipFreeMultiplier,
+    onCapReached: createThrottleNotifier({ db, audit: authAudit, logger }),
+  };
   const auth = Object.freeze({
     sessions,
     resolvers,
     providers: createAuthProviders({ db, config }),
-    audit: createAuthAudit({ audit }),
+    audit: authAudit,
     throttles: Object.freeze({
-      tenant: createLoginThrottle({ limiter, audience: "tenant" }),
-      platform: createLoginThrottle({ limiter, audience: "platform" }),
-      // Second-factor guessing is far more valuable to an attacker than password guessing: tight per-user limit.
+      tenant: createLoginThrottle({ ...throttleBase, audience: "tenant", policy: throttle.login }),
+      platform: createLoginThrottle({
+        ...throttleBase,
+        audience: "platform",
+        policy: throttle.login,
+      }),
+      // Second-factor guessing is far more valuable to an attacker than password guessing: a tighter curve (ADR-010).
       platformMfa: createLoginThrottle({
-        limiter,
+        ...throttleBase,
         audience: "platform-mfa",
-        perIdentity: 5,
-        perIp: 30,
+        policy: throttle.mfa,
       }),
     }),
     /**

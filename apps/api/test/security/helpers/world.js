@@ -45,6 +45,9 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
   };
 
   const sa = await platformLogin();
+  // Entitlements are enforced: a tenant needs a plan to create workspaces or invite users. The seed publishes one default plan.
+  const planVersionId = must(await api("GET", "/platform/plans", { cookie: sa }), 200, "plans")[0]
+    .planVersionId;
 
   /** A fresh tenant provisioned the production way, with its owner signed in and the tenant selected. */
   const provisionTenant = async (label) => {
@@ -55,6 +58,7 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
         body: {
           name: `${label} Org ${suffix}`,
           slug: `${label}-${suffix}`,
+          planVersionId,
           admin: { email, name: `${label} Owner` },
         },
       }),
@@ -84,6 +88,7 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
       body: {
         name: `Isolation Org ${suffix}`,
         slug: `iso-${suffix}`,
+        planVersionId,
         admin: { email: bOwnerEmail, name: "Iso Owner" },
       },
     }),
@@ -187,5 +192,6 @@ export async function buildWorld({ api }, { tenantPassword, platformPassword, mf
     platformLoginOnly,
     platformLogin,
     provisionTenant,
+    planVersionId,
   };
 }

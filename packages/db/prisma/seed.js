@@ -256,12 +256,90 @@ async function seedDemoTenant(tx, roleIds) {
   return tenant;
 }
 
+/**
+ * Entitlement catalog, quota definitions and ONE default plan, assigned to the demo tenant (docs/AUTHORIZATION.md §5.11).
+ * Every number below is a PLACEHOLDER: plan names, prices and quota values are Open decisions (OPEN_DECISIONS.md) and are
+ * configurable through the platform data; nothing here is a commercial commitment.
+ */
+const ENTITLEMENTS = [
+  { key: "workspaces.max", name: "Workspaces (maximum)", kind: "limit", limit: 25 },
+  { key: "users.max", name: "Users (maximum)", kind: "limit", limit: 100 },
+  { key: "scans.monthly", name: "Scans per month", kind: "limit", limit: 100 },
+];
+async function seedEntitlements(tx) {
+  const catalog = new Map();
+  for (const e of ENTITLEMENTS) {
+    const row = await tx.entitlementCatalog.upsert({
+      where: { key: e.key },
+      create: { key: e.key, name: e.name, kind: e.kind, description: "Seeded entitlement." },
+      update: { name: e.name, kind: e.kind },
+    });
+    catalog.set(e.key, row);
+  }
+  await tx.quotaDefinition.upsert({
+    where: { key: "scans.monthly" },
+    create: {
+      key: "scans.monthly",
+      name: "Scans per month",
+      unit: "scans",
+      description: "Metered per calendar month (periodKey YYYY-MM) once the scan module exists.",
+      entitlementId: catalog.get("scans.monthly").id,
+    },
+    update: { entitlementId: catalog.get("scans.monthly").id },
+  });
+  const plan = await tx.subscriptionPlan.upsert({
+    where: { key: "default" },
+    create: {
+      key: "default",
+      name: "Default plan (placeholder)",
+      description: "PLACEHOLDER plan and limits: real plans are an Open decision.",
+    },
+    update: {},
+  });
+  const version = await tx.planVersion.upsert({
+    where: { planId_version: { planId: plan.id, version: 1 } },
+    create: { planId: plan.id, version: 1, status: "published", effectiveFrom: new Date() },
+    update: {},
+  });
+  for (const e of ENTITLEMENTS) {
+    await tx.planEntitlement.upsert({
+      where: {
+        planVersionId_entitlementId: {
+          planVersionId: version.id,
+          entitlementId: catalog.get(e.key).id,
+        },
+      },
+      create: {
+        planVersionId: version.id,
+        entitlementId: catalog.get(e.key).id,
+        enabled: true,
+        limitValue: BigInt(e.limit),
+      },
+      update: {},
+    });
+  }
+  const demo = await tx.tenant.findUnique({ where: { slug: TENANT.slug } });
+  const existing = await tx.tenantSubscription.findFirst({
+    where: { tenantId: demo.id, planVersionId: version.id },
+  });
+  if (!existing)
+    await tx.tenantSubscription.create({
+      data: {
+        tenantId: demo.id,
+        planVersionId: version.id,
+        status: "active",
+        startsAt: new Date(),
+      },
+    });
+}
+
 try {
   await prisma.$transaction(
     async (tx) => {
       const roleIds = await seedCatalogAndRoles(tx);
       await seedPlatform(tx);
       await seedDemoTenant(tx, roleIds);
+      await seedEntitlements(tx);
     },
     { timeout: 120000, maxWait: 10000 },
   );
@@ -277,6 +355,10 @@ try {
     groups: await prisma.group.count(),
     userRoleAssignments: await prisma.userRoleAssignment.count(),
     groupRoleAssignments: await prisma.groupRoleAssignment.count(),
+    entitlements: await prisma.entitlementCatalog.count(),
+    quotaDefinitions: await prisma.quotaDefinition.count(),
+    plans: await prisma.subscriptionPlan.count(),
+    subscriptions: await prisma.tenantSubscription.count(),
   };
   console.log("Seed complete:", counts);
 } finally {

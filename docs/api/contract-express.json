@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 86,
+  "operationCount": 88,
   "operations": [
     {
       "method": "GET",
@@ -4770,6 +4770,143 @@
         ]
       },
       "summary": "Archive a workspace (read-only until restored)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Linked GitHub connections this workspace may use, with the workspace's on/off setting"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/{linkId}",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "linkId"
+        ],
+        "query": [],
+        "body": "{ enabled }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, provider, health, account, enabled }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Turn a connection on or off for this workspace (routing only; cannot widen the organization scope)"
     },
     {
       "method": "GET",

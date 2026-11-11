@@ -49,6 +49,11 @@ export const PERMISSION_CATALOG = Object.freeze(
       ["repository.update", "Edit repository settings"],
       ["repository.manage_access", "Restrict a repository to groups"],
       ["repository.disconnect", "Disconnect a repository or revoke provider access"],
+      ["workspace_integration.view", "See which linked source-control accounts this workspace uses"],
+      [
+        "workspace_integration.manage",
+        "Turn linked accounts on or off for this workspace (routing only; linking stays organization-wide)",
+      ],
       ["pipeline.view", "See pipelines"],
       ["pipeline.manage", "Create, change, enable and disable pipelines"],
       ["pipeline.delete", "Delete a pipeline"],

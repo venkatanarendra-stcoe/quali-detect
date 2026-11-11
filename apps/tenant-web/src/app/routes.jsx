@@ -175,8 +175,7 @@ export const WORKSPACE_ROUTES = [
   {
     itemId: "workspace-integrations",
     path: "integrations",
-    permission: "integration.view",
-    scope: "tenant",
+    permission: "workspace_integration.view",
     element: <WorkspaceIntegrationsPage />,
   },
 ];

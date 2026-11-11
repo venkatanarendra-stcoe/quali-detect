@@ -13,6 +13,11 @@ export const linkBodySchema = z
 export const scopeBodySchema = z
   .object({ workspaceIds: z.array(z.string().uuid()).max(500) })
   .strict();
+export const workspaceLinkParamsSchema = z
+  .object({ workspaceId: z.string().uuid(), linkId: z.string().uuid() })
+  .strict();
+export const workspaceParamsSchema = z.object({ workspaceId: z.string().uuid() }).strict();
+export const routingBodySchema = z.object({ enabled: z.boolean() }).strict();
 export const unlinkBodySchema = z.object({ confirm: z.string().min(1).max(200) }).strict();
 export const deliveriesQuerySchema = z
   .object({
@@ -64,3 +69,15 @@ const deliveryDto = z.object({
   signatureVerified: z.literal(true),
 });
 export const deliveryListResponseSchema = createPaginatedSchema(deliveryDto);
+
+const workspaceLinkDto = z.object({
+  id: z.string(),
+  provider: z.literal("github"),
+  health: z.enum(["healthy", "degraded", "suspended", "revoked", "unlinked"]),
+  account: z.object({ login: z.string(), type: z.enum(["organization", "user"]) }),
+  enabled: z.boolean(),
+});
+export const workspaceLinkResponseSchema = createSuccessSchema(workspaceLinkDto);
+export const workspaceLinkListResponseSchema = createSuccessSchema(
+  z.object({ items: z.array(workspaceLinkDto) }),
+);

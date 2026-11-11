@@ -7,6 +7,13 @@ export const integrationKeys = {
   all: (tenantId) => ["tenant", tenantId, "integrations"],
   catalog: (tenantId) => ["tenant", tenantId, "integrations", "catalog"],
   installations: (tenantId) => ["tenant", tenantId, "integrations", "installations"],
+  workspaceLinks: (tenantId, workspaceId) => [
+    "tenant",
+    tenantId,
+    "integrations",
+    "workspace",
+    workspaceId,
+  ],
   deliveries: (tenantId, linkId, params) => [
     "tenant",
     tenantId,
@@ -30,6 +37,15 @@ export function useInstallations({ enabled = true } = {}) {
     queryKey: integrationKeys.installations(tenantId),
     queryFn: ({ signal }) => integrationsService.installations({ signal }),
     enabled,
+    select: (data) => data.items,
+  });
+}
+/** Connections this workspace may use (workspace_integration.view); `items` are already filtered by the organization scope. */
+export function useWorkspaceLinks(workspaceId) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: integrationKeys.workspaceLinks(tenantId, workspaceId),
+    queryFn: ({ signal }) => integrationsService.workspaceLinks(workspaceId, { signal }),
     select: (data) => data.items,
   });
 }
@@ -61,6 +77,10 @@ export const useRefreshInstallation = () =>
 export const useSetScope = () =>
   useIntegrationMutation(({ linkId, workspaceIds }) =>
     integrationsService.setScope(linkId, workspaceIds),
+  );
+export const useSetWorkspaceRouting = (workspaceId) =>
+  useIntegrationMutation(({ linkId, enabled }) =>
+    integrationsService.setRouting(workspaceId, linkId, enabled),
   );
 export const useUnlinkInstallation = () => {
   const queryClient = useQueryClient();

@@ -49,6 +49,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   SCM_INSTALLATION_LINKED: "scm_installation.linked",
   SCM_INSTALLATION_UNLINKED: "scm_installation.unlinked",
   SCM_INSTALLATION_SCOPE_UPDATED: "scm_installation.scope_updated",
+  SCM_WORKSPACE_ROUTING_UPDATED: "scm_installation.workspace_routing_updated",
   SCM_INSTALLATION_STATUS_CHANGED: "scm_installation.status_changed",
   REPOSITORY_CONNECTED: "repository.connected",
   REPOSITORY_UPDATED: "repository.updated",

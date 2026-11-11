@@ -24,6 +24,7 @@ model Workspace {
   members          WorkspaceMember[]
   repositories     Repository[]
   scmLinkScopes    ScmInstallationLinkWorkspace[]
+  scmLinkSettings  ScmWorkspaceLinkSetting[]
   userAssignments  UserRoleAssignment[]
   groupAssignments GroupRoleAssignment[]
 

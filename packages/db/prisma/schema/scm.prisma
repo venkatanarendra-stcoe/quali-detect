@@ -99,10 +99,11 @@ model ScmInstallationLink {
   unlinkedByUserId String?       @map("unlinked_by_user_id") @db.Uuid
   unlinkedAt       DateTime?     @map("unlinked_at") @db.Timestamptz(6)
 
-  tenant       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  installation ScmInstallation                @relation(fields: [installationId], references: [id], onDelete: Restrict)
-  workspaces   ScmInstallationLinkWorkspace[]
-  repositories Repository[]
+  tenant            Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  installation      ScmInstallation                @relation(fields: [installationId], references: [id], onDelete: Restrict)
+  workspaces        ScmInstallationLinkWorkspace[]
+  workspaceSettings ScmWorkspaceLinkSetting[]
+  repositories      Repository[]
 
   @@unique([tenantId, installationId])
   @@unique([tenantId, id])
@@ -122,6 +123,24 @@ model ScmInstallationLinkWorkspace {
   @@id([linkId, workspaceId])
   @@index([tenantId, workspaceId])
   @@map("scm_installation_link_workspaces")
+}
+
+/// Workspace-level routing of a link (permission `workspace_integration.manage`): a workspace can switch an account it is
+/// allowed to use (the organization scope above is the ceiling) off or on. No row = enabled. It never widens the scope.
+model ScmWorkspaceLinkSetting {
+  tenantId        String   @map("tenant_id") @db.Uuid
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  linkId          String   @map("link_id") @db.Uuid
+  enabled         Boolean  @default(true)
+  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  link      ScmInstallationLink @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Cascade)
+  workspace Workspace           @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([workspaceId, linkId])
+  @@index([tenantId, linkId])
+  @@map("scm_workspace_link_settings")
 }
 
 /// A connected source repository. Identity per tenant is (provider, external repo id); `nodeId` is the secondary identity

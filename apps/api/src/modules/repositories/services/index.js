@@ -107,6 +107,14 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
     }
     return null;
   }
+  /** The organization scope is the ceiling; the workspace may additionally switch the connection off (routing). */
+  const assertUsableInWorkspace = (link, workspaceId) => {
+    const allowed =
+      link.workspaces.length === 0 || link.workspaces.some((w) => w.workspaceId === workspaceId);
+    const off = link.workspaceSettings.some((s) => s.workspaceId === workspaceId && !s.enabled);
+    if (!allowed || off)
+      throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+  };
   const loadLink = async (tenantId, linkId) => {
     const link = await repository.findLinkWithScope({ tenantId, linkId });
     if (!link) throw new NotFoundError();
@@ -142,8 +150,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
     async available(actor, workspaceId, { installationId, q, visibility, page, pageSize }) {
       const link = await loadLink(actor.tenantId, installationId);
       if (link.status !== "linked") throw new NotFoundError();
-      if (link.workspaces.length > 0 && !link.workspaces.some((w) => w.workspaceId === workspaceId))
-        throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+      assertUsableInWorkspace(link, workspaceId);
       const result = await providerCall(() =>
         requireGitHub().listInstallationRepositories(link.installation.externalInstallationId, {
           page,
@@ -187,8 +194,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
         throw new ConflictError("This GitHub connection is not linked.", {
           details: { reason: "installation_not_linked" },
         });
-      if (link.workspaces.length > 0 && !link.workspaces.some((w) => w.workspaceId === workspaceId))
-        throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+      assertUsableInWorkspace(link, workspaceId);
       const remote = await providerCall(() =>
         findAccessible(link.installation.externalInstallationId, input.externalRepoId),
       );

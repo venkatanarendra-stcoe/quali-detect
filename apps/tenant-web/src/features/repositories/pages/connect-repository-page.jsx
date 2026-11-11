@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
-import { useInstallations } from "@/features/integrations/hooks/use-integrations.js";
+import { useWorkspaceLinks } from "@/features/integrations/hooks/use-integrations.js";
 import { LinkHealth } from "@/features/integrations/components/link-health.jsx";
 import { describeError } from "@/lib/api/index.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
@@ -28,7 +28,7 @@ export function ConnectRepositoryPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const can = useCan();
-  const installations = useInstallations();
+  const installations = useWorkspaceLinks(workspaceId);
   const connect = useConnectRepository(workspaceId);
   const [step, setStep] = useState(0);
   const [linkId, setLinkId] = useState("");
@@ -40,13 +40,8 @@ export function ConnectRepositoryPage() {
   const keys = useRef(new Map());
 
   const links = useMemo(
-    () =>
-      (installations.data ?? []).filter(
-        (l) =>
-          l.status === "linked" &&
-          (l.workspaceScope.length === 0 || l.workspaceScope.includes(workspaceId)),
-      ),
-    [installations.data, workspaceId],
+    () => (installations.data ?? []).filter((l) => l.enabled),
+    [installations.data],
   );
   const selected = linkId || (links.length === 1 ? links[0].id : "");
   const available = useAvailableRepositories(

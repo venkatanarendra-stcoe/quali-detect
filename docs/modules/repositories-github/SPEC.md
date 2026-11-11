@@ -46,7 +46,7 @@ Permission keys are the existing catalog (`packages/shared/src/permissions.js`, 
 | GitHub (system) | Deliver webhooks | none (unauthenticated, signature only) | none | n/a |
 | Platform operator | Configure the GitHub App (credentials via PlatformSecretProvider, App settings on GitHub) | platform | deployment configuration, not an API; the Root Console shows App status only (`platform.integration_catalog.view`) | n/a |
 
-Rules: a user who cannot see a workspace gets **404** for everything in it; a visible workspace without the permission gets **403** (AZ §5.9, **Confirmed**). Connecting needs `repository.connect` in the target workspace; it does not require `integration.view` (the wizard only sees the installations it may use). **Open**: whether Managers and Dev Leads may use an installation they cannot manage (§15 Q9).
+Rules: a user who cannot see a workspace gets **404** for everything in it; a visible workspace without the permission gets **403** (AZ §5.9, **Confirmed**). Connecting needs `repository.connect` in the target workspace; it does not require `integration.view`: the wizard reads `GET /workspaces/{id}/integrations` (`workspace_integration.view`), and connect/available refuse a connection that is outside the organization scope or switched off for the workspace (403). Managers and Dev Leads can therefore use a connection they cannot manage (decided 2026-11-11, AUTHORIZATION Q26).
 
 ## 4. Functional requirements
 
@@ -216,6 +216,7 @@ Logical model (not a Prisma schema). Every tenant-owned row carries `tenantId` a
 
 `scm_installation_links` (tenant-owned): `id`, `tenant_id`, `installation_id`, `status` (`linked`|`unlinked`), `linked_by_user_id`, `linked_at`, `unlinked_by_user_id`, `unlinked_at`. Unique `(tenant_id, installation_id)` (a re-link reuses the row) and a **partial unique index on `(installation_id) WHERE status = 'linked'`** (one installation, one tenant at a time, R-3). The webhook resolves `installation -> the single linked link -> tenant_id`.
 
+`scm_workspace_link_settings` (tenant-owned routing, `workspace_integration.manage`): `tenant_id`, `workspace_id`, `link_id`, `enabled`; no row = enabled; it can only turn a connection off or back on inside the organization scope below.
 `scm_installation_link_workspaces` (tenant-owned, optional scope, T-14/T-42): `link_id`, `tenant_id`, `workspace_id`; no rows means every workspace of the tenant may use the connection. Enforced when connecting repositories (**Recommended — default applied**).
 
 ### 7.2 `repositories`
@@ -256,6 +257,8 @@ All tenant routes: tenant session, `/api/v1`, standard envelope, Zod on params/q
 | `POST /integrations/github/installations` | `integration.manage` | Body `{ code, state }`; 201; D5 checks; generic `409 CONFLICT reason installation_unavailable` |
 | `POST /integrations/github/installations/{linkId}/refresh` | `integration.manage` | "Test connection": re-reads installation, checks token minting; 200 |
 | `PUT /integrations/github/installations/{linkId}/workspaces` | `integration.manage` | Body `{ workspaceIds: [] }` (empty = all); T-14 Scope and T-42 toggles |
+| `GET /workspaces/{workspaceId}/integrations` | `workspace_integration.view` (workspace) | Connections the organization scope allows for this workspace, with the workspace's on/off setting; minimal DTO (no installation number, no scope list) |
+| `PUT /workspaces/{workspaceId}/integrations/{linkId}` | `workspace_integration.manage` (workspace) | Body `{ enabled }`; routing only, never widens the organization scope (a link outside it is `404`); audited |
 | `GET /integrations/github/installations/{linkId}/deliveries` | `integration.view` | Recent deliveries for the Webhooks table (outcome, event, time; no payload) |
 | `DELETE /integrations/github/installations/{linkId}` | `integration.manage` | Unlink (R-6/Q10); typed confirmation (`confirm` = account login); does not uninstall the App on GitHub |
 
@@ -384,7 +387,7 @@ Decisions by the owner are marked **Decided**; every other item carries **Recomm
 | 6 | Wizard deviation for an App | Recommended — default applied: no per-repository webhook registration; the wireframe text "Webhooks will be registered automatically" becomes "Events arrive through the GitHub App; signatures are verified on every delivery" |
 | 7 | Webhook responses | **Decided**: invalid signature `401`; valid signature with unknown/unlinked installation `202` identical to accepted, plus log and metric |
 | 8 | Token cache | Recommended — default applied: process memory only; delivery-ID retention **Decided** at 30 days (`SCM_DELIVERY_RETENTION_DAYS`) |
-| 9 | Who may use an installation | Recommended — default applied: a role with `repository.connect` in a workspace may select repositories from the tenant's linked installations through the available-repositories endpoint (and only if the workspace is in the link's scope); installation details need `integration.view` |
+| 9 | Who may use an installation | Recommended — default applied: a role with `repository.connect` in a workspace may select repositories from the tenant's linked installations through the available-repositories endpoint (and only if the workspace is in the link's scope and has not switched the connection off: `workspace_integration.*`, AUTHORIZATION Q26); installation details need `integration.view` |
 | 10 | Unlink semantics | **Decided**: repositories `disconnected` (not deleted), pipelines disabled, history/findings/audit retained, webhooks ignored, re-link restores, all audited (R-6). Not uninstalling on GitHub |
 | 11 | Routing | **Decided**: topic exchange `qmentis.scm.events`, routing key `scm.github.<event>`, one consumer applies normalized events, trigger matching belongs to Pipelines; per-tenant fairness stays **Open** (Q23) |
 | 12 | Moving a repository between workspaces; group restriction | Recommended — default applied: moving is not supported in v1 (disconnect and reconnect keeps the same row only within the same workspace); group restriction inherits workspace roles and further limits visibility to the listed groups |
@@ -426,7 +429,7 @@ Deviations and interpretations of the approved design:
 - `pipelineCount` is `0` until the Pipelines module provides the real count.
 - The contract snapshot runs with dummy GitHub environment so the webhook route is part of the contract.
 - The suite runs the SCM-016/017 worker handlers in-process (ADR-008 area 9).
-- Wireframe §4.4 shows Workspace Integrations to Managers; the catalog (`integration.view` is Admin-only) wins, so Managers do not see T-42. Still Open.
+- Wireframe §4.4 (Manager visibility of Workspace Integrations) was closed on 2026-11-11 by the workspace-scope keys `workspace_integration.view` / `.manage` (AUTHORIZATION Q26); table `scm_workspace_link_settings` (migration `20261111230000_scm_workspace_link_settings`) stores the per-workspace routing setting, absent = on; checks `SCM-022..026`.
 - A mutation test showed that removing the tenant filter from the repository scope resolver is not caught by SCM-008 alone, because the workspace-visibility layer also answers 404 (defense in depth); removing signature verification is caught by SCM-001/002/011.
 
 Limitations: the screens were not exercised in a browser in this work item; no live GitHub App was used (the stub implements the documented endpoints only), so the empirical rename/transfer test (Open item 22) and the redelivery GUID assumption (Open item 25) remain unverified.

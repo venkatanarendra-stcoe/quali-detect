@@ -18,7 +18,7 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 133;
+const EXPECTED_CHECKS = 138;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1757,6 +1757,210 @@ const rowsFor = async (deliveryId) => {
 // ---------------------------------------------------------------------------------------------------------------------
 // 12. GitHub integration: repositories and webhook events (SCM). The scm worker's handlers run in-process against the stub
 //     (no broker): the reconciler and the unavailable -> disconnected path.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  // Workspace routing (workspace_integration.view / .manage): a workspace may switch a connection off or on for itself,
+  // inside the ceiling the organization administrator set. It never widens that ceiling and never links or unlinks.
+  const add = group("GitHub integration: workspace routing");
+  const base = 5000000 + (Date.now() % 100000) * 10;
+  const world = () =>
+    once("scm-routing", async () => {
+      const edge = await edgeTenant();
+      const admin = S("admin")(w);
+      const flow = await linkFlow(admin, {
+        account: orgAccount("w"),
+        user: ghUser(),
+        orgRole: "admin",
+        repos: [base + 1, base + 2, base + 3, base + 4].map(stubRepo),
+      });
+      const linkId = flow.link.json.data.id;
+      const wsLinks = (cookie, ws) => w.api("GET", `/workspaces/${ws}/integrations`, { cookie });
+      const route = (cookie, ws, id, enabled) =>
+        w.api("PUT", `/workspaces/${ws}/integrations/${id}`, { cookie, body: { enabled } });
+      const connect = (cookie, ws, id, repo) =>
+        w.api("POST", `/workspaces/${ws}/repositories`, {
+          cookie,
+          body: { installationId: id, externalRepoId: String(repo) },
+        });
+      const manager = S("manager")(w);
+      const read = {
+        manager: await wsLinks(manager, w.A.paymentsWs),
+        lead: await wsLinks(S("lead")(w), w.A.paymentsWs),
+        developer: await wsLinks(S("developer")(w), w.A.paymentsWs),
+        viewer: await wsLinks(S("viewer")(w), w.A.paymentsWs),
+        edgeOnA: await wsLinks(edge.owner, w.A.paymentsWs),
+      };
+      const leadWrite = await route(S("lead")(w), w.A.paymentsWs, linkId, false);
+      const developerWrite = await route(S("developer")(w), w.A.paymentsWs, linkId, false);
+      // manager switches the connection off for payments only
+      const off = await route(manager, w.A.paymentsWs, linkId, false);
+      const blockedConnect = await connect(manager, w.A.paymentsWs, linkId, base + 1);
+      const blockedAvailable = await w.api(
+        "GET",
+        `/workspaces/${w.A.paymentsWs}/repositories/available?installationId=${linkId}`,
+        { cookie: manager },
+      );
+      const otherWorkspaceConnect = await connect(admin, w.A.identityWs, linkId, base + 2);
+      const on = await route(manager, w.A.paymentsWs, linkId, true);
+      const allowedConnect = await connect(manager, w.A.paymentsWs, linkId, base + 3);
+      // the ceiling: the administrator allows identity only; payments can then neither see nor enable the connection
+      const scoped = await w.api("PUT", `/integrations/github/installations/${linkId}/workspaces`, {
+        cookie: admin,
+        body: { workspaceIds: [w.A.identityWs] },
+      });
+      const outsideRead = await wsLinks(manager, w.A.paymentsWs);
+      const outsideWrite = await route(manager, w.A.paymentsWs, linkId, true);
+      const scopeAfter = await w.api("GET", "/integrations/github/installations", {
+        cookie: admin,
+      });
+      // organization-level actions stay with integration.manage
+      const orgAttempts = {
+        list: await w.api("GET", "/integrations/github/installations", { cookie: manager }),
+        scope: await w.api("PUT", `/integrations/github/installations/${linkId}/workspaces`, {
+          cookie: manager,
+          body: { workspaceIds: [] },
+        }),
+        unlink: await w.api("DELETE", `/integrations/github/installations/${linkId}`, {
+          cookie: manager,
+          body: { confirm: "x" },
+        }),
+        start: await w.api("POST", "/integrations/github/installations/start", { cookie: manager }),
+      };
+      // cross-tenant: the other tenant cannot route a connection of this tenant, from its own workspace or ours
+      const edgeWs = (
+        await w.api("POST", "/workspaces", {
+          cookie: edge.owner,
+          body: { name: `Edge route ${w.suffix}` },
+        })
+      ).json.data.id;
+      const edgeOwnWorkspace = await route(edge.owner, edgeWs, linkId, false);
+      const edgeInA = await route(edge.owner, w.A.identityWs, linkId, false);
+      return {
+        linkId,
+        read,
+        leadWrite,
+        developerWrite,
+        off,
+        blockedConnect,
+        blockedAvailable,
+        otherWorkspaceConnect,
+        on,
+        allowedConnect,
+        scoped,
+        outsideRead,
+        outsideWrite,
+        scopeAfter,
+        orgAttempts,
+        edgeOwnWorkspace,
+        edgeInA,
+      };
+    });
+  add(
+    "SCM-022",
+    "reading workspace integrations needs workspace_integration.view (manager and lead can, developer and viewer cannot, another tenant sees a 404); changing needs .manage (lead cannot)",
+    FORBIDDEN,
+    async () => {
+      const x = await world();
+      return Object.assign({}, x.developerWrite, x);
+    },
+    (r) => {
+      const problems = [];
+      if (r.read.manager.status !== 200) problems.push(`manager read ${r.read.manager.status}`);
+      if (r.read.lead.status !== 200) problems.push(`lead read ${r.read.lead.status}`);
+      for (const who of ["developer", "viewer"])
+        if (r.read[who].status !== 403) problems.push(`${who} read ${r.read[who].status}`);
+      if (r.read.edgeOnA.status !== 404)
+        problems.push(`other tenant read ${r.read.edgeOnA.status}`);
+      if (r.leadWrite.status !== 403) problems.push(`lead write ${r.leadWrite.status}`);
+      if (r.developerWrite.status !== 403)
+        problems.push(`developer write ${r.developerWrite.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-023",
+    "a workspace that switches a connection off cannot list or connect repositories through it, another workspace still can, and switching it on restores it",
+    FORBIDDEN,
+    async () => {
+      const x = await world();
+      return Object.assign({}, x.blockedConnect, x);
+    },
+    (r) => {
+      const problems = [];
+      if (r.off.status !== 200 || r.off.json.data.enabled !== false)
+        problems.push("switching off failed");
+      if (r.blockedConnect.status !== 403)
+        problems.push(`connect while off ${r.blockedConnect.status}`);
+      if (r.blockedAvailable.status !== 403)
+        problems.push(`available while off ${r.blockedAvailable.status}`);
+      if (r.otherWorkspaceConnect.status !== 201)
+        problems.push(`other workspace ${r.otherWorkspaceConnect.status}`);
+      if (r.on.status !== 200 || r.on.json.data.enabled !== true)
+        problems.push("switching on failed");
+      if (r.allowedConnect.status !== 201)
+        problems.push(`connect after on ${r.allowedConnect.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-024",
+    "workspace routing cannot widen the organization scope: a connection the administrator did not allow for the workspace is neither listed nor switchable (404) and the scope is unchanged",
+    NOT_FOUND,
+    async () => {
+      const x = await world();
+      return Object.assign({ status: x.outsideWrite.status, json: x.outsideWrite.json }, x);
+    },
+    (r) => {
+      const problems = [];
+      if (r.scoped.status !== 200) problems.push(`scoping failed ${r.scoped.status}`);
+      if (
+        r.outsideRead.status !== 200 ||
+        r.outsideRead.json.data.items.some((l) => l.id === r.linkId)
+      )
+        problems.push("a connection outside the scope is listed");
+      const link = r.scopeAfter.json.data.items.find((l) => l.id === r.linkId);
+      if (JSON.stringify(link?.workspaceScope) !== JSON.stringify([w.A.identityWs]))
+        problems.push("the organization scope changed");
+      return problems;
+    },
+  );
+  add(
+    "SCM-025",
+    "organization-level connection actions (list, set scope, unlink, start linking) stay with integration.manage: a manager gets 403 on all of them",
+    FORBIDDEN,
+    async () => {
+      const x = await world();
+      return Object.assign(
+        { status: x.orgAttempts.scope.status, json: x.orgAttempts.scope.json },
+        x,
+      );
+    },
+    (r) =>
+      Object.entries(r.orgAttempts)
+        .filter(([, res]) => res.status !== 403)
+        .map(([name, res]) => `${name} answered ${res.status}`),
+  );
+  add(
+    "SCM-026",
+    "another tenant cannot route this tenant's connection, from its own workspace or from ours (404) and the workspace list leaks no installation number",
+    NOT_FOUND,
+    async () => {
+      const x = await world();
+      return Object.assign({ status: x.edgeOwnWorkspace.status, json: x.edgeOwnWorkspace.json }, x);
+    },
+    (r) => {
+      const problems = [];
+      if (r.edgeInA.status !== 404) problems.push(`edge in A's workspace ${r.edgeInA.status}`);
+      if (
+        /externalInstallationId|permissions|workspaceScope/.test(
+          JSON.stringify(r.read.manager.json),
+        )
+      )
+        problems.push("the workspace list exposes organization-level fields");
+      return problems;
+    },
+  );
+}
 // ---------------------------------------------------------------------------------------------------------------------
 const stubRepo = (id) => ({
   id,

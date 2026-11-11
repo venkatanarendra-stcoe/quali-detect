@@ -102,6 +102,32 @@ export function createIntegrationRepository({ db }) {
         });
       return rows;
     },
+    /** Linked connections of the tenant with their organization scope and this workspace's own setting. */
+    listWorkspaceLinks: ({ tenantId, workspaceId }, client = db) =>
+      client.scmInstallationLink.findMany({
+        where: { tenantId, status: "linked" },
+        include: {
+          installation: true,
+          workspaces: { select: { workspaceId: true } },
+          workspaceSettings: { where: { tenantId, workspaceId } },
+        },
+        orderBy: { linkedAt: "asc" },
+      }),
+    findWorkspaceLink: ({ tenantId, workspaceId, linkId }, client = db) =>
+      client.scmInstallationLink.findFirst({
+        where: { id: linkId, tenantId, status: "linked" },
+        include: {
+          installation: true,
+          workspaces: { select: { workspaceId: true } },
+          workspaceSettings: { where: { tenantId, workspaceId } },
+        },
+      }),
+    upsertWorkspaceSetting: ({ tenantId, workspaceId, linkId, enabled, userId }, client = db) =>
+      client.scmWorkspaceLinkSetting.upsert({
+        where: { workspaceId_linkId: { workspaceId, linkId } },
+        create: { tenantId, workspaceId, linkId, enabled, updatedByUserId: userId },
+        update: { enabled, updatedByUserId: userId },
+      }),
     async countWorkspaces({ tenantId, workspaceIds }, client = db) {
       return client.workspace.count({ where: { tenantId, id: { in: workspaceIds } } });
     },

@@ -10,7 +10,12 @@ import {
 import { AUDIT_ACTIONS } from "../../../audit/actions.js";
 import { toPage } from "../../../lib/http.js";
 import { CATALOG } from "../constants/index.js";
-import { toDeliveryDto, toLinkDto } from "../mappers/index.js";
+import {
+  allowedInWorkspace,
+  toDeliveryDto,
+  toLinkDto,
+  toWorkspaceLinkDto,
+} from "../mappers/index.js";
 
 const UNAVAILABLE = "GitHub is temporarily unavailable. Try again later.";
 /** Generic on purpose: it must not say who owns the installation (SPEC R-3). */
@@ -329,6 +334,58 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
         );
       });
       return this.get(actor, linkId);
+    },
+
+    /** Connections this workspace may use (inside the organization scope) with the workspace's own on/off setting. */
+    async workspaceLinks(actor, workspaceId) {
+      const links = (
+        await repository.listWorkspaceLinks({ tenantId: actor.tenantId, workspaceId })
+      ).filter((link) => allowedInWorkspace(link, workspaceId));
+      const counts = await repository.repositoryCounts({
+        tenantId: actor.tenantId,
+        linkIds: links.map((l) => l.id),
+      });
+      return {
+        items: links.map((link) => toWorkspaceLinkDto(link, counts.get(link.id), workspaceId)),
+      };
+    },
+
+    /**
+     * Routing only: turn a connection on or off for this workspace. It can never add a workspace to the organization scope, so
+     * a link the administrator did not allow here is a plain 404.
+     */
+    async setWorkspaceRouting(actor, workspaceId, linkId, { enabled }) {
+      const link = await repository.findWorkspaceLink({
+        tenantId: actor.tenantId,
+        workspaceId,
+        linkId,
+      });
+      if (!link || !allowedInWorkspace(link, workspaceId)) throw new NotFoundError();
+      await repository.transaction(async (tx) => {
+        await repository.upsertWorkspaceSetting(
+          { tenantId: actor.tenantId, workspaceId, linkId: link.id, enabled, userId: actor.userId },
+          tx,
+        );
+        await audit.tenant.record(
+          {
+            ...entry(actor, AUDIT_ACTIONS.SCM_WORKSPACE_ROUTING_UPDATED, link, {
+              metadata: { enabled },
+            }),
+            workspaceId,
+          },
+          { tx },
+        );
+      });
+      const counts = await repository.repositoryCounts({
+        tenantId: actor.tenantId,
+        linkIds: [link.id],
+      });
+      const fresh = await repository.findWorkspaceLink({
+        tenantId: actor.tenantId,
+        workspaceId,
+        linkId,
+      });
+      return toWorkspaceLinkDto(fresh, counts.get(link.id), workspaceId);
     },
 
     async listDeliveries(actor, linkId, query) {

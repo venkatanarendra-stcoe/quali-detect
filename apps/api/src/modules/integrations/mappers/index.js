@@ -36,3 +36,22 @@ export const toDeliveryDto = (row) => ({
   outcome: row.outcome,
   signatureVerified: true,
 });
+
+/**
+ * Workspace view of a link (T-42, T-23): only what a workspace member needs to route repositories. No installation number,
+ * no permissions, no tenant-wide scope list.
+ * @param {any} link link with installation, scope and this workspace's setting
+ * @param {{ unavailableRepositoryCount: number }} extra
+ * @param {string} workspaceId
+ */
+export const toWorkspaceLinkDto = (link, { unavailableRepositoryCount }, workspaceId) => ({
+  id: link.id,
+  provider: link.installation.provider,
+  health: healthOf(link, unavailableRepositoryCount),
+  account: { login: link.installation.accountLogin, type: link.installation.accountType },
+  enabled: link.workspaceSettings.find((s) => s.workspaceId === workspaceId)?.enabled ?? true,
+});
+
+/** Whether the organization scope lets the workspace use the link (empty scope = every workspace). */
+export const allowedInWorkspace = (link, workspaceId) =>
+  link.workspaces.length === 0 || link.workspaces.some((w) => w.workspaceId === workspaceId);

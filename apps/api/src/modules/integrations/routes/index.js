@@ -10,10 +10,15 @@ import {
   linkListResponseSchema,
   linkParamsSchema,
   linkResponseSchema,
+  routingBodySchema,
   scopeBodySchema,
   startResponseSchema,
   unlinkBodySchema,
   unlinkResponseSchema,
+  workspaceLinkListResponseSchema,
+  workspaceLinkParamsSchema,
+  workspaceLinkResponseSchema,
+  workspaceParamsSchema,
 } from "../schemas/index.js";
 
 /**
@@ -29,6 +34,9 @@ export const integrationRoutes = (controller, authz) =>
     const config = { audience: "tenant" };
     const view = authz.authorize("integration.view");
     const manage = authz.authorize("integration.manage");
+    // Workspace routing (T-42): workspace-scope permissions, evaluated in the workspace of the URL.
+    const wsView = authz.authorize("workspace_integration.view", authz.scopes.workspace());
+    const wsManage = authz.authorize("workspace_integration.manage", authz.scopes.workspace());
     app.get(
       "/integrations",
       {
@@ -143,6 +151,38 @@ export const integrationRoutes = (controller, authz) =>
         },
       },
       controller.setScope,
+    );
+    app.get(
+      "/workspaces/:workspaceId/integrations",
+      {
+        config,
+        preHandler: wsView,
+        schema: {
+          tags,
+          summary:
+            "Linked GitHub connections this workspace may use, with the workspace's on/off setting",
+          params: workspaceParamsSchema,
+          response: { 200: workspaceLinkListResponseSchema },
+        },
+      },
+      controller.workspaceLinks,
+    );
+    app.put(
+      "/workspaces/:workspaceId/integrations/:linkId",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary:
+            "Turn a connection on or off for this workspace (routing only; cannot widen the organization scope)",
+          params: workspaceLinkParamsSchema,
+          body: routingBodySchema,
+          response: { 200: workspaceLinkResponseSchema },
+        },
+      },
+      controller.setWorkspaceRouting,
     );
     app.get(
       "/integrations/github/installations/:linkId/deliveries",

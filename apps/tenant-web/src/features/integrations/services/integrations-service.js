@@ -16,6 +16,10 @@ export const integrationsService = {
       query: params,
       signal,
     }),
+  workspaceLinks: (workspaceId, { signal } = {}) =>
+    api.get(`/workspaces/${workspaceId}/integrations`, { signal }),
+  setRouting: (workspaceId, linkId, enabled) =>
+    api.put(`/workspaces/${workspaceId}/integrations/${linkId}`, { enabled }),
   unlink: (linkId, confirm) =>
     api.delete(`/integrations/github/installations/${linkId}`, { body: { confirm } }),
 };

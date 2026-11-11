@@ -79,7 +79,11 @@ export function createRepositoryRepository({ db }) {
     findLinkWithScope: ({ tenantId, linkId }, client = db) =>
       client.scmInstallationLink.findFirst({
         where: { id: linkId, tenantId },
-        include: { installation: true, workspaces: { select: { workspaceId: true } } },
+        include: {
+          installation: true,
+          workspaces: { select: { workspaceId: true } },
+          workspaceSettings: { select: { workspaceId: true, enabled: true } },
+        },
       }),
     findWorkspace: ({ tenantId, id }, client = db) =>
       client.workspace.findFirst({ where: { tenantId, id }, select: { id: true, status: true } }),

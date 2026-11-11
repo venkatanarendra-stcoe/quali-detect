@@ -32,6 +32,10 @@
     {
       "pattern": "(extra operation: |OpenAPI: extra )(GET|POST|PUT|DELETE|PATCH) /api/v1/(integrations|repositories|workspaces/\\{workspaceId\\}/repositories|webhooks)",
       "reason": "New operations of the repositories and GitHub integration module (docs/modules/repositories-github/SPEC.md \u00a78): integrations catalog and installation lifecycle, repositories, and the GitHub webhook route."
+    },
+    {
+      "pattern": "(OpenAPI: extra |extra operation: )(GET|PUT) /api/v1/workspaces/\\{workspaceId\\}/integrations",
+      "reason": "New operations (2026-11-11, AUTHORIZATION Q26): workspace routing of linked GitHub connections; permissions workspace_integration.view / workspace_integration.manage (workspace scope)."
     }
   ]
 }

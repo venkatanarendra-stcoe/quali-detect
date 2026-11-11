@@ -18,6 +18,17 @@ export function createIntegrationController({ service }) {
       reply.success(await service.refresh(actor(request), request.params.linkId)),
     setScope: async (request, reply) =>
       reply.success(await service.setScope(actor(request), request.params.linkId, request.body)),
+    workspaceLinks: async (request, reply) =>
+      reply.success(await service.workspaceLinks(actor(request), request.params.workspaceId)),
+    setWorkspaceRouting: async (request, reply) =>
+      reply.success(
+        await service.setWorkspaceRouting(
+          actor(request),
+          request.params.workspaceId,
+          request.params.linkId,
+          request.body,
+        ),
+      ),
     deliveries: async (request, reply) => {
       const { items, pagination } = await service.listDeliveries(
         actor(request),

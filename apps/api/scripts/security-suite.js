@@ -253,6 +253,10 @@ async function main() {
           SECURITY_DATABASE_URL: databaseUrl,
           SECURITY_GITHUB_STUB_URL: gh.stub.url,
           SECURITY_GITHUB_WEBHOOK_SECRET: gh.webhookSecret,
+          // The suite runs the scm worker's handlers in-process against the stub (no broker needed): it needs the App credentials.
+          SECURITY_GITHUB_CLIENT_ID: gh.clientId,
+          SECURITY_GITHUB_CLIENT_SECRET: gh.clientSecret,
+          SECURITY_GITHUB_PRIVATE_KEY: gh.privateKey,
           PGSSLMODE: process.env.PGSSLMODE ?? "",
         },
         stdio: "inherit",

@@ -34,3 +34,26 @@ export function workspaceScope(param = "workspaceId") {
     },
   });
 }
+
+/**
+ * Operations on one repository, identified by a route param. Loads the repository by id AND tenant and yields the scope of
+ * the workspace it lives in, so `repository.*` permissions are checked in that workspace. A repository that does not exist
+ * for the caller's tenant resolves to null (404), exactly like one in a workspace the caller cannot see.
+ * @param {string} [param]
+ */
+export function repositoryScope(param = "repositoryId") {
+  return Object.freeze({
+    scopeType: "workspace",
+    async resolve(request, { tenantId, db }) {
+      const id = request.params?.[param];
+      if (typeof id !== "string") throw new NotFoundError();
+      const repository = await db.repository.findFirst({ where: { tenantId, id } });
+      return repository
+        ? {
+            scope: { type: "workspace", workspaceId: repository.workspaceId },
+            resource: repository,
+          }
+        : null;
+    },
+  });
+}

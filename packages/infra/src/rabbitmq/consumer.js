@@ -30,6 +30,7 @@ import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./top
  *   retryPolicy?: Parameters<typeof resolveRetryPolicy>[0],
  *   idempotency?: { begin: Function, complete: Function, release: Function },
  *   allowUnknownTypes?: boolean,
+ *   bindings?: Array<{ exchange: string, routingKey: string }> additional TOPIC-exchange bindings of the main queue (for example SCM events),
  *   requireTenant?: boolean,
  *   unknownErrorAs?: "transient" | "non-retryable",
  *   random?: () => number,
@@ -46,6 +47,7 @@ export function createConsumer({
   idempotency,
   requireTenant = true,
   allowUnknownTypes = false,
+  bindings = [],
   unknownErrorAs = "non-retryable",
   random = Math.random,
 }) {
@@ -252,6 +254,10 @@ export function createConsumer({
       channel = await connection.createConfirmChannel();
       channel.on("error", (error) => log.warn({ err: error }, "Consumer channel error"));
       await assertTopology(channel, { queue, retryPolicy: policy });
+      for (const binding of bindings) {
+        await channel.assertExchange(binding.exchange, "topic", { durable: true });
+        await channel.bindQueue(mainQueueName(queue), binding.exchange, binding.routingKey);
+      }
       await channel.prefetch(prefetch);
       ({ consumerTag } = await channel.consume(
         mainQueueName(queue),

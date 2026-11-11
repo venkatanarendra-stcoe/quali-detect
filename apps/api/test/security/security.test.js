@@ -11,12 +11,14 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { getDbClient } from "@qmentisai/db";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
+import { createGitHubClient } from "@qmentisai/infra";
 import { createAuditService } from "../../src/audit/audit-service.js";
+import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 124;
+const EXPECTED_CHECKS = 133;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1747,6 +1749,464 @@ const rowsFor = async (deliveryId) => {
       }
       if (r.rows.delivery?.outcome !== "accepted")
         problems.push(`outcome ${r.rows.delivery?.outcome}`);
+      return problems;
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12. GitHub integration: repositories and webhook events (SCM). The scm worker's handlers run in-process against the stub
+//     (no broker): the reconciler and the unavailable -> disconnected path.
+// ---------------------------------------------------------------------------------------------------------------------
+const stubRepo = (id) => ({
+  id,
+  node_id: `R_${id}`,
+  name: `repo${id}`,
+  full_name: `org/repo${id}`,
+  owner: { login: "org" },
+  private: true,
+  default_branch: "main",
+  html_url: `https://example.test/org/repo${id}`,
+  archived: false,
+  fork: false,
+});
+const quietLog = {
+  info() {},
+  warn() {},
+  error() {},
+  debug() {},
+  child() {
+    return quietLog;
+  },
+};
+const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
+{
+  const add = group("GitHub integration: repositories and events");
+  const base = 4000000 + (Date.now() % 100000) * 10;
+  const common = base + 9;
+  const scmWorld = () =>
+    once("scm-world", async () => {
+      const edge = await edgeTenant();
+      const admin = S("admin")(w);
+      const user = ghUser();
+      const accountA = orgAccount("r");
+      const flowA = await linkFlow(admin, {
+        account: accountA,
+        user,
+        orgRole: "admin",
+        repos: [base + 1, base + 2, base + 3, base + 5, common].map(stubRepo),
+      });
+      const accountE = orgAccount("re");
+      const userE = ghUser();
+      const flowE = await linkFlow(edge.owner, {
+        account: accountE,
+        user: userE,
+        orgRole: "admin",
+        repos: [common, base + 20].map(stubRepo),
+      });
+      const linkA = flowA.link.json.data.id;
+      const linkE = flowE.link.json.data.id;
+      const connect = (cookie, workspaceId, installationId, externalRepoId, key) =>
+        w.api("POST", `/workspaces/${workspaceId}/repositories`, {
+          cookie,
+          body: { installationId, externalRepoId: String(externalRepoId) },
+          ...(key ? { headers: { "idempotency-key": key } } : {}),
+        });
+      const edgeWorkspace = (
+        await w.api("POST", "/workspaces", {
+          cookie: edge.owner,
+          body: { name: `Edge repos ${w.suffix}` },
+        })
+      ).json.data.id;
+      const payRepo = await connect(admin, w.A.paymentsWs, linkA, base + 1);
+      const idRepo = await connect(admin, w.A.identityWs, linkA, base + 2);
+      const managerRepo = await connect(S("manager")(w), w.A.paymentsWs, linkA, base + 3);
+      const duplicate = await connect(admin, w.A.paymentsWs, linkA, base + 1);
+      const commonA = await connect(admin, w.A.paymentsWs, linkA, common);
+      const commonE = await connect(edge.owner, edgeWorkspace, linkE, common);
+      const syncRepoRes = await connect(admin, w.A.paymentsWs, linkA, base + 5);
+      const tenantId = (await w.api("GET", "/me", { cookie: admin })).json.data.tenant.id;
+      return {
+        edge,
+        admin,
+        flowA,
+        flowE,
+        linkA,
+        linkE,
+        payRepo,
+        idRepo,
+        managerRepo,
+        duplicate,
+        commonA,
+        commonE,
+        syncRepoRes,
+        tenantId,
+        edgeTenantId: edge.id,
+        edgeWorkspace,
+      };
+    });
+  const push = (installationId, externalRepoId, extra = {}) => ({
+    ref: "refs/heads/main",
+    before: "a".repeat(40),
+    after: "b".repeat(40),
+    created: false,
+    deleted: false,
+    forced: false,
+    commits: [{ id: "b".repeat(40) }],
+    head_commit: { id: "b".repeat(40) },
+    pusher: { name: "dev" },
+    repository: { id: Number(externalRepoId) },
+    installation: { id: Number(installationId) },
+    ...extra,
+  });
+  add(
+    "SCM-003",
+    "a signed push for a connected repository creates exactly one normalized event and one outbox message in that tenant only",
+    { status: 202 },
+    async () => {
+      const x = await scmWorld();
+      const deliveryId = randomUUID();
+      const r = await deliver({
+        event: "push",
+        payload: push(x.flowA.installationId, base + 1),
+        deliveryId,
+      });
+      return Object.assign(r, { rows: await rowsFor(deliveryId), x });
+    },
+    (r) => {
+      const problems = [];
+      if (r.x.payRepo.status !== 201) problems.push(`connect answered ${r.x.payRepo.status}`);
+      if (
+        r.rows.events.length !== 1 ||
+        r.rows.events[0].tenantId !== r.x.tenantId ||
+        r.rows.events[0].repositoryId !== r.x.payRepo.json.data.id
+      )
+        problems.push(
+          `events ${JSON.stringify(r.rows.events.map((e) => [e.tenantId, e.repositoryId]))}`,
+        );
+      if (r.rows.outbox.length !== 1) problems.push(`${r.rows.outbox.length} outbox rows`);
+      else if (
+        r.rows.outbox[0].type !== "scm.push.received" ||
+        r.rows.outbox[0].routingKey !== "scm.github.push" ||
+        r.rows.outbox[0].tenantId !== r.x.tenantId
+      )
+        problems.push(
+          `outbox ${JSON.stringify([r.rows.outbox[0].type, r.rows.outbox[0].routingKey])}`,
+        );
+      return problems;
+    },
+  );
+  add(
+    "SCM-004",
+    "a payload naming a repository id that another tenant also connected only ever affects the installation's own tenant",
+    { status: 202 },
+    async () => {
+      const x = await scmWorld();
+      const deliveryId = randomUUID();
+      const r = await deliver({
+        event: "push",
+        payload: push(x.flowA.installationId, common),
+        deliveryId,
+      });
+      return Object.assign(r, { rows: await rowsFor(deliveryId), x });
+    },
+    async (r) => {
+      const problems = [];
+      if (r.x.commonA.status !== 201 || r.x.commonE.status !== 201)
+        problems.push(
+          `both tenants should connect the same GitHub repository (${r.x.commonA.status}, ${r.x.commonE.status})`,
+        );
+      if (r.rows.events.length !== 1 || r.rows.events[0].tenantId !== r.x.tenantId)
+        problems.push("the event is not in the installation's tenant");
+      const other = await suiteDb().scmEvent.count({
+        where: { tenantId: r.x.edgeTenantId, deliveryId: r.deliveryId },
+      });
+      if (other !== 0) problems.push("the other tenant received an event");
+      const untouched = await suiteDb().repository.findUnique({
+        where: { id: r.x.commonE.json.data.id },
+      });
+      if (untouched.lastEventAt !== null)
+        problems.push("the other tenant's repository was touched");
+      return problems;
+    },
+  );
+  add(
+    "SCM-007",
+    "a duplicate X-GitHub-Delivery produces no second event or message",
+    { status: 202 },
+    async () => {
+      const x = await scmWorld();
+      const deliveryId = randomUUID();
+      const first = await deliver({
+        event: "push",
+        payload: push(x.flowA.installationId, base + 1),
+        deliveryId,
+      });
+      const second = await deliver({
+        event: "push",
+        payload: push(x.flowA.installationId, base + 1),
+        deliveryId,
+      });
+      return Object.assign(second, { first, rows: await rowsFor(deliveryId) });
+    },
+    (r) =>
+      r.first.status === 202 && r.rows.events.length === 1 && r.rows.outbox.length === 1
+        ? []
+        : [`events ${r.rows.events.length}, outbox ${r.rows.outbox.length}`],
+  );
+  add(
+    "SCM-008",
+    "another tenant's repository id answers 404 for read, edit, sync, disable and disconnect",
+    NOT_FOUND,
+    async () => {
+      const x = await scmWorld();
+      const id = x.payRepo.json.data.id;
+      const cookie = x.edge.owner;
+      const results = [
+        await w.api("GET", `/repositories/${id}`, { cookie }),
+        await w.api("PATCH", `/repositories/${id}`, { cookie, body: { displayName: "x" } }),
+        await w.api("POST", `/repositories/${id}/sync`, { cookie }),
+        await w.api("POST", `/repositories/${id}/disable`, { cookie }),
+        await w.api("DELETE", `/repositories/${id}`, { cookie, body: { confirm: "org/x" } }),
+      ];
+      return Object.assign(results[0], { others: results.slice(1), id });
+    },
+    (r) =>
+      r.others
+        .filter((o) => o.status !== 404)
+        .map((o) => `answered ${o.status}`)
+        .concat(JSON.stringify(r.json).includes(r.id) ? ["the body leaks the id"] : []),
+  );
+  add(
+    "SCM-009",
+    "a repository in a workspace the caller cannot see answers 404 like a missing one; one they can see without the permission answers 403",
+    NOT_FOUND,
+    async () => {
+      const x = await scmWorld();
+      const hidden = await w.api("GET", `/repositories/${x.idRepo.json.data.id}`, {
+        cookie: S("manager")(w),
+      });
+      const missing = await w.api("GET", `/repositories/${w.UNKNOWN}`, { cookie: S("manager")(w) });
+      const forbidden = await w.api("PATCH", `/repositories/${x.payRepo.json.data.id}`, {
+        cookie: S("developer")(w),
+        body: { displayName: "x" },
+      });
+      const listed = await w.api("GET", "/repositories?pageSize=100", { cookie: S("manager")(w) });
+      return Object.assign(hidden, { missing, forbidden, listed, x });
+    },
+    (r) => {
+      const problems = [];
+      if (JSON.stringify(r.json.error) !== JSON.stringify(r.missing.json.error))
+        problems.push("hidden and missing differ");
+      if (r.forbidden.status !== 403)
+        problems.push(`the developer's edit answered ${r.forbidden.status}`);
+      if (r.listed.json.data.some((repo) => repo.id === r.x.idRepo.json.data.id))
+        problems.push("the list shows a repository of a hidden workspace");
+      return problems;
+    },
+  );
+  add(
+    "SCM-010",
+    "a repository can be connected once per tenant, but the same GitHub repository may be connected by two tenants",
+    { status: 409, code: "CONFLICT" },
+    async () => (await scmWorld()).duplicate,
+    async () => {
+      const x = await scmWorld();
+      const problems = [];
+      if (x.duplicate.json.error.details?.reason !== "repository_already_connected")
+        problems.push(`reason ${x.duplicate.json.error.details?.reason}`);
+      if (x.commonA.status !== 201 || x.commonE.status !== 201)
+        problems.push("the shared repository could not be connected by both tenants");
+      if (x.managerRepo.status !== 201)
+        problems.push(`a manager could not connect (${x.managerRepo.status})`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-012",
+    "no token or key material appears in any response, outbox message or audit entry",
+    { status: 200 },
+    async () => {
+      const x = await scmWorld();
+      const db = suiteDb();
+      const texts = [
+        JSON.stringify([
+          x.flowA.link.json,
+          x.flowE.link.json,
+          x.payRepo.json,
+          x.idRepo.json,
+          x.managerRepo.json,
+          x.commonA.json,
+        ]),
+        JSON.stringify(
+          (await w.api("GET", `/repositories/${x.payRepo.json.data.id}`, { cookie: x.admin })).json,
+        ),
+        JSON.stringify(
+          (await w.api("GET", "/integrations/github/installations", { cookie: x.admin })).json,
+        ),
+        JSON.stringify(
+          (
+            await w.api("GET", `/repositories/${x.payRepo.json.data.id}/branches`, {
+              cookie: x.admin,
+            })
+          ).json,
+        ),
+        JSON.stringify(await db.outboxMessage.findMany({ where: { tenantId: x.tenantId } })),
+        JSON.stringify(await db.auditLog.findMany({ where: { tenantId: x.tenantId } })),
+      ];
+      return {
+        status: 200,
+        json: null,
+        problems: texts.some((text) => TOKEN_MATERIAL.test(text))
+          ? ["token or key material found"]
+          : [],
+      };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SCM-016",
+    "the delivery reconciler redelivers a failed delivery once; repeating it does not redeliver again, and the redelivery is processed once",
+    { status: 200 },
+    async () => {
+      const x = await scmWorld();
+      const guid = randomUUID();
+      const payload = {
+        action: "new_permissions_accepted",
+        installation: { id: Number(x.flowA.installationId) },
+      };
+      await stubCtl("/__control/delivery", {
+        id: Date.now(),
+        guid,
+        status_code: 500,
+        event: "installation",
+        action: payload.action,
+        installation_id: Number(x.flowA.installationId),
+        payload,
+        webhookUrl: `${env("SECURITY_API_URL")}/api/v1/webhooks/github`,
+        secret: WEBHOOK_SECRET,
+      });
+      const github = createGitHubClient({
+        apiBaseUrl: STUB,
+        webBaseUrl: STUB,
+        apiVersion: "2026-03-10",
+        clientId: env("SECURITY_GITHUB_CLIENT_ID"),
+        getPrivateKey: () => env("SECURITY_GITHUB_PRIVATE_KEY"),
+        getClientSecret: () => env("SECURITY_GITHUB_CLIENT_SECRET"),
+      });
+      const handle = createScmJobHandler({
+        db: suiteDb(),
+        config: { scm: { syncFailuresBeforeDisconnect: 3, redeliverPauseMs: 0 } },
+        logger: quietLog,
+        github,
+      });
+      const message = {
+        type: "scm.deliveries.reconcile_requested",
+        payload: { windowHours: 70, maxRedeliveries: 10 },
+      };
+      await handle(message, { log: quietLog });
+      for (let i = 0; i < 40; i += 1) {
+        const seen = (await stubCtl("/__control/deliveries", {})).deliveries.some(
+          (d) => d.guid === guid && d.redelivery,
+        );
+        if (seen) break;
+        await sleep(100);
+      }
+      await handle(message, { log: quietLog });
+      await sleep(300);
+      const redeliveries = (await stubCtl("/__control/redeliveries", {})).redeliveries;
+      return { status: 200, json: null, rows: await rowsFor(guid), redeliveries };
+    },
+    (r) => {
+      const problems = [];
+      if (r.redeliveries.length !== 1)
+        problems.push(`${r.redeliveries.length} redelivery requests`);
+      if (r.rows.events.length !== 1 || r.rows.outbox.length !== 1)
+        problems.push(`events ${r.rows.events.length}, outbox ${r.rows.outbox.length}`);
+      if (r.rows.delivery?.outcome !== "accepted")
+        problems.push(`outcome ${r.rows.delivery?.outcome}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-017",
+    "a repository that stops being listed becomes unavailable, then disconnected after N failures; nothing is deleted and both transitions are audited",
+    { status: 200 },
+    async () => {
+      const x = await scmWorld();
+      const repoId = x.syncRepoRes.json.data.id;
+      const db = suiteDb();
+      const github = createGitHubClient({
+        apiBaseUrl: STUB,
+        webBaseUrl: STUB,
+        apiVersion: "2026-03-10",
+        clientId: env("SECURITY_GITHUB_CLIENT_ID"),
+        getPrivateKey: () => env("SECURITY_GITHUB_PRIVATE_KEY"),
+        getClientSecret: () => env("SECURITY_GITHUB_CLIENT_SECRET"),
+      });
+      const handle = createScmJobHandler({
+        db,
+        config: { scm: { syncFailuresBeforeDisconnect: 3, redeliverPauseMs: 0 } },
+        logger: quietLog,
+        github,
+      });
+      const sync = () =>
+        handle(
+          {
+            type: "scm.repository.sync_requested",
+            tenantId: x.tenantId,
+            payload: { repositoryId: repoId },
+          },
+          { log: quietLog },
+        );
+      const statuses = [];
+      await sync(); // still listed: healthy
+      statuses.push((await db.repository.findUnique({ where: { id: repoId } })).status);
+      await stubCtl("/__control/repos", {
+        installationId: x.flowA.installationId,
+        repos: [base + 1, base + 2, base + 3, common].map(stubRepo),
+      });
+      for (let i = 0; i < 3; i += 1) {
+        await sync();
+        const row = await db.repository.findUnique({ where: { id: repoId } });
+        statuses.push(`${row.status}:${row.consecutiveSyncFailures}`);
+      }
+      const audits = (
+        await db.auditLog.findMany({
+          where: { tenantId: x.tenantId, targetId: repoId, actorType: "system" },
+        })
+      ).map((a) => a.action);
+      const events = await db.outboxMessage.count({
+        where: {
+          tenantId: x.tenantId,
+          type: "repository.disconnected",
+          messageId: { not: "" },
+          payload: { path: ["payload", "repositoryId"], equals: repoId },
+        },
+      });
+      return {
+        status: 200,
+        json: null,
+        statuses,
+        audits,
+        events,
+        exists: Boolean(await db.repository.findUnique({ where: { id: repoId } })),
+      };
+    },
+    (r) => {
+      const problems = [];
+      if (
+        JSON.stringify(r.statuses) !==
+        JSON.stringify(["active", "unavailable:1", "unavailable:2", "disconnected:3"])
+      )
+        problems.push(`transitions ${JSON.stringify(r.statuses)}`);
+      if (
+        !r.audits.includes("repository.unavailable") ||
+        !r.audits.includes("repository.disconnected")
+      )
+        problems.push(`audit ${JSON.stringify(r.audits)}`);
+      if (r.events !== 1) problems.push(`${r.events} disconnect events`);
+      if (!r.exists) problems.push("the row was deleted");
       return problems;
     },
   );

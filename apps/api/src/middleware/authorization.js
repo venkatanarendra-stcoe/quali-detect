@@ -1,7 +1,7 @@
 import { can, getPermission } from "@qmentisai/shared";
 import { ForbiddenError, NotFoundError } from "../errors/app-error.js";
 import { createAuthzRepository } from "../authz/repository.js";
-import { tenantScope, workspaceScope } from "../authz/scopes.js";
+import { repositoryScope, tenantScope, workspaceScope } from "../authz/scopes.js";
 import { createAuthzService } from "../authz/service.js";
 
 /**
@@ -21,7 +21,11 @@ import { createAuthzService } from "../authz/service.js";
  */
 export function createAuthorization({ db }) {
   const service = createAuthzService({ repository: createAuthzRepository({ db }) });
-  const scopes = Object.freeze({ tenant: tenantScope, workspace: workspaceScope });
+  const scopes = Object.freeze({
+    tenant: tenantScope,
+    workspace: workspaceScope,
+    repository: repositoryScope,
+  });
 
   /** Effective permissions of the request's principal (resolved once per request). */
   async function loadPermissions(req) {

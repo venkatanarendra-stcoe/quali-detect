@@ -46,7 +46,20 @@ const config = loadConfig({
   MOCK_AUTH_PASSWORD: "snapshot-only",
   MOCK_PLATFORM_AUTH_PASSWORD: "snapshot-only",
   MOCK_PLATFORM_MFA_CODE: "000000",
+  // Dummy GitHub App settings so the webhook route (registered only when the integration is enabled) is part of the contract.
+  GITHUB_APP_ENABLED: "true",
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_CLIENT_ID: "Iv1.snapshot",
+  GITHUB_APP_SLUG: "snapshot",
+  GITHUB_OAUTH_REDIRECT_URI: "http://localhost:5173/integrations/github/callback",
 });
+// Platform secrets are read from the environment by the PlatformSecretProvider; the snapshot never calls GitHub.
+for (const name of [
+  "GITHUB_APP_PRIVATE_KEY",
+  "GITHUB_APP_CLIENT_SECRET",
+  "GITHUB_APP_WEBHOOK_SECRET",
+])
+  process.env[name] = "snapshot-only";
 const { app, openapi: buildOpenapi, close } = await createApp({ config, modules });
 // The document is generated from the runtime route table; also prove the served route returns the same document.
 const server = app.listen(0, "127.0.0.1");

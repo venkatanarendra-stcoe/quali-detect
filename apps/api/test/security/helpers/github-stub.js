@@ -123,6 +123,15 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       }
       if (path === "/__control/redeliveries")
         return send(res, 200, { redeliveries: state.redeliveries });
+      if (path === "/__control/deliveries")
+        return send(res, 200, {
+          deliveries: state.deliveries.map((d) => ({
+            id: d.id,
+            guid: d.guid,
+            status_code: d.status_code,
+            redelivery: d.redelivery,
+          })),
+        });
       if (path === "/__control/requests") return send(res, 200, { requests: state.requests });
       if (path === "/__control/reset") {
         for (const key of ["installations", "repos", "codes", "userTokens", "installationTokens"])

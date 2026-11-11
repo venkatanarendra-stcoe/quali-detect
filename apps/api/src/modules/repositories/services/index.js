@@ -1,0 +1,411 @@
+import {
+  ERROR_CODES,
+  QUEUE_NAMES,
+  createEventEnvelope,
+  createJobEnvelope,
+} from "@qmentisai/contracts";
+import { GitHubApiError } from "@qmentisai/infra";
+import { can } from "@qmentisai/shared";
+import {
+  AppError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from "../../../errors/app-error.js";
+import { AUDIT_ACTIONS } from "../../../audit/actions.js";
+import { ENTITLEMENT_KEYS } from "../../../entitlements/keys.js";
+import { toPage } from "../../../lib/http.js";
+import { toRepositoryDto } from "../mappers/index.js";
+
+const PROVIDER_DOWN = "GitHub is temporarily unavailable. Try again later.";
+const MAX_LOOKUP_PAGES = 50;
+
+/**
+ * Repository use cases (SPEC §6.2, §8.2). Permissions are checked before (authorize middleware, in the repository's
+ * workspace); here live the business rules: provider identity per tenant, entitlement limit, link scope, soft disconnect.
+ * Every change is audited in the same transaction and announces itself through the outbox.
+ * @param {{
+ *   repository: ReturnType<typeof import("../repositories/index.js").createRepositoryRepository>,
+ *   scm: ReturnType<typeof import("../../../runtime/scm.js").createScm>,
+ *   audit: any, outbox: any, entitlements: any, infra: any,
+ * }} deps
+ */
+export function createRepositoryService({ repository, scm, audit, outbox, entitlements, infra }) {
+  const github = scm?.github ?? null;
+  const requireGitHub = () => {
+    if (!github)
+      throw new AppError(
+        ERROR_CODES.SERVICE_UNAVAILABLE,
+        "The GitHub integration is not configured on this platform.",
+      );
+    return github;
+  };
+  const providerCall = async (fn) => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof GitHubApiError)
+        throw new AppError(ERROR_CODES.PROVIDER_UNAVAILABLE, PROVIDER_DOWN);
+      throw error;
+    }
+  };
+  const entry = (actor, action, repo, extra = {}) => ({
+    tenantId: actor.tenantId,
+    actorUserId: actor.userId,
+    action,
+    targetType: "repository",
+    targetId: repo.id,
+    workspaceId: repo.workspaceId,
+    correlationId: actor.requestId,
+    ipAddress: actor.ip,
+    ...extra,
+  });
+  const notify = (tx, actor, repo, type, payload) =>
+    outbox.enqueue(tx, {
+      queue: QUEUE_NAMES.NOTIFICATION,
+      message: createEventEnvelope({
+        type,
+        schemaVersion: 1,
+        tenantId: actor.tenantId,
+        workspaceId: repo.workspaceId,
+        correlationId: actor.requestId,
+        initiator: { type: "user", id: actor.userId },
+        subject: { type: "repository", id: repo.id },
+        payload,
+      }),
+    });
+  const assertOwner = async (tenantId, ownerUserId, tx) => {
+    if (!ownerUserId) return;
+    if (!(await repository.findActiveMembership({ tenantId, userId: ownerUserId }, tx)))
+      throw new ValidationError(
+        [
+          {
+            path: "ownerUserId",
+            code: "invalid_reference",
+            message: "The owner must be an active member of the tenant.",
+          },
+        ],
+        { source: "body" },
+      );
+  };
+  const assertMutable = (repo) => {
+    if (repo.status === "disconnected")
+      throw new ConflictError("This repository is disconnected. Connect it again first.", {
+        details: { reason: "repository_disconnected" },
+      });
+  };
+  /** Finds one repository among the installation's accessible ones (bounded paging). */
+  async function findAccessible(externalInstallationId, externalRepoId) {
+    for (let page = 1; page <= MAX_LOOKUP_PAGES; page += 1) {
+      const result = await requireGitHub().listInstallationRepositories(externalInstallationId, {
+        page,
+      });
+      const found = result.repositories.find((r) => r.externalRepoId === externalRepoId);
+      if (found) return found;
+      if (!result.hasNext) return null;
+    }
+    return null;
+  }
+  const loadLink = async (tenantId, linkId) => {
+    const link = await repository.findLinkWithScope({ tenantId, linkId });
+    if (!link) throw new NotFoundError();
+    return link;
+  };
+
+  async function live(actor, repo, what, fetcher) {
+    assertMutable(repo);
+    const link = await loadLink(actor.tenantId, repo.linkId);
+    const scope = { tenantId: actor.tenantId, namespace: `scm-${what}`, id: repo.id };
+    const cached = infra.cache ? await infra.cache.get(scope).catch(() => null) : null;
+    if (cached) return cached;
+    const items = await providerCall(() =>
+      fetcher(requireGitHub(), link.installation.externalInstallationId),
+    );
+    if (infra.cache) await infra.cache.set(scope, items, { ttlSeconds: 60 }).catch(() => {});
+    return items;
+  }
+
+  return Object.freeze({
+    /** Repositories of the workspaces where the caller holds repository.view (never 403: the set is filtered). */
+    async list(actor, query) {
+      const workspaceIds = actor.permissions.workspaces
+        .map((w) => w.id)
+        .filter((workspaceId) =>
+          can(actor.permissions, "repository.view", { type: "workspace", workspaceId }),
+        );
+      const page = await repository.list({ ...query, tenantId: actor.tenantId, workspaceIds });
+      return toPage({ items: page.items.map(toRepositoryDto), totalItems: page.totalItems }, query);
+    },
+
+    /** Repositories the chosen linked installation can access, marked when already connected (T-23 step 2). */
+    async available(actor, workspaceId, { installationId, q, visibility, page, pageSize }) {
+      const link = await loadLink(actor.tenantId, installationId);
+      if (link.status !== "linked") throw new NotFoundError();
+      if (link.workspaces.length > 0 && !link.workspaces.some((w) => w.workspaceId === workspaceId))
+        throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+      const result = await providerCall(() =>
+        requireGitHub().listInstallationRepositories(link.installation.externalInstallationId, {
+          page,
+          perPage: pageSize,
+        }),
+      );
+      const needle = q?.toLowerCase();
+      const visible = result.repositories.filter(
+        (r) =>
+          (!needle || r.fullName.toLowerCase().includes(needle)) &&
+          (!visibility || r.visibility === visibility),
+      );
+      const connected = new Set(
+        (
+          await repository.findManyExternal({
+            tenantId: actor.tenantId,
+            externalRepoIds: visible.map((r) => r.externalRepoId),
+          })
+        ).map((r) => r.externalRepoId),
+      );
+      return toPage(
+        {
+          items: visible.map((r) => ({
+            externalRepoId: r.externalRepoId,
+            fullName: r.fullName,
+            visibility: r.visibility,
+            defaultBranch: r.defaultBranch,
+            archived: r.archived,
+            alreadyConnected: connected.has(r.externalRepoId),
+          })),
+          totalItems: result.totalCount,
+        },
+        { page, pageSize },
+      );
+    },
+
+    /** Connect (or reconnect) one repository into a workspace. */
+    async connect(actor, workspaceId, input) {
+      const link = await loadLink(actor.tenantId, input.installationId);
+      if (link.status !== "linked")
+        throw new ConflictError("This GitHub connection is not linked.", {
+          details: { reason: "installation_not_linked" },
+        });
+      if (link.workspaces.length > 0 && !link.workspaces.some((w) => w.workspaceId === workspaceId))
+        throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+      const remote = await providerCall(() =>
+        findAccessible(link.installation.externalInstallationId, input.externalRepoId),
+      );
+      if (!remote)
+        throw new ValidationError(
+          [
+            {
+              path: "externalRepoId",
+              code: "invalid_reference",
+              message: "The repository is not accessible to this GitHub connection.",
+            },
+          ],
+          { source: "body" },
+        );
+      const ownerUserId = input.ownerUserId ?? actor.userId;
+      const created = await repository.transaction(async (tx) => {
+        const workspace = await repository.findWorkspace(
+          { tenantId: actor.tenantId, id: workspaceId },
+          tx,
+        );
+        if (!workspace) throw new NotFoundError();
+        if (workspace.status !== "active")
+          throw new ConflictError("The workspace is archived.", {
+            details: { reason: "workspace_archived" },
+          });
+        await assertOwner(actor.tenantId, ownerUserId, tx);
+        await repository.lockLimit(actor.tenantId, tx);
+        const existing = await repository.findByExternalId(
+          { tenantId: actor.tenantId, externalRepoId: remote.externalRepoId },
+          tx,
+        );
+        if (existing && existing.status !== "disconnected")
+          throw new ConflictError("This repository is already connected.", {
+            details: { reason: "repository_already_connected" },
+          });
+        if (existing && existing.workspaceId !== workspaceId)
+          throw new ConflictError("This repository was connected in another workspace.", {
+            details: { reason: "repository_in_other_workspace" },
+          });
+        await entitlements.assertWithinLimit({
+          tenantId: actor.tenantId,
+          key: ENTITLEMENT_KEYS.REPOSITORIES_MAX,
+          currentCount: await repository.countLive({ tenantId: actor.tenantId }, tx),
+        });
+        const fields = {
+          linkId: link.id,
+          nodeId: remote.nodeId,
+          fullName: remote.fullName,
+          name: remote.name,
+          ownerLogin: remote.ownerLogin,
+          htmlUrl: remote.htmlUrl,
+          visibility: remote.visibility,
+          defaultBranch: remote.defaultBranch,
+          description: input.description ?? remote.description,
+          displayName: input.displayName ?? null,
+          ownerUserId,
+          archived: remote.archived,
+          status: "active",
+          enabled: true,
+          consecutiveSyncFailures: 0,
+          lastSyncError: null,
+          lastSyncedAt: new Date(),
+          disconnectedAt: null,
+          disconnectReason: null,
+          connectedByUserId: actor.userId,
+          connectedAt: new Date(),
+        };
+        let row;
+        if (existing) {
+          await repository.update({ tenantId: actor.tenantId, id: existing.id, data: fields }, tx);
+          row = await repository.findById({ tenantId: actor.tenantId, id: existing.id }, tx);
+        } else {
+          row = await repository.create(
+            {
+              tenantId: actor.tenantId,
+              workspaceId,
+              provider: "github",
+              externalRepoId: remote.externalRepoId,
+              ...fields,
+            },
+            tx,
+          );
+        }
+        await audit.tenant.record(
+          entry(actor, AUDIT_ACTIONS.REPOSITORY_CONNECTED, row, {
+            metadata: { fullName: row.fullName, reconnect: Boolean(existing) },
+          }),
+          { tx },
+        );
+        await notify(tx, actor, row, "repository.connected", {
+          repositoryId: row.id,
+          workspaceId,
+          provider: "github",
+          externalRepoId: row.externalRepoId,
+          fullName: row.fullName,
+          defaultBranch: row.defaultBranch,
+          linkId: link.id,
+        });
+        return row;
+      });
+      return toRepositoryDto(created);
+    },
+
+    get: (_actor, repo) => toRepositoryDto(repo),
+
+    async update(actor, repo, patch) {
+      assertMutable(repo);
+      const updated = await repository.transaction(async (tx) => {
+        if (patch.ownerUserId) await assertOwner(actor.tenantId, patch.ownerUserId, tx);
+        await repository.update({ tenantId: actor.tenantId, id: repo.id, data: patch }, tx);
+        const next = await repository.findById({ tenantId: actor.tenantId, id: repo.id }, tx);
+        const fields = Object.keys(patch);
+        await audit.tenant.record(
+          entry(actor, AUDIT_ACTIONS.REPOSITORY_UPDATED, next, {
+            changes: {
+              before: Object.fromEntries(fields.map((f) => [f, repo[f]])),
+              after: Object.fromEntries(fields.map((f) => [f, next[f]])),
+            },
+          }),
+          { tx },
+        );
+        return next;
+      });
+      return toRepositoryDto(updated);
+    },
+
+    /** Queues a sync job; the worker does the GitHub calls (SPEC §6.5c). */
+    async sync(actor, repo) {
+      assertMutable(repo);
+      const bucket = Math.floor(Date.now() / 60000);
+      await repository.transaction((tx) =>
+        outbox.enqueue(tx, {
+          queue: QUEUE_NAMES.SCM,
+          message: createJobEnvelope({
+            messageId: `scm-sync-${repo.id}-${bucket}`,
+            type: "scm.repository.sync_requested",
+            schemaVersion: 1,
+            tenantId: actor.tenantId,
+            workspaceId: repo.workspaceId,
+            correlationId: actor.requestId,
+            initiator: { type: "user", id: actor.userId },
+            payload: { repositoryId: repo.id },
+          }),
+        }),
+      );
+      return { status: "queued" };
+    },
+
+    async setEnabled(actor, repo, enabled) {
+      assertMutable(repo);
+      if (repo.enabled === enabled) return toRepositoryDto(repo);
+      const next = await repository.transaction(async (tx) => {
+        await repository.update({ tenantId: actor.tenantId, id: repo.id, data: { enabled } }, tx);
+        await audit.tenant.record(
+          entry(
+            actor,
+            enabled ? AUDIT_ACTIONS.REPOSITORY_ENABLED : AUDIT_ACTIONS.REPOSITORY_DISABLED,
+            repo,
+          ),
+          { tx },
+        );
+        return repository.findById({ tenantId: actor.tenantId, id: repo.id }, tx);
+      });
+      return toRepositoryDto(next);
+    },
+
+    /** Soft disconnect: the row, its id and its history stay; reconnecting reactivates it (R-6). */
+    async disconnect(actor, repo, { confirm }) {
+      if (confirm !== repo.fullName)
+        throw new ValidationError(
+          [
+            {
+              path: "confirm",
+              code: "confirmation_mismatch",
+              message: "Type the repository name exactly to confirm.",
+            },
+          ],
+          { source: "body" },
+        );
+      assertMutable(repo);
+      await repository.transaction(async (tx) => {
+        await repository.update(
+          {
+            tenantId: actor.tenantId,
+            id: repo.id,
+            data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: "user" },
+          },
+          tx,
+        );
+        await audit.tenant.record(
+          entry(actor, AUDIT_ACTIONS.REPOSITORY_DISCONNECTED, repo, {
+            metadata: { reason: "user", fullName: repo.fullName },
+          }),
+          { tx },
+        );
+        await notify(tx, actor, repo, "repository.disconnected", {
+          repositoryId: repo.id,
+          workspaceId: repo.workspaceId,
+          provider: "github",
+          reason: "user",
+        });
+      });
+      return { disconnected: true };
+    },
+
+    /** Live read-through with a short tenant-scoped cache (SPEC REQ-020). */
+    async branches(actor, repo) {
+      return {
+        items: await live(actor, repo, "branches", (g, id) => g.listBranches(id, repo.fullName)),
+      };
+    },
+    async pullRequests(actor, repo) {
+      return {
+        items: await live(actor, repo, "pull-requests", (g, id) =>
+          g.listPullRequests(id, repo.fullName),
+        ),
+      };
+    },
+  });
+}

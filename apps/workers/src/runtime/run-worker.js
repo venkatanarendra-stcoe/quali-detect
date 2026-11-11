@@ -16,17 +16,28 @@ import {
  * is set, else Redis), RabbitMQ connection, a consumer for the worker's
  * queue, and graceful shutdown on SIGINT/SIGTERM (stop consuming, wait for in-flight jobs up to the timeout, close
  * connections). A second signal exits immediately. Startup failures (bad config, unreachable broker) exit with code 1.
- * @param {{ name: string, queue: string, handler: Function, verifyOwnership?: boolean, requireTenant?: boolean, onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options `onReady` runs after the consumer started (for example a ticker) and may return a stop function `verifyOwnership` re-validates tenant and resource ownership against the database before the handler (needs DATABASE_URL)
+ * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean, requireTenant?: boolean, bindings?: Array<{ exchange: string, routingKey: string }> }} ConsumerSpec
+ * @param {ConsumerSpec & { name: string, additional?: ConsumerSpec[], onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options
+ *   `handler` or `buildHandler` (when the handler needs the database or the config); `verifyOwnership` re-validates tenant and
+ *   resource ownership against the database before the handler (needs DATABASE_URL); `additional` runs more consumers in the
+ *   same process; `onReady` runs after the consumers started (for example a ticker) and may return a stop function
  * @returns {Promise<{ stop: () => Promise<void> }>}
  */
 export async function runWorker({
   name,
   queue,
   handler,
+  buildHandler,
   verifyOwnership = false,
   requireTenant = true,
+  bindings = [],
+  additional = [],
   onReady,
 }) {
+  const specs = [
+    { queue, handler, buildHandler, verifyOwnership, requireTenant, bindings },
+    ...additional,
+  ];
   let config;
   try {
     config = loadWorkerConfig();
@@ -37,7 +48,7 @@ export async function runWorker({
   }
 
   const logger = createWorkerLogger(config, name);
-  if (verifyOwnership && !config.databaseUrl) {
+  if (specs.some((spec) => spec.verifyOwnership) && !config.databaseUrl) {
     console.error(
       "Invalid environment configuration:\n  - DATABASE_URL: required by this worker (ownership checks)",
     );
@@ -52,17 +63,20 @@ export async function runWorker({
   const idempotency = db
     ? createProcessedMessageStore({ db, processingTtlSeconds: config.claimTtlSeconds })
     : createRedisIdempotencyStore({ redis, doneTtlSeconds: config.idempotencyTtlSeconds });
-  const consumer = createConsumer({
-    connection,
-    queue,
-    handler,
-    verify: verifyOwnership ? createOwnershipVerifier({ db }) : undefined,
-    logger,
-    prefetch: config.prefetch,
-    retryPolicy: config.retryPolicy,
-    idempotency,
-    requireTenant,
-  });
+  const consumers = specs.map((spec) =>
+    createConsumer({
+      connection,
+      queue: spec.queue,
+      handler: spec.handler ?? spec.buildHandler({ db, config, logger }),
+      verify: spec.verifyOwnership ? createOwnershipVerifier({ db }) : undefined,
+      logger,
+      prefetch: config.prefetch,
+      retryPolicy: config.retryPolicy,
+      idempotency,
+      requireTenant: spec.requireTenant ?? true,
+      bindings: spec.bindings ?? [],
+    }),
+  );
 
   let stopHook = null;
   let stopping = null;
@@ -70,7 +84,9 @@ export async function runWorker({
     stopping ??= (async () => {
       logger.info("Shutting down");
       await stopHook?.();
-      await consumer.stop({ timeoutMs: config.shutdownTimeoutMs });
+      await Promise.all(
+        consumers.map((consumer) => consumer.stop({ timeoutMs: config.shutdownTimeoutMs })),
+      );
       await connection.close();
       if (redis) await closeRedis(redis);
       if (db) await disconnectDbClient();
@@ -103,13 +119,13 @@ export async function runWorker({
   try {
     if (redis) await pingRedis(redis);
     if (db) await db.$queryRaw`SELECT 1`;
-    await consumer.start();
+    for (const consumer of consumers) await consumer.start();
   } catch (error) {
     logger.fatal({ err: error }, "Worker failed to start");
     await stop().catch(() => {});
     process.exit(1);
   }
   stopHook = (await onReady?.({ db, config, logger })) ?? null;
-  logger.info({ queue }, "Worker running");
+  logger.info({ queues: specs.map((spec) => spec.queue) }, "Worker running");
   return { stop };
 }

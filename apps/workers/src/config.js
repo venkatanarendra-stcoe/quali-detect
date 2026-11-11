@@ -1,3 +1,4 @@
+import { readGitHubAppConfig } from "@qmentisai/infra";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -17,6 +18,8 @@ const envSchema = z.object({
   // Scheduler: session purge. Expired/revoked sessions are kept this long (investigation window) before deletion.
   SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(3600),
   SCHEDULER_SESSION_RETENTION_SECONDS: z.coerce.number().int().min(0).default(86400),
+  // Pause between webhook redeliveries requested by the reconciler (GitHub asks for spacing between mutating requests).
+  SCM_REDELIVER_PAUSE_MS: z.coerce.number().int().min(0).max(60000).default(1000),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -60,6 +63,8 @@ export function loadWorkerConfig(env = process.env) {
       { variable: "WORKER_RETRY_MAX_DELAY_MS", message: "must be >= WORKER_RETRY_BASE_DELAY_MS" },
     ]);
   }
+  const github = readGitHubAppConfig(env, { production: e.NODE_ENV === "production" });
+  if (github.problems.length > 0) throw new ConfigError(github.problems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
       { variable: "DATABASE_URL", message: "required (or REDIS_URL) for the idempotency store" },
@@ -80,6 +85,13 @@ export function loadWorkerConfig(env = process.env) {
     idempotencyTtlSeconds: e.WORKER_IDEMPOTENCY_TTL_SECONDS,
     shutdownTimeoutMs: e.WORKER_SHUTDOWN_TIMEOUT_MS,
     claimTtlSeconds: e.WORKER_CLAIM_TTL_SECONDS,
+    scm: github.enabled
+      ? Object.freeze({
+          enabled: true,
+          ...github.config,
+          redeliverPauseMs: e.SCM_REDELIVER_PAUSE_MS,
+        })
+      : Object.freeze({ enabled: false }),
     scheduler: Object.freeze({
       sessionPurgeIntervalSeconds: e.SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS,
       sessionRetentionSeconds: e.SCHEDULER_SESSION_RETENTION_SECONDS,

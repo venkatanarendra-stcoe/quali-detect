@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 74,
+  "operationCount": 86,
   "operations": [
     {
       "method": "GET",
@@ -2528,6 +2528,652 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/repositories",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q",
+          "workspaceId",
+          "provider",
+          "status",
+          "health"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List repositories in the workspaces the caller can see"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/repositories/{repositoryId}",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": "{ confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ disconnected }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Disconnect a repository (history is kept; reconnecting reactivates it)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repositories/{repositoryId}",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a repository"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/repositories/{repositoryId}",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": "{ displayName, description, ownerUserId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Edit display name, description or owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repositories/{repositoryId}/branches",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Branches, read live from GitHub (60 s cache)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repositories/{repositoryId}/disable",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Disable a repository (events are ignored)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repositories/{repositoryId}/enable",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Enable a repository"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repositories/{repositoryId}/pull-requests",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Open pull requests, read live from GitHub (60 s cache)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repositories/{repositoryId}/sync",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ status }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Queue a sync with GitHub"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/role-assignments",
       "module": "role-assignments",
       "audience": "tenant",
@@ -3737,6 +4383,42 @@
       "summary": "Explain a member's effective permissions and the assignments behind them"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/webhooks/github",
+      "module": "scm-webhooks",
+      "audience": "public",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ received }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "GitHub App webhook (authenticated by X-Hub-Signature-256; every validly signed delivery answers 202)"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/workspaces",
       "module": "workspaces",
@@ -4295,6 +4977,158 @@
         ]
       },
       "summary": "Add a tenant member to the workspace (idempotent)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/repositories",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": "repository.connect",
+      "permissionScope": "workspace",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": "{ installationId, externalRepoId, displayName, description, ownerUserId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Connect (or reconnect) a repository into the workspace"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/repositories/available",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": "repository.connect",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "installationId",
+          "q",
+          "visibility"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ externalRepoId, fullName, visibility, defaultBranch, archived, alreadyConnected }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Repositories a linked GitHub connection can access (marks the ones already connected)"
     },
     {
       "method": "POST",

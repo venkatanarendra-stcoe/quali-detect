@@ -15,6 +15,14 @@ const repositoryInTenant = async (db, message) =>
     }),
   );
 
+const linkInTenant = async (db, message) =>
+  Boolean(
+    await db.scmInstallationLink.findFirst({
+      where: { id: message.payload.linkId, tenantId: message.tenantId },
+      select: { id: true },
+    }),
+  );
+
 const RESOURCE_CHECKS = {
   // The account an alert is about must exist, and a tenant account must belong to the tenant of the message.
   "identity.account.throttle_cap_reached": async (db, message) => {
@@ -35,6 +43,13 @@ const RESOURCE_CHECKS = {
   // Connected and disconnected repositories stay in the tenant forever (rows are never deleted), so both events check the row.
   "repository.connected": async (db, message) => repositoryInTenant(db, message),
   "repository.disconnected": async (db, message) => repositoryInTenant(db, message),
+  // SCM jobs and events: the repository (or installation link) named in the payload must belong to the message's tenant.
+  "scm.repository.sync_requested": async (db, message) => repositoryInTenant(db, message),
+  "scm.push.received": async (db, message) => repositoryInTenant(db, message),
+  "scm.pull_request.received": async (db, message) => repositoryInTenant(db, message),
+  "scm.repository.changed": async (db, message) => repositoryInTenant(db, message),
+  "scm.installation.changed": async (db, message) => linkInTenant(db, message),
+  "scm.installation_repositories.changed": async (db, message) => linkInTenant(db, message),
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({

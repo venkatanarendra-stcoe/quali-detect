@@ -47,3 +47,33 @@ export async function purgeSessions({ db, retentionSeconds, now = new Date() }) 
   ]);
   return { sessions: sessions.count, platformSessions: platformSessions.count };
 }
+
+/**
+ * Enqueues a platform-level job (no tenant) through the outbox. The messageId is derived from the time bucket, so several
+ * scheduler instances ticking in the same interval produce ONE job.
+ * @param {{ db: any, queue: string, type: string, intervalSeconds: number, payload: object, prefix: string, now?: Date }} input
+ */
+export async function enqueuePlatformJob({
+  db,
+  queue,
+  type,
+  intervalSeconds,
+  payload,
+  prefix,
+  now = new Date(),
+}) {
+  const outbox = createOutbox({ repository: createOutboxRepository({ db }) });
+  const bucket = Math.floor(now.getTime() / (intervalSeconds * 1000));
+  return db.$transaction((tx) =>
+    outbox.enqueue(tx, {
+      queue,
+      message: createJobEnvelope({
+        messageId: `${prefix}-${bucket}`,
+        type,
+        schemaVersion: 1,
+        initiator: { type: "system", id: "scheduler" },
+        payload,
+      }),
+    }),
+  );
+}

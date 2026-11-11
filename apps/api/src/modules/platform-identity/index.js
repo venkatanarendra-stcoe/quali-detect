@@ -7,7 +7,7 @@ import { createPlatformIdentityService } from "./services/index.js";
 /**
  * Root Console identity. Slimmer than a tenant module on purpose: it has no policies, events or listeners yet, and reuses the
  * auth core (sessions, providers, throttling) with the platform audience, cookie and table.
- * @type {import("fastify").FastifyPluginAsync}
+ * @type {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 async function platformIdentityPlugin(app) {
   const repository = createPlatformIdentityRepository({ db: app.infra.db });
@@ -19,7 +19,7 @@ async function platformIdentityPlugin(app) {
   );
 }
 
-/** @type {import("../../plugins/modules.js").ApiModule} */
+/** @type {import("../../runtime/modules.js").ApiModule} */
 export const platformIdentityModule = {
   name: MODULE_NAME,
   description:

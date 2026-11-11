@@ -11,7 +11,7 @@ import {
 /**
  * Root Console identity routes under /api/v1/platform. Login/logout are public; /me needs a platform session.
  * @param {ReturnType<typeof import("../controllers/index.js").createPlatformIdentityController>} controller
- * @returns {import("fastify").FastifyPluginAsync}
+ * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const platformIdentityRoutes = (controller) =>
   async function platformIdentity(app) {

@@ -1,0 +1,46 @@
+{
+  "name": "@qmentisai/workers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Separate worker entry points",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./pipeline": "./src/pipeline/index.js",
+    "./analysis": "./src/analysis/index.js",
+    "./scan": "./src/scan/index.js",
+    "./notification": "./src/notification/index.js",
+    "./usage": "./src/usage/index.js",
+    "./scheduler": "./src/scheduler/index.js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "start:pipeline": "node --env-file-if-exists=.env src/pipeline/main.js",
+    "dev:pipeline": "node --watch --env-file-if-exists=.env src/pipeline/main.js",
+    "start:analysis": "node --env-file-if-exists=.env src/analysis/main.js",
+    "dev:analysis": "node --watch --env-file-if-exists=.env src/analysis/main.js",
+    "start:scan": "node --env-file-if-exists=.env src/scan/main.js",
+    "dev:scan": "node --watch --env-file-if-exists=.env src/scan/main.js",
+    "start:notification": "node --env-file-if-exists=.env src/notification/main.js",
+    "dev:notification": "node --watch --env-file-if-exists=.env src/notification/main.js",
+    "start:usage": "node --env-file-if-exists=.env src/usage/main.js",
+    "dev:usage": "node --watch --env-file-if-exists=.env src/usage/main.js",
+    "start:scheduler": "node --env-file-if-exists=.env src/scheduler/main.js",
+    "dev:scheduler": "node --watch --env-file-if-exists=.env src/scheduler/main.js"
+  },
+  "dependencies": {
+    "@qmentisai/contracts": "workspace:*",
+    "@qmentisai/db": "workspace:*",
+    "@qmentisai/infra": "workspace:*",
+    "@qmentisai/shared": "workspace:*",
+    "pino": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@qmentisai/config": "workspace:*",
+    "eslint": "catalog:"
+  }
+}

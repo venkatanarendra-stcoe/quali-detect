@@ -1,0 +1,36 @@
+{
+  "name": "@qmentisai/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fastify API (modular monolith)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "check:connections": "node --env-file-if-exists=.env scripts/check-connections.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "catalog:",
+    "@fastify/cors": "catalog:",
+    "@fastify/swagger": "catalog:",
+    "@qmentisai/contracts": "workspace:*",
+    "@qmentisai/db": "workspace:*",
+    "@qmentisai/infra": "workspace:*",
+    "@qmentisai/shared": "workspace:*",
+    "fastify": "catalog:",
+    "fastify-plugin": "catalog:",
+    "zod": "catalog:",
+    "zod-to-json-schema": "catalog:"
+  },
+  "devDependencies": {
+    "@qmentisai/config": "workspace:*",
+    "eslint": "catalog:"
+  }
+}

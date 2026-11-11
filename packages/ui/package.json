@@ -1,0 +1,27 @@
+{
+  "name": "@qmentisai/ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Design tokens (CSS variables) and the Tailwind v4 preset shared by both apps",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./tokens.css": "./src/tokens.css",
+    "./preset.css": "./src/preset.css",
+    "./root-theme.css": "./src/root-theme.css"
+  },
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@qmentisai/config": "workspace:*",
+    "eslint": "catalog:",
+    "react": "catalog:"
+  }
+}

@@ -1,0 +1,569 @@
+import { zodResolver } from "@hookform/resolvers/zod";
+import { CircleAlert, CircleCheck, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
+import { z } from "zod";
+import { PageHeader } from "@/components/common/page-header.jsx";
+import { SearchPicker } from "@/components/common/search-picker.jsx";
+import { Stepper } from "@/components/common/stepper.jsx";
+import { Button } from "@/components/ui/button.jsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card.jsx";
+import { Input } from "@/components/ui/input.jsx";
+import { Label } from "@/components/ui/label.jsx";
+import { Select } from "@/components/ui/select.jsx";
+import { Textarea } from "@/components/ui/textarea.jsx";
+import { useSession } from "@/features/auth/hooks/use-session.js";
+import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import {
+  useAssignableRoles,
+  useGroupSearch,
+  useUserSearch,
+} from "@/features/directory/hooks/use-directory.js";
+import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
+import { describeError, isApiError } from "@/lib/api/index.js";
+import { useCreateWorkspace, useRefreshWorkspaces } from "../hooks/use-workspaces.js";
+import { workspacesService } from "../services/workspaces-service.js";
+
+const STEPS = ["Details", "Members & access", "Review"];
+const detailsSchema = z.object({
+  name: z.string().trim().min(1, "Enter a workspace name.").max(120, "Use at most 120 characters."),
+  description: z.string().trim().max(1000, "Use at most 1000 characters."),
+  businessUnit: z.string().trim().max(120, "Use at most 120 characters."),
+});
+const blankToUndefined = (value) => (value === "" ? undefined : value);
+
+/** People/group + role rows the creator wants to grant right after the workspace exists. */
+function AccessStep({ rows, setRows, ownerId, canPeople, canGroups }) {
+  const [kind, setKind] = useState("person");
+  const [query, setQuery] = useState("");
+  const [subject, setSubject] = useState(null);
+  const [roleId, setRoleId] = useState("");
+  const [problem, setProblem] = useState(null);
+  const debounced = useDebouncedValue(query);
+  const roles = useAssignableRoles();
+  const people = useUserSearch(debounced, { enabled: kind === "person" && canPeople });
+  const groups = useGroupSearch(debounced, { enabled: kind === "group" && canGroups });
+  const source = kind === "person" ? people : groups;
+  const options = (source.data ?? []).map((item) =>
+    kind === "person"
+      ? { id: item.userId, label: item.name ?? item.email, hint: item.email }
+      : {
+          id: item.id,
+          label: item.name,
+          hint: `${item.memberCount} ${item.memberCount === 1 ? "member" : "members"}`,
+        },
+  );
+
+  const add = () => {
+    const role = roles.data?.find((r) => r.id === roleId);
+    if (!subject || !role) return;
+    if (kind === "person" && subject.id === ownerId)
+      return setProblem("The owner already has Admin access to the new workspace.");
+    if (rows.some((r) => r.kind === kind && r.id === subject.id && r.roleId === roleId))
+      return setProblem("This access is already in the list.");
+    setProblem(null);
+    setRows([
+      ...rows,
+      {
+        key: `${kind}:${subject.id}:${roleId}`,
+        kind,
+        id: subject.id,
+        label: subject.label,
+        roleId,
+        roleName: role.name,
+      },
+    ]);
+    setSubject(null);
+    setQuery("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        The owner is added as Admin automatically. Group membership alone grants no access; the role
+        assigned to the group does. You can also do this later from Members &amp; groups.
+      </p>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[10rem_minmax(0,1fr)_14rem_auto] xl:items-end">
+        <div className="space-y-1.5">
+          <Label htmlFor="access-kind">Add</Label>
+          <Select
+            id="access-kind"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value);
+              setSubject(null);
+              setQuery("");
+            }}
+          >
+            <option value="person" disabled={!canPeople}>
+              Person
+            </option>
+            <option value="group" disabled={!canGroups}>
+              Group
+            </option>
+          </Select>
+        </div>
+        <SearchPicker
+          id="access-subject"
+          label={kind === "person" ? "Person" : "Group"}
+          placeholder={kind === "person" ? "Search by name or email" : "Search groups"}
+          query={query}
+          onQueryChange={setQuery}
+          options={options}
+          isLoading={source.isFetching}
+          error={source.error}
+          selected={subject}
+          onSelect={setSubject}
+          onClear={() => setSubject(null)}
+        />
+        <div className="space-y-1.5">
+          <Label htmlFor="access-role">Workspace role</Label>
+          <Select
+            id="access-role"
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+            disabled={roles.isPending}
+          >
+            <option value="">{roles.isPending ? "Loading roles…" : "Choose a role"}</option>
+            {(roles.data ?? []).map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <Button type="button" variant="secondary" onClick={add} disabled={!subject || !roleId}>
+          Add
+        </Button>
+      </div>
+      {roles.isError ? (
+        <p role="alert" className="text-sm text-status-danger">
+          {describeError(roles.error)}
+        </p>
+      ) : null}
+      {problem ? (
+        <p role="alert" className="text-sm text-status-danger">
+          {problem}
+        </p>
+      ) : null}
+      {rows.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          No one added yet.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-left text-[13px]">
+            <caption className="sr-only">Access to grant</caption>
+            <thead className="border-b border-border text-muted-foreground">
+              <tr>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Name
+                </th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Type
+                </th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Role
+                </th>
+                <th scope="col" className="w-12 px-3 py-2">
+                  <span className="sr-only">Remove</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key} className="h-9 border-b border-border last:border-0">
+                  <td className="px-3">{row.label}</td>
+                  <td className="px-3 text-muted-foreground">
+                    {row.kind === "person" ? "Person" : "Group"}
+                  </td>
+                  <td className="px-3">{row.roleName}</td>
+                  <td className="px-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove ${row.label} (${row.roleName})`}
+                      onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewRow({ label, children }) {
+  return (
+    <div className="grid grid-cols-[10rem_1fr] gap-2 py-1.5 text-sm">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * T-08 Create workspace (wizard): Details, Members & access, Review. The policies step of the design arrives with the
+ * policy module. Creating happens first; access grants follow one by one, and a partial failure leaves the workspace in
+ * place with a retry list (nothing is created twice).
+ */
+export function CreateWorkspacePage() {
+  const navigate = useNavigate();
+  const can = useCan();
+  const { me } = useSession();
+  const createWorkspace = useCreateWorkspace();
+  const refresh = useRefreshWorkspaces();
+  const [step, setStep] = useState(0);
+  const [rows, setRows] = useState([]);
+  const [owner, setOwner] = useState(null);
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [submitError, setSubmitError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [created, setCreated] = useState(null); // { workspace, results: [{ row, state, error? }] }
+
+  const canOwner = can("user.view");
+  const canPeople = can("user.view") && can("role.view");
+  const canGroups = can("group.view") && can("role.view");
+  const canAccess = canPeople || canGroups;
+  const debouncedOwner = useDebouncedValue(ownerQuery);
+  const ownerSearch = useUserSearch(debouncedOwner, { enabled: canOwner && step === 0 });
+  const form = useForm({
+    resolver: zodResolver(detailsSchema),
+    defaultValues: { name: "", description: "", businessUnit: "" },
+  });
+  const {
+    register,
+    trigger,
+    setError,
+    control,
+    formState: { errors },
+  } = form;
+  const details = useWatch({ control });
+
+  const next = async () => {
+    if (step === 0 && !(await trigger())) return;
+    setStep(step + 1);
+  };
+
+  async function grantAll(workspace, pending) {
+    const results = [];
+    for (const row of pending) {
+      try {
+        await workspacesService.createAssignment(workspace.id, {
+          subjectType: row.kind === "person" ? "user" : "group",
+          subjectId: row.id,
+          roleId: row.roleId,
+        });
+        results.push({ row, state: "ok" });
+      } catch (error) {
+        results.push({ row, state: "failed", error });
+      }
+    }
+    return results;
+  }
+
+  async function submit() {
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      let workspace = created?.workspace;
+      if (!workspace) {
+        const values = form.getValues();
+        try {
+          workspace = await createWorkspace.mutateAsync({
+            name: values.name,
+            description: blankToUndefined(values.description),
+            businessUnit: blankToUndefined(values.businessUnit),
+            ownerUserId: owner?.id,
+          });
+        } catch (error) {
+          if (isApiError(error) && error.status === 409 && error.details?.field === "name") {
+            setError("name", { message: "A workspace with this name already exists." });
+            setStep(0);
+          } else {
+            setSubmitError(error);
+          }
+          return;
+        }
+      }
+      const pending = created
+        ? created.results.filter((r) => r.state === "failed").map((r) => r.row)
+        : rows;
+      const fresh = await grantAll(workspace, pending);
+      const results = [...(created?.results.filter((r) => r.state === "ok") ?? []), ...fresh];
+      await refresh(); // the new workspace must be in the session before its pages open
+      if (results.every((r) => r.state === "ok")) {
+        toast.success(`Workspace "${workspace.name}" created`);
+        navigate(`/workspaces/${workspace.id}/members`, { replace: true });
+      } else {
+        setCreated({ workspace, results });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (created) {
+    const failed = created.results.filter((r) => r.state === "failed");
+    return (
+      <>
+        <PageHeader
+          title="Workspace created"
+          description={`"${created.workspace.name}" exists. ${failed.length} of ${created.results.length} access grants did not apply.`}
+        />
+        <Card className="max-w-2xl">
+          <CardContent className="space-y-3 pt-4">
+            <ul className="divide-y divide-border">
+              {created.results.map(({ row, state, error }) => (
+                <li key={row.key} className="flex items-start gap-2 py-2 text-sm">
+                  {state === "ok" ? (
+                    <CircleCheck aria-hidden="true" className="mt-0.5 size-4 text-status-success" />
+                  ) : (
+                    <CircleAlert aria-hidden="true" className="mt-0.5 size-4 text-status-danger" />
+                  )}
+                  <div>
+                    <p>
+                      {row.label} · {row.roleName}
+                    </p>
+                    {state === "failed" ? (
+                      <p className="text-xs text-status-danger">{describeError(error)}</p>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {submitError ? (
+              <p role="alert" className="text-sm text-status-danger">
+                {describeError(submitError)}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button onClick={submit} disabled={submitting}>
+                {submitting ? "Retrying…" : "Retry failed"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => navigate(`/workspaces/${created.workspace.id}/members`)}
+              >
+                Open workspace
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Create workspace"
+        description="Set up a workspace for a team or product."
+      />
+      <Stepper steps={STEPS} current={step} />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <Card>
+          <CardContent className="pt-4">
+            {step === 0 ? (
+              <form
+                className="space-y-4"
+                noValidate
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  next();
+                }}
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="ws-name">Name</Label>
+                  <Input
+                    id="ws-name"
+                    aria-invalid={Boolean(errors.name)}
+                    aria-describedby={errors.name ? "ws-name-error" : undefined}
+                    {...register("name")}
+                  />
+                  {errors.name ? (
+                    <p id="ws-name-error" role="alert" className="text-xs text-status-danger">
+                      {errors.name.message}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ws-description">
+                    Description{" "}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Textarea
+                    id="ws-description"
+                    aria-invalid={Boolean(errors.description)}
+                    {...register("description")}
+                  />
+                  {errors.description ? (
+                    <p role="alert" className="text-xs text-status-danger">
+                      {errors.description.message}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ws-bu">
+                    Business unit{" "}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="ws-bu"
+                    aria-invalid={Boolean(errors.businessUnit)}
+                    {...register("businessUnit")}
+                  />
+                  {errors.businessUnit ? (
+                    <p role="alert" className="text-xs text-status-danger">
+                      {errors.businessUnit.message}
+                    </p>
+                  ) : null}
+                </div>
+                {canOwner ? (
+                  <SearchPicker
+                    id="ws-owner"
+                    label="Owner (defaults to you)"
+                    placeholder="Search by name or email"
+                    query={ownerQuery}
+                    onQueryChange={setOwnerQuery}
+                    options={(ownerSearch.data ?? []).map((u) => ({
+                      id: u.userId,
+                      label: u.name ?? u.email,
+                      hint: u.email,
+                    }))}
+                    isLoading={ownerSearch.isFetching}
+                    error={ownerSearch.error}
+                    selected={owner}
+                    onSelect={setOwner}
+                    onClear={() => setOwner(null)}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Owner: you ({me.user.name}). Choosing someone else needs permission to view
+                    organization members.
+                  </p>
+                )}
+                <div className="flex justify-between pt-2">
+                  <Button type="button" variant="ghost" asChild>
+                    <Link to="/workspaces">Cancel</Link>
+                  </Button>
+                  <Button type="submit">Continue</Button>
+                </div>
+              </form>
+            ) : null}
+            {step === 1 ? (
+              <div className="space-y-4">
+                {canAccess ? (
+                  <AccessStep
+                    rows={rows}
+                    setRows={setRows}
+                    ownerId={owner?.id ?? me.user.id}
+                    canPeople={canPeople}
+                    canGroups={canGroups}
+                  />
+                ) : (
+                  <p className="rounded-md border border-border bg-secondary p-3 text-sm">
+                    Adding people or groups here needs permission to view members, groups and roles.
+                    You can add access after creation from Members &amp; groups.
+                  </p>
+                )}
+                <div className="flex justify-between pt-2">
+                  <Button type="button" variant="ghost" onClick={() => setStep(0)}>
+                    Back
+                  </Button>
+                  <Button type="button" onClick={next}>
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {step === 2 ? (
+              <div className="space-y-4">
+                <dl className="divide-y divide-border">
+                  <ReviewRow label="Name">{details.name}</ReviewRow>
+                  <ReviewRow label="Description">{details.description || "—"}</ReviewRow>
+                  <ReviewRow label="Business unit">{details.businessUnit || "—"}</ReviewRow>
+                  <ReviewRow label="Owner">{owner?.label ?? `${me.user.name} (you)`}</ReviewRow>
+                  <ReviewRow label="Access to grant">
+                    {rows.length === 0 ? (
+                      "None (the owner is Admin)"
+                    ) : (
+                      <ul className="list-disc pl-4">
+                        {rows.map((r) => (
+                          <li key={r.key}>
+                            {r.label} · {r.roleName}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </ReviewRow>
+                </dl>
+                <p className="rounded-md border border-border bg-secondary p-3 text-sm text-muted-foreground">
+                  On creation the workspace becomes active, the owner becomes its Admin, and the
+                  access above is granted. Creating counts against your plan&apos;s workspace limit.
+                </p>
+                {submitError ? (
+                  <p role="alert" className="text-sm text-status-danger">
+                    {describeError(submitError)}
+                  </p>
+                ) : null}
+                <div className="flex justify-between pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setStep(1)}
+                    disabled={submitting}
+                  >
+                    Back
+                  </Button>
+                  <Button type="button" onClick={submit} disabled={submitting}>
+                    {submitting ? "Creating…" : "Create workspace"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+        <Card className="h-fit">
+          <CardHeader>
+            <CardTitle>Summary</CardTitle>
+            <CardDescription>Entered so far</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Name</dt>
+                <dd className="break-words">{details.name || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Owner</dt>
+                <dd>{owner?.label ?? "You"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Business unit</dt>
+                <dd>{details.businessUnit || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Access grants</dt>
+                <dd>{rows.length}</dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}

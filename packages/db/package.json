@@ -1,0 +1,32 @@
+{
+  "name": "@qmentisai/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prisma schema and client",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:seed": "node --env-file-if-exists=.env prisma/seed.js",
+    "db:format": "prisma format"
+  },
+  "dependencies": {
+    "@prisma/client": "catalog:",
+    "@qmentisai/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@qmentisai/config": "workspace:*",
+    "eslint": "catalog:",
+    "prisma": "catalog:"
+  }
+}

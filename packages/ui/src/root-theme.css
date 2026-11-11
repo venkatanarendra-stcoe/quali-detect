@@ -1,0 +1,54 @@
+/*
+ * Root Console theme (violet accent, always-dark sidebar). Opt-in: it applies only under `<html data-app="root">`, so the
+ * Tenant Application tokens in tokens.css are untouched. Import it AFTER preset.css:
+ *   @import "tailwindcss";
+ *   @import "@qmentisai/ui/preset.css";
+ *   @import "@qmentisai/ui/root-theme.css";
+ *
+ * DECISION RECORD: docs/design/DESIGN_SYSTEM.md §7 originally said the Root Console uses the same colors as the tenant
+ * app. A violet/dark-sidebar Root theme was requested on 2026-11-11 and replaces that rule. The violet values below were
+ * derived here (none were supplied) and are Recommended until approved; measured WCAG contrast:
+ *   light: white on primary 7.1:1, primary-text on card 9.0:1, ring on canvas 6.6:1
+ *   dark:  primary-foreground on primary 7.1:1, primary-text on card 6.8:1, ring on canvas 7.3:1
+ *   sidebar (dark in both themes): active text on active bg 8.7:1, muted text 8.3:1, indicator 7.2:1
+ * Neutrals stay true neutral (no violet tint); violet marks the primary action, active navigation, focus and links only.
+ * Severity and status colors are unchanged.
+ */
+html[data-app="root"] {
+  --primary: #6d28d9;
+  --primary-foreground: #ffffff;
+  --primary-hover: #5b21b6;
+  --primary-text: #5b21b6;
+  --primary-tint: #f0eafb;
+  --ring: #6d28d9;
+  --chart-1: #6d28d9;
+
+  /* Sidebar: dark in light mode too. */
+  --sidebar: #0b0d10;
+  --sidebar-foreground: #a1abb2;
+  --sidebar-strong: #f4f7f8;
+  --sidebar-muted: #7b858c;
+  --sidebar-hover: #171b20;
+  --sidebar-active-bg: #211f31;
+  --sidebar-active-foreground: #c4b5fd;
+  --sidebar-indicator: #a78bfa;
+  --sidebar-border: #272d33;
+}
+
+html[data-app="root"].dark {
+  --primary: #a78bfa;
+  --primary-foreground: #14081f;
+  --primary-hover: #c4b5fd;
+  --primary-text: #a78bfa;
+  --primary-tint: #232233;
+  --ring: #a78bfa;
+  --chart-1: #a78bfa;
+}
+
+/* Utilities for the Root-only sidebar tokens (bg-sidebar-hover, text-sidebar-strong, ...). */
+@theme inline {
+  --color-sidebar-strong: var(--sidebar-strong);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-indicator: var(--sidebar-indicator);
+}

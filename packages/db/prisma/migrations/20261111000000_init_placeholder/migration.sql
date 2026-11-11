@@ -1,0 +1,2 @@
+-- Initial migration placeholder: no tables yet.
+-- Business models arrive with their module specifications; add each change as a new migration.

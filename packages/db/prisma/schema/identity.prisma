@@ -1,0 +1,298 @@
+// ---------------------------------------------------------------- Identity (users are global; access is per tenant)
+
+enum UserStatus {
+  active
+  invited
+  suspended
+  deactivated
+
+  @@map("user_status")
+}
+
+enum MembershipStatus {
+  invited
+  active
+  suspended
+  removed
+
+  @@map("membership_status")
+}
+
+enum PermissionScope {
+  tenant
+  workspace
+  platform
+
+  @@map("permission_scope")
+}
+
+enum RoleKind {
+  built_in
+  custom
+
+  @@map("role_kind")
+}
+
+enum AssignmentScope {
+  tenant
+  workspace
+
+  @@map("assignment_scope")
+}
+
+enum AssignmentStatus {
+  active
+  suspended
+
+  @@map("assignment_status")
+}
+
+enum AuditActorType {
+  user
+  system
+
+  @@map("audit_actor_type")
+}
+
+/// GLOBAL user (no tenantId): a person may belong to several tenants through `tenant_memberships`. Emails are stored lowercase.
+/// Credential columns are nullable until the identity module specifies authentication.
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String     @unique
+  name            String
+  status          UserStatus @default(active)
+  passwordHash    String?    @map("password_hash")
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(6)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships TenantMembership[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+/// The gate to a tenant: every tenant-scoped assignment, group membership and workspace membership references an
+/// ACTIVE membership through a composite (tenantId, userId) foreign key.
+model TenantMembership {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  status          MembershipStatus @default(invited)
+  invitedByUserId String?          @map("invited_by_user_id") @db.Uuid
+  joinedAt        DateTime?        @map("joined_at") @db.Timestamptz(6)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  groupMembers     GroupMember[]
+  userAssignments  UserRoleAssignment[]
+  workspaceMembers WorkspaceMember[]
+  ownedWorkspaces  Workspace[]          @relation("WorkspaceOwner")
+
+  @@unique([tenantId, userId])
+  @@index([userId, status])
+  @@index([tenantId, status])
+  @@map("tenant_memberships")
+}
+
+/// Flat groups (no nesting). A group grants nothing by itself: only its role assignments do.
+model Group {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  members     GroupMember[]
+  assignments GroupRoleAssignment[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@map("groups")
+}
+
+model GroupMember {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  groupId       String   @map("group_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  group      Group            @relation(fields: [tenantId, groupId], references: [tenantId, id], onDelete: Cascade)
+  membership TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([tenantId, userId])
+  @@index([tenantId, groupId])
+  @@map("group_members")
+}
+
+/// Mirror of the code-defined catalog (@qmentisai/shared PERMISSION_CATALOG), written by the seed. Read-only for tenants.
+model Permission {
+  key         String          @id
+  scope       PermissionScope
+  description String
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+
+  @@index([scope])
+  @@map("permissions")
+}
+
+/// Built-in roles have tenantId NULL and ownerKey "built-in"; custom roles belong to one tenant (ownerKey = tenantId).
+model Role {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String?  @map("tenant_id") @db.Uuid
+  ownerKey        String   @map("owner_key")
+  key             String
+  name            String
+  description     String?
+  kind            RoleKind
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant?               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  permissions      RolePermission[]
+  userAssignments  UserRoleAssignment[]
+  groupAssignments GroupRoleAssignment[]
+
+  @@unique([ownerKey, key])
+  @@unique([ownerKey, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+/// A role's bundle. `tenantId` mirrors the role's tenant (NULL for built-in roles).
+model RolePermission {
+  roleId        String  @map("role_id") @db.Uuid
+  permissionKey String  @map("permission_key")
+  tenantId      String? @map("tenant_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+
+  @@id([roleId, permissionKey])
+  @@index([permissionKey])
+  @@index([tenantId])
+  @@map("role_permissions")
+}
+
+/// scopeKey is "tenant" or the workspaceId; it keeps uniqueness exact (NULLs are distinct in unique indexes) and is
+/// checked against scopeType/workspaceId in the migration. Expired assignments (expiresAt in the past) are ignored by the
+/// resolver; nothing deletes them. Grant-only model: there are no deny rows.
+model UserRoleAssignment {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  roleId          String           @map("role_id") @db.Uuid
+  scopeType       AssignmentScope  @map("scope_type")
+  workspaceId     String?          @map("workspace_id") @db.Uuid
+  scopeKey        String           @map("scope_key")
+  status          AssignmentStatus @default(active)
+  expiresAt       DateTime?        @map("expires_at") @db.Timestamptz(6)
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  membership TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Cascade)
+  role       Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  workspace  Workspace?       @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade, map: "user_role_assignments_workspace_fkey")
+
+  @@unique([tenantId, userId, roleId, scopeKey])
+  @@index([tenantId, userId])
+  @@index([tenantId, workspaceId])
+  @@index([roleId])
+  @@index([expiresAt])
+  @@map("user_role_assignments")
+}
+
+model GroupRoleAssignment {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  groupId         String           @map("group_id") @db.Uuid
+  roleId          String           @map("role_id") @db.Uuid
+  scopeType       AssignmentScope  @map("scope_type")
+  workspaceId     String?          @map("workspace_id") @db.Uuid
+  scopeKey        String           @map("scope_key")
+  status          AssignmentStatus @default(active)
+  expiresAt       DateTime?        @map("expires_at") @db.Timestamptz(6)
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  group     Group      @relation(fields: [tenantId, groupId], references: [tenantId, id], onDelete: Cascade)
+  role      Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  workspace Workspace? @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade, map: "group_role_assignments_workspace_fkey")
+
+  @@unique([tenantId, groupId, roleId, scopeKey])
+  @@index([tenantId, groupId])
+  @@index([tenantId, workspaceId])
+  @@index([roleId])
+  @@index([expiresAt])
+  @@map("group_role_assignments")
+}
+
+/// Server-side session of a TENANT user. Only a SHA-256 hash of the random cookie token is stored (never the token).
+/// `authMethod` records how the user authenticated ("mock" now; "oidc", "saml", ... later) and `mfaVerifiedAt` when a second
+/// factor was completed, so SSO and MFA can be added without changing the table. Platform users have their own table.
+/// The session carries the ACTIVE tenant. Switching it re-resolves permissions; the service must verify an active membership.
+model Session {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  activeTenantId String?   @map("active_tenant_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash")
+  userAgent      String?   @map("user_agent")
+  authMethod     String    @default("mock") @map("auth_method")
+  mfaVerifiedAt  DateTime? @map("mfa_verified_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenant Tenant? @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([activeTenantId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Tenant-owned, immutable (append-only by convention). Actors and targets are plain ids so entries outlive their subjects.
+model AuditLog {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  actorType     AuditActorType @map("actor_type")
+  actorUserId   String?        @map("actor_user_id") @db.Uuid
+  action        String
+  targetType    String?        @map("target_type")
+  targetId      String?        @map("target_id") @db.Uuid
+  workspaceId   String?        @map("workspace_id") @db.Uuid
+  changes       Json?
+  metadata      Json?
+  correlationId String?        @map("correlation_id") @db.Uuid
+  ipAddress     String?        @map("ip_address")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor  User?  @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, targetType, targetId])
+  @@index([tenantId, workspaceId, createdAt])
+  @@index([tenantId, actorUserId, createdAt])
+  @@index([tenantId, action])
+  @@map("audit_logs")
+}

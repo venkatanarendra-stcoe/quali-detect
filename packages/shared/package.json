@@ -1,0 +1,21 @@
+{
+  "name": "@qmentisai/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Permission keys, navigation definitions and constants shared by apps",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./platform": "./src/platform.js"
+  },
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@qmentisai/config": "workspace:*",
+    "eslint": "catalog:"
+  }
+}

@@ -1,0 +1,19 @@
+// Central Prisma schema (PostgreSQL), split by area: base, platform, identity, organization.
+// Source of truth for the entity groups: docs/technical/DATABASE_DESIGN.md; authorization semantics: docs/AUTHORIZATION.md.
+//
+// RULES
+// - Tenant-owned tables carry an explicit non-null `tenantId` (roles and role_permissions: null for built-in rows) and index
+//   it first. Queries on tenant-owned data go through createTenantRepository (src/repository.js): never by id alone.
+// - Parent-child links inside a tenant use COMPOSITE foreign keys on (tenantId, id), so the database itself rejects a child
+//   that points at another tenant's parent.
+// - Columns are camelCase here and snake_case in PostgreSQL (@map / @@map); ids are UUIDs; timestamps are timestamptz.
+// - Checks Prisma cannot express (scope/workspace consistency, lowercase emails, role ownership) live in the migration SQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

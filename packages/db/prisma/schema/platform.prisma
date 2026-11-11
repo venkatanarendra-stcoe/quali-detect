@@ -1,0 +1,322 @@
+// ---------------------------------------------------------------- Platform (not tenant-owned; Root Console)
+
+enum TenantStatus {
+  active
+  trial
+  suspended
+  deactivated
+
+  @@map("tenant_status")
+}
+
+enum PlanStatus {
+  active
+  archived
+
+  @@map("plan_status")
+}
+
+enum PlanVersionStatus {
+  draft
+  published
+  retired
+
+  @@map("plan_version_status")
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  suspended
+  cancelled
+  expired
+
+  @@map("subscription_status")
+}
+
+enum EntitlementKind {
+  feature
+  limit
+
+  @@map("entitlement_kind")
+}
+
+enum PlatformUserStatus {
+  active
+  invited
+  suspended
+  deactivated
+
+  @@map("platform_user_status")
+}
+
+enum PlatformActorType {
+  platform_user
+  system
+
+  @@map("platform_actor_type")
+}
+
+/// A customer organization. Platform-owned: every tenant-owned table references it.
+model Tenant {
+  id            String       @id @default(uuid()) @db.Uuid
+  slug          String       @unique
+  name          String
+  status        TenantStatus @default(active)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deactivatedAt DateTime?    @map("deactivated_at") @db.Timestamptz(6)
+
+  memberships   TenantMembership[]
+  groups        Group[]
+  roles         Role[]
+  workspaces    Workspace[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  subscriptions TenantSubscription[]
+  entitlements  TenantEntitlement[]
+  quotas        TenantQuota[]
+  quotaUsage    TenantQuotaUsage[]
+  platformAudit PlatformAuditLog[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+model SubscriptionPlan {
+  id          String     @id @default(uuid()) @db.Uuid
+  key         String     @unique
+  name        String
+  description String?
+  status      PlanStatus @default(active)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  versions PlanVersion[]
+
+  @@map("subscription_plans")
+}
+
+/// Plan names, prices and quota values are open decisions: no price or default quota columns exist yet.
+model PlanVersion {
+  id            String            @id @default(uuid()) @db.Uuid
+  planId        String            @map("plan_id") @db.Uuid
+  version       Int
+  status        PlanVersionStatus @default(draft)
+  effectiveFrom DateTime?         @map("effective_from") @db.Timestamptz(6)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plan          SubscriptionPlan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  entitlements  PlanEntitlement[]
+  subscriptions TenantSubscription[]
+
+  @@unique([planId, version])
+  @@index([planId])
+  @@map("plan_versions")
+}
+
+model EntitlementCatalog {
+  id          String          @id @default(uuid()) @db.Uuid
+  key         String          @unique
+  name        String
+  description String?
+  kind        EntitlementKind
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  planEntitlements   PlanEntitlement[]
+  tenantEntitlements TenantEntitlement[]
+  quotaDefinitions   QuotaDefinition[]
+
+  @@map("entitlement_catalog")
+}
+
+model PlanEntitlement {
+  id            String   @id @default(uuid()) @db.Uuid
+  planVersionId String   @map("plan_version_id") @db.Uuid
+  entitlementId String   @map("entitlement_id") @db.Uuid
+  enabled       Boolean  @default(true)
+  limitValue    BigInt?  @map("limit_value")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  planVersion PlanVersion        @relation(fields: [planVersionId], references: [id], onDelete: Cascade)
+  entitlement EntitlementCatalog @relation(fields: [entitlementId], references: [id], onDelete: Restrict)
+
+  @@unique([planVersionId, entitlementId])
+  @@index([entitlementId])
+  @@map("plan_entitlements")
+}
+
+/// Tenant-owned (explicit tenantId). One current subscription per tenant is a service rule (history keeps old rows).
+model TenantSubscription {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenantId      String             @map("tenant_id") @db.Uuid
+  planVersionId String             @map("plan_version_id") @db.Uuid
+  status        SubscriptionStatus @default(trial)
+  startsAt      DateTime           @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime?          @map("ends_at") @db.Timestamptz(6)
+  cancelledAt   DateTime?          @map("cancelled_at") @db.Timestamptz(6)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status])
+  @@index([planVersionId])
+  @@map("tenant_subscriptions")
+}
+
+/// Tenant-owned override of a plan entitlement.
+model TenantEntitlement {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  entitlementId String   @map("entitlement_id") @db.Uuid
+  enabled       Boolean  @default(true)
+  limitValue    BigInt?  @map("limit_value")
+  source        String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  entitlement EntitlementCatalog @relation(fields: [entitlementId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, entitlementId])
+  @@index([entitlementId])
+  @@map("tenant_entitlements")
+}
+
+model QuotaDefinition {
+  id            String   @id @default(uuid()) @db.Uuid
+  key           String   @unique
+  name          String
+  unit          String
+  description   String?
+  entitlementId String?  @map("entitlement_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  entitlement  EntitlementCatalog? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+  tenantQuotas TenantQuota[]
+  usage        TenantQuotaUsage[]
+
+  @@index([entitlementId])
+  @@map("quota_definitions")
+}
+
+/// Tenant-owned quota limit. Soft/hard enforcement policy is an open decision, so no enforcement column yet.
+model TenantQuota {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  quotaDefinitionId String   @map("quota_definition_id") @db.Uuid
+  limitValue        BigInt   @map("limit_value")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  quotaDefinition QuotaDefinition @relation(fields: [quotaDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, quotaDefinitionId])
+  @@index([quotaDefinitionId])
+  @@map("tenant_quotas")
+}
+
+/// Platform roles hold `platform.*` keys only (validated against the catalog on write). Separate from tenant roles.
+/// Consumed amount of a metered quota per tenant and period (`consumeQuota`). `periodKey` is "all" for lifetime quotas or
+/// a period label such as "2026-11". Updated only through atomic conditional SQL so concurrent consumers cannot overshoot.
+model TenantQuotaUsage {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  quotaDefinitionId String   @map("quota_definition_id") @db.Uuid
+  periodKey         String   @default("all") @map("period_key")
+  used              BigInt   @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  quotaDefinition QuotaDefinition @relation(fields: [quotaDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, quotaDefinitionId, periodKey])
+  @@index([quotaDefinitionId])
+  @@map("tenant_quota_usage")
+}
+
+model PlatformRole {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  permissions String[]
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users PlatformUser[]
+
+  @@map("platform_roles")
+}
+
+/// Root Console users: a separate identity store from tenant users (docs/AUTHORIZATION.md §5.5). One role per user in v1.
+model PlatformUser {
+  id           String             @id @default(uuid()) @db.Uuid
+  email        String             @unique
+  name         String
+  status       PlatformUserStatus @default(active)
+  passwordHash String?            @map("password_hash")
+  roleId       String             @map("role_id") @db.Uuid
+  lastLoginAt  DateTime?          @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  role      PlatformRole       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  auditLogs PlatformAuditLog[]
+  sessions  PlatformSession[]
+
+  @@index([roleId])
+  @@map("platform_users")
+}
+
+/// Server-side session of a PLATFORM user (Root Console). Separate from tenant `sessions`: a tenant session can never
+/// authenticate a platform request and vice versa. Same token-hash, auth-method and MFA fields as tenant sessions.
+model PlatformSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  platformUserId String    @map("platform_user_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash")
+  userAgent      String?   @map("user_agent")
+  authMethod     String    @default("mock") @map("auth_method")
+  mfaVerifiedAt  DateTime? @map("mfa_verified_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+
+  @@index([platformUserId])
+  @@index([expiresAt])
+  @@map("platform_sessions")
+}
+
+/// Immutable (append-only by convention). `tenantId` is the affected tenant, when there is one.
+model PlatformAuditLog {
+  id                  String            @id @default(uuid()) @db.Uuid
+  actorType           PlatformActorType @map("actor_type")
+  actorPlatformUserId String?           @map("actor_platform_user_id") @db.Uuid
+  action              String
+  targetType          String?           @map("target_type")
+  targetId            String?           @map("target_id") @db.Uuid
+  tenantId            String?           @map("tenant_id") @db.Uuid
+  metadata            Json?
+  correlationId       String?           @map("correlation_id") @db.Uuid
+  ipAddress           String?           @map("ip_address")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor  PlatformUser? @relation(fields: [actorPlatformUserId], references: [id], onDelete: SetNull)
+  tenant Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([actorPlatformUserId, createdAt])
+  @@index([action])
+  @@map("platform_audit_logs")
+}

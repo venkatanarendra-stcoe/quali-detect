@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@import "@qmentisai/ui/preset.css";
+/* Root Console theme (violet accent, always-dark sidebar); active only under <html data-app="root">. */
+@import "@qmentisai/ui/root-theme.css";
+
+@source "../../../packages/ui/src";

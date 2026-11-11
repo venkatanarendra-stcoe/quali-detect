@@ -1,0 +1,125 @@
+/*
+ * QmentisAI design tokens (docs/design/DESIGN_SYSTEM.md §2-§4). Source of truth for both apps.
+ * Theme: class strategy (`.dark` on <html>). Components reference these variables, never literals.
+ * Brand accent is --primary (mint); shadcn's --accent is a neutral hover surface.
+ */
+:root {
+  --radius: 0.375rem;
+
+  --background: #f5f7f7;
+  --foreground: #151b1b;
+  --card: #ffffff;
+  --card-foreground: #151b1b;
+  --popover: #ffffff;
+  --popover-foreground: #151b1b;
+  --primary: #087f70;
+  --primary-foreground: #ffffff;
+  --primary-hover: #06695d;
+  --primary-text: #06705f;
+  --primary-tint: #e6f2f1;
+  --secondary: #edf1f1;
+  --secondary-foreground: #151b1b;
+  --muted: #edf1f1;
+  --muted-foreground: #586565;
+  --subtle-foreground: #6b7777;
+  --accent: #edf1f1;
+  --accent-foreground: #151b1b;
+  --destructive: #c62a36;
+  --destructive-foreground: #ffffff;
+  --border: #dde4e3;
+  --border-strong: #758483;
+  --input: #758483;
+  --ring: #087f70;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #586565;
+  --sidebar-active-foreground: #06705f;
+  --sidebar-active-bg: #e6f2f1;
+  --sidebar-border: #dde4e3;
+
+  --sev-critical: #ff4d5a;
+  --sev-critical-fg: #b3202d;
+  --sev-critical-bg: #ffe3e5;
+  --sev-high: #ff873d;
+  --sev-high-fg: #a8440a;
+  --sev-high-bg: #ffece0;
+  --sev-medium: #f5c451;
+  --sev-medium-fg: #7a5800;
+  --sev-medium-bg: #fdf6e3;
+  --sev-low: #55a8ff;
+  --sev-low-fg: #1257b5;
+  --sev-low-bg: #e4f1ff;
+  --sev-info: #9aa6b2;
+  --sev-info-fg: #47535f;
+  --sev-info-bg: #eff1f3;
+
+  --status-success: #1a7f37;
+  --status-danger: #c62a36;
+  --status-warning: #7a5800;
+  --status-neutral: #586565;
+
+  --chart-1: #087f70;
+  --chart-2: #5e6f78;
+  --chart-3: #8a9aa3;
+  --chart-4: #3d4a50;
+  --chart-grid: #dde4e3;
+
+  --shadow-popover: 0 1px 2px rgb(21 27 27 / 0.06);
+}
+
+.dark {
+  --background: #080a0d;
+  --foreground: #f4f7f8;
+  --card: #111418;
+  --card-foreground: #f4f7f8;
+  --popover: #171b20;
+  --popover-foreground: #f4f7f8;
+  --primary: #40e0c0;
+  --primary-foreground: #04110e;
+  --primary-hover: #6bebd0;
+  --primary-text: #40e0c0;
+  --primary-tint: #112625;
+  --secondary: #171b20;
+  --secondary-foreground: #f4f7f8;
+  --muted: #171b20;
+  --muted-foreground: #a1abb2;
+  --subtle-foreground: #7b858c;
+  --accent: #171b20;
+  --accent-foreground: #f4f7f8;
+  --destructive: #ff4d5a;
+  --destructive-foreground: #1a0407;
+  --border: #272d33;
+  --border-strong: #68737c;
+  --input: #68737c;
+  --ring: #40e0c0;
+
+  --sidebar: #0b0d10;
+  --sidebar-foreground: #a1abb2;
+  --sidebar-active-foreground: #40e0c0;
+  --sidebar-active-bg: #112625;
+  --sidebar-border: #272d33;
+
+  --sev-critical-fg: #ff4d5a;
+  --sev-critical-bg: #371d23;
+  --sev-high-fg: #ff873d;
+  --sev-high-bg: #37261e;
+  --sev-medium-fg: #f5c451;
+  --sev-medium-bg: #353021;
+  --sev-low-fg: #55a8ff;
+  --sev-low-bg: #1c2c3d;
+  --sev-info-fg: #9aa6b2;
+  --sev-info-bg: #272b31;
+
+  --status-success: #4ade80;
+  --status-danger: #ff4d5a;
+  --status-warning: #f5c451;
+  --status-neutral: #a1abb2;
+
+  --chart-1: #40e0c0;
+  --chart-2: #8fa1ad;
+  --chart-3: #5c6b75;
+  --chart-4: #c7d1d6;
+  --chart-grid: #272d33;
+
+  --shadow-popover: none;
+}

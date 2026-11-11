@@ -1,0 +1,54 @@
+// ---------------------------------------------------------------- Organization
+
+enum WorkspaceStatus {
+  active
+  archived
+
+  @@map("workspace_status")
+}
+
+model Workspace {
+  id           String          @id @default(uuid()) @db.Uuid
+  tenantId     String          @map("tenant_id") @db.Uuid
+  name         String
+  description  String?
+  businessUnit String?         @map("business_unit")
+  ownerUserId  String?         @map("owner_user_id") @db.Uuid
+  status       WorkspaceStatus @default(active)
+  archivedAt   DateTime?       @map("archived_at") @db.Timestamptz(6)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner            TenantMembership?     @relation("WorkspaceOwner", fields: [tenantId, ownerUserId], references: [tenantId, userId], onDelete: Restrict, map: "workspaces_owner_fkey")
+  members          WorkspaceMember[]
+  userAssignments  UserRoleAssignment[]
+  groupAssignments GroupRoleAssignment[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, ownerUserId])
+  @@map("workspaces")
+}
+
+/// Membership record shown in "Members & Groups". Access itself comes from role assignments (docs/AUTHORIZATION.md §5.7);
+/// creating a workspace-scope user assignment also creates this row (service rule). Group-derived members have no row.
+model WorkspaceMember {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  workspaceId   String           @map("workspace_id") @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  status        MembershipStatus @default(active)
+  addedByUserId String?          @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workspace  Workspace        @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade)
+  membership TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([tenantId, userId])
+  @@index([tenantId, workspaceId])
+  @@map("workspace_members")
+}

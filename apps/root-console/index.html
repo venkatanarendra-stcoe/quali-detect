@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-app="root">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>QmentisAI Platform</title>
+    <script>
+      // Apply the saved theme before first paint (no flash). Storage may be unavailable: fall back to the system theme.
+      try {
+        var saved = JSON.parse(localStorage.getItem("qm-root-ui") || "{}").state || {};
+        var dark =
+          saved.theme === "dark" ||
+          ((!saved.theme || saved.theme === "system") &&
+            matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      } catch (e) {
+        document.documentElement.classList.toggle(
+          "dark",
+          matchMedia("(prefers-color-scheme: dark)").matches,
+        );
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

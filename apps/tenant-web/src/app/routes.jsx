@@ -1,3 +1,4 @@
+import { AuditLogsPage } from "@/features/audit/index.js";
 import { OverviewPage } from "@/features/organization/pages/overview-page.jsx";
 import { PlannedModulePage } from "@/features/placeholders/pages/planned-module-page.jsx";
 import {
@@ -77,7 +78,7 @@ export const ORG_ROUTES = [
     path: "audit-logs",
     permission: "audit_log.view_all",
     scope: "tenant",
-    element: planned("Audit logs", "The audit log viewer is planned."),
+    element: <AuditLogsPage />,
   },
 ];
 

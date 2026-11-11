@@ -24,6 +24,10 @@
     {
       "pattern": "^OpenAPI POST .*: (response statuses|parameters .*header:Idempotency-Key)",
       "reason": "Same change: the Idempotency-Key header parameter and the 400/409/429 responses are documented."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )GET /api/v1/(platform/)?audit-logs",
+      "reason": "New operations (2026-11-11): read access to the tenant audit log (audit_log.view_all) and the platform audit log (platform.audit_log.view); filters actor, action, date range, result."
     }
   ]
 }

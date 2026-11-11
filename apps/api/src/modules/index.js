@@ -1,5 +1,7 @@
+import { auditLogsModule } from "./audit-logs/index.js";
 import { groupsModule } from "./groups/index.js";
 import { identityModule } from "./identity/index.js";
+import { platformAuditLogsModule } from "./platform-audit-logs/index.js";
 import { platformIdentityModule } from "./platform-identity/index.js";
 import { platformTenantsModule } from "./platform-tenants/index.js";
 import { roleAssignmentsModule } from "./role-assignments/index.js";
@@ -21,4 +23,6 @@ export const modules = [
   roleAssignmentsModule,
   workspacesModule,
   workspaceMembersModule,
+  auditLogsModule,
+  platformAuditLogsModule,
 ];

@@ -9,9 +9,11 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 | T-08 | Create workspace | `/workspaces/new` | `workspace.create` | `POST /workspaces`, then `POST /workspaces/{id}/role-assignments` per grant |
 | T-40 | Members & groups | `/workspaces/{id}/members` | `workspace.view` | `GET …/members`, `GET …/role-assignments`, `POST/DELETE …` |
 | T-44 | Workspace settings | `/workspaces/{id}/settings` | `workspace.update` | `GET/PATCH /workspaces/{id}`, `POST …/archive`, `POST …/restore` |
+| T-19 | Audit logs | `/audit-logs` | `audit_log.view_all` | `GET /audit-logs` (actor, action, from, to, result, sort, page in the URL) |
 | R-04 | Tenants list | `/tenants` | `platform.tenant.view` | `GET /platform/tenants` |
 | R-05 | Provision tenant | `/tenants/new` | `platform.tenant.create` | `POST /platform/tenants`, `GET /platform/plans` |
 | R-06 | Tenant detail | `/tenants/{id}` | `platform.tenant.view` | `GET /platform/tenants/{id}`, `POST …/suspend|reactivate|deactivate` |
+| R-28 | Platform audit logs | `/audit-logs` | `platform.audit_log.view` | `GET /platform/audit-logs` (actor, action, tenantId, from, to, result, sort, page in the URL) |
 
 ## Deviations from the design documents (what is not built, and why)
 - **Workspaces list columns:** Repositories, Pipelines, Open findings and Last activity need modules that do not exist yet. Shown: Name, Business unit, Owner, Members, Status, Created.
@@ -33,3 +35,7 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 - **Lifecycle:** suspend (from active/trial), reactivate (from suspended; returns to trial if the tenant has a trial subscription, else active), deactivate (from active/trial/suspended). **Deactivation is reversible by a Platform Super Admin until the retention window expires, then terminal** (AUTHORIZATION Q25, 2026-11-11; the window is Open/configurable; `restore` action, permission `platform.tenant.restore`, shown only inside the window; after it the page says deactivation is final). Every action needs a reason (5-500 characters, audited). Suspend and deactivate also need the tenant name typed exactly; the **server checks it too**. Suspension takes effect on the next request: tenant users get 403 `TENANT_SUSPENDED` and see the "organization is not active" page.
 - **Tenant detail** hides the lifecycle history unless the caller holds `platform.audit_log.view`; lifecycle buttons that are valid for the status but not permitted are shown disabled with the missing permission named.
 - **No role names** are checked anywhere in the UI or API for these screens.
+
+## T-19 and R-28 audit log screens (2026-11-11)
+
+No wireframe specs exist for these screens, so they follow `TENANT_APPLICATION_DESIGN.md` §3.16 ("time, actor, action, resource, outcome, correlation ID; filters") and the Root Console list conventions. Table: Time (sortable, newest first), Actor (name and e-mail), Action (sortable), Resource (type and id), Result, Correlation ID, and a Details disclosure (changes, metadata, IP address). R-28 adds a Tenant column. Filters: action, actor, result, date range (and tenant for R-28). Loading, empty (no entries / no matches), error and unauthorized states exist; export is not built (Planned). **Result is derived**: the audit tables record events, not outcomes, so entries whose action ends in `_failed`, `_denied` or `throttle_cap_reached` read as failures and all others as successes (Open: store an explicit result). The tenant API always uses the session's tenant and rejects any tenant parameter; the platform API never shows a tenant's own audit log.

@@ -1,3 +1,4 @@
+import { PlatformAuditLogsPage } from "@/features/audit/index.js";
 import { ComponentGalleryPage } from "@/features/dev/pages/component-gallery-page.jsx";
 import { ProvisionTenantPage } from "@/features/tenants/pages/provision-tenant-page.jsx";
 import { TenantDetailPage } from "@/features/tenants/pages/tenant-detail-page.jsx";
@@ -89,7 +90,7 @@ export const PLATFORM_ROUTES = [
     itemId: "audit-logs",
     path: "audit-logs",
     permission: "platform.audit_log.view",
-    element: planned("Platform audit logs", "The platform audit log viewer is planned."),
+    element: <PlatformAuditLogsPage />,
   },
 ];
 

@@ -68,7 +68,7 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   }
   app.use(securityHeaders());
   app.use(authentication.cors);
-  app.use(globalRateLimit({ config, infra }));
+  app.use(globalRateLimit({ config, infra, logger }));
   app.use(authentication.cookies);
   app.use(envelope());
   app.use(...bodyParsing({ config }));

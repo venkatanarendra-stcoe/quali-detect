@@ -20,23 +20,46 @@ export const securityHeaders = () => helmet();
  * @param {{ config: any, infra: { redis: any } }} deps
  * @returns {import("express").RequestHandler}
  */
-export function globalRateLimit({ config, infra }) {
+export function globalRateLimit({ config, infra, logger }) {
   const { windowMs, max } = config.http.rateLimit;
-  return rateLimit({
-    windowMs,
-    limit: max,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    skip: (req) => req.path === "/health" || req.path === "/ready",
-    store: infra.redis
-      ? new RedisStore({
-          prefix: "qm:rl:global:",
-          sendCommand: (...args) => infra.redis.call(...args),
-        })
-      : undefined,
-    handler: (_req, _res, next) =>
-      next(new AppError(ERROR_CODES.RATE_LIMITED, "Too many requests. Try again later.")),
-  });
+  const build = (store) =>
+    rateLimit({
+      windowMs,
+      limit: max,
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      skip: (req) => req.path === "/health" || req.path === "/ready",
+      store,
+      handler: (_req, _res, next) =>
+        next(new AppError(ERROR_CODES.RATE_LIMITED, "Too many requests. Try again later.")),
+    });
+  if (!infra.redis) return build(undefined);
+
+  // The Redis client connects lazily and has no offline queue, so the store (which loads a Lua script when it is
+  // created) is built on the first request, after the connection is up. If Redis is unreachable the global limit
+  // fails open (logged) instead of taking the API down; login throttling is a separate control.
+  let limiter;
+  return async function globalRateLimitMiddleware(req, res, next) {
+    if (!limiter) {
+      limiter = (async () => {
+        try {
+          await infra.redis.ping();
+          return build(
+            new RedisStore({
+              prefix: "qm:rl:global:",
+              sendCommand: (...args) => infra.redis.call(...args),
+            }),
+          );
+        } catch (error) {
+          logger?.warn({ err: error }, "Global rate limit disabled: Redis is unreachable");
+          limiter = undefined; // retry on a later request
+          return null;
+        }
+      })();
+    }
+    const active = await limiter;
+    return active ? active(req, res, next) : next();
+  };
 }
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);

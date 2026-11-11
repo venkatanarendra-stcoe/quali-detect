@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
+import { NotFoundState } from "@/components/states/not-found-state.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -180,7 +181,7 @@ function Detail({ repository }) {
         </p>
       ) : null}
       <Tabs defaultValue="overview">
-        <TabsList>
+        <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="branches" disabled={!live}>
             Branches
@@ -298,6 +299,6 @@ export function RepositoryDetailPage() {
   const query = useRepository(repositoryId);
   if (query.isPending) return <LoadingState label="Loading repository" />;
   if (query.isError) return <QueryErrorState error={query.error} onRetry={query.refetch} />;
-  if (query.data.workspaceId !== workspaceId) return <QueryErrorState error={{ status: 404 }} />;
+  if (query.data.workspaceId !== workspaceId) return <NotFoundState />;
   return <Detail repository={query.data} />;
 }

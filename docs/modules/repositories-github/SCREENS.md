@@ -59,3 +59,22 @@ Common rules (**Confirmed**, WF §4.1/§4.5/§4.6 and `UX_GUIDELINES.md`): visib
 3. WF T-23 note about automatic webhook registration is replaced for an App (Q6).
 4. WF T-14 "Disconnect" is "Unlink" (R-6, Q10); WF "Test connection" maps to `POST .../refresh`.
 5. WF T-22/T-24 columns and tabs that depend on pipelines, executions, findings and commits are hidden or show "planned" until those modules exist (WF §4.3: unimplemented items stay hidden, no placeholder pages in navigation).
+
+## Browser verification (2026-11-11)
+
+Headless Chrome against a disposable stack (own PostgreSQL, local GitHub stub, API and Vite on private ports, seeded demo tenant with two linked accounts, one of them limited to Identity & Access), signed in as each seeded role. Result per role (Payments Platform workspace unless stated):
+
+| Screen | Admin | Manager | Lead | Security Analyst | Dev Lead | Developer | Viewer |
+|---|---|---|---|---|---|---|---|
+| Organization nav | all items | Workspaces | Workspaces | Workspaces | Workspaces | Workspaces | Workspaces |
+| Workspace nav "Integrations" | shown | shown | shown | hidden | shown | hidden | hidden |
+| T-13 catalog, T-14 GitHub | page, all actions | no access | no access | no access | no access | no access | no access |
+| T-22 list | page; Connect enabled | Connect enabled | Connect disabled (reason) | Connect disabled | Connect enabled | Connect disabled | Connect disabled |
+| T-23 wizard | page | page | no access | no access | page | no access | no access |
+| T-24 actions | Sync, Disable/Enable, Disconnect | Sync, Disable/Enable, Disconnect | Sync, Disable/Enable | none | Sync | none | none |
+| T-42 | page, toggles enabled | page, toggles enabled | page, read-only with note | no access | page, read-only | no access | no access |
+| Other workspace (Identity) | all | 404 page | 404 page | list | list | list | list |
+
+Also verified: loading, empty (new workspace and filtered), error (after the two automatic retries) and no-permission states; the T-14 link flow end to end (setup page, redirect, callback, account appears; bad state, missing parameters and invalid installation id show an error with a way back); typed-confirmation unlink dialog (submit disabled until the login is typed); Test connection; webhook delivery table; the three T-24 live tabs; alias redirects `/repositories/connect?workspace=` and `/repositories/:id`; a repository opened under the wrong workspace is the not-found page; the wizard offers only connections inside the organization scope and switched on for the workspace (Manager switches one off and on; Dev Lead sees the Identity-only account in Identity and not in Payments); workspace switch keeps the section when the target allows it and resets to the Dashboard otherwise (tested with a role that has Integrations in one workspace and not the other); no horizontal page overflow at 1440, 820 and 390 px.
+
+Defects found and fixed in this pass: T-14 showed "Page not found" (a route parameter that did not exist); a repository of another workspace in the URL showed a generic error instead of the not-found page; tables and the repository header overflowed the page at 390 px (visually hidden table text escaped its scroll container; header actions did not wrap; tab list did not scroll).

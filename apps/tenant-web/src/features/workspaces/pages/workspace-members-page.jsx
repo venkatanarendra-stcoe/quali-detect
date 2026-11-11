@@ -132,7 +132,7 @@ export function WorkspaceMembersPage() {
           ) : null}
           {members.data && members.data.items.length > 0 ? (
             <>
-              <div className="overflow-x-auto rounded-md border border-border bg-card">
+              <div className="relative overflow-x-auto rounded-md border border-border bg-card">
                 <table className="w-full text-left text-[13px] leading-5">
                   <caption className="sr-only">Workspace members</caption>
                   <thead className="border-b border-border text-muted-foreground">
@@ -221,7 +221,7 @@ export function WorkspaceMembersPage() {
             />
           ) : null}
           {canViewRoles && groupAssignments.length > 0 ? (
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
+            <div className="relative overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full text-left text-[13px] leading-5">
                 <caption className="sr-only">Groups with a workspace role</caption>
                 <thead className="border-b border-border text-muted-foreground">

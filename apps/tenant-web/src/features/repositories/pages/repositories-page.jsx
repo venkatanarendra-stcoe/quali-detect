@@ -184,7 +184,7 @@ export function RepositoriesPage() {
       ) : null}
       {list.data && list.data.items.length > 0 ? (
         <>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <div className="relative overflow-x-auto rounded-md border border-border bg-card">
             <table className="w-full text-left text-[13px] leading-5">
               <caption className="sr-only">Repositories</caption>
               <thead className="border-b border-border text-muted-foreground">

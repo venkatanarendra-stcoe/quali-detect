@@ -1,6 +1,5 @@
 import { CheckCircle2, ExternalLink, Plug, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog.jsx";
 import { PageHeader } from "@/components/common/page-header.jsx";
@@ -8,7 +7,6 @@ import { Pager } from "@/components/common/pager.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
-import { NotFoundState } from "@/components/states/not-found-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -87,7 +85,7 @@ function Webhooks({ linkId }) {
                 <option value="duplicate">Duplicate</option>
               </Select>
             </div>
-            <div className="overflow-x-auto rounded-md border border-border">
+            <div className="relative overflow-x-auto rounded-md border border-border">
               <table className="w-full text-left text-[13px] leading-5">
                 <caption className="sr-only">Recent webhook deliveries</caption>
                 <thead className="border-b border-border text-muted-foreground">
@@ -358,13 +356,11 @@ function LinkSection({ link, canManage }) {
  * with the reason, never by role name). The link flow starts here: GitHub install page -> setup page -> authorize -> callback.
  */
 export function IntegrationDetailPage() {
-  const { provider } = useParams();
   const can = useCan();
   const canManage = can("integration.manage");
   const catalog = useCatalog();
-  const installations = useInstallations({ enabled: provider === "github" });
+  const installations = useInstallations();
   const start = useStartLinking();
-  if (provider !== "github") return <NotFoundState />;
   const status = catalog.data?.items.find((i) => i.provider === "github")?.status;
   const links = installations.data ?? [];
   const linked = links.filter((l) => l.status === "linked");

@@ -417,7 +417,7 @@ Implemented 2026-11-11 in parts A to H, each committed separately after `pnpm li
 | D. Linking flow | D4 documented flow (setup redirect, our OAuth authorize with our single-use state, installation verification) and D5 ownership checks, generic `409`. |
 | E. Webhook | Raw body, constant-time HMAC before parsing, tenant only from the link, delivery dedupe, persist then outbox, D8 fail-closed, identical `202`. |
 | F. Repository APIs and jobs | Connect, list, detail, edit, sync, enable/disable, disconnect, branches, pull requests; scheduled sync and delivery reconciler in the `scm` worker, retention purge. |
-| G. Screens | T-13, T-14 (with the `/integrations/github/setup` and `/callback` landing pages), T-22, T-23, T-24, T-42; `workspace-integrations` nav item `implemented: true`. Lint and build pass; **not browser-verified** (see limitations). |
+| G. Screens | T-13, T-14 (with the `/integrations/github/setup` and `/callback` landing pages), T-22, T-23, T-24, T-42; `workspace-integrations` nav item `implemented: true`. Verified in headless Chrome for all seven seeded roles (see SCREENS.md "Browser verification"). |
 | H. Security suite | Local GitHub stub; `SCM-001..021`; suite is 133 checks (ADR-008 updated). |
 
 Deviations and interpretations of the approved design:
@@ -432,7 +432,7 @@ Deviations and interpretations of the approved design:
 - Wireframe §4.4 (Manager visibility of Workspace Integrations) was closed on 2026-11-11 by the workspace-scope keys `workspace_integration.view` / `.manage` (AUTHORIZATION Q26); table `scm_workspace_link_settings` (migration `20261111230000_scm_workspace_link_settings`) stores the per-workspace routing setting, absent = on; checks `SCM-022..026`.
 - A mutation test showed that removing the tenant filter from the repository scope resolver is not caught by SCM-008 alone, because the workspace-visibility layer also answers 404 (defense in depth); removing signature verification is caught by SCM-001/002/011.
 
-Limitations: the screens were not exercised in a browser in this work item; no live GitHub App was used (the stub implements the documented endpoints only), so the empirical rename/transfer test (Open item 22) and the redelivery GUID assumption (Open item 25) remain unverified.
+Limitations: no live GitHub App was used (the stub implements the documented endpoints only), so the empirical rename/transfer test (Open item 22) and the redelivery GUID assumption (Open item 25) remain unverified.
 
 ## 17. Verification spike: GitHub facts against the official documentation (2026-11-11)
 

@@ -159,7 +159,7 @@ function AccessStep({ rows, setRows, ownerId, canPeople, canGroups }) {
           No one added yet.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border">
+        <div className="relative overflow-x-auto rounded-md border border-border">
           <table className="w-full text-left text-[13px]">
             <caption className="sr-only">Access to grant</caption>
             <thead className="border-b border-border text-muted-foreground">

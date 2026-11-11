@@ -78,6 +78,8 @@ model Tenant {
   quotas        TenantQuota[]
   quotaUsage    TenantQuotaUsage[]
   platformAudit PlatformAuditLog[]
+  dataKeys      TenantDataKey[]
+  secrets       Secret[]
 
   @@index([status])
   @@map("tenants")

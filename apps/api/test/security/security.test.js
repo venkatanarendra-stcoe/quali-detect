@@ -7,11 +7,16 @@
  * requests SUCCEED, so a transport that stops mounting routes cannot make the "expect 404 / 401" checks pass vacuously.
  */
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { randomBytes } from "node:crypto";
+import { after, before, describe, it } from "node:test";
+import { getDbClient } from "@qmentisai/db";
+import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
+import { createAuditService } from "../../src/audit/audit-service.js";
+import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 83;
+const EXPECTED_CHECKS = 92;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -658,6 +663,262 @@ const sanitized = (response) => ({ status: response.status, error: response.json
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// 8. Secret storage foundation (9 checks, ADR-009). The store has no HTTP surface yet, so these run in-process against the
+//    same disposable database: tenant isolation of secretRefs, AAD binding, no plaintext at rest / in views / in audit.
+// ---------------------------------------------------------------------------------------------------------------------
+let secretDb;
+const secretsWorld = () =>
+  once("secrets", async () => {
+    secretDb = getDbClient({ datasourceUrl: env("SECURITY_DATABASE_URL") });
+    const quiet = { warn() {}, error() {}, info() {} };
+    const store = createSecrets({
+      config: {
+        secrets: {
+          enabled: true,
+          masterKey: randomBytes(32).toString("base64"),
+          masterKeyVersion: 1,
+        },
+      },
+      infra: { db: secretDb },
+      audit: createAuditService({ db: secretDb, logger: quiet }),
+    });
+    const me = await w.api("GET", "/me", { cookie: S("admin")(w) });
+    const tenantA = me.json.data.tenant.id;
+    const tenantB = w.B.id;
+    const actor = { userId: me.json.data.user.id };
+    const attempt = async (fn) => {
+      try {
+        return { ok: true, value: await fn() };
+      } catch (error) {
+        return { ok: false, name: error.name, message: error.message };
+      }
+    };
+    const valueA = `sk-live-${randomBytes(12).toString("hex")}`;
+    const purpose = "integration.test.token";
+    const a1 = await store.put({ tenantId: tenantA, purpose, plaintext: valueA, actor });
+    const a2 = await store.put({ tenantId: tenantA, purpose, plaintext: `other-${valueA}`, actor });
+    const a3 = await store.put({
+      tenantId: tenantA,
+      purpose: "integration.test.other",
+      plaintext: valueA,
+      actor,
+    });
+    const b1 = await store.put({ tenantId: tenantB, purpose, plaintext: `b-${valueA}`, actor });
+    const out = { store, tenantA, tenantB, valueA, purpose, a1, a2, b1 };
+    out.crossTenant = await attempt(() =>
+      store.resolve({ tenantId: tenantB, secretRef: a1.secretRef, purpose }),
+    );
+    out.randomRef = await attempt(() =>
+      store.resolve({
+        tenantId: tenantB,
+        secretRef: "00000000-0000-4000-8000-0000000000aa",
+        purpose,
+      }),
+    );
+    out.wrongPurpose = await attempt(() =>
+      store.resolve({
+        tenantId: tenantA,
+        secretRef: a1.secretRef,
+        purpose: "integration.test.other",
+      }),
+    );
+    // Same tenant, same DEK: copy secret 1's ciphertext into secret 2's row. Only the AAD (secretId) differs.
+    const row1 = await secretDb.secret.findFirst({
+      where: { id: a1.secretRef, tenantId: tenantA },
+    });
+    await secretDb.secret.updateMany({
+      where: { id: a2.secretRef, tenantId: tenantA },
+      data: { ciphertext: row1.ciphertext, nonce: row1.nonce },
+    });
+    out.swappedRow = await attempt(() =>
+      store.resolve({ tenantId: tenantA, secretRef: a2.secretRef, purpose }),
+    );
+    // Another tenant's row carrying tenant A's ciphertext.
+    const rowB = await secretDb.secret.findFirst({
+      where: { id: b1.secretRef, tenantId: tenantB },
+    });
+    await secretDb.secret.updateMany({
+      where: { id: b1.secretRef, tenantId: tenantB },
+      data: { ciphertext: row1.ciphertext, nonce: row1.nonce, dekVersion: rowB.dekVersion },
+    });
+    out.movedToTenantB = await attempt(() =>
+      store.resolve({ tenantId: tenantB, secretRef: b1.secretRef, purpose }),
+    );
+    out.rawRows = JSON.stringify([
+      await secretDb.secret.findMany({ where: { tenantId: tenantA } }),
+      await secretDb.tenantDataKey.findMany({ where: { tenantId: tenantA } }),
+    ]);
+    out.metadata = await store.describe({ tenantId: tenantA, secretRef: a3.secretRef });
+    // rotate + delete on secret 3, then read the audit trail.
+    const rotatedValue = `rotated-${randomBytes(8).toString("hex")}`;
+    await store.rotate({
+      tenantId: tenantA,
+      secretRef: a3.secretRef,
+      plaintext: rotatedValue,
+      actor,
+    });
+    out.afterRotate = await attempt(() =>
+      store.resolve({
+        tenantId: tenantA,
+        secretRef: a3.secretRef,
+        purpose: "integration.test.other",
+      }),
+    );
+    out.rotatedValue = rotatedValue;
+    await store.delete({ tenantId: tenantA, secretRef: a3.secretRef, actor });
+    out.afterDelete = await attempt(() =>
+      store.resolve({
+        tenantId: tenantA,
+        secretRef: a3.secretRef,
+        purpose: "integration.test.other",
+      }),
+    );
+    out.audit = await secretDb.auditLog.findMany({
+      where: { tenantId: tenantA, targetType: "secret" },
+    });
+    return out;
+  });
+const done = (problems) => ({ status: 200, json: null, problems });
+{
+  const add = group("Secret storage foundation");
+  const ok = { status: 200 };
+  add(
+    "SEC-001",
+    "another tenant's secretRef cannot be resolved, and answers like a reference that does not exist",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const problems = [];
+      if (x.crossTenant.ok) problems.push("tenant B resolved tenant A's secret");
+      if (x.crossTenant.name !== "SecretNotFoundError")
+        problems.push(`error was ${x.crossTenant.name}`);
+      if (JSON.stringify(x.crossTenant) !== JSON.stringify(x.randomRef))
+        problems.push("cross-tenant and missing references answer differently");
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-002",
+    "a secret cannot be resolved under a different purpose",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      return done(x.wrongPurpose.ok ? ["resolved with the wrong purpose"] : []);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-003",
+    "a ciphertext copied into another secret record of the same tenant fails authentication (AAD binds the secret id)",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const problems = [];
+      if (x.swappedRow.ok) problems.push("a swapped ciphertext decrypted");
+      if (x.swappedRow.name !== "SecretCryptoError")
+        problems.push(`error was ${x.swappedRow.name}`);
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-004",
+    "tenant A's ciphertext placed in tenant B's record cannot be decrypted (per-tenant keys and AAD)",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      return done(x.movedToTenantB.ok ? ["a cross-tenant ciphertext decrypted"] : []);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-005",
+    "the database holds no plaintext: secret rows and wrapped data keys do not contain the value",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      return done(x.rawRows.includes(x.valueA) ? ["plaintext found in stored rows"] : []);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-006",
+    "the metadata and the API view of a secret contain neither the value nor key versions",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const view = JSON.stringify(toSecretResponse(x.metadata));
+      const problems = [];
+      if (view.includes(x.valueA)) problems.push("the view contains the value");
+      if (/dekVersion|keyVersion|masterKey|ciphertext|nonce/i.test(view))
+        problems.push(`the view exposes internals: ${view}`);
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-007",
+    "create, rotate and delete are audited and the audit entries never contain a value",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const actions = new Set(x.audit.map((a) => a.action));
+      const problems = ["secret.created", "secret.rotated", "secret.deleted"]
+        .filter((a) => !actions.has(a))
+        .map((a) => `no ${a} audit entry`);
+      const dump = JSON.stringify(x.audit);
+      if (dump.includes(x.valueA) || dump.includes(x.rotatedValue))
+        problems.push("an audit entry contains a value");
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-008",
+    "rotation replaces the value under the same reference and a deleted secret stops resolving",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const problems = [];
+      if (!x.afterRotate.ok || x.afterRotate.value !== x.rotatedValue)
+        problems.push("the rotated value did not resolve");
+      if (x.afterDelete.ok || x.afterDelete.name !== "SecretNotFoundError")
+        problems.push("a deleted secret still resolves");
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+  add(
+    "SEC-009",
+    "messages carry references only: credential fields are refused and a foreign tenant in a message cannot resolve",
+    ok,
+    async () => {
+      const x = await secretsWorld();
+      const problems = [];
+      let refused = false;
+      try {
+        assertSecretFreeMessage({ tenantId: x.tenantA, nested: { apiKey: "sk-x" } });
+      } catch {
+        refused = true;
+      }
+      if (!refused) problems.push("a message with a credential field was accepted");
+      const foreign = await resolveFromMessage(
+        x.store,
+        { tenantId: x.tenantB, secretRef: x.a1.secretRef },
+        { purpose: x.purpose },
+      ).then(
+        () => "resolved",
+        (error) => error.name,
+      );
+      if (foreign !== "SecretNotFoundError") problems.push(`foreign message answered ${foreign}`);
+      return done(problems);
+    },
+    (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 const allChecks = groups.flatMap((g) => g.checks);
 
 /** @param {{ status: number, json: any }} response @param {Expected} expected @param {string} where */
@@ -688,6 +949,9 @@ function assertResponse(response, expected, where) {
 }
 
 describe("security regression suite", () => {
+  after(async () => {
+    await secretDb?.$disconnect();
+  });
   before(async () => {
     w = await buildWorld(client, {
       tenantPassword: env("SECURITY_TENANT_PASSWORD"),

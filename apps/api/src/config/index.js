@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SecretConfigError, parseMasterKey } from "@qmentisai/infra";
 import { PACKAGE_INFO } from "./package-info.js";
 
 const booleanFlag = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -27,6 +28,12 @@ const envSchema = z.object({
     .min(1)
     .max(31536000)
     .default(2592000),
+  // Secret storage (ADR-009). Off unless a feature needs it. The "env" key provider (master key from the environment) is
+  // for DEVELOPMENT only and is refused in production; the KMS and Vault adapters are not implemented yet.
+  SECRETS_ENABLED: booleanFlag.optional(),
+  SECRET_KEY_PROVIDER: z.enum(["env", "kms", "vault"]).default("env"),
+  SECRET_MASTER_KEY: z.string().optional(),
+  SECRET_MASTER_KEY_VERSION: z.coerce.number().int().min(1).max(1000000).default(1),
   AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
   AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS: z.coerce.number().int().min(1).max(3600).default(10),
   AUTH_THROTTLE_LOGIN_CAP_SECONDS: z.coerce.number().int().min(1).max(86400).default(900),
@@ -94,6 +101,27 @@ function crossChecks(e, allowedOrigins) {
   const problems = [];
   const production = e.NODE_ENV === "production";
   const mock = e.MOCK_AUTH_ENABLED ?? !production;
+  if (e.SECRETS_ENABLED === true) {
+    if (e.SECRET_KEY_PROVIDER !== "env") {
+      problems.push({
+        variable: "SECRET_KEY_PROVIDER",
+        message: `the "${e.SECRET_KEY_PROVIDER}" key provider adapter is not implemented yet; secrets cannot be enabled with it`,
+      });
+    } else if (production) {
+      problems.push({
+        variable: "SECRET_KEY_PROVIDER",
+        message:
+          'the "env" key provider is development only; production needs a KMS or Vault adapter before secrets can be used',
+      });
+    } else {
+      try {
+        parseMasterKey(e.SECRET_MASTER_KEY);
+      } catch (error) {
+        if (!(error instanceof SecretConfigError)) throw error;
+        problems.push({ variable: "SECRET_MASTER_KEY", message: error.message });
+      }
+    }
+  }
   if (e.TRUST_PROXY?.trim() === "true")
     problems.push({
       variable: "TRUST_PROXY",
@@ -189,6 +217,13 @@ export function loadConfig(env = process.env) {
       trustProxy: parseTrustProxy(e.TRUST_PROXY),
       rateLimit: Object.freeze({ windowMs: e.RATE_LIMIT_WINDOW_MS, max: e.RATE_LIMIT_MAX }),
     }),
+    secrets: Object.freeze({
+      enabled: e.SECRETS_ENABLED ?? false,
+      provider: e.SECRET_KEY_PROVIDER,
+      // Never log or return: validated above, kept only to build the key provider.
+      masterKey: e.SECRETS_ENABLED === true ? e.SECRET_MASTER_KEY : undefined,
+      masterKeyVersion: e.SECRET_MASTER_KEY_VERSION,
+    }),
     tenants: Object.freeze({
       deactivationRetentionSeconds: e.TENANT_DEACTIVATION_RETENTION_SECONDS,
     }),
@@ -248,5 +283,6 @@ export function describeConfig(config) {
     cookieSecure: config.auth.cookieSecure,
     corsOrigins: config.auth.allowedOrigins.length,
     mockAuthEnabled: config.auth.mock.enabled,
+    secretsEnabled: config.secrets.enabled,
   };
 }

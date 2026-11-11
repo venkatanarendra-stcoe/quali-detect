@@ -208,6 +208,9 @@ async function main() {
           SECURITY_TENANT_PASSWORD: tenantPassword,
           SECURITY_PLATFORM_PASSWORD: platformPassword,
           SECURITY_MFA_CODE: mfaCode,
+          // Direct database access for the SEC checks (secret storage has no HTTP surface yet); same disposable database.
+          SECURITY_DATABASE_URL: databaseUrl,
+          PGSSLMODE: process.env.PGSSLMODE ?? "",
         },
         stdio: "inherit",
       },

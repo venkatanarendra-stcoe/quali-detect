@@ -14,7 +14,7 @@
 
 Add a committed **security regression suite**, run with `pnpm test:security`.
 
-**Allowed scope: ONLY the six areas below (the fifth and sixth were added by the owner on 2026-11-11), run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
+**Allowed scope: ONLY the seven areas below (the fifth to seventh were added by the owner on 2026-11-11), run by ONE command, `pnpm test:security`.** Feature tests, unit tests, UI/browser tests and test-case directory structures for anything else stay out of scope (see *Out of scope* and *Rules for contributors*).
 
 **In scope (and only this):**
 
@@ -25,6 +25,8 @@ Add a committed **security regression suite**, run with `pnpm test:security`.
 
 5. Sign-in and MFA throttling (added 2026-11-11 with ADR-010, owner instruction): progressive delay after the free attempts, identical behavior for existing and non-existing accounts (no enumeration), per-IP limit, refused attempts do not extend the wait, no hard lock. Checks `THR-001..009`.
 6. Tenant restore window (added 2026-11-11, AUTHORIZATION Q25): who can restore a deactivated tenant and when, the tenant stays unusable while deactivated and after the window ends, `TENANT_DEACTIVATION_EXPIRED`. Checks `RST-001..006`. This is lifecycle/session separation behavior, kept to six checks.
+
+7. Secret storage foundation (ADR-009): tenant isolation of secret references, AAD binding, no plaintext at rest, in views or in audit entries, message guard. Checks `SEC-001..009`. They run **in-process** against the disposable database (the runner passes `SECURITY_DATABASE_URL`) and import the secret store wiring, because the store has no HTTP surface yet; this is the one place the suite is not purely black box, and it ends when an HTTP surface exists.
 
 Also covered, as part of areas 1 to 3: tenant suspension takes effect immediately and does not affect another tenant (`SUSP-001..003`, part of the 68).
 
@@ -37,8 +39,8 @@ Also covered, as part of areas 1 to 3: tenant suspension takes effect immediatel
 - **Secrets are random per run** (mock passwords, MFA code); none is stored in the repository.
 - **World built through the public API only:** tenant A is the seeded demo tenant; tenant B is created through `POST /platform/tenants`, its administrator is invited and accepts, then creates a workspace, group, custom role and workspace role assignment. Everything created carries a random suffix, so the suite can be re-run on the same disposable database.
 - **Framework:** `node:test` (built into Node 22). **No new dependency.**
-- **83 checks**: the original 68 (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit, plus 9 added with ADR-010 (`THR-001..009`) and 6 for the tenant restore window (`RST-001..006`). An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
-- **Controls** (17, not counted in the 83; the 17th proves that wrong passwords below the free attempts do not block a legitimate sign-in) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
+- **92 checks**: the original 68 (`ISO-001..037`, `AUTHZ-001..015`, `SESS-001..013`, `SUSP-001..003`), taken from the audit, plus 9 added with ADR-010 (`THR-001..009`) 6 for the tenant restore window (`RST-001..006`) and 9 for the secret storage foundation (`SEC-001..009`). An **integrity test** fails if the number of checks or their ids/names change, so a check cannot be dropped silently; changing the count requires updating this ADR.
+- **Controls** (17, not counted in the 92; the 17th proves that wrong passwords below the free attempts do not block a legitimate sign-in) assert that the legitimate version of each request *succeeds* (an owner reads their own workspace, user, group, role and assignments; the platform session works after MFA). Without them, a transport that stopped mounting routes would answer 404/401 everywhere and every denial check would pass vacuously.
 - Error responses are also checked for the error envelope and `meta.correlationId`, and the cross-tenant checks assert that the response body contains no identifier of the other tenant.
 
 ## Validation that the suite can fail (performed 2026-11-11 in a separate git worktree, main tree untouched)

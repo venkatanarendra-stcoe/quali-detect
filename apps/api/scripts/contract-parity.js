@@ -92,7 +92,6 @@ function normalize(schema) {
   return out;
 }
 const schemaOf = (op, status) => op.responses?.[status]?.content?.["application/json"]?.schema;
-let schemaDiffs = 0;
 for (const [k, a] of docA) {
   const b = docB.get(k);
   if (!b) continue;
@@ -110,21 +109,20 @@ for (const [k, a] of docA) {
   const ba = a.requestBody?.content?.["application/json"]?.schema;
   const bb = b.requestBody?.content?.["application/json"]?.schema;
   if (JSON.stringify(normalize(ba)) !== JSON.stringify(normalize(bb)))
-    (notes.push(`${k}: request body schema representation differs`), schemaDiffs++);
+    notes.push(`${k}: request body schema representation differs`);
   for (const status of Object.keys(a.responses ?? {})) {
     if (
       JSON.stringify(normalize(schemaOf(a, status))) !==
       JSON.stringify(normalize(schemaOf(b, status)))
     )
-      (notes.push(`${k} ${status}: response schema representation differs`), schemaDiffs++);
+      notes.push(`${k} ${status}: response schema representation differs`);
   }
   for (const p of a.parameters ?? []) {
     const q = (b.parameters ?? []).find((x) => x.in === p.in && x.name === p.name);
     if (q && JSON.stringify(normalize(p.schema)) !== JSON.stringify(normalize(q.schema)))
-      (notes.push(
+      notes.push(
         `${k}: parameter ${p.name} schema ${JSON.stringify(p.schema)} -> ${JSON.stringify(q.schema)}`,
-      ),
-        schemaDiffs++);
+      );
   }
 }
 

@@ -14,6 +14,7 @@
  * @property {any} auth
  * @property {any} authz
  * @property {any} entitlements
+ * @property {ReturnType<typeof import("@qmentisai/infra").createSecretStore> | null} secrets SecretStore (ADR-009), null unless SECRETS_ENABLED
  * @property {ReadonlyArray<{ name: string, description: string, prefix: string }>} modules
  * @property {(routes: (registrar: import("../lib/route-kit.js").RouteRegistrar) => void | Promise<void>, options?: { prefix?: string }) => Promise<void>} register
  */

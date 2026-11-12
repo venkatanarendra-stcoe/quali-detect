@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 303;
+const EXPECTED_CHECKS = 304;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1916,6 +1916,57 @@ const viewOnlyRoleId = () =>
       if (x.lost.minted.auth.status !== 200) problems.push("the state could not be minted");
       if (x.identityOverview.json.data.items.some((l) => l.account.login === x.lost.account.login))
         problems.push("a link was created without the key");
+      return problems;
+    },
+  );
+  add(
+    "SCM-046",
+    "the setup URL's installation_id is only a hint: authorize needs a signed-in holder of workspace_integration.manage, and a tampered, truncated, garbage, foreign or reused state links nothing",
+    UNAUTHENTICATED,
+    async () => {
+      const admin = S("admin")(w);
+      const developer = S("developer")(w);
+      const unauthenticated = await w.api("POST", `${ghPath(w.A.paymentsWs)}/authorize`, {
+        body: { installationId: "123456" },
+      });
+      const account = orgAccount("h");
+      const minted = await mintState(admin, {
+        workspaceId: w.A.paymentsWs,
+        account,
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      const state = minted.state;
+      const flipped = state.slice(0, -1) + (state.at(-1) === "A" ? "B" : "A");
+      const attempts = {
+        tampered: await consumeState(admin, { code: minted.code, state: flipped }),
+        truncated: await consumeState(admin, { code: minted.code, state: state.slice(0, 30) }),
+        garbage: await consumeState(admin, { code: minted.code, state: "x".repeat(40) }),
+        // someone else presents the genuine state (it is single use and bound to user and session)
+        foreign: await consumeState(developer, { code: minted.code, state }),
+        // after that the owner cannot use it either
+        reused: await consumeState(admin, { code: minted.code, state }),
+      };
+      const linkedAfter = await suiteDb().scmInstallation.count({
+        where: { accountLogin: account.login },
+      });
+      // control: a fresh, genuine run by the same administrator links
+      const control = await linkFlow(admin, {
+        workspaceId: w.A.paymentsWs,
+        account: orgAccount("hc"),
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      return Object.assign({}, unauthenticated, { attempts, linkedAfter, control });
+    },
+    (r) => {
+      const problems = [];
+      for (const [name, res] of Object.entries(r.attempts))
+        if (res.status !== 400) problems.push(`${name} state answered ${res.status}, not 400`);
+      if (r.linkedAfter !== 0)
+        problems.push("a refused state still created an installation record");
+      if (r.control.link?.status !== 201)
+        problems.push(`the control link answered ${r.control.link?.status}`);
       return problems;
     },
   );

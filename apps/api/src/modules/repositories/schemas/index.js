@@ -70,7 +70,7 @@ const repositoryDto = z.object({
   connectedAt: z.string(),
   disconnectedAt: z.string().nullable(),
   disconnectReason: z.string().nullable(),
-  pipelineCount: z.number(),
+  pipelineCount: z.number().nullable(),
 });
 export const repositoryResponseSchema = createSuccessSchema(repositoryDto);
 export const repositoryListResponseSchema = createPaginatedSchema(repositoryDto);

@@ -70,15 +70,25 @@ export function createRepositoryService({
     ipAddress: actor.ip,
     ...extra,
   });
-  /** Repository DTOs with the real `pipelineCount` (non-deleted pipelines, counted per tenant by the pipelines module). */
-  const toDtos = async (tenantId, rows) => {
-    const counts = await pipelineCounts.forRepositories({
-      tenantId,
-      repositoryIds: rows.map((r) => r.id),
-    });
-    return rows.map((r) => toRepositoryDto(r, counts.get(r.id) ?? 0));
+  /**
+   * Repository DTOs with the real `pipelineCount` (non-deleted pipelines, counted per tenant by the pipelines module).
+   * The count is `null` for a caller who does not hold `pipeline.view` in the repository's workspace: never show counts of
+   * resources the user cannot access (SCREENS common rules).
+   */
+  const toDtos = async (actor, rows) => {
+    const visible = rows.filter((r) =>
+      can(actor.permissions, "pipeline.view", { type: "workspace", workspaceId: r.workspaceId }),
+    );
+    const counts = visible.length
+      ? await pipelineCounts.forRepositories({
+          tenantId: actor.tenantId,
+          repositoryIds: visible.map((r) => r.id),
+        })
+      : new Map();
+    const seen = new Set(visible.map((r) => r.id));
+    return rows.map((r) => toRepositoryDto(r, seen.has(r.id) ? (counts.get(r.id) ?? 0) : null));
   };
-  const toDto = async (tenantId, row) => (await toDtos(tenantId, [row]))[0];
+  const toDto = async (actor, row) => (await toDtos(actor, [row]))[0];
   const notify = (tx, actor, repo, type, payload) =>
     outbox.enqueue(tx, {
       queue: QUEUE_NAMES.NOTIFICATION,
@@ -174,10 +184,7 @@ export function createRepositoryService({
           can(actor.permissions, "repository.view", { type: "workspace", workspaceId }),
         );
       const page = await repository.list({ ...query, tenantId: actor.tenantId, workspaceIds });
-      return toPage(
-        { items: await toDtos(actor.tenantId, page.items), totalItems: page.totalItems },
-        query,
-      );
+      return toPage({ items: await toDtos(actor, page.items), totalItems: page.totalItems }, query);
     },
 
     /**
@@ -345,10 +352,10 @@ export function createRepositoryService({
         });
         return row;
       });
-      return toDto(actor.tenantId, created);
+      return toDto(actor, created);
     },
 
-    get: (actor, repo) => toDto(actor.tenantId, repo),
+    get: (actor, repo) => toDto(actor, repo),
 
     async update(actor, repo, patch) {
       assertMutable(repo);
@@ -368,7 +375,7 @@ export function createRepositoryService({
         );
         return next;
       });
-      return toDto(actor.tenantId, updated);
+      return toDto(actor, updated);
     },
 
     /** Queues a sync job; the worker does the GitHub calls (SPEC §6.5c). */
@@ -395,7 +402,7 @@ export function createRepositoryService({
 
     async setEnabled(actor, repo, enabled) {
       assertMutable(repo);
-      if (repo.enabled === enabled) return toDto(actor.tenantId, repo);
+      if (repo.enabled === enabled) return toDto(actor, repo);
       const next = await repository.transaction(async (tx) => {
         await repository.update({ tenantId: actor.tenantId, id: repo.id, data: { enabled } }, tx);
         await audit.tenant.record(
@@ -408,7 +415,7 @@ export function createRepositoryService({
         );
         return repository.findById({ tenantId: actor.tenantId, id: repo.id }, tx);
       });
-      return toDto(actor.tenantId, next);
+      return toDto(actor, next);
     },
 
     /** Soft disconnect: the row, its id and its history stay; reconnecting reactivates it (R-6). */

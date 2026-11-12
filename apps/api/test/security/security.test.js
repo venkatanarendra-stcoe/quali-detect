@@ -6765,6 +6765,52 @@ const capWorld = () =>
       };
       await check(x.sessions.admin, x.payRepo, x.tenantId);
       await check(x.sessions.edge, x.edgeRepo, x.edgeTenantId);
+      // a member who may see the repository but does NOT hold pipeline.view gets null, not a count (control: the owner gets it)
+      const t = x.edge;
+      const email = `nopipe.${w.suffix}@iso.example`;
+      const invited = await w.api("POST", "/users", {
+        cookie: t.owner,
+        body: { email, name: "No Pipelines" },
+      });
+      if (invited.status !== 201) problems.push(`invite answered ${invited.status}`);
+      const login = await w.api("POST", "/auth/login", {
+        body: { email, password: w.secrets.tenantPassword },
+      });
+      await w.api("POST", `/me/invitations/${t.id}/accept`, { cookie: login.cookie });
+      await w.api("PUT", "/me/active-tenant", { cookie: login.cookie, body: { tenantId: t.id } });
+      const me = await w.api("GET", "/me", { cookie: login.cookie });
+      const role = await w.api("POST", "/roles", {
+        cookie: t.owner,
+        body: {
+          name: `No pipeline view ${w.suffix}`,
+          description: "repository.view without pipeline.view",
+          permissions: ["workspace.view", "repository.view"],
+        },
+      });
+      if (role.status !== 201) problems.push(`role answered ${role.status}`);
+      const assigned = await w.api("POST", `/workspaces/${x.edgeWs}/role-assignments`, {
+        cookie: t.owner,
+        body: { subjectType: "user", subjectId: me.json.data.user.id, roleId: role.json.data.id },
+      });
+      if (assigned.status !== 201) problems.push(`assignment answered ${assigned.status}`);
+      const restrictedOne = await w.api("GET", `/repositories/${x.edgeRepo}`, {
+        cookie: login.cookie,
+      });
+      const restrictedList = await w.api("GET", "/repositories?pageSize=100", {
+        cookie: login.cookie,
+      });
+      if (restrictedOne.status !== 200)
+        problems.push(`restricted GET answered ${restrictedOne.status}`);
+      if (restrictedOne.json?.data?.pipelineCount !== null)
+        problems.push(
+          "the single repository leaks a pipeline count to a caller without pipeline.view",
+        );
+      const listed = restrictedList.json?.data?.find((r) => r.id === x.edgeRepo);
+      if (!listed) problems.push("the repository is not listed for the restricted caller");
+      else if (listed.pipelineCount !== null)
+        problems.push(
+          "the repository list leaks a pipeline count to a caller without pipeline.view",
+        );
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

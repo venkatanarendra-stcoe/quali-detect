@@ -28990,7 +28990,8 @@
                             "nullable": true
                           },
                           "pipelineCount": {
-                            "type": "number"
+                            "type": "number",
+                            "nullable": true
                           }
                         },
                         "required": [
@@ -29885,7 +29886,8 @@
                           "nullable": true
                         },
                         "pipelineCount": {
-                          "type": "number"
+                          "type": "number",
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -30414,7 +30416,8 @@
                           "nullable": true
                         },
                         "pipelineCount": {
-                          "type": "number"
+                          "type": "number",
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -30861,7 +30864,8 @@
                           "nullable": true
                         },
                         "pipelineCount": {
-                          "type": "number"
+                          "type": "number",
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -32017,7 +32021,8 @@
                           "nullable": true
                         },
                         "pipelineCount": {
-                          "type": "number"
+                          "type": "number",
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -32556,7 +32561,8 @@
                           "nullable": true
                         },
                         "pipelineCount": {
-                          "type": "number"
+                          "type": "number",
+                          "nullable": true
                         }
                       },
                       "required": [

@@ -79,14 +79,14 @@ export const ORG_ROUTES = [
   },
   {
     path: "integrations/github/setup",
-    permission: "integration.manage",
-    scope: "tenant",
+    permission: "workspace_integration.manage",
+    scope: "anyWorkspace",
     element: <GitHubSetupPage />,
   },
   {
     path: "integrations/github/callback",
-    permission: "integration.manage",
-    scope: "tenant",
+    permission: "workspace_integration.manage",
+    scope: "anyWorkspace",
     element: <GitHubCallbackPage />,
   },
   {

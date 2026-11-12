@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { Textarea } from "@/components/ui/textarea.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
+import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { describeError } from "@/lib/api/index.js";
 import { DisconnectDialog, useRepositoryActions } from "../components/repository-actions.jsx";
 import { RepositoryHealth } from "../components/repository-health.jsx";
@@ -130,6 +131,7 @@ function Settings({ repository, canUpdate }) {
 
 function Detail({ repository }) {
   const navigate = useNavigate();
+  const can = useCan();
   const actions = useRepositoryActions(repository);
   const [confirming, setConfirming] = useState(false);
   const live = repository.status !== "disconnected";
@@ -176,8 +178,24 @@ function Detail({ repository }) {
           className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           This repository is disconnected
-          {repository.disconnectedAt ? ` since ${when(repository.disconnectedAt)}` : ""}. Its
-          history is kept. Connect it again from the Connect repository page to restore it.
+          {repository.disconnectedAt ? ` since ${when(repository.disconnectedAt)}` : ""}.{" "}
+          {repository.disconnectReason === "workspace_unlinked"
+            ? "The GitHub account was unlinked from this workspace. Link it again on the workspace's Integrations page to restore the repository."
+            : repository.disconnectReason === "installation_revoked"
+              ? "The GitHub App was removed from the GitHub account. Install and link it again on the workspace's Integrations page to restore the repository."
+              : "Its history is kept. Connect it again from the Connect repository page to restore it."}
+          {repository.disconnectReason === "workspace_unlinked" ||
+          repository.disconnectReason === "installation_revoked" ? (
+            <>
+              {" "}
+              <Link
+                className="underline underline-offset-2"
+                to={`/workspaces/${repository.workspaceId}/integrations`}
+              >
+                Workspace integrations
+              </Link>
+            </>
+          ) : null}
         </p>
       ) : null}
       <Tabs defaultValue="overview">
@@ -269,9 +287,11 @@ function Detail({ repository }) {
               <p className="text-muted-foreground">
                 Last event received: {when(repository.lastEventAt)}
               </p>
-              <Link className="underline-offset-2 hover:underline" to="/integrations/github">
-                Delivery history on the GitHub integration page
-              </Link>
+              {can("integration.view") ? (
+                <Link className="underline-offset-2 hover:underline" to="/integrations/github">
+                  Delivery history on the GitHub integration page
+                </Link>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

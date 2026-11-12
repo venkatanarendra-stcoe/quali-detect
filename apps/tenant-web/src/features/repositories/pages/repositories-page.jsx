@@ -166,15 +166,15 @@ export function RepositoriesPage() {
             title="No repositories connected"
             description={
               canConnect
-                ? "Connect a repository from a linked GitHub account. If no account is linked yet, link one on the GitHub integration page."
+                ? "Connect a repository from a GitHub account linked to this workspace. If no account is linked yet, link one on the workspace's Integrations page."
                 : "Ask someone with repository.connect to connect repositories to this workspace."
             }
             actions={
               <div className="flex gap-2">
                 {connect}
-                {can("integration.view") ? (
-                  <LinkButton to="/integrations/github" variant="secondary">
-                    GitHub integration
+                {can("workspace_integration.view") ? (
+                  <LinkButton to={`/workspaces/${workspaceId}/integrations`} variant="secondary">
+                    Workspace integrations
                   </LinkButton>
                 ) : null}
               </div>

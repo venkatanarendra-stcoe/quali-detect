@@ -1,94 +1,111 @@
 import { Plug } from "lucide-react";
 import { useParams } from "react-router";
-import { toast } from "sonner";
-import { LinkButton } from "@/components/common/link-button.jsx";
 import { PageHeader } from "@/components/common/page-header.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
+import { Button } from "@/components/ui/button.jsx";
+import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
-import { describeError } from "@/lib/api/index.js";
-import { LinkHealth } from "../components/link-health.jsx";
-import { useSetWorkspaceRouting, useWorkspaceLinks } from "../hooks/use-integrations.js";
+import { WorkspaceLinkCard } from "../components/workspace-link-card.jsx";
+import { useStartLinking, useWorkspaceIntegrations } from "../hooks/use-integrations.js";
+import { linkHint } from "../services/link-hint.js";
+import { LINKING_DISABLED_MESSAGE, linkErrorMessage } from "../services/link-errors.js";
 
 /**
- * T-42 Workspace integrations: routing only. The list holds the linked accounts the organization allows this workspace to
- * use; with workspace_integration.manage the workspace can switch each one off or on for itself. Linking, unlinking and the
- * organization-wide scope stay on the GitHub integration page (integration.view / integration.manage).
+ * T-42 Workspace integrations: where GitHub is connected. With workspace_integration.manage the workspace links a GitHub
+ * account (the workspace id is kept as a hint for the global setup/callback pages), tests, unlinks and edits the repository
+ * allow-list of each link. workspace_integration.view holders see the same page read-only with the reason.
  */
 export function WorkspaceIntegrationsPage() {
   const { workspaceId } = useParams();
   const can = useCan();
   const canManage = can("workspace_integration.manage");
-  const links = useWorkspaceLinks(workspaceId);
-  const routing = useSetWorkspaceRouting(workspaceId);
+  const overview = useWorkspaceIntegrations(workspaceId);
+  const start = useStartLinking();
+  const data = overview.data;
+  const links = data?.items.filter((l) => l.status === "linked") ?? [];
+  const previous = data?.items.filter((l) => l.status === "unlinked") ?? [];
+  let linkReason = null;
+  if (!canManage)
+    linkReason = "You need the workspace_integration.manage permission in this workspace.";
+  else if (data && !data.linkingEnabled) linkReason = LINKING_DISABLED_MESSAGE;
+  const startLinking = () => {
+    linkHint.write(workspaceId);
+    start.mutate(workspaceId, {
+      onSuccess: ({ installUrl }) => window.location.assign(installUrl),
+    });
+  };
   return (
     <>
       <PageHeader
         title="Integrations"
-        description="GitHub accounts this workspace can connect repositories from."
+        description="GitHub accounts linked to this workspace and the repositories it may connect."
         actions={
-          can("integration.view") ? (
-            <LinkButton to="/integrations/github" variant="secondary">
-              Organization GitHub settings
-            </LinkButton>
+          data && data.configured ? (
+            <DisabledWithReason reason={linkReason}>
+              <Button onClick={startLinking} disabled={start.isPending}>
+                <Plug aria-hidden="true" />
+                Link a GitHub account
+              </Button>
+            </DisabledWithReason>
           ) : null
         }
       />
-      {links.isPending ? <LoadingState label="Loading integrations" rows={3} /> : null}
-      {links.isError ? <QueryErrorState error={links.error} onRetry={links.refetch} /> : null}
-      {routing.error ? (
+      {start.error ? (
         <p role="alert" className="mb-3 text-sm text-status-danger">
-          {describeError(routing.error)}
+          {linkErrorMessage(start.error)}
         </p>
       ) : null}
-      {links.data && links.data.length === 0 ? (
+      {data && data.configured && linkReason && canManage ? (
+        <p role="status" className="mb-3 text-sm text-muted-foreground">
+          {linkReason}
+        </p>
+      ) : null}
+      {overview.isPending ? <LoadingState label="Loading integrations" rows={3} /> : null}
+      {overview.isError ? (
+        <QueryErrorState error={overview.error} onRetry={overview.refetch} />
+      ) : null}
+      {data && !data.configured ? (
         <EmptyState
           icon={Plug}
-          title="No GitHub account available"
-          description="No linked GitHub account is allowed for this workspace. An organization administrator links accounts and chooses which workspaces may use them."
+          title="GitHub is not configured"
+          description="The GitHub App is not set up on this platform. Ask your platform administrator."
         />
       ) : null}
-      {links.data && links.data.length > 0 ? (
-        <ul className="divide-y divide-border rounded-md border border-border bg-card">
-          {links.data.map((link) => (
-            <li
-              key={link.id}
-              className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs">{link.account.login}</span>
-                <LinkHealth status={link.health} />
-              </div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={link.enabled}
-                  disabled={!canManage || routing.isPending}
-                  onChange={() =>
-                    routing.mutate(
-                      { linkId: link.id, enabled: !link.enabled },
-                      {
-                        onSuccess: () =>
-                          toast.success(
-                            link.enabled
-                              ? "Turned off for this workspace"
-                              : "Turned on for this workspace",
-                          ),
-                      },
-                    )
-                  }
-                />
-                Use in this workspace
-              </label>
-            </li>
-          ))}
-        </ul>
+      {data && data.configured && links.length === 0 ? (
+        <EmptyState
+          icon={Plug}
+          title="No GitHub account linked"
+          description={
+            canManage
+              ? "Link a GitHub organization or personal account to connect repositories. You must be an owner of the organization."
+              : "Ask a workspace administrator to link a GitHub account."
+          }
+        />
       ) : null}
-      {!canManage && links.data?.length ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          You can see these settings but need the workspace_integration.manage permission to change
-          them.
+      {links.length > 0 ? (
+        <div className="space-y-4">
+          {!canManage ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              You can see these settings but need the workspace_integration.manage permission to
+              change them.
+            </p>
+          ) : null}
+          {links.map((link) => (
+            <WorkspaceLinkCard
+              key={link.id}
+              workspaceId={workspaceId}
+              link={link}
+              canManage={canManage}
+            />
+          ))}
+        </div>
+      ) : null}
+      {previous.length > 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Previously linked: {previous.map((l) => l.account.login).join(", ")}. Linking one of these
+          accounts again restores its repositories.
         </p>
       ) : null}
     </>

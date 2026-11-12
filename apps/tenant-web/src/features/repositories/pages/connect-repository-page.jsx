@@ -39,14 +39,11 @@ export function ConnectRepositoryPage() {
   const [results, setResults] = useState({}); // externalRepoId -> "pending" | "done" | error message
   const keys = useRef(new Map());
 
-  const links = useMemo(
-    () => (installations.data ?? []).filter((l) => l.enabled),
-    [installations.data],
-  );
+  const links = useMemo(() => installations.data ?? [], [installations.data]);
   const selected = linkId || (links.length === 1 ? links[0].id : "");
   const available = useAvailableRepositories(
     workspaceId,
-    { installationId: selected, q: q.trim() || undefined, page, pageSize: 30 },
+    { workspaceLinkId: selected, q: q.trim() || undefined, page, pageSize: 30 },
     { enabled: step === 1 && Boolean(selected) },
   );
 
@@ -75,7 +72,7 @@ export function ConnectRepositoryPage() {
       setResults((r) => ({ ...r, [repo.externalRepoId]: "pending" }));
       try {
         await connect.mutateAsync({
-          body: { installationId: selected, externalRepoId: repo.externalRepoId },
+          body: { workspaceLinkId: selected, externalRepoId: repo.externalRepoId },
           idempotencyKey: keys.current.get(repo.externalRepoId),
         });
         setResults((r) => ({ ...r, [repo.externalRepoId]: "done" }));
@@ -114,14 +111,16 @@ export function ConnectRepositoryPage() {
             <EmptyState
               title="No GitHub account available"
               description={
-                can("integration.manage")
-                  ? "Link a GitHub account first. It must also be allowed for this workspace."
-                  : "No linked GitHub account is available to this workspace. Ask an organization administrator."
+                can("workspace_integration.manage")
+                  ? "Link a GitHub account to this workspace first."
+                  : "No GitHub account is linked to this workspace. Ask a workspace administrator."
               }
               actions={
-                can("integration.view") ? (
+                can("workspace_integration.manage") ? (
                   <Button asChild variant="secondary">
-                    <Link to="/integrations/github">GitHub integration</Link>
+                    <Link to={`/workspaces/${workspaceId}/integrations`}>
+                      Workspace integrations
+                    </Link>
                   </Button>
                 ) : null
               }
@@ -179,15 +178,35 @@ export function ConnectRepositoryPage() {
               }}
             />
           </div>
-          {available.isPending ? <LoadingState label="Loading repositories from GitHub" /> : null}
+          {available.isPending ? <LoadingState label="Loading allowed repositories" /> : null}
           {available.isError ? (
             <QueryErrorState error={available.error} onRetry={available.refetch} />
           ) : null}
           {available.data && available.data.items.length === 0 ? (
-            <EmptyState
-              title="No repositories found"
-              description="The GitHub App has no access to matching repositories. Change the App's repository access on GitHub, then search again."
-            />
+            q.trim() ? (
+              <EmptyState
+                title="No matching repositories"
+                description="Only repositories allowed for this workspace are listed. Try a different search."
+              />
+            ) : (
+              <EmptyState
+                title="No repositories are allowed yet"
+                description={
+                  can("workspace_integration.manage")
+                    ? "Choose which repositories of this account the workspace may connect in the allow-list on the Integrations page."
+                    : "A workspace administrator must allow repositories of this account before they can be connected."
+                }
+                actions={
+                  can("workspace_integration.manage") ? (
+                    <Button asChild variant="secondary">
+                      <Link to={`/workspaces/${workspaceId}/integrations`}>
+                        Edit allowed repositories
+                      </Link>
+                    </Button>
+                  ) : null
+                }
+              />
+            )
           ) : null}
           {available.data && available.data.items.length > 0 ? (
             <>

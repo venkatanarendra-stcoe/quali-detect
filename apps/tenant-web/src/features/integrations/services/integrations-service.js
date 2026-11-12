@@ -1,25 +1,29 @@
 import { api } from "@/lib/api/index.js";
 
+const ws = (workspaceId) => `/workspaces/${workspaceId}/integrations/github`;
+
+/** Integration API calls. Tenant level is read-only for GitHub; linking and the allow-list are workspace scoped. */
 export const integrationsService = {
   catalog: ({ signal } = {}) => api.get("/integrations", { signal }),
-  github: ({ signal } = {}) => api.get("/integrations/github", { signal }),
+  settings: ({ signal } = {}) => api.get("/integrations/settings", { signal }),
+  updateSettings: (allowWorkspaceLinking) =>
+    api.put("/integrations/settings", { allowWorkspaceLinking }),
   installations: ({ signal } = {}) => api.get("/integrations/github/installations", { signal }),
-  start: () => api.post("/integrations/github/installations/start"),
-  authorize: (installationId) =>
-    api.post("/integrations/github/installations/authorize", { installationId }),
-  link: (body) => api.post("/integrations/github/installations", body),
-  refresh: (linkId) => api.post(`/integrations/github/installations/${linkId}/refresh`),
-  setScope: (linkId, workspaceIds) =>
-    api.put(`/integrations/github/installations/${linkId}/workspaces`, { workspaceIds }),
-  deliveries: (linkId, params, { signal } = {}) =>
-    api.getPage(`/integrations/github/installations/${linkId}/deliveries`, {
+  deliveries: (installationId, params, { signal } = {}) =>
+    api.getPage(`/integrations/github/installations/${installationId}/deliveries`, {
       query: params,
       signal,
     }),
-  workspaceLinks: (workspaceId, { signal } = {}) =>
-    api.get(`/workspaces/${workspaceId}/integrations`, { signal }),
-  setRouting: (workspaceId, linkId, enabled) =>
-    api.put(`/workspaces/${workspaceId}/integrations/${linkId}`, { enabled }),
-  unlink: (linkId, confirm) =>
-    api.delete(`/integrations/github/installations/${linkId}`, { body: { confirm } }),
+  workspaceOverview: (workspaceId, { signal } = {}) => api.get(ws(workspaceId), { signal }),
+  start: (workspaceId) => api.post(`${ws(workspaceId)}/start`),
+  authorize: (workspaceId, installationId) =>
+    api.post(`${ws(workspaceId)}/authorize`, { installationId }),
+  link: (body) => api.post("/integrations/github/links", body),
+  refresh: (workspaceId, linkId) => api.post(`${ws(workspaceId)}/links/${linkId}/refresh`),
+  unlink: (workspaceId, linkId, confirm) =>
+    api.delete(`${ws(workspaceId)}/links/${linkId}`, { body: { confirm } }),
+  allowList: (workspaceId, linkId, params, { signal } = {}) =>
+    api.getPage(`${ws(workspaceId)}/links/${linkId}/repositories`, { query: params, signal }),
+  saveAllowList: (workspaceId, linkId, body) =>
+    api.put(`${ws(workspaceId)}/links/${linkId}/repositories`, body),
 };

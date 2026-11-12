@@ -60,24 +60,27 @@ Common rules (**Confirmed**, WF §4.1/§4.5/§4.6 and `UX_GUIDELINES.md`): visib
 4. WF T-14 "Disconnect" is "Unlink" (R-6, Q10); WF "Test connection" maps to `POST .../refresh`.
 5. WF T-22/T-24 columns and tabs that depend on pipelines, executions, findings and commits are hidden or show "planned" until those modules exist (WF §4.3: unimplemented items stay hidden, no placeholder pages in navigation).
 
-## Browser verification (2026-11-11)
+## Browser verification (2026-11-12, workspace-level integration)
 
-Headless Chrome against a disposable stack (own PostgreSQL, local GitHub stub, API and Vite on private ports, seeded demo tenant with two linked accounts, one of them limited to Identity & Access), signed in as each seeded role. Result per role (Payments Platform workspace unless stated):
+Headless Chrome against a disposable stack (own PostgreSQL, local GitHub stub, API and Vite on private ports), all seven seeded roles signed in. Seed: installation `acme-open` linked to Payments Platform (allow-list of 3) and Identity & Access (allow-list of 1), `acme-identity-only` linked to Identity & Access only, 4 connected repositories. Result per role (Payments Platform unless stated; "page" = full page, "RO" = read-only with reason):
 
 | Screen | Admin | Manager | Lead | Security Analyst | Dev Lead | Developer | Viewer |
 |---|---|---|---|---|---|---|---|
-| Organization nav | all items | Workspaces | Workspaces | Workspaces | Workspaces | Workspaces | Workspaces |
-| Workspace nav "Integrations" | shown | shown | shown | hidden | shown | hidden | hidden |
-| T-13 catalog, T-14 GitHub | page, all actions | no access | no access | no access | no access | no access | no access |
-| T-22 list | page; Connect enabled | Connect enabled | Connect disabled (reason) | Connect disabled | Connect enabled | Connect disabled | Connect disabled |
+| T-13 catalog + Source control + setting switch | page, switch editable | no access | no access | no access | no access | no access | no access |
+| T-14 installations (read-only) | page | no access | no access | no access | no access | no access | no access |
+| T-42 | page, all actions | page, all actions | RO (Link/Test/Unlink disabled) | no access | RO | no access | no access |
+| T-42 other workspace (Identity) | page | 404 page | 404 page | no access | RO | no access | no access |
 | T-23 wizard | page | page | no access | no access | page | no access | no access |
-| T-24 actions | Sync, Disable/Enable, Disconnect | Sync, Disable/Enable, Disconnect | Sync, Disable/Enable | none | Sync | none | none |
-| T-42 | page, toggles enabled | page, toggles enabled | page, read-only with note | no access | page, read-only | no access | no access |
-| Other workspace (Identity) | all | 404 page | 404 page | list | list | list | list |
+| T-22 | Connect enabled | Connect enabled | Connect disabled (reason) | disabled | enabled | disabled | disabled |
+| T-24 actions | Sync, Disable, Disconnect | Sync, Disable, Disconnect | Sync, Disable | none | Sync | none | none |
+| `/integrations/github/setup`, `/callback` | page, workspace picker | page, picker (Payments only) | no access | no access | no access | no access | no access |
+| Workspace nav "Integrations" | shown | shown | shown | hidden | shown | hidden | hidden |
 
-Also verified: loading, empty (new workspace and filtered), error (after the two automatic retries) and no-permission states; the T-14 link flow end to end (setup page, redirect, callback, account appears; bad state, missing parameters and invalid installation id show an error with a way back); typed-confirmation unlink dialog (submit disabled until the login is typed); Test connection; webhook delivery table; the three T-24 live tabs; alias redirects `/repositories/connect?workspace=` and `/repositories/:id`; a repository opened under the wrong workspace is the not-found page; the wizard offers only connections inside the organization scope and switched on for the workspace (Manager switches one off and on; Dev Lead sees the Identity-only account in Identity and not in Payments); workspace switch keeps the section when the target allows it and resets to the Dashboard otherwise (tested with a role that has Integrations in one workspace and not the other); no horizontal page overflow at 1440, 820 and 390 px.
+Flows verified end to end (stubbed GitHub): Manager (no tenant Admin) links a new account from T-42 (start, setup, authorize, callback, lands on T-42 with a toast, hint and URL cleared, exactly one `POST /integrations/github/links`); Admin links the same installation from a second workspace (no conflict); allow-list editing (search, selection kept across searches, save toast, repositories on another workspace's list disabled with the reason, connected repositories locked with a note); a stale-page conflict (409) shows the server message and refreshes the list; the wizard shows only allow-listed repositories, explains an empty allow-list with a link to T-42 for `.manage` holders, connects one repository with `workspaceLinkId`; unlinking in one workspace (typed login) disconnects only its repositories and leaves the other workspace's link intact; T-24 of a disconnected repository mentions the workspace unlink; tenant setting off disables Link with the organization's message on T-42, on the setup page and on the callback (403 `workspace_linking_disabled`); bad state and missing parameters show an error with "Start again"; setup without hint asks for a workspace among those with `.manage`; workspace switch keeps T-42 when the target allows it and resets to the Dashboard otherwise; loading, empty (new workspace), error (500 after retries) and no-permission states; no horizontal page overflow at 390, 820 and 1440 px on T-13, T-14, T-42 (editor open), T-23 step 2, T-22, T-24 and the setup picker.
 
-Defects found and fixed in this pass: T-14 showed "Page not found" (a route parameter that did not exist); a repository of another workspace in the URL showed a generic error instead of the not-found page; tables and the repository header overflowed the page at 390 px (visually hidden table text escaped its scroll container; header actions did not wrap; tab list did not scroll).
+Not exercised against a real second tenant: the generic 409 `installation_unavailable` on the callback was checked with a mocked response only. T-13/T-14 hidden-workspace counts ("+N more") are rendered from `hiddenWorkspaceCount` but only an Admin (sees all workspaces) can open those pages with the seeded roles.
+
+Defects found and fixed in this pass: the T-13 provider card status badge overflowed by 1 px at 820 px; allow-list rows wrapped the repository name badly at 390 px; after a 409 the editor kept stale selections (now cleared and the list refreshed); "1 repositories disconnected" pluralization.
 
 ## Amendment 2026-11-12: workspace-level integration (**Approved 2026-11-12**; supersedes the T-13, T-14, T-23 and T-42 sections above where stated; SPEC §18)
 

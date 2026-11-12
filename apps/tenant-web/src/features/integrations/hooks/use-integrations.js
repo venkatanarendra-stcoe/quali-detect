@@ -6,20 +6,31 @@ import { integrationsService } from "../services/integrations-service.js";
 export const integrationKeys = {
   all: (tenantId) => ["tenant", tenantId, "integrations"],
   catalog: (tenantId) => ["tenant", tenantId, "integrations", "catalog"],
+  settings: (tenantId) => ["tenant", tenantId, "integrations", "settings"],
   installations: (tenantId) => ["tenant", tenantId, "integrations", "installations"],
-  workspaceLinks: (tenantId, workspaceId) => [
+  workspace: (tenantId, workspaceId) => [
     "tenant",
     tenantId,
     "integrations",
     "workspace",
     workspaceId,
   ],
-  deliveries: (tenantId, linkId, params) => [
+  allowList: (tenantId, workspaceId, linkId, params) => [
+    "tenant",
+    tenantId,
+    "integrations",
+    "workspace",
+    workspaceId,
+    "allow-list",
+    linkId,
+    params,
+  ],
+  deliveries: (tenantId, installationId, params) => [
     "tenant",
     tenantId,
     "integrations",
     "deliveries",
-    linkId,
+    installationId,
     params,
   ],
 };
@@ -31,67 +42,94 @@ export function useCatalog() {
     queryFn: ({ signal }) => integrationsService.catalog({ signal }),
   });
 }
-export function useInstallations({ enabled = true } = {}) {
+export function useIntegrationSettings() {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: integrationKeys.settings(tenantId),
+    queryFn: ({ signal }) => integrationsService.settings({ signal }),
+  });
+}
+/** Installations of the organization (read-only, integration.view) with the workspaces using each. */
+export function useInstallations() {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: integrationKeys.installations(tenantId),
     queryFn: ({ signal }) => integrationsService.installations({ signal }),
-    enabled,
     select: (data) => data.items,
   });
 }
-/** Connections this workspace may use (workspace_integration.view); `items` are already filtered by the organization scope. */
-export function useWorkspaceLinks(workspaceId) {
+/** This workspace's links plus `configured` and `linkingEnabled` (workspace_integration.view). */
+export function useWorkspaceIntegrations(workspaceId, options = {}) {
   const tenantId = useTenantId();
   return useQuery({
-    queryKey: integrationKeys.workspaceLinks(tenantId, workspaceId),
-    queryFn: ({ signal }) => integrationsService.workspaceLinks(workspaceId, { signal }),
-    select: (data) => data.items,
+    queryKey: integrationKeys.workspace(tenantId, workspaceId),
+    queryFn: ({ signal }) => integrationsService.workspaceOverview(workspaceId, { signal }),
+    ...options,
   });
 }
-export function useDeliveries(linkId, params) {
+/** Linked accounts of the workspace (what the Connect repository wizard offers). */
+export const useWorkspaceLinks = (workspaceId) =>
+  useWorkspaceIntegrations(workspaceId, {
+    select: (data) => data.items.filter((l) => l.status === "linked"),
+  });
+export function useDeliveries(installationId, params) {
   const tenantId = useTenantId();
   return useQuery({
-    queryKey: integrationKeys.deliveries(tenantId, linkId, params),
-    queryFn: ({ signal }) => integrationsService.deliveries(linkId, params, { signal }),
-    enabled: Boolean(linkId),
+    queryKey: integrationKeys.deliveries(tenantId, installationId, params),
+    queryFn: ({ signal }) => integrationsService.deliveries(installationId, params, { signal }),
+    enabled: Boolean(installationId),
+    placeholderData: keepPreviousData,
+  });
+}
+export function useAllowList(workspaceId, linkId, params) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: integrationKeys.allowList(tenantId, workspaceId, linkId, params),
+    queryFn: ({ signal }) => integrationsService.allowList(workspaceId, linkId, params, { signal }),
     placeholderData: keepPreviousData,
   });
 }
 
-function useIntegrationMutation(mutationFn) {
+function useIntegrationMutation(mutationFn, { alsoRepositories = false } = {}) {
   const queryClient = useQueryClient();
   const tenantId = useTenantId();
   return useMutation({
     mutationFn,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: integrationKeys.all(tenantId) }),
-  });
-}
-export const useStartLinking = () => useMutation({ mutationFn: () => integrationsService.start() });
-export const useAuthorizeInstallation = () =>
-  useMutation({ mutationFn: (installationId) => integrationsService.authorize(installationId) });
-export const useLinkInstallation = () =>
-  useIntegrationMutation((body) => integrationsService.link(body));
-export const useRefreshInstallation = () =>
-  useIntegrationMutation((linkId) => integrationsService.refresh(linkId));
-export const useSetScope = () =>
-  useIntegrationMutation(({ linkId, workspaceIds }) =>
-    integrationsService.setScope(linkId, workspaceIds),
-  );
-export const useSetWorkspaceRouting = (workspaceId) =>
-  useIntegrationMutation(({ linkId, enabled }) =>
-    integrationsService.setRouting(workspaceId, linkId, enabled),
-  );
-export const useUnlinkInstallation = () => {
-  const queryClient = useQueryClient();
-  const tenantId = useTenantId();
-  return useMutation({
-    mutationFn: ({ linkId, confirm }) => integrationsService.unlink(linkId, confirm),
-    // Unlinking disconnects repositories, so repository lists change too.
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: integrationKeys.all(tenantId) }),
-        queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "repositories"] }),
+        alsoRepositories
+          ? queryClient.invalidateQueries({ queryKey: ["tenant", tenantId, "repositories"] })
+          : null,
       ]),
   });
-};
+}
+export const useUpdateSettings = () =>
+  useIntegrationMutation((allowWorkspaceLinking) =>
+    integrationsService.updateSettings(allowWorkspaceLinking),
+  );
+export const useStartLinking = () =>
+  useMutation({ mutationFn: (workspaceId) => integrationsService.start(workspaceId) });
+export const useAuthorizeInstallation = () =>
+  useMutation({
+    mutationFn: ({ workspaceId, installationId }) =>
+      integrationsService.authorize(workspaceId, installationId),
+  });
+export const useLinkAccount = () =>
+  useIntegrationMutation((body) => integrationsService.link(body));
+export const useRefreshLink = (workspaceId) =>
+  useIntegrationMutation((linkId) => integrationsService.refresh(workspaceId, linkId));
+export const useSaveAllowList = (workspaceId) =>
+  useIntegrationMutation(
+    ({ linkId, body }) => integrationsService.saveAllowList(workspaceId, linkId, body),
+    {
+      alsoRepositories: true,
+    },
+  );
+export const useUnlinkWorkspaceLink = (workspaceId) =>
+  useIntegrationMutation(
+    ({ linkId, confirm }) => integrationsService.unlink(workspaceId, linkId, confirm),
+    {
+      alsoRepositories: true,
+    },
+  );

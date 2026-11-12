@@ -9,6 +9,8 @@ import { Card, CardContent } from "@/components/ui/card.jsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.jsx";
 import { cn } from "@/lib/cn.js";
 import { LinkHealth } from "../components/link-health.jsx";
+import { LinkingSetting } from "../components/linking-setting.jsx";
+import { SourceControlSection } from "../components/source-control-section.jsx";
 import { useCatalog } from "../hooks/use-integrations.js";
 
 const CATEGORIES = [
@@ -23,26 +25,28 @@ const CATEGORIES = [
 ];
 
 /**
- * T-13 Integrations catalog. Only GitHub is live; the other providers are listed with a disabled button and the status
- * "Not available yet", so the page never implies a capability that does not exist (TAD §3.14). Category lives in the URL.
+ * T-13 Integrations (organization). Tenant-wide tools are listed with a disabled button and "Not available yet", so the
+ * page never implies a capability that does not exist. Source control is connected from a workspace; here it is a
+ * read-only section (installations and the workspaces using them) plus the tenant setting that allows workspace linking.
  */
 export function IntegrationsCatalogPage() {
   const [params, setParams] = useSearchParams();
   const category = params.get("category") ?? "all";
   const catalog = useCatalog();
   const items = (catalog.data?.items ?? []).filter(
-    (i) => category === "all" || i.category === category,
+    (i) => i.provider !== "github" && (category === "all" || i.category === category),
   );
+  const showSourceControl = category === "all" || category === "source_control";
   return (
     <>
       <PageHeader
         title="Integrations"
-        description="Connect source control and other tools to this organization."
+        description="Tools connected to this organization. Source control is connected from a workspace's Integrations page."
       />
       <div
         role="tablist"
         aria-label="Categories"
-        className="mb-4 flex flex-wrap gap-1 border-b border-border"
+        className="mb-4 flex max-w-full flex-wrap gap-1 border-b border-border"
       >
         {CATEGORIES.map(([id, label]) => (
           <button
@@ -62,67 +66,73 @@ export function IntegrationsCatalogPage() {
           </button>
         ))}
       </div>
+      {showSourceControl ? (
+        <section aria-labelledby="source-control-heading" className="mb-8 space-y-3">
+          <h2 id="source-control-heading" className="text-base font-semibold">
+            Source control
+          </h2>
+          <LinkingSetting />
+          <SourceControlSection />
+        </section>
+      ) : null}
       {catalog.isPending ? <LoadingState label="Loading integrations" /> : null}
       {catalog.isError ? <QueryErrorState error={catalog.error} onRetry={catalog.refetch} /> : null}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {items.map((item) => (
-          <Card key={item.provider}>
-            <CardContent className="flex h-full flex-col gap-3 pt-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="flex size-8 items-center justify-center rounded-sm border border-border text-muted-foreground"
-                    aria-hidden="true"
-                  >
-                    <Cable className="size-4" />
-                  </span>
-                  <h2 className="text-sm font-semibold">{item.name}</h2>
-                  {item.beta ? <Badge>Beta</Badge> : null}
-                </div>
-                <LinkHealth status={item.status} />
-              </div>
-              <div className="mt-auto">
-                {item.available && item.status !== "not_configured" ? (
-                  <Button
-                    asChild
-                    variant={item.status === "not_connected" ? "default" : "secondary"}
-                    size="sm"
-                  >
-                    <Link to={`/integrations/${item.provider}`}>
-                      {item.status === "not_connected" ? "Connect" : "Manage"}
-                    </Link>
-                  </Button>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+      {items.length > 0 ? (
+        <section aria-labelledby="tools-heading" className="space-y-3">
+          <h2 id="tools-heading" className="text-base font-semibold">
+            Organization tools
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {items.map((item) => (
+              <Card key={item.provider}>
+                <CardContent className="flex h-full flex-col gap-3 pt-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <span
-                        role="button"
-                        aria-disabled="true"
-                        tabIndex={0}
-                        className="inline-flex rounded-sm"
+                        className="flex size-8 items-center justify-center rounded-sm border border-border text-muted-foreground"
+                        aria-hidden="true"
                       >
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled
-                          aria-label={`${item.name}: ${item.status === "not_configured" ? "not configured by your platform administrator" : "not available yet"}`}
-                        >
-                          Connect
-                        </Button>
+                        <Cable className="size-4" />
                       </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {item.status === "not_configured"
-                        ? "Ask your platform administrator to configure the GitHub App."
-                        : "Not available yet."}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                      <h3 className="text-sm font-semibold">{item.name}</h3>
+                      {item.beta ? <Badge>Beta</Badge> : null}
+                    </div>
+                    <LinkHealth status={item.status} />
+                  </div>
+                  <div className="mt-auto">
+                    {item.available ? (
+                      <Button asChild variant="secondary" size="sm">
+                        <Link to={`/integrations/${item.provider}`}>Manage</Link>
+                      </Button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            role="button"
+                            aria-disabled="true"
+                            tabIndex={0}
+                            className="inline-flex rounded-sm"
+                          >
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled
+                              aria-label={`${item.name}: not available yet`}
+                            >
+                              Connect
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Not available yet.</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

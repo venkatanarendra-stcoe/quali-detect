@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 305;
+const EXPECTED_CHECKS = 313;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -3989,6 +3989,369 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         if (get(name)) problems.push(`${name} was notified`);
       if (warnings.length === 0) problems.push("nobody was notified");
       if (wlP === undefined) problems.push("no world");
+      return problems;
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12d. GitHub integration: restoring repositories when a workspace links an installation (SPEC §18.7). The signed webhook runs
+//      through the API; the scm event consumer runs in-process (as in 12c). Tenant A uninstalls installation X, then links a
+//      NEW installation Y; another tenant holds disconnected repositories with the same GitHub repository ids.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: restoring repositories");
+  const base = 8000000 + (Date.now() % 100000) * 10;
+  const [R1, R2, R3, R4, R5] = [1, 2, 3, 4, 5].map((n) => base + n);
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
+  const world = () =>
+    once("scm-restore", async () => {
+      const db = suiteDb();
+      const admin = S("admin")(w);
+      const edge = await edgeTenant();
+      const edgeWs = await edgeWorkspace();
+      const tenantId = await tenantIdA();
+      const edgeTenantId = (await w.api("GET", "/me", { cookie: edge.owner })).json.data.tenant.id;
+      const user = ghUser();
+      const account = orgAccount("rs");
+      const handleEvent = (message) =>
+        createScmEventHandler({
+          db,
+          config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+          logger: quietLog,
+        })(message, { log: quietLog });
+      const uninstall = async (installationId, accountLogin) => {
+        const deliveryId = randomUUID();
+        const res = await deliver({
+          payload: {
+            action: "deleted",
+            installation: { id: Number(installationId), account: { login: accountLogin } },
+          },
+          deliveryId,
+        });
+        const rows = await rowsFor(deliveryId);
+        await handleEvent(rows.outbox[0].payload);
+        return res;
+      };
+      const rowOf = (id) => db.repository.findUnique({ where: { id } });
+      const rowsOf = async (tid, ids) =>
+        (
+          await db.repository.findMany({
+            where: { tenantId: tid, externalRepoId: { in: ids.map(String) } },
+          })
+        ).sort((a, b) => a.externalRepoId.localeCompare(b.externalRepoId));
+      const view = (r) =>
+        r && {
+          id: r.id,
+          status: r.status,
+          reason: r.disconnectReason,
+          linkId: r.linkId,
+          workspaceLinkId: r.workspaceLinkId,
+          workspaceId: r.workspaceId,
+          nodeId: r.nodeId,
+          externalRepoId: r.externalRepoId,
+          failures: r.consecutiveSyncFailures,
+        };
+      const allowRows = (tid) =>
+        db.scmWorkspaceLinkRepository.findMany({
+          where: { tenantId: tid },
+          orderBy: { externalRepoId: "asc" },
+        });
+
+      // --- tenant A: installation X in Payments (r1..r5 listed; r1, r2, r3, r5 allow-listed) and Identity (r4)
+      const flowX = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [R1, R2, R3, R4, R5].map(stubRepo),
+      });
+      const flowXI = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: flowX.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const wlX = flowX.link.json.data.id;
+      const wlXI = flowXI.link.json.data.id;
+      await putAllowList(admin, PAY(), wlX, [R1, R2, R3, R5]);
+      await putAllowList(admin, IDN(), wlXI, [R4]);
+      const c1 = await connectRepo(admin, PAY(), wlX, R1);
+      const c2 = await connectRepo(admin, PAY(), wlX, R2);
+      const c3 = await connectRepo(admin, PAY(), wlX, R3);
+      const c4 = await connectRepo(admin, IDN(), wlXI, R4);
+      const ids = {
+        r1: c1.json.data.id,
+        r2: c2.json.data.id,
+        r3: c3.json.data.id,
+        r4: c4.json.data.id,
+      };
+      // r3 was disconnected earlier for another reason (a direct, tenant-scoped update)
+      await db.repository.updateMany({
+        where: { id: ids.r3, tenantId },
+        data: {
+          status: "disconnected",
+          disconnectReason: "repo_inaccessible",
+          disconnectedAt: new Date(),
+        },
+      });
+
+      // --- the other tenant: installation E with the same GitHub repository ids r1 and r2, connected, then uninstalled
+      const edgeAccount = orgAccount("re");
+      const edgeUser = ghUser();
+      const flowE = await linkFlow(edge.owner, {
+        workspaceId: edgeWs,
+        account: edgeAccount,
+        user: edgeUser,
+        orgRole: "admin",
+        repos: [R1, R2].map(stubRepo),
+      });
+      const wlE = flowE.link.json.data.id;
+      await putAllowList(edge.owner, edgeWs, wlE, [R1, R2]);
+      const e1 = await connectRepo(edge.owner, edgeWs, wlE, R1);
+      const e2 = await connectRepo(edge.owner, edgeWs, wlE, R2);
+      const edgeIds = [e1.json.data.id, e2.json.data.id];
+
+      const beforeRevoke = (await rowsOf(tenantId, [R1, R2, R3, R4])).map(view);
+      await uninstall(flowX.installationId, account.login);
+      await uninstall(flowE.installationId, edgeAccount.login);
+      const afterRevoke = (await rowsOf(tenantId, [R1, R2, R3, R4])).map(view);
+      const edgeAfterRevoke = (await rowsOf(edgeTenantId, [R1, R2])).map(view);
+      const allowAfterRevoke = await allowRows(tenantId);
+
+      // --- tenant A links a NEW installation Y in Payments: r1, r3, r4, r5 are listed, r2 is not
+      const outboxBefore = await db.outboxMessage.count({
+        where: { tenantId, type: "repository.connected" },
+      });
+      const flowY = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [R1, R3, R4, R5].map(stubRepo),
+      });
+      const wlY = flowY.link.json.data.id;
+      const afterPay = (await rowsOf(tenantId, [R1, R2, R3, R4])).map(view);
+      const edgeAfterPay = (await rowsOf(edgeTenantId, [R1, R2])).map(view);
+      const allowAfterPay = await allowRows(tenantId);
+      const restoredAudits = await db.auditLog.findMany({
+        where: { tenantId, action: "repository.restored", targetId: { in: Object.values(ids) } },
+      });
+      const outboxAfter = await db.outboxMessage.findMany({
+        where: { tenantId, type: "repository.connected" },
+      });
+      const allRowsA = await db.repository.count({
+        where: { tenantId, externalRepoId: { in: [R1, R2, R3, R4].map(String) } },
+      });
+
+      // --- allow-list after the re-install: another workspace's repository (r4) is refused, an earlier link's (r5) is not
+      const withOther = await putAllowList(admin, PAY(), wlY, [R1, R5, R4]);
+      const withEarlier = await putAllowList(admin, PAY(), wlY, [R1, R5]);
+      const allowAfterEdit = (await allowRows(tenantId)).filter((r) =>
+        [R1, R4, R5].map(String).includes(r.externalRepoId),
+      );
+
+      // --- Identity links Y itself: r4 comes back only now
+      const flowYI = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: flowY.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const afterIdn = (await rowsOf(tenantId, [R1, R2, R3, R4])).map(view);
+
+      // --- the other tenant links its new installation (r1 and r2 listed): its rows come back, tenant A's do not change
+      const edgeBeforeRelink = (await rowsOf(edgeTenantId, [R1, R2])).map(view);
+      const flowE2 = await linkFlow(edge.owner, {
+        workspaceId: edgeWs,
+        account: edgeAccount,
+        user: edgeUser,
+        orgRole: "admin",
+        repos: [R1, R2].map(stubRepo),
+      });
+      const edgeAfterRelink = (await rowsOf(edgeTenantId, [R1, R2])).map(view);
+      const afterEdge = (await rowsOf(tenantId, [R1, R2, R3, R4])).map(view);
+      const rowAtEnd = await rowOf(ids.r1);
+      return {
+        ids,
+        edgeIds,
+        beforeRevoke,
+        afterRevoke,
+        edgeAfterRevoke,
+        afterPay,
+        edgeAfterPay,
+        afterIdn,
+        edgeBeforeRelink,
+        edgeAfterRelink,
+        afterEdge,
+        flowY,
+        flowYI,
+        flowE2,
+        wlX,
+        wlY,
+        wlE,
+        withOther,
+        withEarlier,
+        allowAfterRevoke,
+        allowAfterPay,
+        allowAfterEdit,
+        restoredAudits,
+        outboxBefore,
+        outboxAfter,
+        allRowsA,
+        rowAtEnd,
+        ext: { R1, R2, R3, R4, R5 },
+        tenantId,
+        edgeTenantId,
+      };
+    });
+  const byExt = (rows, ext) => rows.find((r) => r.externalRepoId === String(ext));
+  add(
+    "SCM-048",
+    "linking a new installation restores to active, in the same row, only the workspace's repositories that were disconnected as installation_revoked / workspace_unlinked / installation_unlinked, are accessible to the new installation and (for installation_revoked) still on the allow-list; repo_inaccessible and inaccessible repositories stay disconnected, and another workspace's repositories wait until it links itself",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await world() }),
+    (r) => {
+      const x = r.x;
+      const E = x.ext;
+      const problems = [];
+      if (x.flowY.link?.status !== 201) problems.push(`linking Y answered ${x.flowY.link?.status}`);
+      if (x.beforeRevoke.filter((v) => v.status === "active").length !== 3)
+        problems.push("fixture: r1, r2 and r4 should be active before the uninstall");
+      // fixture sanity (controls): the revoke produced the starting state
+      for (const n of [E.R1, E.R2, E.R4])
+        if (byExt(x.afterRevoke, n).reason !== "installation_revoked")
+          problems.push(`r${n - E.R1 + 1} after the uninstall: ${byExt(x.afterRevoke, n).reason}`);
+      if (byExt(x.afterRevoke, E.R3).reason !== "repo_inaccessible")
+        problems.push(`r3 after the uninstall: ${byExt(x.afterRevoke, E.R3).reason}`);
+      const r1 = byExt(x.afterPay, E.R1);
+      const r1Before = byExt(x.beforeRevoke, E.R1);
+      if (r1.status !== "active" || r1.reason !== null)
+        problems.push(`r1 is ${r1.status}/${r1.reason}`);
+      if (
+        r1.id !== x.ids.r1 ||
+        r1.externalRepoId !== r1Before.externalRepoId ||
+        r1.nodeId !== r1Before.nodeId
+      )
+        problems.push("r1 is not the same row (id, external id, node id)");
+      if (r1.failures !== 0) problems.push(`r1 failures ${r1.failures}`);
+      if (r1.linkId === r1Before.linkId || r1.workspaceLinkId === r1Before.workspaceLinkId)
+        problems.push("r1 still points at the old links");
+      if (
+        r1.workspaceLinkId !== x.wlY ||
+        r1.linkId !== x.flowY.link?.json?.data?.installationLinkId
+      )
+        problems.push("r1 does not point at the new links");
+      const r2 = byExt(x.afterPay, E.R2);
+      if (r2.status !== "disconnected" || r2.reason !== "installation_revoked")
+        problems.push(`r2 (not accessible) is ${r2.status}/${r2.reason}`);
+      if (JSON.stringify(r2) !== JSON.stringify(byExt(x.afterRevoke, E.R2)))
+        problems.push("r2 changed");
+      const r3 = byExt(x.afterPay, E.R3);
+      if (r3.status !== "disconnected" || r3.reason !== "repo_inaccessible")
+        problems.push(`r3 (repo_inaccessible, accessible) is ${r3.status}/${r3.reason}`);
+      const r4 = byExt(x.afterPay, E.R4);
+      if (JSON.stringify(r4) !== JSON.stringify(byExt(x.afterRevoke, E.R4)))
+        problems.push("another workspace's repository changed when Payments linked");
+      if (x.allRowsA !== 4) problems.push(`${x.allRowsA} repository rows for 4 repositories`);
+      const audit = x.restoredAudits.filter((a) => a.targetId === x.ids.r1);
+      if (x.restoredAudits.length !== 1 || audit.length !== 1)
+        problems.push(
+          `${x.restoredAudits.length} repository.restored entries after the first link`,
+        );
+      else if (audit[0].metadata?.previousReason !== "installation_revoked")
+        problems.push(`previousReason ${audit[0].metadata?.previousReason}`);
+      if (x.outboxAfter.length !== x.outboxBefore + 1)
+        problems.push(`${x.outboxAfter.length - x.outboxBefore} repository.connected messages`);
+      // the allow-list entry of r1 moved to the new workspace link; exactly one row
+      const entries = x.allowAfterPay.filter((a) => a.externalRepoId === String(E.R1));
+      if (entries.length !== 1 || entries[0].workspaceLinkId !== x.wlY)
+        problems.push(`r1 allow-list: ${entries.length} rows`);
+      // r2 and r3 stay on the old list (not touched)
+      if (x.allowAfterPay.filter((a) => a.externalRepoId === String(E.R2)).length !== 1)
+        problems.push("r2's allow-list entry changed");
+      // Identity links Y itself: now r4 returns
+      const r4End = byExt(x.afterIdn, E.R4);
+      if (
+        r4End.status !== "active" ||
+        r4End.id !== x.ids.r4 ||
+        r4End.workspaceLinkId === r4.workspaceLinkId
+      )
+        problems.push(`r4 after Identity linked: ${r4End.status}`);
+      if (
+        byExt(x.afterIdn, E.R2).status !== "disconnected" ||
+        byExt(x.afterIdn, E.R3).reason !== "repo_inaccessible"
+      )
+        problems.push("r2 or r3 changed when Identity linked");
+      return problems;
+    },
+  );
+  add(
+    "SCM-049",
+    "restoring repositories never crosses tenants: another tenant's disconnected repository with the same GitHub repository id is left untouched when tenant A links a new installation, and tenant A's rows are left untouched when the other tenant links its own",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await world() }),
+    (r) => {
+      const x = r.x;
+      const E = x.ext;
+      const problems = [];
+      const gone = x.edgeAfterRevoke;
+      for (const row of gone)
+        if (row.status !== "disconnected" || row.reason !== "installation_revoked")
+          problems.push(`fixture: the other tenant's row is ${row.status}/${row.reason}`);
+      if (gone.length !== 2) problems.push(`fixture: ${gone.length} rows for the other tenant`);
+      if (x.flowE2.link?.status !== 201)
+        problems.push(`the other tenant's link answered ${x.flowE2.link?.status}`);
+      // tenant A linked a new installation that lists r1: only A's row came back (control: A's r1 is active)
+      if (byExt(x.afterPay, E.R1).status !== "active")
+        problems.push("control: tenant A's r1 was not restored");
+      if (JSON.stringify(x.edgeAfterPay) !== JSON.stringify(x.edgeAfterRevoke))
+        problems.push("the other tenant's rows changed when tenant A linked");
+      if (JSON.stringify(x.edgeBeforeRelink) !== JSON.stringify(x.edgeAfterPay))
+        problems.push("the other tenant's rows changed before it linked");
+      // the other tenant links: its rows are restored (control), tenant A's are unchanged
+      for (const row of x.edgeAfterRelink)
+        if (row.status !== "active" || row.reason !== null)
+          problems.push(`control: the other tenant's row r${row.externalRepoId} is ${row.status}`);
+      if (
+        JSON.stringify(x.edgeAfterRelink.map((v) => v.id).sort()) !==
+        JSON.stringify([...x.edgeIds].sort())
+      )
+        problems.push("the other tenant's rows are not the same rows");
+      if (JSON.stringify(x.afterEdge) !== JSON.stringify(x.afterIdn))
+        problems.push("tenant A's rows changed when the other tenant linked");
+      if (x.edgeAfterRelink.some((v) => [x.ids.r1, x.ids.r2].includes(v.id)))
+        problems.push("a row was shared between tenants");
+      if (!x.rowAtEnd || x.rowAtEnd.tenantId !== x.tenantId)
+        problems.push("tenant A's r1 row moved");
+      return problems;
+    },
+  );
+  add(
+    "SCM-050",
+    "after the re-install the workspace can add a repository that was on an earlier (revoked) link of its own allow-list to the new link, while a repository on another workspace's list still gives the generic 409",
+    { status: 409, code: "CONFLICT" },
+    async () => (await world()).withOther,
+    async () => {
+      const x = await world();
+      const problems = [];
+      if (x.withOther.json.error.details?.reason !== "allow_list_conflict")
+        problems.push(`reason ${x.withOther.json.error.details?.reason}`);
+      const text = JSON.stringify(x.withOther.json);
+      if (text.includes("Identity") || text.includes(x.wlY))
+        problems.push("the refusal names the other workspace");
+      if (x.withEarlier.status !== 200)
+        problems.push(`the earlier link's repository answered ${x.withEarlier.status}`);
+      const mine = (id) => x.allowAfterEdit.filter((a) => a.externalRepoId === String(id));
+      if (mine(x.ext.R5).length !== 1 || mine(x.ext.R5)[0].workspaceLinkId !== x.wlY)
+        problems.push(`r5 allow-list rows: ${mine(x.ext.R5).length}`);
+      if (mine(x.ext.R1).length !== 1)
+        problems.push(`r1 allow-list rows: ${mine(x.ext.R1).length}`);
+      if (mine(x.ext.R4).length !== 1 || mine(x.ext.R4)[0].workspaceLinkId === x.wlY)
+        problems.push("the other workspace's entry moved or was copied");
       return problems;
     },
   );

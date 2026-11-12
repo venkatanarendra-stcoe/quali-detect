@@ -375,6 +375,63 @@ export async function buildDalWorld(db) {
     suspend: await zInstallation("suspend"),
   };
 
+  // Tenant V (restore fixtures, SPEC §18.7): two workspaces on one tenant link, each with a repository disconnected as
+  // installation_revoked and an allow-list entry on its own workspace link.
+  const V = await db.tenant.create({ data: { slug: `dal-v-${sfx}`, name: `DAL V ${sfx}` } });
+  const uV = await user("v");
+  const vWorkspaces = [
+    await db.workspace.create({ data: { tenantId: V.id, name: `DAL V1 ${sfx}` } }),
+    await db.workspace.create({ data: { tenantId: V.id, name: `DAL V2 ${sfx}` } }),
+  ];
+  const vInstallation = await db.scmInstallation.create({
+    data: {
+      provider: "github",
+      externalInstallationId: `dal-v-${rand(4)}`,
+      accountExternalId: `acct-v-${sfx}`,
+      accountLogin: "dal-v",
+      accountType: "organization",
+      repositorySelection: "all",
+    },
+  });
+  const vLink = await db.scmInstallationLink.create({
+    data: { tenantId: V.id, installationId: vInstallation.id, linkedByUserId: uV.id },
+  });
+  const vSets = [];
+  for (const [i, vws] of vWorkspaces.entries()) {
+    const vwl = await db.scmWorkspaceLink.create({
+      data: { tenantId: V.id, workspaceId: vws.id, linkId: vLink.id, linkedByUserId: uV.id },
+    });
+    const vrepo = await db.repository.create({
+      data: {
+        tenantId: V.id,
+        workspaceId: vws.id,
+        linkId: vLink.id,
+        workspaceLinkId: vwl.id,
+        provider: "github",
+        externalRepoId: `dal-v-${i}-${sfx}`,
+        fullName: `dal-v/repo-${i}`,
+        name: `repo-${i}`,
+        ownerLogin: "dal-v",
+        connectedByUserId: uV.id,
+        status: "disconnected",
+        disconnectedAt: new Date(),
+        disconnectReason: "installation_revoked",
+      },
+    });
+    await db.scmWorkspaceLinkRepository.create({
+      data: {
+        tenantId: V.id,
+        workspaceLinkId: vwl.id,
+        provider: "github",
+        externalRepoId: vrepo.externalRepoId,
+        fullName: vrepo.fullName,
+        addedByUserId: uV.id,
+      },
+    });
+    vSets.push({ workspaceId: vws.id, workspaceLink: vwl, repo: vrepo });
+  }
+  const v = { id: V.id, link: vLink.id, sets: vSets };
+
   const repos = {
     audit: createAuditLogRepository({ db }),
     groups: createGroupRepository({ db }),
@@ -419,6 +476,7 @@ export async function buildDalWorld(db) {
     repo,
     repo2,
     z,
+    v,
     secret: secret.id,
     keys,
     entitlementId: planEntitlement.entitlementId,
@@ -462,6 +520,8 @@ async function snapshot(c) {
     db.tenantEntitlement.findMany({ where: tenant }),
     db.tenantQuota.findMany({ where: tenant }),
     db.tenantQuotaUsage.findMany({ where: tenant }),
+    db.repository.findMany({ where: { tenantId: c.v.id } }),
+    db.scmWorkspaceLinkRepository.findMany({ where: { tenantId: c.v.id } }),
   ]);
   return JSON.stringify(
     tables.map((rows) =>
@@ -1728,6 +1788,193 @@ export function buildDalEntries() {
         )) === undefined
           ? "accepted"
           : null,
+    },
+  );
+
+  // ----- restoring repositories when a workspace links an installation (SPEC §18.7; appended so the ids above do not shift).
+  //       Tenant V holds two workspaces, each with a revoked repository and its own allow-list entry. Every entry calls the
+  //       function with ANOTHER tenant (V's workspace and ids) and, separately, with V and the WRONG workspace.
+  const ids = (rows) => rows.map((r) => r.id).sort();
+  const ext = (c, i) => c.v.sets[i].repo.externalRepoId;
+  E(
+    "integrations.findRestorableRepositories (workspace scope)",
+    async (c) => ({
+      otherTenant: await NN(c).findRestorableRepositories({
+        tenantId: c.y,
+        workspaceId: c.v.sets[0].workspaceId,
+      }),
+      scoped: await NN(c).findRestorableRepositories({
+        tenantId: c.v.id,
+        workspaceId: c.v.sets[0].workspaceId,
+      }),
+    }),
+    {
+      verify: (r, c) => [
+        ...(r.otherTenant.length ? ["returned another tenant's repositories"] : []),
+        ...(JSON.stringify(ids(r.scoped)) !== JSON.stringify([c.v.sets[0].repo.id])
+          ? ["did not answer exactly the workspace's own repository"]
+          : []),
+      ],
+      control: (c) =>
+        NN(c).findRestorableRepositories({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[1].workspaceId,
+        }),
+    },
+  );
+  const resetV = (c) =>
+    c.db.repository.updateMany({
+      where: { tenantId: c.v.id },
+      data: { status: "disconnected", disconnectReason: "installation_revoked" },
+    });
+  E(
+    "integrations.restoreRepositories (workspace link and scope)",
+    async (c) => ({
+      otherTenant: await NN(c).restoreRepositories({
+        tenantId: c.y,
+        workspaceId: c.v.sets[0].workspaceId,
+        linkId: c.v.link,
+        workspaceLinkId: c.v.sets[0].workspaceLink.id,
+        ids: c.v.sets.map((s) => s.repo.id),
+      }),
+      otherWorkspace: await NN(c).restoreRepositories({
+        tenantId: c.v.id,
+        workspaceId: c.v.sets[0].workspaceId,
+        linkId: c.v.link,
+        workspaceLinkId: c.v.sets[0].workspaceLink.id,
+        ids: [c.v.sets[1].repo.id],
+      }),
+    }),
+    {
+      verify: (r) => [
+        ...(r.otherTenant.count ? ["restored another tenant's repository"] : []),
+        ...(r.otherWorkspace.count ? ["restored another workspace's repository"] : []),
+      ],
+      control: async (c) => {
+        const done = await NN(c).restoreRepositories({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          linkId: c.v.link,
+          workspaceLinkId: c.v.sets[0].workspaceLink.id,
+          ids: [c.v.sets[0].repo.id],
+        });
+        await resetV(c);
+        return done;
+      },
+    },
+  );
+  E(
+    "integrations.findWorkspaceAllowListIds",
+    async (c) => ({
+      otherTenant: [
+        ...(await NN(c).findWorkspaceAllowListIds({
+          tenantId: c.y,
+          workspaceId: c.v.sets[0].workspaceId,
+          externalRepoIds: [ext(c, 0), ext(c, 1)],
+        })),
+      ],
+      otherWorkspace: [
+        ...(await NN(c).findWorkspaceAllowListIds({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          externalRepoIds: [ext(c, 1)],
+        })),
+      ],
+    }),
+    {
+      verify: (r) => [
+        ...(r.otherTenant.length ? ["listed another tenant's allow-list"] : []),
+        ...(r.otherWorkspace.length ? ["listed another workspace's allow-list"] : []),
+      ],
+      control: async (c) => [
+        ...(await NN(c).findWorkspaceAllowListIds({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          externalRepoIds: [ext(c, 0), ext(c, 1)],
+        })),
+      ],
+    },
+  );
+  E(
+    "integrations.removeStaleAllowListEntries",
+    async (c) => ({
+      otherTenant: await NN(c).removeStaleAllowListEntries({
+        tenantId: c.y,
+        workspaceId: c.v.sets[0].workspaceId,
+        workspaceLinkId: randomUUID(),
+        externalRepoIds: [ext(c, 0)],
+      }),
+      otherWorkspace: await NN(c).removeStaleAllowListEntries({
+        tenantId: c.v.id,
+        workspaceId: c.v.sets[0].workspaceId,
+        workspaceLinkId: randomUUID(),
+        externalRepoIds: [ext(c, 1)],
+      }),
+    }),
+    {
+      verify: (r) => [
+        ...(r.otherTenant.count ? ["removed another tenant's allow-list entry"] : []),
+        ...(r.otherWorkspace.count ? ["removed another workspace's allow-list entry"] : []),
+      ],
+      control: async (c) => {
+        const done = await NN(c).removeStaleAllowListEntries({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          workspaceLinkId: randomUUID(),
+          externalRepoIds: [ext(c, 0)],
+        });
+        const { repo, workspaceLink } = c.v.sets[0];
+        await c.db.scmWorkspaceLinkRepository.create({
+          data: {
+            tenantId: c.v.id,
+            workspaceLinkId: workspaceLink.id,
+            provider: "github",
+            externalRepoId: repo.externalRepoId,
+            fullName: repo.fullName,
+            addedByUserId: c.uA,
+          },
+        });
+        return done;
+      },
+    },
+  );
+  E(
+    "integrations.findAllowedElsewhere (workspace scope)",
+    async (c) => ({
+      otherTenant: [
+        ...(await NN(c).findAllowedElsewhere({
+          tenantId: c.y,
+          workspaceId: c.v.sets[0].workspaceId,
+          workspaceLinkId: randomUUID(),
+          externalRepoIds: [ext(c, 0), ext(c, 1)],
+        })),
+      ],
+      scoped: [
+        ...(await NN(c).findAllowedElsewhere({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          workspaceLinkId: randomUUID(),
+          externalRepoIds: [ext(c, 0), ext(c, 1)],
+        })),
+      ],
+    }),
+    {
+      verify: (r, c) => [
+        ...(r.otherTenant.length ? ["listed another tenant's allow-list"] : []),
+        ...(JSON.stringify(r.scoped) !== JSON.stringify([ext(c, 1)])
+          ? [
+              "did not count exactly the other workspace's entry (the workspace's own earlier links must not count)",
+            ]
+          : []),
+      ],
+      control: async (c) => [
+        ...(await NN(c).findAllowedElsewhere({
+          tenantId: c.v.id,
+          workspaceId: c.v.sets[0].workspaceId,
+          workspaceLinkId: randomUUID(),
+          externalRepoIds: [ext(c, 1)],
+        })),
+      ],
     },
   );
 

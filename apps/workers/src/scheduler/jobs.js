@@ -50,8 +50,8 @@ export async function purgeSessions({ db, retentionSeconds, now = new Date() }) 
 
 /**
  * Enqueues a platform-level job (no tenant) through the outbox. The messageId is derived from the time bucket, so several
- * scheduler instances ticking in the same interval produce ONE job.
- * @param {{ db: any, queue: string, type: string, intervalSeconds: number, payload: object, prefix: string, now?: Date }} input
+ * scheduler instances ticking in the same interval produce ONE job. `payload` may be a function of the bucket number.
+ * @param {{ db: any, queue: string, type: string, intervalSeconds: number, payload: object | ((bucket: number) => object), prefix: string, now?: Date }} input
  */
 export async function enqueuePlatformJob({
   db,
@@ -72,7 +72,7 @@ export async function enqueuePlatformJob({
         type,
         schemaVersion: 1,
         initiator: { type: "system", id: "scheduler" },
-        payload,
+        payload: typeof payload === "function" ? payload(bucket) : payload,
       }),
     }),
   );

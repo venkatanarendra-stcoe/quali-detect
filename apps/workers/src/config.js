@@ -22,6 +22,12 @@ const envSchema = z.object({
   SCM_REDELIVER_PAUSE_MS: z.coerce.number().int().min(0).max(60000).default(1000),
   // Pipeline trigger router: bounds the fan-out of one event (same name and default as the API, SPEC pipelines-triggers R-7).
   PIPELINES_MAX_PER_REPOSITORY: z.coerce.number().int().min(1).max(200).default(20),
+  // Pipeline schedules (SPEC pipelines-triggers §6.4, §5.6): configurable placeholders, platform settings now, entitlements later.
+  PIPELINE_SCHEDULE_TICK_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
+  PIPELINE_SCHEDULE_BATCH: z.coerce.number().int().min(1).max(1000).default(100),
+  PIPELINE_SCHEDULE_MAX_PER_TENANT_PER_TICK: z.coerce.number().int().min(1).max(1000).default(10),
+  PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS: z.coerce.number().int().min(0).max(604800).default(21600),
+  PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS: z.coerce.number().int().min(0).max(86400).default(120),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -97,8 +103,17 @@ export function loadWorkerConfig(env = process.env) {
     scheduler: Object.freeze({
       sessionPurgeIntervalSeconds: e.SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS,
       sessionRetentionSeconds: e.SCHEDULER_SESSION_RETENTION_SECONDS,
+      scheduleTickSeconds: e.PIPELINE_SCHEDULE_TICK_SECONDS,
     }),
-    pipelines: Object.freeze({ maxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY }),
+    pipelines: Object.freeze({
+      maxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY,
+      schedule: Object.freeze({
+        batch: e.PIPELINE_SCHEDULE_BATCH,
+        maxPerTenantPerTick: e.PIPELINE_SCHEDULE_MAX_PER_TENANT_PER_TICK,
+        maxLatenessSeconds: e.PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS,
+        onTimeGraceSeconds: e.PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS,
+      }),
+    }),
     outbox: Object.freeze({
       batchSize: e.OUTBOX_BATCH_SIZE,
       pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS,

@@ -30,6 +30,8 @@ catalog:
   swagger-ui-express: 5.0.1
   cookie-parser: 1.4.7
   zod: 3.25.76
+  # Cron evaluation with IANA time zones and DST handling (pipelines part E, SPEC §16); MIT, zero dependencies.
+  croner: 10.0.1
   prisma: 6.19.3
   "@prisma/client": 6.19.3
   tailwindcss: 4.3.5

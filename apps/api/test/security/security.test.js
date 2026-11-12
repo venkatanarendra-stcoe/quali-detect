@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
-import { parseMessage } from "@qmentisai/contracts";
+import { createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import { getDbClient } from "@qmentisai/db";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
 import { createGitHubClient } from "@qmentisai/infra";
@@ -17,15 +17,18 @@ import { createAuditService } from "../../src/audit/audit-service.js";
 import { createNotificationHandler } from "../../../workers/src/notification/handler.js";
 import { createOwnershipVerifier } from "../../../workers/src/ownership/index.js";
 import { createPipelineTriggerHandler } from "../../../workers/src/pipeline/router.js";
+import { enqueuePlatformJob } from "../../../workers/src/scheduler/jobs.js";
+import { createScheduleHandler } from "../../../workers/src/scheduler/schedules.js";
 import { createScmEventHandler } from "../../../workers/src/scm/events.js";
 import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
+import { NEXT_FIRES, runEvaluationFixtures, runPlanFixtures } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 418;
+const EXPECTED_CHECKS = 435;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -7894,6 +7897,983 @@ const rtId = (x, name) => x.repoIds[x.ext[name]];
         problems.push("a late event was not recorded as stale_event");
       if (late[1].status !== "queued") problems.push("a stale event cancelled the newer request");
       if ((await rtUsed(x.R.id)) !== used0 + 3) problems.push("a stale event consumed quota");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 15. Pipeline schedules (SPEC pipelines-triggers §5.6, §6.4, §14.1, part E). The scheduler's due-schedule handler runs IN
+//     PROCESS against the disposable database with a FIXED clock (instants in 2026, all before the real date, so the planned
+//     times the API computes from the real clock are never due and no other fixture is touched). Pipelines and schedules are
+//     created through the public API; the due state is set directly in the database. Tenants: S (all scenarios, two
+//     workspaces), X (the same GitHub repository id and the same cron) and Q (one scan per month).
+// ---------------------------------------------------------------------------------------------------------------------
+const SCH_SLOT = "2026-06-10T12:00:00.000Z";
+const SCH_SLOT2 = "2026-06-10T13:00:00.000Z";
+const SCH_HOUR = 3600000;
+const schHourly = (over = {}) => ({
+  key: "nightly",
+  type: "schedule",
+  cron: "0 * * * *",
+  timezone: "UTC",
+  ...over,
+});
+const schCfg = (trigger = {}, extra = {}) =>
+  pipCfg({
+    triggers: [
+      { key: "push", type: "push" },
+      schHourly(trigger),
+      { key: "manual", type: "manual" },
+    ],
+    ...extra,
+  });
+const schTrigger = (pipelineId) =>
+  suiteDb().pipelineTrigger.findFirst({ where: { pipelineId, type: "schedule" } });
+/** Makes the schedule of a pipeline due at `slotIso` (planned time = slot + its jitter) and returns the trigger row. */
+async function schSetDue(pipelineId, slotIso, extra = {}) {
+  const t = await schTrigger(pipelineId);
+  const nextFireAt = new Date(new Date(slotIso).getTime() + t.jitterOffsetSeconds * 1000);
+  await suiteDb().pipelineTrigger.update({
+    where: { id: t.id },
+    data: { nextFireAt, enabled: true, ...extra },
+  });
+  return { ...t, nextFireAt };
+}
+/** The clock of a run: five seconds after the planned fire time of the trigger. */
+const schAfter =
+  (trigger, seconds = 5) =>
+  () =>
+    new Date(trigger.nextFireAt.getTime() + seconds * 1000);
+const schAt = (iso) => () => new Date(iso);
+const schJob = () =>
+  parseMessage(
+    createJobEnvelope({
+      messageId: `pipeline-schedules-due-suite-${randomBytes(4).toString("hex")}`,
+      type: "pipeline.schedules.due_requested",
+      schemaVersion: 1,
+      initiator: { type: "system", id: "scheduler" },
+      payload: { bucket: 1 },
+    }),
+  );
+/** One handler run of the scheduler worker; resolves with the outcome counters. */
+const schRun = (clock, { db = suiteDb(), limits = {} } = {}) =>
+  createScheduleHandler({
+    db,
+    config: { pipelines: { schedule: limits } },
+    logger: quietLog,
+    clock,
+  })(schJob(), { log: quietLog });
+const schExecs = (pipelineId, where = {}) =>
+  suiteDb().execution.findMany({
+    where: { pipelineId, triggerType: "schedule", ...where },
+    orderBy: [{ scheduleSlot: "asc" }, { requestedAt: "asc" }],
+  });
+const schSlots = async (pipelineId) =>
+  (await schExecs(pipelineId)).map((e) => e.scheduleSlot.toISOString());
+const schMsgCount = (tenantId) =>
+  suiteDb().outboxMessage.count({ where: { tenantId, type: "pipeline.execution.requested" } });
+const schUsed = async (tenantId, period) => {
+  const def = await suiteDb().quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+  const row = await suiteDb().tenantQuotaUsage.findFirst({
+    where: { tenantId, quotaDefinitionId: def.id, periodKey: period },
+  });
+  return Number(row?.used ?? 0);
+};
+/** A database whose transactions fail when the handler tries to advance a trigger: the crash between the request and the advance. */
+const schCrashOnAdvance = (db) =>
+  new Proxy(db, {
+    get(target, prop) {
+      const value = target[prop];
+      if (prop === "$transaction")
+        return (fn, options) =>
+          target.$transaction(
+            (tx) =>
+              fn(
+                new Proxy(tx, {
+                  get(t, p) {
+                    if (p === "pipelineTrigger")
+                      return new Proxy(t.pipelineTrigger, {
+                        get(model, q) {
+                          if (q === "updateMany")
+                            return () => {
+                              throw new Error("simulated crash before the commit");
+                            };
+                          const v = model[q];
+                          return typeof v === "function" ? v.bind(model) : v;
+                        },
+                      });
+                    const v = t[p];
+                    return typeof v === "function" ? v.bind(t) : v;
+                  },
+                }),
+              ),
+            options,
+          );
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+
+/** Parks every schedule of the fixture tenants, so a run of the handler only meets the schedules a check sets due itself. */
+const schQuiet = (x) =>
+  suiteDb().pipelineTrigger.updateMany({
+    where: { tenantId: { in: [x.S.id, x.X.id, x.Q.id] }, type: "schedule" },
+    data: { enabled: false, nextFireAt: null },
+  });
+
+const schWorld = () =>
+  once("sch-world", async () => {
+    const db = suiteDb();
+    const base = 7700000 + (Date.now() % 100000) * 20;
+    const ext = { m: base + 1, common: base + 2, o: base + 3, q: base + 4 };
+    const mk = async (cookie, repositoryId, label, config, enabled = true) => {
+      const r = await pipCreate(cookie, repositoryId, { name: pipName(label), enabled, config });
+      assert.equal(
+        r.status,
+        201,
+        `fixture: pipeline ${label} answered ${r.status} ${JSON.stringify(r.json?.error)}`,
+      );
+      return r.json.data;
+    };
+    const connectAll = async (cookie, workspaceId, flow, ids) => {
+      const wl = flow.link.json.data.id;
+      await putAllowList(cookie, workspaceId, wl, ids);
+      const out = {};
+      for (const id of ids) {
+        const res = await connectRepo(cookie, workspaceId, wl, id);
+        assert.equal(res.status, 201, `fixture: connect ${id} answered ${res.status}`);
+        out[id] = res.json.data.id;
+      }
+      return out;
+    };
+    const workspace = async (cookie, name) => {
+      const r = await w.api("POST", "/workspaces", {
+        cookie,
+        body: { name: `${name} ${w.suffix}` },
+      });
+      assert.equal(r.status, 201, `fixture: workspace answered ${r.status}`);
+      return r.json.data.id;
+    };
+    const S = await w.provisionTenant("scs");
+    const ws1 = await workspace(S.owner, "Schedules one");
+    const ws2 = await workspace(S.owner, "Schedules two");
+    const account = orgAccount("sc");
+    const user = ghUser();
+    const flow1 = await linkFlow(S.owner, {
+      workspaceId: ws1,
+      account,
+      user,
+      orgRole: "admin",
+      repos: [ext.m, ext.common, ext.o].map(stubRepo),
+    });
+    assert.equal(flow1.link?.status, 201, "fixture: link S workspace 1");
+    const flow2 = await linkFlow(S.owner, {
+      workspaceId: ws2,
+      installationId: flow1.installationId,
+      account,
+      user,
+      orgRole: "admin",
+    });
+    assert.equal(flow2.link?.status, 201, "fixture: link S workspace 2");
+    const repoIds = await connectAll(S.owner, ws1, flow1, [ext.m, ext.common]);
+    Object.assign(repoIds, await connectAll(S.owner, ws2, flow2, [ext.o]));
+
+    // tenant X connects the SAME GitHub repository id (`common`) through its own installation
+    const X = await w.provisionTenant("scx");
+    const wsX = await workspace(X.owner, "Schedules X");
+    const flowX = await linkFlow(X.owner, {
+      workspaceId: wsX,
+      account: orgAccount("scx"),
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [stubRepo(ext.common)],
+    });
+    assert.equal(flowX.link?.status, 201, "fixture: link X");
+    const repoX = (await connectAll(X.owner, wsX, flowX, [ext.common]))[ext.common];
+
+    // tenant Q: one scan per month
+    const Q = await w.provisionTenant("scq");
+    const wsQ = await workspace(Q.owner, "Schedules Q");
+    const flowQ = await linkFlow(Q.owner, {
+      workspaceId: wsQ,
+      account: orgAccount("scq"),
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [stubRepo(ext.q)],
+    });
+    assert.equal(flowQ.link?.status, 201, "fixture: link Q");
+    const repoQ = (await connectAll(Q.owner, wsQ, flowQ, [ext.q]))[ext.q];
+    const quota = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+    await db.tenantQuota.create({
+      data: { tenantId: Q.id, quotaDefinitionId: quota.id, limitValue: 1n },
+    });
+
+    const own = S.owner;
+    const repoM = repoIds[ext.m];
+    const p = {};
+    for (const name of ["pv", "pDis", "pDel", "pRem", "pEx", "pRef", "pExplicit", "mRun", "mSkip"])
+      p[name] = await mk(
+        own,
+        repoM,
+        name,
+        schCfg(name === "mSkip" ? { missedPolicy: "skip" } : {}),
+      );
+    p.pExplicit = await mk(
+      own,
+      repoM,
+      "explicit",
+      schCfg({ ref: "release/1", scanKind: "incremental" }),
+    );
+    p.mDaily = await mk(own, repoM, "daily", schCfg({ cron: "0 2 * * *" }));
+    // daylight-saving fixtures: the first four rows of the evaluation table, one pipeline each
+    p.dst = [];
+    for (const row of NEXT_FIRES.slice(0, 4))
+      p.dst.push(
+        await mk(
+          own,
+          repoM,
+          `dst-${row.timeZone.split("/")[0]}`,
+          schCfg({ cron: row.expression, timezone: row.timeZone }),
+        ),
+      );
+    p.common = await mk(own, repoIds[ext.common], "common-s", schCfg());
+    p.common2 = await mk(own, repoIds[ext.common], "common-s2", schCfg());
+    p.other = await mk(own, repoIds[ext.o], "workspace-two", schCfg());
+    p.xCommon = await mk(X.owner, repoX, "common-x", schCfg());
+    p.q = await mk(
+      Q.owner,
+      repoQ,
+      "quota",
+      schCfg({}, { execution: { concurrency: { policy: "queue", maxQueued: 10 } } }),
+    );
+    return { ext, S, X, Q, ws1, ws2, wsX, repoM, repoIds, repoX, repoQ, p };
+  });
+
+{
+  const add = group(
+    "Pipeline schedules: fire-time re-validation, exactly once, quota and isolation",
+  );
+  add(
+    "PIP-012",
+    "a due schedule re-validates at fire time: a repository that became disconnected, unavailable or disabled, an archived workspace, a suspended tenant, a disabled or deleted pipeline and a trigger removed or disabled by a later configuration version create no execution and no message; the schedule advances to the next slot (or is parked when its pipeline or trigger is gone); the legitimate path fires once restored",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(x);
+      const db = suiteDb();
+      const problems = [];
+      const variants = [
+        {
+          label: "repository disconnected",
+          pipeline: p.pv,
+          apply: () =>
+            rtSetRepo(x.repoM, {
+              status: "disconnected",
+              disconnectedAt: new Date(),
+              disconnectReason: "suite",
+            }),
+          restore: () => rtSetRepo(x.repoM, rtActive),
+          expect: "advanced",
+        },
+        {
+          label: "repository unavailable",
+          pipeline: p.pv,
+          apply: () => rtSetRepo(x.repoM, { status: "unavailable" }),
+          restore: () => rtSetRepo(x.repoM, rtActive),
+          expect: "advanced",
+        },
+        {
+          label: "repository disabled",
+          pipeline: p.pv,
+          apply: () => rtSetRepo(x.repoM, { enabled: false }),
+          restore: () => rtSetRepo(x.repoM, rtActive),
+          expect: "advanced",
+        },
+        {
+          label: "workspace archived",
+          pipeline: p.pv,
+          apply: () => db.workspace.update({ where: { id: x.ws1 }, data: { status: "archived" } }),
+          restore: () => db.workspace.update({ where: { id: x.ws1 }, data: { status: "active" } }),
+          expect: "advanced",
+        },
+        {
+          label: "tenant suspended",
+          pipeline: p.pv,
+          apply: () => db.tenant.update({ where: { id: x.S.id }, data: { status: "suspended" } }),
+          restore: () => db.tenant.update({ where: { id: x.S.id }, data: { status: "active" } }),
+          expect: "advanced",
+        },
+        {
+          label: "pipeline disabled",
+          pipeline: p.pDis,
+          apply: () => db.pipeline.update({ where: { id: p.pDis.id }, data: { enabled: false } }),
+          restore: () => db.pipeline.update({ where: { id: p.pDis.id }, data: { enabled: true } }),
+          expect: "advanced",
+        },
+        {
+          label: "pipeline deleted",
+          pipeline: p.pDel,
+          apply: () =>
+            db.pipeline.update({ where: { id: p.pDel.id }, data: { deletedAt: new Date() } }),
+          restore: () =>
+            db.pipeline.update({ where: { id: p.pDel.id }, data: { deletedAt: null } }),
+          expect: "parked",
+        },
+      ];
+      for (const v of variants) {
+        await v.apply();
+        try {
+          const before = [(await schExecs(v.pipeline.id)).length, await schMsgCount(x.S.id)];
+          const trigger = await schSetDue(v.pipeline.id, SCH_SLOT);
+          const counts = await schRun(schAfter(trigger));
+          const after = [(await schExecs(v.pipeline.id)).length, await schMsgCount(x.S.id)];
+          if (JSON.stringify(before) !== JSON.stringify(after))
+            problems.push(`${v.label}: an execution or a message was created`);
+          const row = await schTrigger(v.pipeline.id);
+          const wanted =
+            v.expect === "parked"
+              ? null
+              : new Date(new Date(SCH_SLOT).getTime() + SCH_HOUR + row.jitterOffsetSeconds * 1000);
+          if ((row.nextFireAt?.getTime() ?? null) !== (wanted?.getTime() ?? null))
+            problems.push(
+              `${v.label}: next_fire_at is ${row.nextFireAt?.toISOString() ?? "null"}, expected ${wanted?.toISOString() ?? "null"}`,
+            );
+          if (!counts[v.expect === "parked" ? "parked" : "skipped_ineligible"])
+            problems.push(`${v.label}: outcomes ${JSON.stringify(counts)}`);
+        } finally {
+          await v.restore();
+        }
+      }
+      // a trigger removed, then one disabled, by later configuration versions: the stale projection row is re-created due
+      let version = 1;
+      for (const [label, trigger] of [
+        ["removed", null],
+        ["disabled", schHourly({ enabled: false })],
+      ]) {
+        const cfg = pipCfg({
+          triggers: [
+            { key: "push", type: "push" },
+            ...(trigger ? [trigger] : []),
+            { key: "manual", type: "manual" },
+          ],
+        });
+        const publish = await pipPublish(x.S.owner, p.pRem.id, version, cfg);
+        if (publish.status !== 200) {
+          problems.push(`${label}: the later version was refused (${publish.status})`);
+          continue;
+        }
+        version += 1;
+        const live = await db.pipeline.findFirst({ where: { id: p.pRem.id } });
+        await db.pipelineTrigger.deleteMany({ where: { pipelineId: p.pRem.id, type: "schedule" } });
+        await db.pipelineTrigger.create({
+          data: {
+            tenantId: x.S.id,
+            workspaceId: x.ws1,
+            repositoryId: x.repoM,
+            pipelineId: p.pRem.id,
+            triggerKey: "nightly",
+            type: "schedule",
+            versionId: live.currentVersionId,
+            cron: "0 * * * *",
+            timezone: "UTC",
+            missedPolicy: "run_once",
+            jitterOffsetSeconds: 0,
+            nextFireAt: new Date(SCH_SLOT),
+          },
+        });
+        const t = await schTrigger(p.pRem.id);
+        await schRun(schAfter({ nextFireAt: t.nextFireAt }));
+        const row = await schTrigger(p.pRem.id);
+        if ((await schExecs(p.pRem.id)).length)
+          problems.push(`${label} by a later version: an execution was created`);
+        if (row.nextFireAt !== null || row.enabled !== false)
+          problems.push(`${label} by a later version: the schedule was not parked`);
+      }
+      // control: with everything restored the same schedule fires once
+      const trigger = await schSetDue(p.pv.id, SCH_SLOT);
+      const counts = await schRun(schAfter(trigger));
+      const rows = await schExecs(p.pv.id);
+      if (rows.length !== 1 || rows[0].status !== "queued" || counts.created !== 1)
+        problems.push(
+          `control: the restored schedule did not fire once (${JSON.stringify(counts)})`,
+        );
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-013",
+    "a schedule fires exactly once per slot: two handlers racing on the same due trigger, the same slot handled again (the state after a crash that kept the request but not the advance) and a crash before the commit (request and advance are one transaction) each leave one execution and one message for the slot",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      await schQuiet(x);
+      const problems = [];
+      const p = x.p.pEx;
+      const t1 = await schSetDue(p.id, SCH_SLOT);
+      const clock = schAfter(t1);
+      const [a, b] = await Promise.all([schRun(clock), schRun(clock)]);
+      const created = (a.created ?? 0) + (b.created ?? 0);
+      if (created !== 1) problems.push(`two racing handlers created ${created} executions`);
+      if ((await schSlots(p.id)).join() !== SCH_SLOT)
+        problems.push(`slots after the race: ${(await schSlots(p.id)).join()}`);
+      const first = await schExecs(p.id);
+      const executionIds = first.map((e) => e.id);
+      const messageCount = async () =>
+        (await rtMessages((await schExecs(p.id)).map((e) => e.id))).length;
+      if ((await messageCount()) !== 1) problems.push("the race did not leave exactly one message");
+      const advanced = (await schTrigger(p.id)).nextFireAt.getTime();
+      if (advanced !== new Date(SCH_SLOT2).getTime() + t1.jitterOffsetSeconds * 1000)
+        problems.push("the trigger was not advanced to the next slot");
+      // the same slot again: the request exists, the advance is missing
+      await schSetDue(p.id, SCH_SLOT);
+      const again = await schRun(clock);
+      if ((await schExecs(p.id)).length !== 1 || again.duplicate !== 1)
+        problems.push(`the same slot created a second execution (${JSON.stringify(again)})`);
+      if ((await schTrigger(p.id)).nextFireAt.getTime() !== advanced)
+        problems.push("the duplicate slot was not advanced");
+      // a crash before the commit: nothing of the second slot survives, the trigger stays due, the retry fires it once
+      const t2 = await schSetDue(p.id, SCH_SLOT2);
+      const used = await schUsed(x.S.id, "2026-06");
+      const crashed = await schRun(schAfter(t2), { db: schCrashOnAdvance(suiteDb()) });
+      if (!crashed.failed) problems.push("the simulated crash was not seen");
+      if (
+        (await schExecs(p.id)).length !== 1 ||
+        (await rtMessages(executionIds)).length !== 1 ||
+        (await schUsed(x.S.id, "2026-06")) !== used
+      )
+        problems.push("a crashed run left an execution, a message or a quota unit behind");
+      if ((await schTrigger(p.id)).nextFireAt.getTime() !== t2.nextFireAt.getTime())
+        problems.push("a crashed run advanced the trigger");
+      const retried = await schRun(schAfter(t2));
+      if ((await schExecs(p.id)).length !== 2 || retried.created !== 1)
+        problems.push("the retry after the crash did not create exactly the second slot");
+      const slots = await schSlots(p.id);
+      if (slots.join() !== [SCH_SLOT, SCH_SLOT2].join())
+        problems.push(`slots after the retry: ${slots.join()}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-040",
+    "quota exhaustion at fire time: the first slot of a tenant with one scan per month runs, later slots create blocked rows (quota_exceeded) with no message and no unit consumed and ONE audit entry per pipeline, reason and day; another tenant's schedule is unaffected",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(x);
+      const problems = [];
+      const q = x.p.q;
+      const slots = [
+        "2026-07-10T12:00:00.000Z",
+        "2026-07-10T13:00:00.000Z",
+        "2026-07-10T14:00:00.000Z",
+      ];
+      const period = "2026-07";
+      for (const slot of slots) {
+        const t = await schSetDue(q.id, slot);
+        await schRun(schAfter(t));
+      }
+      const rows = await schExecs(q.id);
+      const statuses = rows.map((r) => `${r.status}:${r.statusReason ?? ""}`).join();
+      if (statuses !== "queued:,blocked:quota_exceeded,blocked:quota_exceeded")
+        problems.push(`statuses ${statuses}`);
+      if ((await rtMessages(rows.map((r) => r.id))).length !== 1)
+        problems.push("a blocked slot left a message");
+      if ((await schUsed(x.Q.id, period)) !== 1) problems.push("a blocked slot consumed quota");
+      if (rows.some((r) => r.status === "blocked" && r.quotaConsumed !== 0))
+        problems.push("a blocked row records consumed quota");
+      const audits = await rtAudits(q.id, x.Q.id);
+      if (audits.filter((a) => a.action === "execution.blocked").length !== 1)
+        problems.push(`${audits.length} audit entries for two blocked slots in one day`);
+      const entry = audits.find((a) => a.action === "execution.blocked");
+      if (entry?.metadata?.triggerType !== "schedule")
+        problems.push("the audit entry does not name the schedule trigger");
+      // another tenant is not affected by this tenant's quota
+      const other = await schSetDue(x.p.xCommon.id, "2026-07-10T12:00:00.000Z");
+      await schRun(schAfter(other));
+      if ((await schExecs(x.p.xCommon.id)).length !== 1)
+        problems.push("another tenant's schedule was blocked by this tenant's quota");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-041",
+    "a due schedule never creates executions in another tenant or workspace: two tenants with the same GitHub repository id and the same cron, and a second workspace of the same tenant, each get their own execution only, with their own tenant, workspace and repository ids on the row and the message; the per-tenant share of a tick is honored",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(x);
+      const db = suiteDb();
+      const problems = [];
+      const slot = "2026-08-10T12:00:00.000Z";
+      // only tenant S's pipeline is due: tenant X's pipeline (same repository id, same cron) gets nothing
+      const tS = await schSetDue(x.p.common.id, slot);
+      await schRun(schAfter(tS));
+      if ((await schExecs(x.p.common.id)).length !== 1)
+        problems.push("the due pipeline did not run");
+      if ((await schExecs(x.p.xCommon.id, { scheduleSlot: new Date(slot) })).length)
+        problems.push("a due schedule of tenant S created an execution for tenant X");
+      // all four due at once: each runs in its own tenant, workspace and repository
+      const due = [x.p.common, x.p.common2, x.p.other, x.p.xCommon];
+      const slot13 = new Date("2026-08-10T13:00:00.000Z");
+      const triggers = [];
+      for (const pipeline of due) triggers.push(await schSetDue(pipeline.id, slot13.toISOString()));
+      await schRun(schAfter(triggers[0], 600));
+      const own = [
+        [x.p.common, x.S.id, x.ws1, x.repoIds[x.ext.common]],
+        [x.p.common2, x.S.id, x.ws1, x.repoIds[x.ext.common]],
+        [x.p.other, x.S.id, x.ws2, x.repoIds[x.ext.o]],
+        [x.p.xCommon, x.X.id, x.wsX, x.repoX],
+      ];
+      for (const [pipeline, tenantId, workspaceId, repositoryId] of own) {
+        const rows = await schExecs(pipeline.id, { scheduleSlot: slot13 });
+        if (rows.length !== 1) {
+          problems.push(`${pipeline.name} got ${rows.length} executions`);
+          continue;
+        }
+        const [row] = rows;
+        if (
+          row.tenantId !== tenantId ||
+          row.workspaceId !== workspaceId ||
+          row.repositoryId !== repositoryId
+        )
+          problems.push(
+            `${pipeline.name}: the execution carries another tenant, workspace or repository`,
+          );
+        const messages = await rtMessages([row.id]);
+        if (
+          messages.length !== 1 ||
+          messages[0].tenantId !== tenantId ||
+          messages[0].payload.tenantId !== tenantId
+        )
+          problems.push(`${pipeline.name}: the message does not carry its own tenant`);
+      }
+      const stray = await db.execution.count({
+        where: {
+          triggerType: "schedule",
+          scheduleSlot: slot13,
+          pipelineId: { notIn: due.map((d) => d.id) },
+        },
+      });
+      if (stray) problems.push(`${stray} stray scheduled executions`);
+      // fairness: with a share of one execution per tenant and tick, tenant S needs three ticks for its three due pipelines
+      const slot14 = new Date("2026-08-10T14:00:00.000Z");
+      const ft = [];
+      for (const pipeline of due) ft.push(await schSetDue(pipeline.id, slot14.toISOString()));
+      const fired = () =>
+        db.execution.count({
+          where: { pipelineId: { in: due.map((d) => d.id) }, scheduleSlot: slot14 },
+        });
+      const limits = { maxPerTenantPerTick: 1 };
+      const run1 = await schRun(schAfter(ft[0], 600), { limits });
+      if ((await fired()) !== 2 || run1.created !== 2)
+        problems.push(
+          `a share of one per tenant fired ${await fired()}, expected 2 (one for S, one for X)`,
+        );
+      await schRun(schAfter(ft[0], 600), { limits });
+      if ((await fired()) !== 3)
+        problems.push("the second tick did not fire another pipeline of S");
+      await schRun(schAfter(ft[0], 600), { limits });
+      if ((await fired()) !== 4)
+        problems.push("the third tick did not fire the last pipeline of S");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipeline schedules: validation, daylight saving and missed runs");
+  add(
+    "PIP-042",
+    "schedule validation over the API: a cron that fires more often than the platform minimum (also once a daylight-saving change is counted), an unknown time zone, seconds, @reboot, L, W and # are 400 and write nothing; next_fire_at is stored in UTC when a schedule is created, edited or its pipeline is enabled, and cleared when the pipeline or the trigger is disabled or removed",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const problems = [];
+      const own = x.S.owner;
+      const repo = x.repoM;
+      const refused = [
+        ["every 30 minutes", { cron: "*/30 * * * *" }],
+        [
+          "two fires 30 minutes apart on a daylight-saving day",
+          { cron: "30 1,2 * * *", timezone: "Europe/Berlin" },
+        ],
+        ["an unknown time zone", { timezone: "Mars/Olympus" }],
+        ["seconds (6 fields)", { cron: "0 0 * * * *" }],
+        ["@reboot", { cron: "@reboot" }],
+        ["L", { cron: "0 0 L * *" }],
+        ["W", { cron: "0 0 15W * *" }],
+        ["#", { cron: "0 0 * * 5#2" }],
+        ["a schedule that never fires", { cron: "0 0 31 2 *" }],
+      ];
+      for (const [label, trigger] of refused) {
+        const name = pipName(`bad-${label.replace(/\W+/g, "")}`);
+        const r = await pipCreate(own, repo, { name, config: schCfg(trigger) });
+        if (r.status !== 400 || r.json?.error?.code !== "VALIDATION_FAILED")
+          problems.push(`${label}: answered ${r.status}`);
+        else if (await suiteDb().pipeline.findFirst({ where: { tenantId: x.S.id, name } }))
+          problems.push(`${label}: a pipeline was written`);
+      }
+      // next_fire_at: stored in UTC, derived from the expression, never in the past
+      const made = await pipCreate(own, repo, {
+        name: pipName("planned"),
+        config: schCfg({ cron: "0 6 * * *", timezone: "Europe/Berlin" }),
+      });
+      if (made.status !== 201)
+        return { status: 200, json: null, problems: [`create answered ${made.status}`] };
+      const id = made.json.data.id;
+      const row = () => schTrigger(id);
+      let t = await row();
+      const slotOf = (r) => new Date(r.nextFireAt.getTime() - r.jitterOffsetSeconds * 1000);
+      const berlinSix = (d) => {
+        const local = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Berlin",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+        }).format(d);
+        return local === "06:00";
+      };
+      if (!t.nextFireAt || t.nextFireAt.getTime() <= Date.now())
+        problems.push("a created schedule has no future next_fire_at");
+      else if (!berlinSix(slotOf(t)))
+        problems.push("next_fire_at is not 06:00 in the trigger's zone");
+      if (t.jitterOffsetSeconds < 0 || t.jitterOffsetSeconds >= 300)
+        problems.push(`jitter ${t.jitterOffsetSeconds} is outside the window`);
+      const off = await w.api("POST", `/pipelines/${id}/disable`, { cookie: own });
+      t = await row();
+      if (off.status !== 200 || t.nextFireAt !== null)
+        problems.push("disabling did not clear next_fire_at");
+      const on = await w.api("POST", `/pipelines/${id}/enable`, { cookie: own });
+      t = await row();
+      if (on.status !== 200 || !t.nextFireAt || t.nextFireAt.getTime() <= Date.now())
+        problems.push("enabling did not recompute next_fire_at from now");
+      const edit = await pipPublish(own, id, 1, schCfg({ cron: "0 18 * * *", timezone: "UTC" }));
+      t = await row();
+      if (edit.status !== 200 || !t.nextFireAt || slotOf(t).getUTCHours() !== 18)
+        problems.push("editing the schedule did not recompute next_fire_at");
+      const disabledTrigger = await pipPublish(own, id, 2, schCfg({ enabled: false }));
+      t = await row();
+      if (disabledTrigger.status !== 200 || t.nextFireAt !== null)
+        problems.push("a disabled trigger keeps a next_fire_at");
+      const removed = await pipPublish(own, id, 3, pipCfg());
+      if (removed.status !== 200 || (await row()) !== null)
+        problems.push("a removed trigger keeps its projection row");
+      // a pipeline created disabled has no planned time
+      const idle = await pipCreate(own, repo, {
+        name: pipName("idle"),
+        enabled: false,
+        config: schCfg(),
+      });
+      const idleRow = idle.status === 201 ? await schTrigger(idle.json.data.id) : null;
+      if (!idleRow || idleRow.nextFireAt !== null)
+        problems.push("a disabled pipeline has a next_fire_at");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-043",
+    "daylight saving and slots (fixed instants, Europe/Berlin and America/New_York, both transitions of 2026): a local time inside the spring-forward gap fires once at the gap end, a repeated local time fires once at its first occurrence, the slot is the UTC instant, the real minimum gap counts the transitions, the missed-run plan fires only the latest pending slot within the lateness limit and records one missed run beyond it",
+    { status: 200 },
+    async () => ({
+      status: 200,
+      json: null,
+      problems: [...runEvaluationFixtures(), ...runPlanFixtures()],
+    }),
+    (r) => r.problems,
+  );
+  add(
+    "PIP-044",
+    "daylight saving through the scheduler: walking a schedule across the Berlin and New York transitions from fixed instants creates exactly one execution per slot (gap at the gap end, overlap at the first occurrence, never at the repeated one), the slot is stored as the UTC instant and next_fire_at follows",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(
+        x,
+        p.dst.map((d) => d.id),
+      );
+      const problems = [];
+      for (const [i, row] of NEXT_FIRES.slice(0, 4).entries()) {
+        const pipeline = x.p.dst[i];
+        await schSetDue(pipeline.id, row.expected[0]);
+        for (let n = 0; n < row.expected.length; n += 1) {
+          const t = await schTrigger(pipeline.id);
+          await schRun(schAfter(t));
+        }
+        const slots = await schSlots(pipeline.id);
+        if (slots.join() !== row.expected.join())
+          problems.push(`${row.name}: slots ${slots.join()}`);
+        // the last slot handled again, and the repeated or nonexistent local time: nothing more
+        await schSetDue(pipeline.id, row.expected[row.expected.length - 1]);
+        const t = await schTrigger(pipeline.id);
+        const again = await schRun(schAfter(t));
+        if ((await schExecs(pipeline.id)).length !== row.expected.length || again.created)
+          problems.push(`${row.name}: a slot fired twice`);
+        const stored = await schTrigger(pipeline.id);
+        if (stored.timezone !== row.timeZone) problems.push(`${row.name}: the zone was not stored`);
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-045",
+    "missed runs: after a pause the latest pending slot fires once (run_once) and older ones are not replayed; a slot older than the lateness limit becomes ONE skipped request (missed_run, audited) that consumes no quota and sends no message; the skip policy fires only on time; a pipeline that was disabled does not accumulate misses",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(x);
+      const problems = [];
+      const used0 = await schUsed(x.S.id, "2026-09");
+      // run_once: slots 12:00, 13:00, 14:00 pending at 14:30 -> only the 14:00 slot runs
+      const t = await schSetDue(x.p.mRun.id, "2026-09-10T12:00:00.000Z");
+      await schRun(schAt("2026-09-10T14:30:00.000Z"));
+      const run = await schExecs(x.p.mRun.id);
+      if (
+        run.length !== 1 ||
+        run[0].scheduleSlot.toISOString() !== "2026-09-10T14:00:00.000Z" ||
+        run[0].status !== "queued"
+      )
+        problems.push(
+          `run_once: ${run.map((r) => `${r.scheduleSlot.toISOString()} ${r.status}`).join()}`,
+        );
+      const next = (await schTrigger(x.p.mRun.id)).nextFireAt;
+      if (
+        next.getTime() !==
+        new Date("2026-09-10T15:00:00.000Z").getTime() + t.jitterOffsetSeconds * 1000
+      )
+        problems.push("run_once: next_fire_at is not the slot after the handled one");
+      // older than the lateness limit (6 h): a daily schedule down for a day
+      const d = await schSetDue(x.p.mDaily.id, "2026-09-08T02:00:00.000Z");
+      const msgBefore = await schMsgCount(x.S.id);
+      await schRun(schAt("2026-09-10T09:00:00.000Z"));
+      const daily = await schExecs(x.p.mDaily.id);
+      if (
+        daily.length !== 1 ||
+        daily[0].status !== "skipped" ||
+        daily[0].statusReason !== "missed_run"
+      )
+        problems.push(
+          `beyond the lateness limit: ${daily.map((r) => `${r.status}:${r.statusReason}`).join()}`,
+        );
+      if (daily[0]?.quotaConsumed) problems.push("a missed run consumed quota");
+      if ((await schMsgCount(x.S.id)) !== msgBefore) problems.push("a missed run sent a message");
+      const audit = (await rtAudits(x.p.mDaily.id, x.S.id)).filter(
+        (a) => a.action === "execution.skipped",
+      );
+      if (audit.length !== 1) problems.push("a missed run was not audited once");
+      if ((await schTrigger(x.p.mDaily.id)).nextFireAt.getTime() <= d.nextFireAt.getTime())
+        problems.push("the daily schedule was not advanced");
+      // skip policy: fires only when on time
+      const s = await schSetDue(x.p.mSkip.id, "2026-09-10T12:00:00.000Z");
+      await schRun(schAt(new Date(s.nextFireAt.getTime() + 20 * 60000).toISOString()));
+      const skipped = await schExecs(x.p.mSkip.id);
+      if (
+        skipped.length !== 1 ||
+        skipped[0].status !== "skipped" ||
+        skipped[0].statusReason !== "missed_run"
+      )
+        problems.push(
+          `skip policy, late: ${skipped.map((r) => `${r.status}:${r.statusReason}`).join()}`,
+        );
+      if ((await schUsed(x.S.id, "2026-09")) !== used0 + 1)
+        problems.push("only the one run_once slot should have used a unit");
+      // a pipeline that was disabled accumulates no misses: enabling plans from now, nothing is due
+      const own = x.S.owner;
+      const idle = x.p.pDel;
+      await schQuiet(x);
+      await suiteDb().pipelineTrigger.updateMany({
+        where: { pipelineId: idle.id, type: "schedule" },
+        data: { enabled: true, nextFireAt: new Date("2026-09-01T00:00:00.000Z") },
+      });
+      const off = await w.api("POST", `/pipelines/${idle.id}/disable`, { cookie: own });
+      if (off.status !== 200 || (await schTrigger(idle.id)).nextFireAt !== null)
+        problems.push("disabling kept a planned time");
+      const before = (await schExecs(idle.id)).length;
+      const on = await w.api("POST", `/pipelines/${idle.id}/enable`, { cookie: own });
+      const planned = await schTrigger(idle.id);
+      await schRun(() => new Date());
+      if (on.status !== 200 || !planned.nextFireAt || planned.nextFireAt.getTime() <= Date.now())
+        problems.push("enabling did not plan a time from now");
+      if ((await schExecs(idle.id)).length !== before) problems.push("enabling back-filled a run");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-046",
+    "a scheduled run has the same shape as every other request: a queued execution (trigger schedule, the slot, no commit, trusted, the configuration snapshot, concurrency group and idempotency key of the slot) and a pipeline.execution.requested message with the router's payload and a schedule initiator; the ref scanned is the trigger's branch or the repository default branch, resolved at fire time",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      await schQuiet(x);
+      const db = suiteDb();
+      const problems = [];
+      const p = x.p.pRef;
+      const t1 = await schSetDue(p.id, "2026-10-10T12:00:00.000Z");
+      await schRun(schAfter(t1));
+      await rtSetRepo(x.repoM, { defaultBranch: "trunk" });
+      try {
+        const t2 = await schSetDue(p.id, "2026-10-10T13:00:00.000Z");
+        await schRun(schAfter(t2));
+      } finally {
+        await rtSetRepo(x.repoM, { defaultBranch: "main" });
+      }
+      const rows = await schExecs(p.id);
+      if (rows.map((r) => r.refName).join() !== "main,trunk")
+        problems.push(
+          `the default branch was not resolved at fire time (${rows.map((r) => r.refName)})`,
+        );
+      const [row] = rows;
+      const version = await db.pipelineConfigVersion.findFirst({ where: { pipelineId: p.id } });
+      const checks = {
+        triggerType: "schedule",
+        triggerKey: "nightly",
+        refType: "branch",
+        commitSha: null,
+        baseSha: null,
+        trust: "trusted",
+        quotaConsumed: 1,
+        scmEventId: null,
+        scmDeliveryId: null,
+        requestedByUserId: null,
+        concurrencyGroup: "schedule:nightly",
+        idempotencyKey: `schedule:nightly:2026-10-10T12:00:00.000Z`,
+        configVersionId: version.id,
+        configHash: version.configHash,
+        tenantId: x.S.id,
+        scanKindReason: "first_run",
+      };
+      for (const [key, want] of Object.entries(checks))
+        if (row[key] !== want) problems.push(`execution.${key} is ${row[key]}, expected ${want}`);
+      // the default concurrency policy (supersede) cancels the older queued slot when the next one is requested
+      if (
+        row.status !== "cancelled" ||
+        row.statusReason !== "superseded" ||
+        rows[1].status !== "queued"
+      )
+        problems.push(`statuses ${rows.map((r) => `${r.status}:${r.statusReason ?? ""}`)}`);
+      const [message] = await rtMessages([row.id]);
+      const keys = [
+        "executionId",
+        "pipelineId",
+        "repositoryId",
+        "workspaceId",
+        "configVersion",
+        "configHash",
+        "triggerType",
+        "triggerKey",
+        "refType",
+        "refName",
+        "commitSha",
+        "pullRequestNumber",
+        "scanKind",
+        "scanKindReason",
+        "trust",
+      ].sort();
+      if (!message) problems.push("no message");
+      else {
+        if (Object.keys(message.payload.payload).sort().join() !== keys.join())
+          problems.push("the message payload does not have exactly the router's fields");
+        const trigger = await schTrigger(p.id);
+        if (
+          message.payload.initiator?.type !== "schedule" ||
+          message.payload.initiator?.id !== trigger.id
+        )
+          problems.push("the message initiator is not the schedule trigger");
+        if (message.tenantId !== x.S.id || message.payload.payload.commitSha !== null)
+          problems.push("the message tenant or commit is wrong");
+        if (TOKEN_MATERIAL.test(JSON.stringify(message.payload)))
+          problems.push("the message carries credential material");
+      }
+      // an explicit branch and the requested scan kind (after the first full run, the trigger's `incremental` applies)
+      const e = x.p.pExplicit;
+      for (const slot of ["2026-10-11T12:00:00.000Z", "2026-10-11T13:00:00.000Z"]) {
+        const t = await schSetDue(e.id, slot);
+        await schRun(schAfter(t));
+      }
+      const explicit = await schExecs(e.id);
+      if (explicit.map((r) => r.refName).join() !== "release/1,release/1")
+        problems.push("an explicit branch was not scanned as configured");
+      if (
+        explicit.map((r) => `${r.scanKind}:${r.scanKindReason}`).join() !==
+        "full:first_run,incremental:scheduled"
+      )
+        problems.push(`scan kinds ${explicit.map((r) => `${r.scanKind}:${r.scanKindReason}`)}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-047",
+    "the tick: the platform job pipeline.schedules.due_requested is enqueued once per time bucket however many schedulers tick (no tenant on the job), validates against the catalog, and a handler run with nothing due is a no-op that repeats safely; a message of another type is refused as non-retryable",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      await schQuiet(x);
+      const db = suiteDb();
+      const problems = [];
+      const bucketAt = new Date("2026-05-01T00:00:30.000Z");
+      const enqueue = () =>
+        enqueuePlatformJob({
+          db,
+          queue: "scheduler",
+          type: "pipeline.schedules.due_requested",
+          prefix: "pipeline-schedules-due",
+          intervalSeconds: 60,
+          payload: (bucket) => ({ bucket }),
+          now: bucketAt,
+        });
+      await Promise.allSettled([enqueue(), enqueue()]);
+      await enqueue().catch(() => null);
+      const rows = await db.outboxMessage.findMany({
+        where: {
+          type: "pipeline.schedules.due_requested",
+          messageId: { startsWith: "pipeline-schedules-due-" },
+        },
+      });
+      const mine = rows.filter(
+        (r) => r.payload?.payload?.bucket === Math.floor(bucketAt.getTime() / 60000),
+      );
+      if (mine.length !== 1) problems.push(`${mine.length} jobs for one bucket`);
+      else {
+        const parsed = parseMessage(mine[0].payload);
+        if (parsed.tenantId) problems.push("the platform job carries a tenant");
+        if (mine[0].queue !== "scheduler") problems.push("the job is not for the scheduler queue");
+      }
+      const idle = await schRun(schAt("2026-01-01T00:00:00.000Z"));
+      const idle2 = await schRun(schAt("2026-01-01T00:00:00.000Z"));
+      // the first run may plan schedules that had no planned time yet (fixtures of other checks); nothing is ever created
+      if (Object.keys(idle).some((k) => k !== "planned") || Object.keys(idle2).length)
+        problems.push(`a run with nothing due did something (${JSON.stringify([idle, idle2])})`);
+      let refused = null;
+      try {
+        await createScheduleHandler({ db, logger: quietLog })(
+          parseMessage(
+            createJobEnvelope({
+              messageId: `other-${randomBytes(3).toString("hex")}`,
+              type: "maintenance.sessions.purge_requested",
+              schemaVersion: 1,
+              initiator: { type: "system", id: "scheduler" },
+              payload: { retentionSeconds: 60 },
+            }),
+          ),
+        );
+      } catch (error) {
+        refused = error;
+      }
+      if (refused?.name !== "NonRetryableError")
+        problems.push("another message type was not refused");
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

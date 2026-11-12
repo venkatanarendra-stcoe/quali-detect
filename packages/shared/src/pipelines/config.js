@@ -9,7 +9,8 @@ import {
   PIPELINE_SEVERITIES,
   PULL_REQUEST_ACTIONS,
 } from "./constants.js";
-import { checkCronSchedule, isKnownTimeZone } from "./cron.js";
+import { isKnownTimeZone } from "./cron.js";
+import { validateSchedule } from "./schedule.js";
 import { isValidRefName, patternProblem } from "./glob.js";
 
 /**
@@ -135,16 +136,22 @@ export function createPipelineConfigSchema(overrides = {}, { now = () => new Dat
         keys.add(trigger.key);
         counts[trigger.type] += 1;
         if (trigger.type === "schedule") {
-          const result = checkCronSchedule(trigger.cron, {
-            minIntervalSeconds: limits.scheduleMinIntervalSeconds,
-            now: now(),
-          });
-          if (!result.ok)
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: [index, "cron"],
-              message: result.message,
+          // an unknown time zone is reported by the field itself; here the expression is validated and measured for real
+          // (time zone and daylight saving aware, SPEC §5.6); a minimum interval of 0 or less checks the syntax only
+          if (isKnownTimeZone(trigger.timezone)) {
+            const result = validateSchedule({
+              expression: trigger.cron,
+              timeZone: trigger.timezone,
+              minIntervalSeconds: limits.scheduleMinIntervalSeconds,
+              now: now(),
             });
+            if (!result.ok)
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [index, "cron"],
+                message: result.message,
+              });
+          }
         }
       });
       for (const type of ["push", "pull_request", "manual"])

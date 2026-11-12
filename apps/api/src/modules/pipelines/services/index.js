@@ -11,6 +11,7 @@ import {
   evaluatePipelineTriggers,
   forkPolicyOf,
   manualRunBlockOf,
+  nextScheduledFire,
   summarizeConfigChange,
   toDryRunDecision,
 } from "@qmentisai/shared";
@@ -113,8 +114,22 @@ export function createPipelineService({
     return version;
   };
 
+  /**
+   * Planned fire time (UTC: the next slot after now plus the trigger's jitter) of a schedule trigger, or null when it cannot
+   * fire: pipeline disabled, trigger disabled, or a schedule that never fires (SPEC §5.6, §7.2). Never back-fills.
+   */
+  const plannedFire = ({ pipelineEnabled, enabled, cron, timezone, jitterSeconds }) =>
+    pipelineEnabled && enabled
+      ? (nextScheduledFire({
+          expression: cron,
+          timeZone: timezone,
+          after: new Date(),
+          jitterSeconds,
+        })?.fireAt ?? null)
+      : null;
+
   /** Keeps the trigger projection in step with a version (SPEC §7.2): update by key, create, delete stale; schedule state survives an unchanged schedule. */
-  async function rebuildTriggers(tx, pipeline, version, config) {
+  async function rebuildTriggers(tx, pipeline, version, config, pipelineEnabled) {
     const { tenantId, id: pipelineId, workspaceId, repositoryId } = pipeline;
     const existing = await repository.listTriggers({ tenantId, pipelineId }, tx);
     const wanted = new Map(config.triggers.map((t) => [t.key, t]));
@@ -130,18 +145,31 @@ export function createPipelineService({
       const base = { enabled: t.enabled, versionId: version.id };
       const old = kept.get(t.key);
       if (old) {
-        const moved = t.type === "schedule" && (old.cron !== t.cron || old.timezone !== t.timezone);
+        let fire = {};
+        if (t.type === "schedule") {
+          const moved = old.cron !== t.cron || old.timezone !== t.timezone;
+          const active = pipelineEnabled && t.enabled;
+          // an unchanged, still active schedule keeps its planned time; anything else is recomputed from now (or cleared)
+          fire =
+            active && !moved && old.nextFireAt
+              ? {}
+              : {
+                  nextFireAt: plannedFire({
+                    pipelineEnabled,
+                    enabled: t.enabled,
+                    ...schedule,
+                    jitterSeconds: old.jitterOffsetSeconds ?? 0,
+                  }),
+                };
+        }
         await repository.updateTrigger(
-          {
-            tenantId,
-            pipelineId,
-            id: old.id,
-            data: { ...base, ...schedule, ...(moved ? { nextFireAt: null } : {}) },
-          },
+          { tenantId, pipelineId, id: old.id, data: { ...base, ...schedule, ...fire } },
           tx,
         );
       } else {
         const id = randomUUID();
+        const jitterOffsetSeconds =
+          t.type === "schedule" ? jitterFor(id, limits.scheduleJitterSeconds) : undefined;
         await repository.createTrigger(
           {
             tenantId,
@@ -154,13 +182,45 @@ export function createPipelineService({
             ...base,
             ...schedule,
             ...(t.type === "schedule"
-              ? { jitterOffsetSeconds: jitterFor(id, limits.scheduleJitterSeconds) }
+              ? {
+                  jitterOffsetSeconds,
+                  nextFireAt: plannedFire({
+                    pipelineEnabled,
+                    enabled: t.enabled,
+                    ...schedule,
+                    jitterSeconds: jitterOffsetSeconds,
+                  }),
+                }
               : {}),
           },
           tx,
         );
       }
     }
+  }
+
+  /** Enable recomputes every schedule's planned time from now, disable clears them (SPEC §6.5): a pipeline that was off accumulates no misses. */
+  async function refreshSchedules(tx, pipeline, pipelineEnabled) {
+    const { tenantId, id: pipelineId } = pipeline;
+    for (const t of await repository.listTriggers({ tenantId, pipelineId }, tx))
+      if (t.type === "schedule")
+        await repository.updateTrigger(
+          {
+            tenantId,
+            pipelineId,
+            id: t.id,
+            data: {
+              nextFireAt: plannedFire({
+                pipelineEnabled,
+                enabled: t.enabled,
+                cron: t.cron,
+                timezone: t.timezone,
+                jitterSeconds: t.jitterOffsetSeconds ?? 0,
+              }),
+            },
+          },
+          tx,
+        );
   }
 
   /** Writes one version, moves the pointer, rebuilds the projection and audits the fork policy / schedule changes. */
@@ -193,7 +253,7 @@ export function createPipelineService({
       },
       tx,
     );
-    await rebuildTriggers(tx, pipeline, version, config);
+    await rebuildTriggers(tx, pipeline, version, config, enabled ?? pipeline.enabled);
     const before = forkPolicyOf(previous?.config);
     const after = forkPolicyOf(config);
     if (before !== after)
@@ -555,6 +615,7 @@ export function createPipelineService({
           { tenantId: actor.tenantId, id: pipeline.id, data: { enabled } },
           tx,
         );
+        await refreshSchedules(tx, pipeline, enabled);
         await audit.tenant.record(
           entry(
             actor,

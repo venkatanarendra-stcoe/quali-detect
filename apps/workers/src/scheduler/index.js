@@ -2,17 +2,24 @@ import { QUEUE_NAMES } from "@qmentisai/contracts";
 import { NonRetryableError } from "@qmentisai/infra";
 import { runWorker } from "../runtime/run-worker.js";
 import { enqueuePlatformJob, enqueueSessionPurge, purgeSessions } from "./jobs.js";
+import { createScheduleHandler } from "./schedules.js";
 
 /** Entry point of the scheduler worker (see docs/architecture/WORKER_ARCHITECTURE.md). */
 export const WORKER_NAME = "scheduler";
 
 /**
- * The scheduler's job handler: platform maintenance jobs delivered through the messaging layer.
- * @param {{ db: any }} deps
+ * The scheduler's job handler: platform jobs delivered through the messaging layer. Session purge (maintenance) and the due
+ * pipeline schedules (`pipeline.schedules.due_requested`, SPEC pipelines-triggers §6.4).
+ * @param {{ db: any, config?: any, logger?: any }} deps
  * @returns {(message: any, context: { log: any }) => Promise<void>}
  */
-export function createSchedulerHandler({ db }) {
+export function createSchedulerHandler({ db, config, logger }) {
+  const schedules = createScheduleHandler({ db, config, logger });
   return async (message, { log }) => {
+    if (message.type === "pipeline.schedules.due_requested") {
+      await schedules(message, { log });
+      return;
+    }
     if (message.type !== "maintenance.sessions.purge_requested")
       throw new NonRetryableError(`The scheduler does not handle "${message.type}".`, {
         reason: "unsupported-message-type",
@@ -34,13 +41,18 @@ export function createSchedulerHandler({ db }) {
 export function start() {
   // The handler needs the worker's database client, which exists only once the runtime has built it.
   let db;
+  let workerConfig;
+  let workerLogger;
   return runWorker({
     name: WORKER_NAME,
     queue: QUEUE_NAMES.SCHEDULER,
-    handler: (message, context) => createSchedulerHandler({ db })(message, context),
+    handler: (message, context) =>
+      createSchedulerHandler({ db, config: workerConfig, logger: workerLogger })(message, context),
     requireTenant: false,
     onReady({ db: client, config, logger }) {
       db = client;
+      workerConfig = config;
+      workerLogger = logger;
       const {
         sessionPurgeIntervalSeconds: intervalSeconds,
         sessionRetentionSeconds: retentionSeconds,
@@ -51,6 +63,22 @@ export function start() {
         );
       void tick();
       const timers = [setInterval(tick, intervalSeconds * 1000)];
+      // Pipeline schedules (SPEC pipelines-triggers §6.4): every tick one platform job; the time-bucket messageId makes several
+      // scheduler instances produce ONE job, and the handler is naturally idempotent (the slot key).
+      const scheduleSeconds = config.scheduler.scheduleTickSeconds;
+      const scheduleTick = () =>
+        enqueuePlatformJob({
+          db,
+          queue: QUEUE_NAMES.SCHEDULER,
+          type: "pipeline.schedules.due_requested",
+          prefix: "pipeline-schedules-due",
+          intervalSeconds: scheduleSeconds,
+          payload: (bucket) => ({ bucket }),
+        }).catch((error) =>
+          logger.error({ err: error }, "Could not enqueue the due pipeline schedules job"),
+        );
+      void scheduleTick();
+      timers.push(setInterval(scheduleTick, scheduleSeconds * 1000));
       if (config.scm.enabled) {
         // GitHub reconciliation and retention (SPEC §6.5): the scm worker consumes these platform jobs.
         const schedule = (name, seconds, build) => {

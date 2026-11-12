@@ -13,7 +13,7 @@ Workers handle asynchronous and long-running work outside the API request lifecy
 | Scan | Scan engine task execution and result ingestion |
 | Notification | Email and external notifications |
 | Usage | Usage metering and aggregation |
-| Scheduler | Scheduled pipeline triggers |
+| Scheduler | Scheduled pipeline triggers (the due-schedule handler) and platform maintenance jobs |
 
 ## Message envelope (one schema family)
 
@@ -36,6 +36,12 @@ The **outbox relay** (`apps/workers`, `start:outbox`) claims due rows with `SELE
 ## Scheduled maintenance (scheduler worker)
 
 The scheduler worker consumes the `scheduler` queue and, while running, enqueues `maintenance.sessions.purge_requested` through the outbox every `SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS` (default 1 h, also at startup). The messageId is derived from the time bucket and the outbox is unique per (messageId, queue), so several scheduler instances produce one job. The handler deletes tenant and platform sessions that expired, or were revoked, more than `SCHEDULER_SESSION_RETENTION_SECONDS` (default 24 h) ago; it is naturally idempotent because platform-level messages (catalog scope `platform`) carry no tenant to key an idempotency claim on.
+
+## Pipeline schedules (scheduler worker, docs/modules/pipelines-triggers/SPEC.md §6.4, part E)
+
+The scheduler worker also ticks every `PIPELINE_SCHEDULE_TICK_SECONDS` (default 60, also at startup) and enqueues the platform job `pipeline.schedules.due_requested` (payload `{ bucket }`, no tenant) to the `scheduler` queue through `enqueuePlatformJob`; the messageId `pipeline-schedules-due-<bucket>` and the unique `(messageId, queue)` make several scheduler instances produce one job. The scheduler's consumer (`createSchedulerHandler`) dispatches that type to `apps/workers/src/scheduler/schedules.js`. The job is naturally idempotent: a repeat finds the triggers already advanced.
+
+The handler repeats, up to `PIPELINE_SCHEDULE_BATCH` times (100) per job: peek the next due `pipeline_triggers` row (`type = schedule AND enabled AND next_fire_at <= now`, the partial due-schedule index; tenants that already used `PIPELINE_SCHEDULE_MAX_PER_TENANT_PER_TICK` (10) in this run are excluded, so one tenant cannot starve the others) and handle it in its OWN transaction: advisory lock on the pipeline (`pipeline:<tenant>:<id>`, the same key as the pipelines API, the trigger router and the manual run, always taken before the row lock) -> claim the row with `FOR UPDATE SKIP LOCKED` scoped by tenant, workspace, repository, pipeline and id -> re-validate everything from the database (tenant usable, workspace active, repository present in the tenant and workspace, `active` and enabled, pipeline live and enabled, the trigger still present, enabled and unchanged in the CURRENT configuration version) -> create the request through the shared writer (`apps/workers/src/pipeline/execution-request.js`, the same concurrency policy, quota, rows, audit entries and `pipeline.execution.requested` outbox message as the SCM router) or record why nothing is created -> advance `next_fire_at` in the same transaction. The tenant of everything after the claim is the claimed row's, never a message field. The unique `(tenant, pipeline, schedule_slot)` is the backstop against a double fire. One trigger's failure is logged and retried at the next tick and never stops the batch. Missed-run policy, DST rules and the platform limits (`PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS`, `PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS`, tick, batch, per-tenant share) are in the SPEC §5.6 and §16; all are configuration placeholders in `apps/workers/src/config.js`.
 
 ## Queues and bindings
 

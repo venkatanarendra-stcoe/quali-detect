@@ -19,6 +19,7 @@
     "eslint": "catalog:"
   },
   "dependencies": {
+    "croner": "catalog:",
     "zod": "catalog:"
   }
 }

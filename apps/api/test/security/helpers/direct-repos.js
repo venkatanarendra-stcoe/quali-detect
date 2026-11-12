@@ -21,6 +21,7 @@ import { createRepositoryRepository } from "../../../src/modules/repositories/re
 import { createRoleAssignmentRepository } from "../../../src/modules/role-assignments/repositories/index.js";
 import { createRoleRepository } from "../../../src/modules/roles/repositories/index.js";
 import { createRouterRepository } from "../../../../workers/src/pipeline/repository.js";
+import { createScheduleRepository } from "../../../../workers/src/scheduler/schedule-repository.js";
 import { createWebhookRepository } from "../../../src/modules/scm-webhooks/repositories/index.js";
 import { createUserRepository } from "../../../src/modules/users/repositories/index.js";
 import { createWorkspaceMemberRepository } from "../../../src/modules/workspace-members/repositories/index.js";
@@ -405,6 +406,50 @@ export async function buildDalWorld(db) {
   const plRunning = await db.execution.create({
     data: executionData({ status: "running", concurrencyGroup: "manual:running" }),
   });
+  // the schedule handler's fixtures (part E): one due schedule trigger, one without a planned time, and the request of a slot
+  const plSchedule = await db.pipelineTrigger.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      pipelineId: pl.id,
+      triggerKey: "nightly",
+      type: "schedule",
+      versionId: plVersion.id,
+      cron: "0 2 * * *",
+      timezone: "UTC",
+      missedPolicy: "run_once",
+      jitterOffsetSeconds: 0,
+      nextFireAt: new Date("2099-01-01T02:00:00Z"),
+    },
+  });
+  const plUnplanned = await db.pipelineTrigger.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      pipelineId: pl.id,
+      triggerKey: "weekly",
+      type: "schedule",
+      versionId: plVersion.id,
+      cron: "0 3 * * 1",
+      timezone: "UTC",
+      missedPolicy: "run_once",
+      jitterOffsetSeconds: 0,
+    },
+  });
+  const plSlot = new Date("2000-01-01T02:00:00Z");
+  await db.execution.create({
+    data: executionData({
+      triggerType: "schedule",
+      triggerKey: "nightly",
+      requestedByUserId: null,
+      scheduleSlot: plSlot,
+      scanKindReason: "scheduled",
+      concurrencyGroup: "schedule:nightly",
+      idempotencyKey: `schedule:nightly:${plSlot.toISOString()}`,
+    }),
+  });
   const plDecision = await db.pipelineTriggerDecision.create({
     data: {
       tenantId: X.id,
@@ -432,6 +477,9 @@ export async function buildDalWorld(db) {
     decisionId: plDecision.id,
     pushEvent: plPushEvent,
     pushExecution: plPushExecution,
+    scheduleId: plSchedule.id,
+    unplannedId: plUnplanned.id,
+    scheduleSlot: plSlot,
     executionData,
   };
 
@@ -584,6 +632,7 @@ export async function buildDalWorld(db) {
     repositories: createRepositoryRepository({ db }),
     pipelines: createPipelineRepository({ db }),
     router: createRouterRepository({ db }),
+    schedules: createScheduleRepository({ db }),
     pipelineCounts: createPipelineCounts({ db }),
     roleAssignments: createRoleAssignmentRepository({ db }),
     roles: createRoleRepository({ db }),
@@ -2819,6 +2868,121 @@ export function buildDalEntries() {
           action: "execution.blocked",
           reason: "quota_exceeded",
           since: new Date(0),
+        }),
+    },
+  );
+
+  // ----- the schedule handler's data access (apps/workers/src/scheduler/schedule-repository.js, part E). `peekDue` and
+  // `peekUnscheduled` are PLATFORM scans (like the session purge: they return the identifiers of rows of any tenant by design and
+  // are never given a tenant); everything they return is then claimed and read again by the tenant-scoped functions below.
+  const SC = (c) => c.repos.schedules;
+  const inTx = (c, fn) => c.db.$transaction((tx) => fn(tx));
+  const dueWhere = (c, tenantId) => ({
+    tenantId,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    id: c.pl.scheduleId,
+    now: new Date("2100-01-01T00:00:00Z"),
+  });
+  E("schedules.claimDue", (c) => inTx(c, (tx) => SC(c).claimDue(dueWhere(c, c.y), tx)), {
+    control: (c) => inTx(c, (tx) => SC(c).claimDue(dueWhere(c, c.x), tx)),
+  });
+  E(
+    "schedules.claimDue (wrong workspace)",
+    (c) => inTx(c, (tx) => SC(c).claimDue({ ...dueWhere(c, c.x), workspaceId: c.pl.wsB }, tx)),
+    { control: (c) => inTx(c, (tx) => SC(c).claimDue(dueWhere(c, c.x), tx)) },
+  );
+  const unplanned = (c, tenantId) => ({
+    tenantId,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    id: c.pl.unplannedId,
+  });
+  E(
+    "schedules.claimUnscheduled",
+    (c) => inTx(c, (tx) => SC(c).claimUnscheduled(unplanned(c, c.y), tx)),
+    { control: (c) => inTx(c, (tx) => SC(c).claimUnscheduled(unplanned(c, c.x), tx)) },
+  );
+  E(
+    "schedules.findPipelineForFire",
+    async (c) => [
+      await SC(c).findPipelineForFire({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+        pipelineId: pipe(c).id,
+      }),
+      await SC(c).findPipelineForFire({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+        pipelineId: pipe(c).id,
+      }),
+    ],
+    {
+      control: (c) =>
+        SC(c).findPipelineForFire({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: pipe(c).id,
+        }),
+    },
+  );
+  E(
+    "schedules.findRepositoryForFire",
+    async (c) => [
+      await SC(c).findRepositoryForFire({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+      }),
+      await SC(c).findRepositoryForFire({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+      }),
+    ],
+    {
+      control: (c) =>
+        SC(c).findRepositoryForFire({ tenantId: c.x, workspaceId: c.ws, repositoryId: c.repo.id }),
+    },
+  );
+  E(
+    "schedules.findExecutionBySlot",
+    (c) =>
+      SC(c).findExecutionBySlot({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        scheduleSlot: c.pl.scheduleSlot,
+      }),
+    {
+      control: (c) =>
+        SC(c).findExecutionBySlot({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          scheduleSlot: c.pl.scheduleSlot,
+        }),
+    },
+  );
+  E(
+    "schedules.updateTrigger",
+    (c) =>
+      SC(c).updateTrigger({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        id: c.pl.scheduleId,
+        data: { nextFireAt: null, enabled: false },
+      }),
+    {
+      control: (c) =>
+        SC(c).updateTrigger({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          id: c.pl.scheduleId,
+          data: { nextFireAt: new Date("2099-01-01T02:00:00Z") },
         }),
     },
   );

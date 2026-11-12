@@ -1,3 +1,5 @@
+import { createScmRestoreRepository } from "@qmentisai/db";
+
 /**
  * Data access for GitHub installations, tenant links, workspace links and their allow-lists (SPEC §18, ADR-012).
  * Installations are platform-level facts (no tenant). EVERY other function takes the tenantId (and the workspaceId where
@@ -6,6 +8,7 @@
  * @param {{ db: any }} deps
  */
 export function createIntegrationRepository({ db }) {
+  const scmRestore = createScmRestoreRepository({ db });
   const tenantLinkInclude = {
     installation: true,
     workspaceLinks: {
@@ -201,45 +204,6 @@ export function createIntegrationRepository({ db }) {
         });
       return rows;
     },
-    /**
-     * Repositories of this workspace that an unlink or an uninstall disconnected (same rows, same ids). Other disconnect
-     * reasons (for example `repo_inaccessible`) are never restored automatically: they need an explicit Connect.
-     */
-    findRestorableRepositories({ tenantId, workspaceId }, client = db) {
-      return client.repository.findMany({
-        where: {
-          tenantId,
-          workspaceId,
-          status: "disconnected",
-          disconnectReason: {
-            in: ["installation_revoked", "workspace_unlinked", "installation_unlinked"],
-          },
-        },
-        select: {
-          id: true,
-          workspaceId: true,
-          fullName: true,
-          externalRepoId: true,
-          nodeId: true,
-          defaultBranch: true,
-          disconnectReason: true,
-        },
-      });
-    },
-    restoreRepositories({ tenantId, workspaceId, linkId, workspaceLinkId, ids }, client = db) {
-      return client.repository.updateMany({
-        where: { tenantId, workspaceId, id: { in: ids }, status: "disconnected" },
-        data: {
-          status: "active",
-          linkId,
-          workspaceLinkId,
-          disconnectedAt: null,
-          disconnectReason: null,
-          consecutiveSyncFailures: 0,
-          lastSyncError: null,
-        },
-      });
-    },
     /** External ids among `externalRepoIds` that are connected (live) in this workspace link. */
     async findLiveExternalIds(
       { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
@@ -269,50 +233,12 @@ export function createIntegrationRepository({ db }) {
      * workspace). With `workspaceId`, stale entries of the same workspace's earlier links (for example after a re-install)
      * do not count: they are moved to the new link.
      */
-    async findAllowedElsewhere(
-      { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
-      client = db,
-    ) {
-      const rows = await client.scmWorkspaceLinkRepository.findMany({
-        where: {
-          tenantId,
-          provider: "github",
-          externalRepoId: { in: externalRepoIds },
-          workspaceLinkId: { not: workspaceLinkId },
-          ...(workspaceId ? { workspaceLink: { workspaceId: { not: workspaceId } } } : {}),
-        },
-        select: { externalRepoId: true },
-      });
-      return new Set(rows.map((r) => r.externalRepoId));
-    },
-    /** External ids on the allow-list of ANY link of this workspace (current or earlier). */
-    async findWorkspaceAllowListIds({ tenantId, workspaceId, externalRepoIds }, client = db) {
-      const rows = await client.scmWorkspaceLinkRepository.findMany({
-        where: {
-          tenantId,
-          provider: "github",
-          externalRepoId: { in: externalRepoIds },
-          workspaceLink: { workspaceId },
-        },
-        select: { externalRepoId: true },
-      });
-      return new Set(rows.map((r) => r.externalRepoId));
-    },
-    /** Removes this workspace's entries for these repositories that sit on its EARLIER links (they move to the new link). */
-    removeStaleAllowListEntries(
-      { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
-      client = db,
-    ) {
-      return client.scmWorkspaceLinkRepository.deleteMany({
-        where: {
-          tenantId,
-          provider: "github",
-          externalRepoId: { in: externalRepoIds },
-          workspaceLinkId: { not: workspaceLinkId },
-          workspaceLink: { workspaceId },
-        },
-      });
-    },
+    /** The shared restore rule (SPEC §18.7; implemented once in `@qmentisai/db`). Returns the restored rows. */
+    restoreWorkspaceRepositories: (input, client = db) =>
+      scmRestore.restoreWorkspaceRepositories(input, client),
+    removeStaleAllowListEntries: (input, client = db) =>
+      scmRestore.removeStaleAllowListEntries(input, client),
+    findAllowedElsewhere: (input, client = db) => scmRestore.findAllowedElsewhere(input, client),
     addAllowListEntries: ({ tenantId, workspaceLinkId, entries, userId }, client = db) =>
       client.scmWorkspaceLinkRepository.createMany({
         data: entries.map((e) => ({

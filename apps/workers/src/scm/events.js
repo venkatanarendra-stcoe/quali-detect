@@ -1,5 +1,7 @@
-import { createOutboxRepository } from "@qmentisai/db";
+import { QUEUE_NAMES, createEventEnvelope } from "@qmentisai/contracts";
+import { createOutboxRepository, restoreWorkspaceRepositories } from "@qmentisai/db";
 import { NonRetryableError, createOutbox } from "@qmentisai/infra";
+import { auditSystem } from "./audit.js";
 import { createRepositoryStates } from "./state.js";
 
 /**
@@ -17,6 +19,76 @@ export function createScmEventHandler({ db, config, logger }) {
     maxFailures: config.scm.syncFailuresBeforeDisconnect,
     logger,
   });
+
+  /**
+   * Restore on gaining access (SPEC §18.7): repositories were added to a linked installation. For EVERY linked workspace
+   * link of that tenant link, the shared restore rule runs for the added repositories only. Each restored repository is
+   * audited with the system actor and announced like a connect. Returns the number restored.
+   */
+  async function restoreAdded({ tenantId, linkId, repositoriesAdded }) {
+    const link = await db.scmInstallationLink.findFirst({
+      where: {
+        id: linkId,
+        tenantId,
+        status: "linked",
+        installation: { status: { not: "revoked" } },
+      },
+      select: { id: true },
+    });
+    if (!link) return 0;
+    const workspaceLinks = await db.scmWorkspaceLink.findMany({
+      where: { tenantId, linkId: link.id, status: "linked", workspace: { status: "active" } },
+      select: { id: true, workspaceId: true, linkedByUserId: true },
+    });
+    let total = 0;
+    for (const wl of workspaceLinks)
+      total += await db.$transaction(async (tx) => {
+        const restored = await restoreWorkspaceRepositories(tx, {
+          tenantId,
+          workspaceId: wl.workspaceId,
+          workspaceLinkId: wl.id,
+          tenantLinkId: link.id,
+          userId: wl.linkedByUserId,
+          accessibleExternalIds: repositoriesAdded,
+        });
+        for (const row of restored) {
+          await auditSystem(tx, {
+            tenantId,
+            action: "repository.restored",
+            targetType: "repository",
+            targetId: row.id,
+            workspaceId: row.workspaceId,
+            metadata: {
+              fullName: row.fullName,
+              previousReason: row.disconnectReason,
+              workspaceLinkId: wl.id,
+            },
+          });
+          await outbox.enqueue(tx, {
+            queue: QUEUE_NAMES.NOTIFICATION,
+            message: createEventEnvelope({
+              type: "repository.connected",
+              schemaVersion: 1,
+              tenantId,
+              workspaceId: row.workspaceId,
+              initiator: { type: "system", id: "scm-sync" },
+              subject: { type: "repository", id: row.id },
+              payload: {
+                repositoryId: row.id,
+                workspaceId: row.workspaceId,
+                provider: "github",
+                externalRepoId: row.externalRepoId,
+                fullName: row.fullName,
+                defaultBranch: row.defaultBranch,
+                linkId: link.id,
+              },
+            }),
+          });
+        }
+        return restored.length;
+      });
+    return total;
+  }
 
   return async (message, { log }) => {
     const { tenantId, payload } = message;
@@ -72,8 +144,12 @@ export function createScmEventHandler({ db, config, logger }) {
           });
           for (const repo of repos) await states.recordFailure(repo, "access_removed");
         }
+        let restored = 0;
+        if (payload.action === "added" && payload.repositoriesAdded.length > 0)
+          restored = await restoreAdded({ tenantId, ...payload });
         return log.info(
           {
+            restored,
             action: payload.action,
             removed: payload.repositoriesRemoved.length,
             added: payload.repositoriesAdded.length,

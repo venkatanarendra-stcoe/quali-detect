@@ -16,6 +16,8 @@ export const integrationsService = {
     }),
   workspaceOverview: (workspaceId, { signal } = {}) => api.get(ws(workspaceId), { signal }),
   start: (workspaceId) => api.post(`${ws(workspaceId)}/start`),
+  /** "Use an existing installation": a single-use discovery state and GitHub's authorize URL. */
+  discover: (workspaceId) => api.post(`${ws(workspaceId)}/discover`),
   authorize: (workspaceId, installationId) =>
     api.post(`${ws(workspaceId)}/authorize`, { installationId }),
   link: (body) => api.post("/integrations/github/links", body),

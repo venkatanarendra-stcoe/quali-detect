@@ -20,8 +20,13 @@ export function createIntegrationController({ service }) {
       reply.success(
         await service.authorize(actor(request), request.params.workspaceId, request.body),
       ),
-    link: async (request, reply) =>
-      reply.code(201).success(await service.link(actor(request), request.body)),
+    discover: async (request, reply) =>
+      reply.success(await service.discover(actor(request), request.params.workspaceId)),
+    link: async (request, reply) => {
+      const result = await service.link(actor(request), request.body);
+      // A discovery state lists candidates (200) and links nothing; a linking state creates the link (201).
+      return (result.mode === "discover" ? reply : reply.code(201)).success(result);
+    },
     refresh: async (request, reply) =>
       reply.success(
         await service.refresh(actor(request), request.params.workspaceId, request.params.linkId),

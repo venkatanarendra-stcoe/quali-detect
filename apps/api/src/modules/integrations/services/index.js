@@ -144,7 +144,8 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
   }
 
   /**
-   * Restore rule (SPEC §18.7), applied whenever a workspace links an installation. Restored to `active`: repositories of THIS
+   * Restore rule (SPEC §18.7), applied whenever a workspace links an installation; the rule itself lives in `@qmentisai/db`
+   * (`restoreWorkspaceRepositories`), shared with the SCM event consumer. This function audits and announces. Restored to `active`: repositories of THIS
    * workspace that were disconnected by an unlink (`workspace_unlinked`, `installation_unlinked`) or an uninstall
    * (`installation_revoked`), matched by tenant + provider + external repo id (the same row, ids unchanged), that the
    * installation can access, and, after an uninstall, that are still on this workspace's allow-list. Any other reason
@@ -152,48 +153,14 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
    * repository another workspace has since put on its own list is skipped.
    */
   async function restoreWorkspaceRepositories(actor, wl, tenantLinkId, accessible, tx) {
-    const scope = { tenantId: actor.tenantId, workspaceId: wl.workspaceId };
-    const candidates = (await repository.findRestorableRepositories(scope, tx)).filter((r) =>
-      accessible.has(r.externalRepoId),
-    );
-    if (candidates.length === 0) return 0;
-    const listed = await repository.findWorkspaceAllowListIds(
-      { ...scope, externalRepoIds: candidates.map((r) => r.externalRepoId) },
-      tx,
-    );
-    const eligible = candidates.filter(
-      (r) => r.disconnectReason !== "installation_revoked" || listed.has(r.externalRepoId),
-    );
-    if (eligible.length === 0) return 0;
-    const elsewhere = await repository.findAllowedElsewhere(
-      {
-        ...scope,
-        workspaceLinkId: wl.id,
-        externalRepoIds: eligible.map((r) => r.externalRepoId),
-      },
-      tx,
-    );
-    const restorable = eligible.filter((r) => !elsewhere.has(r.externalRepoId));
-    if (restorable.length === 0) return 0;
-    const externalRepoIds = restorable.map((r) => r.externalRepoId);
-    await repository.restoreRepositories(
-      { ...scope, linkId: tenantLinkId, workspaceLinkId: wl.id, ids: restorable.map((r) => r.id) },
-      tx,
-    );
-    await repository.removeStaleAllowListEntries(
-      { ...scope, workspaceLinkId: wl.id, externalRepoIds },
-      tx,
-    );
-    await repository.removeAllowListEntries(
-      { tenantId: actor.tenantId, workspaceLinkId: wl.id, externalRepoIds },
-      tx,
-    );
-    await repository.addAllowListEntries(
+    const restorable = await repository.restoreWorkspaceRepositories(
       {
         tenantId: actor.tenantId,
+        workspaceId: wl.workspaceId,
         workspaceLinkId: wl.id,
+        tenantLinkId,
         userId: actor.userId,
-        entries: restorable,
+        accessibleExternalIds: accessible,
       },
       tx,
     );
@@ -235,6 +202,52 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
       });
     }
     return restorable.length;
+  }
+
+  /** Most organization memberships checked in one discovery (each costs one GitHub call); beyond it the answer is `truncated`. */
+  const DISCOVERY_MEMBERSHIP_LIMIT = 30;
+  /**
+   * Discovery, step 2 (SPEC §16.2): the installations of the App the signed-in GitHub user can see, each with D5 evaluated
+   * (organization: active `admin` membership; personal: the account id equals the user's id). Creates no link and no
+   * installation row, and does not look at other tenants: an installation linked elsewhere is listed like any other and
+   * only fails, with the generic 409, when it is chosen and linked. The user token goes out of scope here.
+   */
+  async function discoverCandidates(actor, workspaceId, client, userToken) {
+    const mine = await client.listUserInstallations(userToken);
+    const linkedHere = new Set(
+      (await repository.listWorkspaceLinks({ tenantId: actor.tenantId, workspaceId }))
+        .filter((wl) => wl.status === "linked")
+        .map((wl) => wl.link.installation.externalInstallationId),
+    );
+    let me = null;
+    let membershipCalls = 0;
+    let truncated = false;
+    const candidates = [];
+    for (const installation of mine) {
+      let owner;
+      if (installation.accountType === "organization") {
+        if (membershipCalls >= DISCOVERY_MEMBERSHIP_LIMIT) {
+          truncated = true;
+          continue;
+        }
+        membershipCalls += 1;
+        const membership = await client.getOrgMembership(userToken, installation.accountLogin);
+        owner = Boolean(membership && membership.state === "active" && membership.role === "admin");
+      } else {
+        me ??= await client.getAuthenticatedUser(userToken);
+        owner = me.id === installation.accountExternalId;
+      }
+      candidates.push({
+        externalInstallationId: installation.externalInstallationId,
+        account: { login: installation.accountLogin, type: installation.accountType },
+        repositorySelection: installation.repositorySelection,
+        suspended: Boolean(installation.suspendedAt),
+        eligible: owner,
+        reason: owner ? null : "not_owner",
+        alreadyLinkedHere: linkedHere.has(installation.externalInstallationId),
+      });
+    }
+    return { mode: "discover", truncated, candidates };
   }
 
   return Object.freeze({
@@ -349,6 +362,26 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
     },
 
     /**
+     * Discovery, step 1 (SPEC §16.2): for a person whose App is already installed on their account. Mints a single-use state
+     * (same store, TTL and binding as `authorize`) with the purpose `discover` and NO installation id, and returns GitHub's
+     * authorize URL. Nothing is linked by it.
+     */
+    async discover(actor, workspaceId) {
+      await assertLinkingAllowed(actor.tenantId);
+      const client = requireGitHub();
+      const state = await stateStore.create({
+        tenantId: actor.tenantId,
+        workspaceId,
+        userId: actor.userId,
+        sessionId: actor.sessionId,
+        purpose: "discover",
+      });
+      return {
+        authorizeUrl: client.buildAuthorizeUrl({ state, redirectUri: scm.config.oauthRedirectUri }),
+      };
+    },
+
+    /**
      * Step 3: verify and link (SPEC R-2, §18 A2/A8). In order: single-use, unexpired state bound to this tenant, user and
      * session; the WORKSPACE comes only from that state, where the signed-in user must still hold
      * `workspace_integration.manage` (central engine) and the tenant must still allow workspace linking; the code becomes
@@ -372,10 +405,9 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
       )
         throw new ForbiddenError();
       await assertLinkingAllowed(actor.tenantId);
-      const installation = await guard(async () => {
-        let userToken;
+      const exchange = async () => {
         try {
-          userToken = await client.exchangeUserCode(code, scm.config.oauthRedirectUri);
+          return await client.exchangeUserCode(code, scm.config.oauthRedirectUri);
         } catch (error) {
           if (error instanceof GitHubApiError && error.status === 400)
             throw new AppError(
@@ -384,6 +416,11 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
             );
           throw error;
         }
+      };
+      if (binding.purpose === "discover")
+        return guard(async () => discoverCandidates(actor, workspaceId, client, await exchange()));
+      const installation = await guard(async () => {
+        const userToken = await exchange();
         const mine = await client.listUserInstallations(userToken);
         if (!mine.some((i) => i.externalInstallationId === binding.installationId))
           throw new ForbiddenError("You do not have access to this GitHub installation.");

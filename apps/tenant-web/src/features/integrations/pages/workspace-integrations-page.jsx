@@ -1,4 +1,5 @@
 import { Plug } from "lucide-react";
+import { useState } from "react";
 import { useParams } from "react-router";
 import { PageHeader } from "@/components/common/page-header.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
@@ -7,8 +8,13 @@ import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import { LinkChoiceDialog } from "../components/link-choice-dialog.jsx";
 import { WorkspaceLinkCard } from "../components/workspace-link-card.jsx";
-import { useStartLinking, useWorkspaceIntegrations } from "../hooks/use-integrations.js";
+import {
+  useDiscoverInstallations,
+  useStartLinking,
+  useWorkspaceIntegrations,
+} from "../hooks/use-integrations.js";
 import { linkHint } from "../services/link-hint.js";
 import { LINKING_DISABLED_MESSAGE, linkErrorMessage } from "../services/link-errors.js";
 
@@ -23,6 +29,8 @@ export function WorkspaceIntegrationsPage() {
   const canManage = can("workspace_integration.manage");
   const overview = useWorkspaceIntegrations(workspaceId);
   const start = useStartLinking();
+  const discover = useDiscoverInstallations();
+  const [choosing, setChoosing] = useState(false);
   const data = overview.data;
   const links = data?.items.filter((l) => l.status === "linked") ?? [];
   const previous = data?.items.filter((l) => l.status === "unlinked") ?? [];
@@ -36,6 +44,14 @@ export function WorkspaceIntegrationsPage() {
       onSuccess: ({ installUrl }) => window.location.assign(installUrl),
     });
   };
+  // "Use an existing installation": GitHub lists the installations the user administers on the callback page.
+  const chooseExisting = () => {
+    linkHint.write(workspaceId);
+    discover.mutate(workspaceId, {
+      onSuccess: ({ authorizeUrl }) => window.location.assign(authorizeUrl),
+    });
+  };
+  const linkError = start.error ?? discover.error;
   return (
     <>
       <PageHeader
@@ -44,7 +60,10 @@ export function WorkspaceIntegrationsPage() {
         actions={
           data && data.configured ? (
             <DisabledWithReason reason={linkReason}>
-              <Button onClick={startLinking} disabled={start.isPending}>
+              <Button
+                onClick={() => setChoosing(true)}
+                disabled={start.isPending || discover.isPending}
+              >
                 <Plug aria-hidden="true" />
                 Link a GitHub account
               </Button>
@@ -52,9 +71,21 @@ export function WorkspaceIntegrationsPage() {
           ) : null
         }
       />
-      {start.error ? (
+      <LinkChoiceDialog
+        open={choosing}
+        onOpenChange={setChoosing}
+        onInstall={() => {
+          setChoosing(false);
+          startLinking();
+        }}
+        onUseExisting={() => {
+          setChoosing(false);
+          chooseExisting();
+        }}
+      />
+      {linkError ? (
         <p role="alert" className="mb-3 text-sm text-status-danger">
-          {linkErrorMessage(start.error)}
+          {linkErrorMessage(linkError)}
         </p>
       ) : null}
       {data && data.configured && linkReason && canManage ? (

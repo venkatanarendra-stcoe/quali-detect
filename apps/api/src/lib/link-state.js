@@ -22,7 +22,12 @@ export function createLinkStateStore({
   const keyOf = (tenantId, state) =>
     buildTenantKey({ tenantId, namespace: "scm-link-state", parts: [sha(state)] });
   return Object.freeze({
-    /** @param {{ tenantId: string, workspaceId: string, userId: string, sessionId: string, installationId: string }} binding @returns {Promise<string>} the state */
+    /**
+     * `purpose` is `link` (default; carries `installationId`) or `discover` (SPEC §16.2: no installation id; consuming it only
+     * lists the installations the user administers).
+     * @param {{ tenantId: string, workspaceId: string, userId: string, sessionId: string, installationId?: string, purpose?: "link" | "discover" }} binding
+     * @returns {Promise<string>} the state
+     */
     async create(binding) {
       const state = randomBytes(32).toString("base64url");
       const key = keyOf(binding.tenantId, state);
@@ -30,7 +35,8 @@ export function createLinkStateStore({
         workspaceId: binding.workspaceId,
         userId: binding.userId,
         sessionId: binding.sessionId,
-        installationId: binding.installationId,
+        installationId: binding.purpose === "discover" ? null : binding.installationId,
+        purpose: binding.purpose ?? "link",
       });
       if (infra.redis) await infra.redis.set(key, value, "EX", ttlSeconds);
       else {
@@ -40,7 +46,7 @@ export function createLinkStateStore({
       return state;
     },
     /**
-     * Returns the binding (`workspaceId`, `userId`, `sessionId`, `installationId`) and removes it, or null when unknown,
+     * Returns the binding (`workspaceId`, `userId`, `sessionId`, `installationId`, `purpose`) and removes it, or null when unknown,
      * expired or already used.
      * @param {{ tenantId: string, state: string }} input
      */
@@ -53,7 +59,9 @@ export function createLinkStateStore({
         memory.delete(key);
         raw = entry && entry.expiresAt > now() ? entry.value : null;
       }
-      return raw ? JSON.parse(raw) : null;
+      if (!raw) return null;
+      const binding = JSON.parse(raw);
+      return { ...binding, purpose: binding.purpose ?? "link" };
     },
   });
 }

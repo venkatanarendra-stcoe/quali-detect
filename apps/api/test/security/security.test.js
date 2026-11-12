@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 313;
+const EXPECTED_CHECKS = 323;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -4352,6 +4352,831 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         problems.push(`r1 allow-list rows: ${mine(x.ext.R1).length}`);
       if (mine(x.ext.R4).length !== 1 || mine(x.ext.R4)[0].workspaceLinkId === x.wlY)
         problems.push("the other workspace's entry moved or was copied");
+      return problems;
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12e. GitHub integration: "Use an existing installation" (SPEC §16.2): two-step discovery, then the normal flow with D5 on
+//      consume; and restoring repositories when an installation gains access (installation_repositories.added, SPEC §18.7).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: discovery and restore on gaining access");
+  const asA = () => S("admin")(w);
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
+  const setting = (cookie, value) =>
+    w.api("PUT", "/integrations/settings", { cookie, body: { allowWorkspaceLinking: value } });
+  const stateOf = (response) =>
+    response.status === 200
+      ? new URL(response.json.data.authorizeUrl).searchParams.get("state")
+      : null;
+  /** Sets up GitHub's side for a user who can see `installs` and asks for a discovery state in the workspace. */
+  async function discoverFlow(cookie, { workspaceId, user, installs, visible, orgRoles = {} }) {
+    for (const i of installs)
+      await stubCtl("/__control/installation", {
+        id: i.id,
+        account: i.account,
+        suspended_at: i.suspended ? "2026-01-01T00:00:00Z" : null,
+        ...(i.repos ? { repos: i.repos } : { repos: [] }),
+      });
+    const code = `code-${randomBytes(6).toString("hex")}`;
+    await stubCtl("/__control/code", {
+      code,
+      user,
+      installationIds: (visible ?? installs.map((i) => i.id)).map(String),
+      orgRoles,
+    });
+    const disc = await w.api("POST", `${ghPath(workspaceId)}/discover`, { cookie });
+    return { disc, code, state: stateOf(disc), workspaceId };
+  }
+  const role = (login, r) => ({ [login]: { role: r, state: "active" } });
+  const counts = async () => {
+    const db = suiteDb();
+    const tenantId = await tenantIdA();
+    return {
+      installations: await db.scmInstallation.count(),
+      links: await db.scmInstallationLink.count({ where: { tenantId } }),
+      workspaceLinks: await db.scmWorkspaceLink.count({ where: { tenantId } }),
+    };
+  };
+
+  // ---- who may discover (SCM-051)
+  const permScenario = () =>
+    once("scm-discover-perm", async () => {
+      const devLead = await loginAs("demo.devlead@demo.example");
+      const analyst = await loginAs("demo.analyst@demo.example");
+      const who = {
+        viewer: S("viewer")(w),
+        developer: S("developer")(w),
+        lead: S("lead")(w),
+        devLead,
+        analyst,
+      };
+      const denied = {};
+      for (const [name, cookie] of Object.entries(who))
+        denied[name] = await w.api("POST", `${ghPath(PAY())}/discover`, { cookie });
+      return {
+        denied,
+        unauthenticated: await w.api("POST", `${ghPath(PAY())}/discover`),
+        hidden: await w.api("POST", `${ghPath(IDN())}/discover`, { cookie: S("manager")(w) }),
+        missing: await w.api("POST", `${ghPath("00000000-0000-4000-8000-000000000000")}/discover`, {
+          cookie: S("manager")(w),
+        }),
+        control: await w.api("POST", `${ghPath(PAY())}/discover`, { cookie: S("manager")(w) }),
+        adminControl: await w.api("POST", `${ghPath(IDN())}/discover`, { cookie: asA() }),
+      };
+    });
+  add(
+    "SCM-051",
+    "discovering existing installations needs workspace_integration.manage in the workspace: Viewer, Developer, Lead, Dev Lead and Security Analyst get 403, no session 401, a workspace the caller cannot see 404 (same as a missing one); the Manager and the Administrator get the authorize URL",
+    FORBIDDEN,
+    async () => (await permScenario()).denied.developer,
+    async () => {
+      const x = await permScenario();
+      const problems = [];
+      for (const [name, res] of Object.entries(x.denied))
+        if (res.status !== 403) problems.push(`${name} answered ${res.status}`);
+      if (x.unauthenticated.status !== 401)
+        problems.push(`no session answered ${x.unauthenticated.status}`);
+      if (x.hidden.status !== 404) problems.push(`a hidden workspace answered ${x.hidden.status}`);
+      if (JSON.stringify(x.hidden.json.error) !== JSON.stringify(x.missing.json?.error))
+        problems.push("a hidden workspace differs from a missing one");
+      for (const [name, res] of [
+        ["manager", x.control],
+        ["admin", x.adminControl],
+      ]) {
+        if (res.status !== 200) problems.push(`${name} control answered ${res.status}`);
+        else {
+          const url = new URL(res.json.data.authorizeUrl);
+          if (!url.searchParams.get("state")) problems.push(`${name}: the URL has no state`);
+          if (url.searchParams.has("installation_id"))
+            problems.push(`${name}: the URL names an installation`);
+        }
+      }
+      return problems;
+    },
+  );
+
+  // ---- the tenant setting (SCM-052)
+  const offScenario = () =>
+    once("scm-discover-off", async () => {
+      const admin = asA();
+      const manager = S("manager")(w);
+      const user = ghUser();
+      const account = orgAccount("dof");
+      const id = nextInstallationId();
+      const installs = [{ id, account }];
+      const minted = await discoverFlow(manager, {
+        workspaceId: PAY(),
+        user,
+        installs,
+        orgRoles: role(account.login, "admin"),
+      });
+      const before = await counts();
+      const out = {};
+      const off = await setting(admin, false);
+      try {
+        out.discover = await w.api("POST", `${ghPath(PAY())}/discover`, { cookie: manager });
+        out.consume = await consumeState(manager, minted);
+      } finally {
+        out.on = await setting(admin, true);
+      }
+      out.after = await counts();
+      out.afterOn = await w.api("POST", `${ghPath(PAY())}/discover`, { cookie: manager });
+      out.minted = minted;
+      out.before = before;
+      out.off = off;
+      return out;
+    });
+  add(
+    "SCM-052",
+    "with the tenant setting off, starting a discovery and consuming a discovery state minted earlier both answer 403 workspace_linking_disabled and create nothing; turning it back on lets the Manager discover again",
+    FORBIDDEN,
+    async () => (await offScenario()).discover,
+    async () => {
+      const x = await offScenario();
+      const problems = [];
+      if (x.minted.disc.status !== 200)
+        problems.push(`minting before the change answered ${x.minted.disc.status}`);
+      if (x.off.status !== 200) problems.push(`turning the setting off answered ${x.off.status}`);
+      for (const op of ["discover", "consume"]) {
+        if (x[op].status !== 403) problems.push(`${op} answered ${x[op].status}`);
+        else if (x[op].json.error.details?.reason !== "workspace_linking_disabled")
+          problems.push(`${op} reason ${x[op].json.error.details?.reason}`);
+      }
+      if (JSON.stringify(x.before) !== JSON.stringify(x.after))
+        problems.push("rows were created while off");
+      if (x.on.status !== 200) problems.push("the setting could not be turned back on");
+      if (x.afterOn.status !== 200)
+        problems.push(`discover after turning it on answered ${x.afterOn.status}`);
+      return problems;
+    },
+  );
+
+  // ---- the discovery state (SCM-053)
+  const stateScenario = () =>
+    once("scm-discover-state", async () => {
+      const admin = asA();
+      const manager = S("manager")(w);
+      const user = ghUser();
+      const account = orgAccount("dst");
+      const id = nextInstallationId();
+      const mint = (cookie = admin) =>
+        discoverFlow(cookie, {
+          workspaceId: PAY(),
+          user,
+          installs: [{ id, account }],
+          orgRoles: role(account.login, "admin"),
+        });
+      const a = await mint();
+      const flipped = a.state.slice(0, -1) + (a.state.at(-1) === "A" ? "B" : "A");
+      const tampered = await consumeState(admin, { code: a.code, state: flipped });
+      const truncated = await consumeState(admin, { code: a.code, state: a.state.slice(0, 30) });
+      const garbage = await consumeState(admin, { code: a.code, state: "x".repeat(40) });
+      const byOtherUser = await consumeState(manager, await mint());
+      const byOtherSession = await consumeState(
+        await loginAs("demo.admin@demo.example"),
+        await mint(),
+      );
+      // single use: the second presentation of a state the owner already consumed is refused
+      const b = await mint();
+      const first = await consumeState(admin, b);
+      const reused = await consumeState(admin, b);
+      const edge = await edgeTenant();
+      const foreignTenant = await consumeState(edge.owner, await mint());
+      const stale = await mint();
+      await sleep(3600); // SCM_LINK_STATE_TTL_SECONDS is 3 in this run
+      const expired = await consumeState(admin, stale);
+      // a discovery state cannot be used to link: it carries no installation (the response is a list, never a link)
+      const links = await counts();
+      return {
+        tampered,
+        truncated,
+        garbage,
+        byOtherUser,
+        byOtherSession,
+        first,
+        reused,
+        foreignTenant,
+        expired,
+        links,
+        id,
+      };
+    });
+  add(
+    "SCM-053",
+    "a discovery state is single use and bound to tenant, user and session: tampered, truncated, garbage, foreign-user, other-session, other-tenant, reused and expired variants all answer 400, and the genuine one lists candidates (200, mode discover) without linking",
+    { status: 400, code: "BAD_REQUEST" },
+    async () => (await stateScenario()).reused,
+    async () => {
+      const x = await stateScenario();
+      const problems = [];
+      for (const name of [
+        "tampered",
+        "truncated",
+        "garbage",
+        "byOtherUser",
+        "byOtherSession",
+        "foreignTenant",
+        "expired",
+      ])
+        if (x[name].status !== 400) problems.push(`${name} answered ${x[name].status}`);
+      if (x.first.status !== 200 || x.first.json.data.mode !== "discover")
+        problems.push(`the genuine state answered ${x.first.status}`);
+      if (x.first.json?.data?.candidates?.length !== 1)
+        problems.push("the genuine state did not list the installation");
+      if (x.first.status === 201) problems.push("a discovery state created a link");
+      return problems;
+    },
+  );
+
+  // ---- what discovery returns (SCM-054)
+  const listScenario = () =>
+    once("scm-discover-list", async () => {
+      const admin = asA();
+      const user = ghUser();
+      const orgAdmin = { id: nextInstallationId(), account: orgAccount("da") };
+      const orgMember = { id: nextInstallationId(), account: orgAccount("dm") };
+      const ownPersonal = {
+        id: nextInstallationId(),
+        account: { id: user.id, login: user.login, type: "User" },
+      };
+      const otherPersonal = {
+        id: nextInstallationId(),
+        account: {
+          id: user.id + 1000,
+          login: `other-${randomBytes(3).toString("hex")}`,
+          type: "User",
+        },
+      };
+      const suspended = { id: nextInstallationId(), account: orgAccount("ds"), suspended: true };
+      const invisible = { id: nextInstallationId(), account: orgAccount("di") };
+      const linked = { id: nextInstallationId(), account: orgAccount("dl") };
+      const flowLinked = await linkFlow(admin, {
+        workspaceId: PAY(),
+        installationId: undefined,
+        account: linked.account,
+        user,
+        orgRole: "admin",
+      });
+      linked.id = flowLinked.installationId;
+      const installs = [
+        orgAdmin,
+        orgMember,
+        ownPersonal,
+        otherPersonal,
+        suspended,
+        invisible,
+        linked,
+      ];
+      const orgRoles = {
+        ...role(orgAdmin.account.login, "admin"),
+        ...role(orgMember.account.login, "member"),
+        ...role(suspended.account.login, "admin"),
+        ...role(linked.account.login, "admin"),
+      };
+      const before = await counts();
+      const flow = await discoverFlow(admin, {
+        workspaceId: PAY(),
+        user,
+        installs,
+        visible: installs.filter((i) => i !== invisible).map((i) => i.id),
+        orgRoles,
+      });
+      const res = await consumeState(admin, flow);
+      const after = await counts();
+      const db = suiteDb();
+      const created = await db.scmInstallation.count({
+        where: {
+          externalInstallationId: {
+            in: [orgAdmin, orgMember, ownPersonal, otherPersonal, suspended, invisible].map((i) =>
+              String(i.id),
+            ),
+          },
+        },
+      });
+      const other = await w.api("GET", ghPath(IDN()), { cookie: admin });
+      return {
+        res,
+        before,
+        after,
+        created,
+        ids: { orgAdmin, orgMember, ownPersonal, otherPersonal, suspended, invisible, linked },
+        other,
+      };
+    });
+  add(
+    "SCM-054",
+    "discovery answers 200 and lists only the installations the signed-in GitHub user can see, with eligible computed by D5 (organization admin yes, member no, own personal account yes, another personal account no), suspended and alreadyLinkedHere flagged, and creates no installation, link or workspace link",
+    { status: 200 },
+    async () => (await listScenario()).res,
+    async () => {
+      const x = await listScenario();
+      const problems = [];
+      const data = x.res.json?.data;
+      if (data?.mode !== "discover") problems.push(`mode ${data?.mode}`);
+      if (data?.truncated !== false) problems.push("truncated is not false");
+      const by = (i) => data?.candidates?.find((c) => c.externalInstallationId === String(i.id));
+      const expect = (name, i, eligible, extra = {}) => {
+        const c = by(i);
+        if (!c) return problems.push(`${name} is not listed`);
+        if (c.eligible !== eligible) problems.push(`${name} eligible ${c.eligible}`);
+        if (c.reason !== (eligible ? null : "not_owner"))
+          problems.push(`${name} reason ${c.reason}`);
+        if (c.account.login !== i.account.login) problems.push(`${name} account`);
+        for (const [k, v] of Object.entries(extra))
+          if (c[k] !== v) problems.push(`${name} ${k} ${c[k]}`);
+      };
+      const I = x.ids;
+      expect("org admin", I.orgAdmin, true, { suspended: false, alreadyLinkedHere: false });
+      expect("org member", I.orgMember, false);
+      expect("own personal", I.ownPersonal, true);
+      expect("other personal", I.otherPersonal, false);
+      expect("suspended", I.suspended, true, { suspended: true });
+      expect("already linked", I.linked, true, { alreadyLinkedHere: true });
+      expect("other personal type", I.otherPersonal, false, { repositorySelection: "all" });
+      if (by(I.invisible)) problems.push("an installation the user cannot see is listed");
+      if (data?.candidates?.length !== 6) problems.push(`${data?.candidates?.length} candidates`);
+      if (x.created !== 0) problems.push(`${x.created} installation rows were created`);
+      if (JSON.stringify(x.before) !== JSON.stringify(x.after)) problems.push("rows were created");
+      if (x.other.json.data.items.some((l) => l.account.login === I.orgAdmin.account.login))
+        problems.push("a link appeared in another workspace");
+      if (/ghu_stub|ghs_stub|access_token/.test(JSON.stringify(x.res.json)))
+        problems.push("a token leaked");
+      return problems;
+    },
+  );
+
+  // ---- choosing a candidate (SCM-055)
+  const pickScenario = () =>
+    once("scm-discover-pick", async () => {
+      const admin = asA();
+      const edge = await edgeTenant();
+      const edgeWs = await edgeWorkspace();
+      const user = ghUser();
+      const edgeAccount = orgAccount("dpe");
+      const edgeFlow = await linkFlow(edge.owner, {
+        workspaceId: edgeWs,
+        account: edgeAccount,
+        user,
+        orgRole: "admin",
+      });
+      const edgeId = edgeFlow.installationId;
+      const member = { id: nextInstallationId(), account: orgAccount("dpm") };
+      const ok = { id: nextInstallationId(), account: orgAccount("dpo") };
+      const unseen = { id: nextInstallationId(), account: orgAccount("dpu") };
+      const installs = [{ id: edgeId, account: edgeAccount }, member, ok];
+      const orgRoles = {
+        ...role(edgeAccount.login, "admin"),
+        ...role(member.account.login, "member"),
+        ...role(ok.account.login, "admin"),
+      };
+      const flow = await discoverFlow(admin, { workspaceId: PAY(), user, installs, orgRoles });
+      const listed = await consumeState(admin, flow);
+      const before = await counts();
+      const pick = (i, listedFor = true, roles = orgRoles) =>
+        mintState(admin, {
+          workspaceId: PAY(),
+          installationId: i.id,
+          account: i.account,
+          user,
+          orgRole: roles[i.account.login]?.role,
+          listed: listedFor,
+        });
+      const toEdge = await (async () =>
+        consumeState(admin, await pick({ id: edgeId, account: edgeAccount })))();
+      const toMember = await (async () => consumeState(admin, await pick(member)))();
+      await stubCtl("/__control/installation", {
+        id: unseen.id,
+        account: unseen.account,
+        repos: [],
+      });
+      const toUnseen = await (async () => consumeState(admin, await pick(unseen, false)))();
+      const toOk = await (async () => consumeState(admin, await pick(ok)))();
+      return {
+        listed,
+        before,
+        toEdge,
+        toMember,
+        toUnseen,
+        toOk,
+        edgeId,
+        edgeAccount,
+        member,
+        unseen,
+        ok,
+      };
+    });
+  add(
+    "SCM-055",
+    "choosing a candidate runs the normal flow with D5 on consume: an organization installation the user is only a member of answers 403, one the user cannot see answers 403, one linked to another tenant is listed like any other and gives the generic 409 when linked, and an eligible one links (201)",
+    { status: 409, code: "CONFLICT" },
+    async () => (await pickScenario()).toEdge,
+    async () => {
+      const x = await pickScenario();
+      const problems = [];
+      const row = (i) =>
+        x.listed.json?.data?.candidates?.find((c) => c.externalInstallationId === String(i));
+      const edgeRow = row(x.edgeId);
+      const okRow = row(x.ok.id);
+      if (!edgeRow)
+        problems.push("the installation of another tenant is not listed like any other");
+      else if (
+        JSON.stringify(Object.keys(edgeRow).sort()) !== JSON.stringify(Object.keys(okRow).sort()) ||
+        edgeRow.alreadyLinkedHere !== false ||
+        edgeRow.eligible !== true
+      )
+        problems.push(
+          `the other tenant's installation reads differently: ${JSON.stringify(edgeRow)}`,
+        );
+      if (x.toEdge.json.error.details?.reason !== "installation_unavailable")
+        problems.push(`reason ${x.toEdge.json.error.details?.reason}`);
+      const text = JSON.stringify(x.toEdge.json);
+      if (text.includes(x.edgeAccount.login) || /tenant/i.test(x.toEdge.json.error.message))
+        problems.push("the refusal names the owner");
+      if (x.toMember.status !== 403) problems.push(`member pick answered ${x.toMember.status}`);
+      if (x.toUnseen.status !== 403) problems.push(`unseen pick answered ${x.toUnseen.status}`);
+      if (x.toOk.status !== 201) problems.push(`control pick answered ${x.toOk.status}`);
+      else if (
+        x.toOk.json.data.workspaceId !== PAY() ||
+        x.toOk.json.data.account.login !== x.ok.account.login
+      )
+        problems.push("the link is wrong");
+      return problems;
+    },
+  );
+
+  // ---- the permission is re-checked when a discovery state is consumed (SCM-056)
+  add(
+    "SCM-056",
+    "consuming a discovery state re-checks workspace_integration.manage in the state's workspace: a person who lost the key after minting is refused (403) and nothing is listed or created",
+    FORBIDDEN,
+    async () => (await lostScenario()).lost,
+    async () => {
+      const x = await lostScenario();
+      const problems = [];
+      if (x.mintedWith.disc.status !== 200) problems.push("the state could not be minted");
+      if (x.withKey.status !== 200)
+        problems.push(`with the key the listing answered ${x.withKey.status}`);
+      if (JSON.stringify(x.before) !== JSON.stringify(x.after)) problems.push("rows were created");
+      return problems;
+    },
+  );
+  const lostScenario = () =>
+    once("scm-discover-lost", async () => {
+      const analystId = w.A.user;
+      const managerRole = await integrationManagerRoleId();
+      const analyst = await loginAs("demo.analyst@demo.example");
+      const user = ghUser();
+      const account = orgAccount("dlk");
+      const installs = [{ id: nextInstallationId(), account }];
+      const orgRoles = role(account.login, "admin");
+      const withKey = await withRole(
+        { userId: analystId, roleId: managerRole, workspaceId: IDN() },
+        async () =>
+          consumeState(
+            analyst,
+            await discoverFlow(analyst, { workspaceId: IDN(), user, installs, orgRoles }),
+          ),
+      );
+      let mintedWith;
+      await withRole({ userId: analystId, roleId: managerRole, workspaceId: IDN() }, async () => {
+        mintedWith = await discoverFlow(analyst, { workspaceId: IDN(), user, installs, orgRoles });
+      });
+      const before = await counts();
+      const lost = await consumeState(analyst, mintedWith);
+      return { withKey, mintedWith, lost, before, after: await counts() };
+    });
+
+  // ---- restore on gaining access (SCM-057, SCM-058)
+  const base = 9000000 + (Date.now() % 100000) * 10;
+  const [R1, R2, R3, R4, R5, R6, R7, R9] = [1, 2, 3, 4, 5, 6, 7, 9].map((n) => base + n);
+  const restoreWorld = () =>
+    once("scm-restore-added", async () => {
+      const db = suiteDb();
+      const admin = asA();
+      const edge = await edgeTenant();
+      const edgeWs = await edgeWorkspace();
+      const tenantId = await tenantIdA();
+      const edgeTenantId = (await w.api("GET", "/me", { cookie: edge.owner })).json.data.tenant.id;
+      const third = await w.api("POST", "/workspaces", {
+        cookie: admin,
+        body: { name: `Restore third ${w.suffix}` },
+      });
+      assert.equal(third.status, 201, `fixture: third workspace answered ${third.status}`);
+      const THIRD = third.json.data.id;
+      const user = ghUser();
+      const account = orgAccount("ra");
+      const handle = (message) =>
+        createScmEventHandler({
+          db,
+          config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+          logger: quietLog,
+        })(message, { log: quietLog });
+      const deliverAndHandle = async (event, payload) => {
+        const deliveryId = randomUUID();
+        const res = await deliver({ event, payload, deliveryId });
+        const rows = await rowsFor(deliveryId);
+        if (rows.outbox[0]) await handle(rows.outbox[0].payload);
+        return { res, rows, deliveryId };
+      };
+      // installation X: Payments (R1, R2, R3, R5), Third (R6), Identity (R4)
+      const flowX = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [R1, R2, R3, R4, R5, R6, R7].map(stubRepo),
+      });
+      const link = (workspaceId) =>
+        linkFlow(admin, {
+          workspaceId,
+          installationId: flowX.installationId,
+          account,
+          user,
+          orgRole: "admin",
+        });
+      const flowXT = await link(THIRD);
+      const flowXI = await link(IDN());
+      const wl = {
+        pay: flowX.link.json.data.id,
+        third: flowXT.link.json.data.id,
+        idn: flowXI.link.json.data.id,
+      };
+      await putAllowList(admin, PAY(), wl.pay, [R1, R2, R3, R5, R7]);
+      await putAllowList(admin, THIRD, wl.third, [R6]);
+      await putAllowList(admin, IDN(), wl.idn, [R4]);
+      const ids = {};
+      for (const [key, workspaceId, link, ext] of [
+        ["r1", PAY(), wl.pay, R1],
+        ["r2", PAY(), wl.pay, R2],
+        ["r3", PAY(), wl.pay, R3],
+        ["r5", PAY(), wl.pay, R5],
+        ["r7", PAY(), wl.pay, R7],
+        ["r6", THIRD, wl.third, R6],
+        ["r4", IDN(), wl.idn, R4],
+      ])
+        ids[key] = (await connectRepo(admin, workspaceId, link, ext)).json.data.id;
+      // the other tenant: the same GitHub repository ids, connected through its own installation
+      const edgeAccount = orgAccount("re2");
+      const flowE = await linkFlow(edge.owner, {
+        workspaceId: edgeWs,
+        account: edgeAccount,
+        user: ghUser(),
+        orgRole: "admin",
+        repos: [R1, R2].map(stubRepo),
+      });
+      const wlE = flowE.link.json.data.id;
+      await putAllowList(edge.owner, edgeWs, wlE, [R1, R2]);
+      const e1 = await connectRepo(edge.owner, edgeWs, wlE, R1);
+      const e2 = await connectRepo(edge.owner, edgeWs, wlE, R2);
+      const edgeIds = [e1.json.data.id, e2.json.data.id];
+      await db.repository.updateMany({
+        where: { id: ids.r3, tenantId },
+        data: {
+          status: "disconnected",
+          disconnectReason: "repo_inaccessible",
+          disconnectedAt: new Date(),
+        },
+      });
+      // uninstall both
+      const uninstall = (installationId, login) =>
+        deliverAndHandle("installation", {
+          action: "deleted",
+          installation: { id: Number(installationId), account: { login } },
+        });
+      await uninstall(flowX.installationId, account.login);
+      await uninstall(flowE.installationId, edgeAccount.login);
+      // r5 leaves the Payments allow-list while disconnected (tenant-scoped delete)
+      await db.scmWorkspaceLinkRepository.deleteMany({
+        where: { tenantId, workspaceLinkId: wl.pay, externalRepoId: String(R5) },
+      });
+      // r7 was disconnected by an unlink (no allow-list needed to return) but another workspace (Identity) has since put it
+      // on ITS allow-list: one repository serves one workspace, so Payments must not get it back
+      await db.scmWorkspaceLinkRepository.deleteMany({
+        where: { tenantId, workspaceLinkId: wl.pay, externalRepoId: String(R7) },
+      });
+      await db.scmWorkspaceLinkRepository.create({
+        data: {
+          tenantId,
+          workspaceLinkId: wl.idn,
+          provider: "github",
+          externalRepoId: String(R7),
+          fullName: `org/repo${R7}`,
+          addedByUserId: await meId(admin),
+        },
+      });
+      await db.repository.updateMany({
+        where: { id: ids.r7, tenantId },
+        data: { disconnectReason: "workspace_unlinked" },
+      });
+      // the new installation Y is linked in Payments and Third while it lists only R9: nothing is restored by linking
+      const flowY = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [R9].map(stubRepo),
+      });
+      const flowYT = await linkFlow(admin, {
+        workspaceId: THIRD,
+        installationId: flowY.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const wlY = { pay: flowY.link.json.data.id, third: flowYT.link.json.data.id };
+      const rowsOf = async (tid, list) =>
+        (
+          await db.repository.findMany({
+            where: { tenantId: tid, externalRepoId: { in: list.map(String) } },
+            orderBy: { externalRepoId: "asc" },
+          })
+        ).map((r) => ({
+          id: r.id,
+          ext: r.externalRepoId,
+          status: r.status,
+          reason: r.disconnectReason,
+          linkId: r.linkId,
+          workspaceLinkId: r.workspaceLinkId,
+          workspaceId: r.workspaceId,
+          nodeId: r.nodeId,
+          failures: r.consecutiveSyncFailures,
+        }));
+      const all = [R1, R2, R3, R4, R5, R6, R7];
+      const beforeAdded = await rowsOf(tenantId, all);
+      const edgeBefore = await rowsOf(edgeTenantId, [R1, R2]);
+      const outboxBefore = await db.outboxMessage.count({
+        where: { tenantId, type: "repository.connected" },
+      });
+      // GitHub now lets Y see every repository, and announces r1, r3, r4, r5, r6 (not r2) as added
+      await stubCtl("/__control/repos", {
+        installationId: flowY.installationId,
+        repos: [R1, R2, R3, R4, R5, R6, R7, R9].map(stubRepo),
+      });
+      // an event that is not `added` restores nothing, whatever lists it carries
+      await deliverAndHandle("installation_repositories", {
+        action: "removed",
+        installation: { id: Number(flowY.installationId), account: { login: account.login } },
+        repositories_added: [R1, R3, R4, R5, R6, R7].map((id) => ({ id })),
+        repositories_removed: [],
+      });
+      const afterNotAdded = await rowsOf(tenantId, all);
+      const added = await deliverAndHandle("installation_repositories", {
+        action: "added",
+        installation: { id: Number(flowY.installationId), account: { login: account.login } },
+        repositories_added: [R1, R3, R4, R5, R6, R7].map((id) => ({ id })),
+        repositories_removed: [],
+      });
+      const afterAdded = await rowsOf(tenantId, all);
+      const edgeAfter = await rowsOf(edgeTenantId, [R1, R2]);
+      const restoredAudits = await db.auditLog.findMany({
+        where: { tenantId, action: "repository.restored", targetId: { in: Object.values(ids) } },
+      });
+      const outboxAfter = await db.outboxMessage.count({
+        where: { tenantId, type: "repository.connected" },
+      });
+      const allow = await db.scmWorkspaceLinkRepository.findMany({
+        where: { tenantId, externalRepoId: { in: all.map(String) } },
+        orderBy: { externalRepoId: "asc" },
+      });
+      // the same event again changes nothing more; a `removed`-shaped replay with another action restores nothing either
+      const replay = await deliverAndHandle("installation_repositories", {
+        action: "added",
+        installation: { id: Number(flowY.installationId), account: { login: account.login } },
+        repositories_added: [R1, R3, R4, R5, R6, R7].map((id) => ({ id })),
+        repositories_removed: [],
+      });
+      const afterReplay = await rowsOf(tenantId, all);
+      const auditsAfterReplay = await db.auditLog.count({
+        where: { tenantId, action: "repository.restored", targetId: { in: Object.values(ids) } },
+      });
+      return {
+        ids,
+        edgeIds,
+        beforeAdded,
+        afterAdded,
+        afterNotAdded,
+        afterReplay,
+        edgeBefore,
+        edgeAfter,
+        restoredAudits,
+        outboxBefore,
+        outboxAfter,
+        allow,
+        wlY,
+        flowY,
+        flowYT,
+        added,
+        replay,
+        auditsAfterReplay,
+        ext: { R1, R2, R3, R4, R5, R6, R7 },
+        tenantId,
+        THIRD,
+      };
+    });
+  const row = (rows, ext) => rows.find((r) => r.ext === String(ext));
+  add(
+    "SCM-057",
+    "when an installation gains access (installation_repositories.added), every linked workspace's repositories that were disconnected by an uninstall return to active in the same row if they are listed in the event and still on that workspace's allow-list, move to the new links, are audited as repository.restored by the system actor and announced; repo_inaccessible, not-listed and off-the-allow-list repositories stay disconnected, and replaying the event changes nothing",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await restoreWorld() }),
+    (r) => {
+      const x = r.x;
+      const E = x.ext;
+      const problems = [];
+      if (x.added.res.status !== 202)
+        problems.push(`the signed event answered ${x.added.res.status}`);
+      if (x.flowY.link?.status !== 201 || x.flowYT.link?.status !== 201)
+        problems.push("fixture: Y was not linked in both workspaces");
+      for (const n of [E.R1, E.R2, E.R4, E.R5, E.R6])
+        if (
+          row(x.beforeAdded, n).status !== "disconnected" ||
+          row(x.beforeAdded, n).reason !== "installation_revoked"
+        )
+          problems.push(
+            `fixture: r${n - E.R1 + 1} before the event is ${row(x.beforeAdded, n).status}/${row(x.beforeAdded, n).reason}`,
+          );
+      for (const [key, n, wlKey] of [
+        ["r1", E.R1, "pay"],
+        ["r6", E.R6, "third"],
+      ]) {
+        const a = row(x.afterAdded, n);
+        const b = row(x.beforeAdded, n);
+        if (a.status !== "active" || a.reason !== null)
+          problems.push(`${key} is ${a.status}/${a.reason}`);
+        if (a.id !== x.ids[key] || a.nodeId !== b.nodeId)
+          problems.push(`${key} is not the same row`);
+        if (a.workspaceLinkId !== x.wlY[wlKey] || a.linkId === b.linkId || a.failures !== 0)
+          problems.push(`${key} does not point at the new links`);
+        if (
+          x.allow.filter((e) => e.externalRepoId === String(n)).length !== 1 ||
+          x.allow.find((e) => e.externalRepoId === String(n)).workspaceLinkId !== x.wlY[wlKey]
+        )
+          problems.push(`${key}'s allow-list entry did not move`);
+        const audit = x.restoredAudits.filter((e) => e.targetId === x.ids[key]);
+        if (
+          audit.length !== 1 ||
+          audit[0].actorType !== "system" ||
+          audit[0].metadata?.previousReason !== "installation_revoked" ||
+          audit[0].workspaceId !== a.workspaceId
+        )
+          problems.push(`${key} audit: ${audit.length} entries`);
+      }
+      if (x.outboxAfter !== x.outboxBefore + 2)
+        problems.push(`${x.outboxAfter - x.outboxBefore} repository.connected messages`);
+      if (JSON.stringify(row(x.afterAdded, E.R2)) !== JSON.stringify(row(x.beforeAdded, E.R2)))
+        problems.push("r2 (not in the event) changed");
+      if (JSON.stringify(x.afterNotAdded) !== JSON.stringify(x.beforeAdded))
+        problems.push("an event whose action is not `added` restored repositories");
+      const r7 = row(x.afterAdded, E.R7);
+      if (
+        r7.status !== "disconnected" ||
+        r7.reason !== "workspace_unlinked" ||
+        JSON.stringify(r7) !== JSON.stringify(row(x.beforeAdded, E.R7))
+      )
+        problems.push(`r7 (on another workspace's allow-list) is ${r7.status}/${r7.reason}`);
+      const r3 = row(x.afterAdded, E.R3);
+      if (r3.status !== "disconnected" || r3.reason !== "repo_inaccessible")
+        problems.push(`r3 is ${r3.status}/${r3.reason}`);
+      if (JSON.stringify(row(x.afterAdded, E.R5)) !== JSON.stringify(row(x.beforeAdded, E.R5)))
+        problems.push("r5 (off the allow-list) changed");
+      if (JSON.stringify(x.afterReplay) !== JSON.stringify(x.afterAdded))
+        problems.push("replaying the event changed rows");
+      if (x.auditsAfterReplay !== 2)
+        problems.push(`${x.auditsAfterReplay} restore audit entries after the replay`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-058",
+    "restoring on gaining access never crosses workspaces or tenants: a workspace that has not linked the installation keeps its disconnected repository, and another tenant's disconnected repositories with the same GitHub repository ids are untouched",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await restoreWorld() }),
+    (r) => {
+      const x = r.x;
+      const E = x.ext;
+      const problems = [];
+      const r4 = row(x.afterAdded, E.R4);
+      if (
+        r4.status !== "disconnected" ||
+        r4.reason !== "installation_revoked" ||
+        JSON.stringify(r4) !== JSON.stringify(row(x.beforeAdded, E.R4))
+      )
+        problems.push(`the unlinked workspace's r4 is ${r4.status}/${r4.reason}`);
+      if (row(x.afterAdded, E.R1).status !== "active")
+        problems.push("control: tenant A's r1 was not restored");
+      if (
+        x.edgeBefore.length !== 2 ||
+        x.edgeBefore.some((e) => e.status !== "disconnected" || e.reason !== "installation_revoked")
+      )
+        problems.push("fixture: the other tenant's rows are not revoked");
+      if (JSON.stringify(x.edgeBefore) !== JSON.stringify(x.edgeAfter))
+        problems.push("the other tenant's rows changed");
+      if (x.edgeAfter.some((e) => Object.values(x.ids).includes(e.id)))
+        problems.push("a row is shared between tenants");
       return problems;
     },
   );

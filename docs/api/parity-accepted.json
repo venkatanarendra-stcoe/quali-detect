@@ -34,6 +34,10 @@
       "reason": "New operations of the repositories and GitHub integration module (docs/modules/repositories-github/SPEC.md §8): integrations catalog and installation lifecycle, repositories, and the GitHub webhook route."
     },
     {
+      "pattern": "(OpenAPI: extra |extra operation: )POST /api/v1/workspaces/\\{workspaceId\\}/integrations/github/discover",
+      "reason": "New operation (2026-11-12, SPEC §16.2, owner-approved): \"Use an existing installation\", step 1 of the two-step discovery. Permission workspace_integration.manage in the workspace; tenant setting off gives 403 workspace_linking_disabled; returns the same { authorizeUrl } as authorize but mints a state with the purpose discover and no installation id. Step 2 is the existing POST /integrations/github/links, which answers 200 { mode: \"discover\", truncated, candidates } for such a state and links nothing (201 for a linking state, unchanged). No operation of the Fastify baseline is involved."
+    },
+    {
       "pattern": "(OpenAPI: extra |extra operation: )(GET|PUT|POST|DELETE) /api/v1/workspaces/\\{workspaceId\\}/integrations",
       "reason": "New operations (2026-11-12, SPEC §18 / ADR-012, AUTHORIZATION Q26): workspace-level GitHub linking (start, authorize, test connection, workspace unlink, repository allow-list); permissions workspace_integration.view / workspace_integration.manage (workspace scope). Replaces the 2026-11-11 routing operations GET/PUT /workspaces/{ws}/integrations[/{linkId}] and the tenant-level link operations (start, authorize, link, refresh, scope, unlink under /integrations/github/installations), which no longer exist; none of them was in the Fastify baseline."
     }

@@ -126,6 +126,23 @@ export const workspaceIntegrationResponseSchema = createSuccessSchema(
   }),
 );
 export const workspaceLinkResponseSchema = createSuccessSchema(workspaceLinkDto);
+const discoveryCandidate = z.object({
+  externalInstallationId: z.string(),
+  account,
+  repositorySelection: z.enum(["all", "selected"]),
+  suspended: z.boolean(),
+  eligible: z.boolean(),
+  reason: z.literal("not_owner").nullable(),
+  alreadyLinkedHere: z.boolean(),
+});
+/** 200 answer of `POST /integrations/github/links` for a `discover` state: nothing is linked. */
+export const discoveryResponseSchema = createSuccessSchema(
+  z.object({
+    mode: z.literal("discover"),
+    truncated: z.boolean(),
+    candidates: z.array(discoveryCandidate),
+  }),
+);
 export const unlinkResponseSchema = createSuccessSchema(
   z.object({ unlinked: z.literal(true), repositoriesDisconnected: z.number() }),
 );

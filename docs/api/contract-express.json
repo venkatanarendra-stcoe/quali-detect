@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 90,
+  "operationCount": 91,
   "operations": [
     {
       "method": "GET",
@@ -1001,7 +1001,7 @@
       "audience": "tenant",
       "permission": null,
       "permissionScope": "collection (filtered to visible workspaces)",
-      "successStatus": 201,
+      "successStatus": 200,
       "documentedErrorStatuses": [
         400,
         401,
@@ -1062,12 +1062,12 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, installationLinkId, provider, status, health, account, repositorySelection, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, allowListCount, lastEventAt }",
+        "dataShape": "{ mode, truncated, candidates }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required)"
+      "summary": "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required; 201). For a discovery state: list the installations the user can see, link nothing (200)"
     },
     {
       "method": "GET",
@@ -4655,6 +4655,83 @@
         ]
       },
       "summary": "After the setup redirect: create the single-use state (bound to this workspace) and return GitHub's authorize URL"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/discover",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ authorizeUrl }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Use an existing installation: create the single-use discovery state (bound to this workspace) and return GitHub's authorize URL"
     },
     {
       "method": "DELETE",

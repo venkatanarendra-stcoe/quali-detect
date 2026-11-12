@@ -1,4 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePermissions } from "@/features/authorization/hooks/use-permissions.js";
+import { can } from "@qmentisai/shared";
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
 import { integrationsService } from "../services/integrations-service.js";
 
@@ -110,6 +112,8 @@ export const useUpdateSettings = () =>
   );
 export const useStartLinking = () =>
   useMutation({ mutationFn: (workspaceId) => integrationsService.start(workspaceId) });
+export const useDiscoverInstallations = () =>
+  useMutation({ mutationFn: (workspaceId) => integrationsService.discover(workspaceId) });
 export const useAuthorizeInstallation = () =>
   useMutation({
     mutationFn: ({ workspaceId, installationId }) =>
@@ -133,3 +137,11 @@ export const useUnlinkWorkspaceLink = (workspaceId) =>
       alsoRepositories: true,
     },
   );
+
+/** Workspaces where the signed-in user may link source control (`workspace_integration.manage`). */
+export function useManageableWorkspaces() {
+  const permissions = usePermissions();
+  return permissions.workspaces.filter((w) =>
+    can(permissions, "workspace_integration.manage", { type: "workspace", workspaceId: w.id }),
+  );
+}

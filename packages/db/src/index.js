@@ -4,3 +4,4 @@ export * from "./repository.js";
 export * from "./secret-repository.js";
 export * from "./outbox-repository.js";
 export * from "./processed-message-store.js";
+export * from "./scm-restore.js";

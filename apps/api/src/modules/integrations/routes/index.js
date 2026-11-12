@@ -7,6 +7,7 @@ import {
   authorizeBodySchema,
   authorizeResponseSchema,
   catalogResponseSchema,
+  discoveryResponseSchema,
   deliveriesQuerySchema,
   deliveryListResponseSchema,
   githubOverviewResponseSchema,
@@ -133,9 +134,9 @@ export const integrationRoutes = (controller, authz) =>
         schema: {
           tags,
           summary:
-            "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required)",
+            "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required; 201). For a discovery state: list the installations the user can see, link nothing (200)",
           body: linkBodySchema,
-          response: { 201: workspaceLinkResponseSchema },
+          response: { 200: discoveryResponseSchema, 201: workspaceLinkResponseSchema },
         },
       },
       controller.link,
@@ -185,6 +186,22 @@ export const integrationRoutes = (controller, authz) =>
         },
       },
       controller.authorize,
+    );
+    app.post(
+      "/workspaces/:workspaceId/integrations/github/discover",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary:
+            "Use an existing installation: create the single-use discovery state (bound to this workspace) and return GitHub's authorize URL",
+          params: workspaceParamsSchema,
+          response: { 200: authorizeResponseSchema },
+        },
+      },
+      controller.discover,
     );
     app.post(
       "/workspaces/:workspaceId/integrations/github/links/:linkId/refresh",

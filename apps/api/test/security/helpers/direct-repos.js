@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   createOutboxRepository,
   createProcessedMessageStore,
+  createScmRestoreRepository,
   createSecretRepository,
   createTenantRepository,
 } from "@qmentisai/db";
@@ -437,6 +438,7 @@ export async function buildDalWorld(db) {
     groups: createGroupRepository({ db }),
     identity: createIdentityRepository({ db }),
     integrations: createIntegrationRepository({ db }),
+    scmRestore: createScmRestoreRepository({ db }),
     authz: createAuthzRepository({ db }),
     entitlements: createEntitlementRepository({ db }),
     platformTenants: createPlatformTenantRepository({
@@ -643,7 +645,7 @@ export function buildDalEntries() {
     { mayThrow: true },
   );
   E("integrations.restoreRepositories", (c) =>
-    N(c).restoreRepositories({
+    c.repos.scmRestore.restoreRepositories({
       tenantId: c.y,
       workspaceId: c.ws,
       workspaceLinkId: c.wl,
@@ -1507,14 +1509,14 @@ export function buildDalEntries() {
   E(
     "integrations.findRestorableRepositories",
     (c) =>
-      NN(c).findRestorableRepositories({
+      c.repos.scmRestore.findRestorableRepositories({
         tenantId: c.y,
         workspaceId: c.ws,
         workspaceLinkId: c.wl,
       }),
     {
       control: (c) =>
-        NN(c).findRestorableRepositories({
+        c.repos.scmRestore.findRestorableRepositories({
           tenantId: c.x,
           workspaceId: c.ws,
           workspaceLinkId: c.wl,
@@ -1799,11 +1801,11 @@ export function buildDalEntries() {
   E(
     "integrations.findRestorableRepositories (workspace scope)",
     async (c) => ({
-      otherTenant: await NN(c).findRestorableRepositories({
+      otherTenant: await c.repos.scmRestore.findRestorableRepositories({
         tenantId: c.y,
         workspaceId: c.v.sets[0].workspaceId,
       }),
-      scoped: await NN(c).findRestorableRepositories({
+      scoped: await c.repos.scmRestore.findRestorableRepositories({
         tenantId: c.v.id,
         workspaceId: c.v.sets[0].workspaceId,
       }),
@@ -1816,7 +1818,7 @@ export function buildDalEntries() {
           : []),
       ],
       control: (c) =>
-        NN(c).findRestorableRepositories({
+        c.repos.scmRestore.findRestorableRepositories({
           tenantId: c.v.id,
           workspaceId: c.v.sets[1].workspaceId,
         }),
@@ -1830,14 +1832,14 @@ export function buildDalEntries() {
   E(
     "integrations.restoreRepositories (workspace link and scope)",
     async (c) => ({
-      otherTenant: await NN(c).restoreRepositories({
+      otherTenant: await c.repos.scmRestore.restoreRepositories({
         tenantId: c.y,
         workspaceId: c.v.sets[0].workspaceId,
         linkId: c.v.link,
         workspaceLinkId: c.v.sets[0].workspaceLink.id,
         ids: c.v.sets.map((s) => s.repo.id),
       }),
-      otherWorkspace: await NN(c).restoreRepositories({
+      otherWorkspace: await c.repos.scmRestore.restoreRepositories({
         tenantId: c.v.id,
         workspaceId: c.v.sets[0].workspaceId,
         linkId: c.v.link,
@@ -1851,7 +1853,7 @@ export function buildDalEntries() {
         ...(r.otherWorkspace.count ? ["restored another workspace's repository"] : []),
       ],
       control: async (c) => {
-        const done = await NN(c).restoreRepositories({
+        const done = await c.repos.scmRestore.restoreRepositories({
           tenantId: c.v.id,
           workspaceId: c.v.sets[0].workspaceId,
           linkId: c.v.link,
@@ -1867,14 +1869,14 @@ export function buildDalEntries() {
     "integrations.findWorkspaceAllowListIds",
     async (c) => ({
       otherTenant: [
-        ...(await NN(c).findWorkspaceAllowListIds({
+        ...(await c.repos.scmRestore.findWorkspaceAllowListIds({
           tenantId: c.y,
           workspaceId: c.v.sets[0].workspaceId,
           externalRepoIds: [ext(c, 0), ext(c, 1)],
         })),
       ],
       otherWorkspace: [
-        ...(await NN(c).findWorkspaceAllowListIds({
+        ...(await c.repos.scmRestore.findWorkspaceAllowListIds({
           tenantId: c.v.id,
           workspaceId: c.v.sets[0].workspaceId,
           externalRepoIds: [ext(c, 1)],
@@ -1887,7 +1889,7 @@ export function buildDalEntries() {
         ...(r.otherWorkspace.length ? ["listed another workspace's allow-list"] : []),
       ],
       control: async (c) => [
-        ...(await NN(c).findWorkspaceAllowListIds({
+        ...(await c.repos.scmRestore.findWorkspaceAllowListIds({
           tenantId: c.v.id,
           workspaceId: c.v.sets[0].workspaceId,
           externalRepoIds: [ext(c, 0), ext(c, 1)],
@@ -1898,13 +1900,13 @@ export function buildDalEntries() {
   E(
     "integrations.removeStaleAllowListEntries",
     async (c) => ({
-      otherTenant: await NN(c).removeStaleAllowListEntries({
+      otherTenant: await c.repos.scmRestore.removeStaleAllowListEntries({
         tenantId: c.y,
         workspaceId: c.v.sets[0].workspaceId,
         workspaceLinkId: randomUUID(),
         externalRepoIds: [ext(c, 0)],
       }),
-      otherWorkspace: await NN(c).removeStaleAllowListEntries({
+      otherWorkspace: await c.repos.scmRestore.removeStaleAllowListEntries({
         tenantId: c.v.id,
         workspaceId: c.v.sets[0].workspaceId,
         workspaceLinkId: randomUUID(),
@@ -1917,7 +1919,7 @@ export function buildDalEntries() {
         ...(r.otherWorkspace.count ? ["removed another workspace's allow-list entry"] : []),
       ],
       control: async (c) => {
-        const done = await NN(c).removeStaleAllowListEntries({
+        const done = await c.repos.scmRestore.removeStaleAllowListEntries({
           tenantId: c.v.id,
           workspaceId: c.v.sets[0].workspaceId,
           workspaceLinkId: randomUUID(),
@@ -1975,6 +1977,92 @@ export function buildDalEntries() {
           externalRepoIds: [ext(c, 1)],
         })),
       ],
+    },
+  );
+
+  // The shared restore rule itself (packages/db, used by the API and the scm event consumer): called with another tenant, with
+  // the wrong workspace of the right tenant, and once legitimately. The workers' consumer reaches it with a system actor.
+  const compositeInput = (c, tenantId, set, accessible) => ({
+    tenantId,
+    workspaceId: c.v.sets[set].workspaceId,
+    workspaceLinkId: c.v.sets[set].workspaceLink.id,
+    tenantLinkId: c.v.link,
+    userId: c.uA,
+    accessibleExternalIds: accessible ?? c.v.sets.map((s) => s.repo.externalRepoId),
+  });
+  E(
+    "scmRestore.restoreWorkspaceRepositories (shared restore rule)",
+    async (c) => ({
+      otherTenant: await c.repos.scmRestore.restoreWorkspaceRepositories(compositeInput(c, c.y, 0)),
+      // workspace 0's scope with workspace 1's link: only workspace 0's own repository may be restored
+      scoped: (
+        await c.repos.scmRestore.restoreWorkspaceRepositories({
+          ...compositeInput(c, c.v.id, 0),
+          accessibleExternalIds: [c.v.sets[1].repo.externalRepoId],
+        })
+      ).map((r) => r.id),
+    }),
+    {
+      verify: (r) => [
+        ...(r.otherTenant.length ? ["restored another tenant's repositories"] : []),
+        ...(r.scoped.length ? ["restored a repository of another workspace"] : []),
+      ],
+      control: async (c) => {
+        const done = await c.repos.scmRestore.restoreWorkspaceRepositories(
+          compositeInput(c, c.v.id, 0),
+        );
+        await resetV(c);
+        await c.db.scmWorkspaceLinkRepository.deleteMany({ where: { tenantId: c.v.id } });
+        for (const s of c.v.sets)
+          await c.db.scmWorkspaceLinkRepository.create({
+            data: {
+              tenantId: c.v.id,
+              workspaceLinkId: s.workspaceLink.id,
+              provider: "github",
+              externalRepoId: s.repo.externalRepoId,
+              fullName: s.repo.fullName,
+              addedByUserId: c.uA,
+            },
+          });
+        return done;
+      },
+    },
+  );
+
+  // The consumer's restore on gaining access (SPEC §18.7 item 6) with another tenant's id on the message: it must not
+  // restore tenant V's repositories, whose link id the message carries.
+  const addedEvent = (c, tenantId) =>
+    createScmEventHandler({
+      db: c.db,
+      config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+      logger: quiet,
+    })(
+      {
+        type: "scm.installation_repositories.changed",
+        tenantId,
+        payload: {
+          linkId: c.v.link,
+          action: "added",
+          repositoriesAdded: c.v.sets.map((s) => s.repo.externalRepoId),
+          repositoriesRemoved: [],
+        },
+      },
+      { log: quiet },
+    );
+  E(
+    "workers.events.scm.installation_repositories.changed (added: restore)",
+    (c) => addedEvent(c, c.y),
+    {
+      verify: () => [],
+      control: async (c) => {
+        await addedEvent(c, c.v.id);
+        const restored = await c.db.repository.findMany({
+          where: { tenantId: c.v.id, status: "active" },
+          select: { id: true },
+        });
+        await resetV(c);
+        return restored;
+      },
     },
   );
 

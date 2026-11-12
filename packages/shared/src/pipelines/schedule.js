@@ -12,7 +12,8 @@
  * - a local time that does not exist (spring forward) fires ONCE at the end of the gap (the first valid instant after it);
  *   the exception is an interval-style expression (hour field `*` or `*\/n`): there the nominal times inside the gap are
  *   skipped, because a fire at the gap end would shorten the interval of an hourly schedule below the platform minimum;
- * - a local time that occurs twice (fall back) fires once, at its FIRST occurrence;
+ * - a local time that occurs twice (fall back) fires once, at its FIRST occurrence; an interval-style expression instead fires
+ *   at EVERY real occurrence (once per real hour: `30 * * * *` fires 25 times on a fall-back day), the same reason in reverse;
  * - the slot is the UTC instant of that fire, never changed by jitter.
  */
 import { Cron } from "croner";
@@ -62,7 +63,8 @@ export function zoneOffsetMs(timeZone, ms) {
 /**
  * Maps a nominal local wall-clock time (as the UTC milliseconds of the NAIVE time) to the instant it fires at.
  * @param {string} timeZone @param {number} wallMs
- * @returns {{ instant: number, kind: "normal" | "overlap" | "gap" }}
+ * @returns {{ instant: number, instants: number[], kind: "normal" | "overlap" | "gap" }} `instant` is the first valid
+ * instant (the gap end for a time that does not exist); `instants` are all valid ones (two for a repeated time)
  */
 export function wallToInstant(timeZone, wallMs) {
   const before = zoneOffsetMs(timeZone, wallMs - DAY_MS);
@@ -70,8 +72,10 @@ export function wallToInstant(timeZone, wallMs) {
   const valid = [...new Set([before, after])]
     .map((offset) => wallMs - offset)
     .filter((instant) => zoneOffsetMs(timeZone, instant) === wallMs - instant);
-  if (valid.length > 0)
-    return { instant: Math.min(...valid), kind: valid.length > 1 ? "overlap" : "normal" };
+  if (valid.length > 0) {
+    const instants = [...valid].sort((a, b) => a - b);
+    return { instant: instants[0], instants, kind: instants.length > 1 ? "overlap" : "normal" };
+  }
   // The local time does not exist: the end of the gap is the instant the offset changes.
   let lo = wallMs - DAY_MS;
   let hi = wallMs + DAY_MS;
@@ -80,13 +84,13 @@ export function wallToInstant(timeZone, wallMs) {
     if (zoneOffsetMs(timeZone, mid) === before) lo = mid;
     else hi = mid;
   }
-  return { instant: hi, kind: "gap" };
+  return { instant: hi, instants: [hi], kind: "gap" };
 }
 
 /** @param {string} expression the whitespace-normalized expression */
 const normalize = (expression) => expression.trim().split(/\s+/).join(" ");
 
-/** Interval-style: the hour field starts with `*` in some list entry (`*`, `*\/2`); such a schedule skips gap times. */
+/** Interval-style: the hour field starts with `*` in some list entry (`*`, `*\/2`); such a schedule skips gap times and fires at every real occurrence of a repeated time. */
 const isIntervalStyle = (expression) =>
   normalize(expression)
     .split(" ")[1]
@@ -113,7 +117,7 @@ function cronOf(expression) {
  */
 function* fires(expression, timeZone, afterMs, horizonMs = SCHEDULE_HORIZON_DAYS * DAY_MS) {
   const cron = cronOf(expression);
-  const skipGap = isIntervalStyle(expression);
+  const intervalStyle = isIntervalStyle(expression);
   const limit = afterMs + horizonMs;
   // Start four hours earlier on the wall clock: a zone offset moves by at most two hours, so every fire after `afterMs` is seen.
   let wall = afterMs + zoneOffsetMs(timeZone, afterMs) - 4 * HOUR_MS;
@@ -122,12 +126,16 @@ function* fires(expression, timeZone, afterMs, horizonMs = SCHEDULE_HORIZON_DAYS
     const next = cron.nextRun(new Date(wall));
     if (!next) return;
     wall = next.getTime();
-    const { instant, kind } = wallToInstant(timeZone, wall);
-    if (kind === "gap" && skipGap) continue;
-    if (instant <= last) continue;
-    if (instant > limit) return;
-    last = instant;
-    yield instant;
+    const { instants, kind } = wallToInstant(timeZone, wall);
+    if (kind === "gap" && intervalStyle) continue;
+    // a repeated time fires at its first occurrence only, except for an interval-style expression: it fires at every real
+    // occurrence, i.e. once per REAL hour (a fall-back day has 25), so the interval is never longer than its steps
+    for (const instant of kind === "overlap" && !intervalStyle ? instants.slice(0, 1) : instants) {
+      if (instant <= last) continue;
+      if (instant > limit) return;
+      last = instant;
+      yield instant;
+    }
   }
 }
 
@@ -251,24 +259,69 @@ export function validateSchedule({
 }
 
 /**
- * The slot and the planned fire time after `after`: the next fire instant plus the trigger's jitter offset.
- * @param {{ expression: string, timeZone: string, after: Date, jitterSeconds?: number }} input
+ * 32-bit FNV-1a with a murmur3 finalizer: pure (this module is also bundled into the browser, so no `node:crypto`), stable
+ * across runtimes and well spread for jitter. Not a security hash. @param {string} text @returns {number} unsigned 32-bit
+ */
+function hash32(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/**
+ * Deterministic jitter of one slot (SPEC §5.6, owner decision 2026-11-13): `hash(triggerId + slot) mod window`, in whole
+ * seconds. The same trigger and slot always give the same offset (so a retry, a second scheduler instance and the
+ * `next_fire_at` computation of the API all agree); other slots and other triggers spread over the window. It is only
+ * added to the FIRE time: the slot (the `schedule_slot` key, the idempotency key) is the nominal UTC instant, never moved.
+ * @param {string} triggerId @param {Date | number} slot @param {number} windowSeconds `PIPELINE_SCHEDULE_JITTER_SECONDS`
+ * @returns {number} an integer in `[0, windowSeconds)`, 0 when the window is 0
+ */
+export function jitterOffsetSeconds(triggerId, slot, windowSeconds) {
+  if (!(windowSeconds > 0)) return 0;
+  return hash32(`${triggerId}:${new Date(slot).toISOString()}`) % windowSeconds;
+}
+
+/** @param {string} triggerId @param {number} slotMs @param {number} windowSeconds */
+const fireAtOf = (triggerId, slotMs, windowSeconds) =>
+  slotMs + jitterOffsetSeconds(triggerId, slotMs, windowSeconds) * 1000;
+
+/**
+ * The next slot strictly after `after` and its planned fire time (slot + the jitter of THAT slot). The one function the API
+ * (`next_fire_at` on create, edit and enable) and the scheduler handler (the advance) use.
+ * @param {{ expression: string, timeZone: string, after: Date, triggerId: string, jitterWindowSeconds?: number }} input
  * @returns {{ slot: Date, fireAt: Date } | null}
  */
-export function nextScheduledFire({ expression, timeZone, after, jitterSeconds = 0 }) {
+export function nextScheduledFire({
+  expression,
+  timeZone,
+  after,
+  triggerId,
+  jitterWindowSeconds = 0,
+}) {
   const slot = nextFireAfter(expression, timeZone, after);
-  return slot ? { slot, fireAt: new Date(slot.getTime() + jitterSeconds * 1000) } : null;
+  return slot
+    ? { slot, fireAt: new Date(fireAtOf(triggerId, slot.getTime(), jitterWindowSeconds)) }
+    : null;
 }
 
 /**
  * What to do with a due schedule trigger (SPEC §5.6 missed runs, §6.4). `nextFireAt` is the stored planned fire time of
- * the first pending slot (its slot plus the jitter). Of all pending slots only the LATEST one is considered:
+ * the first pending slot (that slot plus ITS jitter; the slot is recovered from it). Of all pending slots only the LATEST
+ * one whose fire time has come is considered:
  * - `run_once` fires it when it is not later than `maxLatenessSeconds`, otherwise it is recorded as one missed run;
- * - `skip` fires it only when it is on time (not later than `onTimeGraceSeconds`), otherwise it is a missed run.
+ * - `skip` ("fire only when on time") fires it only when it is not later than `onTimeGraceSeconds`, otherwise it is a missed run.
  * The advance is the planned time of the first slot after the handled one, so a crash or a long pause never double-fires
- * and never replays old slots.
+ * and never replays old slots. Lateness is measured from the planned fire time (slot + jitter).
  * @param {{
- *   expression: string, timeZone: string, jitterSeconds: number, nextFireAt: Date, now: Date,
+ *   expression: string, timeZone: string, triggerId: string, jitterWindowSeconds?: number, nextFireAt: Date, now: Date,
  *   missedPolicy: "skip" | "run_once", maxLatenessSeconds: number, onTimeGraceSeconds: number,
  * }} input
  * @returns {{ action: "fire" | "missed" | "none", slot: Date | null, latenessSeconds: number, skippedEarlier: boolean, nextFireAt: Date | null }}
@@ -276,37 +329,70 @@ export function nextScheduledFire({ expression, timeZone, after, jitterSeconds =
 export function planScheduledFire({
   expression,
   timeZone,
-  jitterSeconds,
+  triggerId,
+  jitterWindowSeconds = 0,
   nextFireAt,
   now,
   missedPolicy,
   maxLatenessSeconds,
   onTimeGraceSeconds,
 }) {
-  const jitterMs = jitterSeconds * 1000;
-  const firstPending = nextFireAt.getTime() - jitterMs;
-  const latest = previousFireBefore(expression, timeZone, new Date(now.getTime() - jitterMs), {
-    inclusive: true,
-  });
-  if (!latest || latest.getTime() < firstPending) {
-    // the stored time is not a slot of this schedule (edited by hand): create nothing, move on
-    const next = nextScheduledFire({
-      expression,
-      timeZone,
-      after: new Date(now.getTime() - jitterMs),
-      jitterSeconds,
-    });
+  const maxJitterMs = Math.max(0, jitterWindowSeconds - 1) * 1000;
+  const nowMs = now.getTime();
+  // the first pending slot: the one whose planned fire time is the stored time
+  let firstPending = null;
+  for (const t of fires(
+    expression,
+    timeZone,
+    nextFireAt.getTime() - maxJitterMs - 1,
+    maxJitterMs + 2,
+  ))
+    if (fireAtOf(triggerId, t, jitterWindowSeconds) === nextFireAt.getTime()) {
+      firstPending = t;
+      break;
+    }
+  // the latest slot whose planned fire time has come
+  let latest = null;
+  if (firstPending !== null) {
+    let candidate = previousFireBefore(expression, timeZone, now, { inclusive: true });
+    while (candidate && candidate.getTime() >= firstPending) {
+      if (fireAtOf(triggerId, candidate.getTime(), jitterWindowSeconds) <= nowMs) {
+        latest = candidate;
+        break;
+      }
+      candidate = previousFireBefore(expression, timeZone, candidate);
+    }
+  }
+  if (!latest) {
+    // the stored time is not a slot of this schedule (edited by hand): create nothing, move on to the first slot not yet due
+    let next = null;
+    for (const t of fires(expression, timeZone, nowMs - maxJitterMs - 1)) {
+      const fireAt = fireAtOf(triggerId, t, jitterWindowSeconds);
+      if (fireAt > nowMs) {
+        next = new Date(fireAt);
+        break;
+      }
+    }
     return {
       action: "none",
       slot: null,
       latenessSeconds: 0,
       skippedEarlier: false,
-      nextFireAt: next?.fireAt ?? null,
+      nextFireAt: next,
     };
   }
-  const latenessSeconds = Math.max(0, (now.getTime() - (latest.getTime() + jitterMs)) / 1000);
+  const latenessSeconds = Math.max(
+    0,
+    (nowMs - fireAtOf(triggerId, latest.getTime(), jitterWindowSeconds)) / 1000,
+  );
   const allowed = missedPolicy === "skip" ? onTimeGraceSeconds : maxLatenessSeconds;
-  const next = nextScheduledFire({ expression, timeZone, after: latest, jitterSeconds });
+  const next = nextScheduledFire({
+    expression,
+    timeZone,
+    after: latest,
+    triggerId,
+    jitterWindowSeconds,
+  });
   return {
     action: latenessSeconds <= allowed ? "fire" : "missed",
     slot: latest,

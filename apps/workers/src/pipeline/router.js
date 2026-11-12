@@ -196,6 +196,7 @@ export function createPipelineTriggerHandler({ db, config, logger, clock = () =>
       pipelineId: ctx.pipeline.id,
       triggerType: ctx.kind,
       triggerKey: evaluation.triggerKey,
+      sourceType: "scm_event",
       scmEventId: ctx.scmEventId,
       scmDeliveryId: ctx.deliveryId,
       scmEventKind: ctx.kind,

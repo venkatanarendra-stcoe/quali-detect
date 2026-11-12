@@ -37,7 +37,7 @@ import {
   toVersionDto,
   toVersionSummaryDto,
 } from "../mappers/index.js";
-import { hashConfig, jitterFor, normalizeName, scheduleSignature } from "./helpers.js";
+import { hashConfig, normalizeName, scheduleSignature } from "./helpers.js";
 
 const DAY_MS = 86400000;
 
@@ -115,16 +115,18 @@ export function createPipelineService({
   };
 
   /**
-   * Planned fire time (UTC: the next slot after now plus the trigger's jitter) of a schedule trigger, or null when it cannot
-   * fire: pipeline disabled, trigger disabled, or a schedule that never fires (SPEC §5.6, §7.2). Never back-fills.
+   * Planned fire time (UTC: the next slot after now plus the jitter of THAT slot, `hash(triggerId + slot) mod window`, the same
+   * `nextScheduledFire` the scheduler handler uses) of a schedule trigger, or null when it cannot fire: pipeline disabled,
+   * trigger disabled, or a schedule that never fires (SPEC §5.6, §7.2). Never back-fills.
    */
-  const plannedFire = ({ pipelineEnabled, enabled, cron, timezone, jitterSeconds }) =>
+  const plannedFire = ({ pipelineEnabled, enabled, cron, timezone, triggerId }) =>
     pipelineEnabled && enabled
       ? (nextScheduledFire({
           expression: cron,
           timeZone: timezone,
           after: new Date(),
-          jitterSeconds,
+          triggerId,
+          jitterWindowSeconds: limits.scheduleJitterSeconds,
         })?.fireAt ?? null)
       : null;
 
@@ -158,7 +160,7 @@ export function createPipelineService({
                     pipelineEnabled,
                     enabled: t.enabled,
                     ...schedule,
-                    jitterSeconds: old.jitterOffsetSeconds ?? 0,
+                    triggerId: old.id,
                   }),
                 };
         }
@@ -168,8 +170,6 @@ export function createPipelineService({
         );
       } else {
         const id = randomUUID();
-        const jitterOffsetSeconds =
-          t.type === "schedule" ? jitterFor(id, limits.scheduleJitterSeconds) : undefined;
         await repository.createTrigger(
           {
             tenantId,
@@ -183,12 +183,14 @@ export function createPipelineService({
             ...schedule,
             ...(t.type === "schedule"
               ? {
-                  jitterOffsetSeconds,
+                  // the stored per-trigger jitter is no longer used (the offset is derived per slot); the column is NOT NULL
+                  // for schedules by a CHECK, so it keeps a 0
+                  jitterOffsetSeconds: 0,
                   nextFireAt: plannedFire({
                     pipelineEnabled,
                     enabled: t.enabled,
                     ...schedule,
-                    jitterSeconds: jitterOffsetSeconds,
+                    triggerId: id,
                   }),
                 }
               : {}),
@@ -215,7 +217,7 @@ export function createPipelineService({
                 enabled: t.enabled,
                 cron: t.cron,
                 timezone: t.timezone,
-                jitterSeconds: t.jitterOffsetSeconds ?? 0,
+                triggerId: t.id,
               }),
             },
           },

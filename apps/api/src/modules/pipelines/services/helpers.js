@@ -7,13 +7,6 @@ export const hashConfig = (config) =>
     .update(canonicalJson({ schemaVersion: config.schemaVersion, config }))
     .digest("hex");
 
-/** Deterministic per-trigger offset `hash(triggerId) mod jitterSeconds` (SPEC §5.6). @param {string} triggerId @param {number} jitterSeconds */
-export const jitterFor = (triggerId, jitterSeconds) =>
-  jitterSeconds > 0
-    ? Number.parseInt(createHash("sha256").update(triggerId).digest("hex").slice(0, 8), 16) %
-      jitterSeconds
-    : 0;
-
 /** Case-insensitive uniqueness key of a pipeline name (the database index relies on it). @param {string} name */
 export const normalizeName = (name) => name.trim().toLowerCase();
 

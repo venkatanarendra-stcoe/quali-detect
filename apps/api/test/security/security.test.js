@@ -11,6 +11,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import { getDbClient } from "@qmentisai/db";
+import { jitterOffsetSeconds, nextFireAfter, previousFireBefore } from "@qmentisai/shared";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
 import { createGitHubClient } from "@qmentisai/infra";
 import { createAuditService } from "../../src/audit/audit-service.js";
@@ -25,10 +26,17 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
-import { NEXT_FIRES, runEvaluationFixtures, runPlanFixtures } from "./helpers/schedule-fixtures.js";
+import {
+  DAY_FIRES,
+  NEXT_FIRES,
+  OVERLAP_WALKS,
+  runEvaluationFixtures,
+  runJitterFixtures,
+  runPlanFixtures,
+} from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 435;
+const EXPECTED_CHECKS = 441;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -7913,6 +7921,10 @@ const rtId = (x, name) => x.repoIds[x.ext[name]];
 const SCH_SLOT = "2026-06-10T12:00:00.000Z";
 const SCH_SLOT2 = "2026-06-10T13:00:00.000Z";
 const SCH_HOUR = 3600000;
+const SCH_JITTER_WINDOW = 300;
+/** The jitter of one slot of a trigger in milliseconds: `hash(triggerId + slot) mod window` (the function the API and the handler use). */
+const schJit = (trigger, slotIso) =>
+  jitterOffsetSeconds(trigger.id, new Date(slotIso), SCH_JITTER_WINDOW) * 1000;
 const schHourly = (over = {}) => ({
   key: "nightly",
   type: "schedule",
@@ -7931,10 +7943,10 @@ const schCfg = (trigger = {}, extra = {}) =>
   });
 const schTrigger = (pipelineId) =>
   suiteDb().pipelineTrigger.findFirst({ where: { pipelineId, type: "schedule" } });
-/** Makes the schedule of a pipeline due at `slotIso` (planned time = slot + its jitter) and returns the trigger row. */
+/** Makes the schedule of a pipeline due at `slotIso` (planned time = slot + the jitter of that slot) and returns the trigger row. */
 async function schSetDue(pipelineId, slotIso, extra = {}) {
   const t = await schTrigger(pipelineId);
-  const nextFireAt = new Date(new Date(slotIso).getTime() + t.jitterOffsetSeconds * 1000);
+  const nextFireAt = new Date(new Date(slotIso).getTime() + schJit(t, slotIso));
   await suiteDb().pipelineTrigger.update({
     where: { id: t.id },
     data: { nextFireAt, enabled: true, ...extra },
@@ -8137,6 +8149,18 @@ const schWorld = () =>
           schCfg({ cron: row.expression, timezone: row.timeZone }),
         ),
       );
+    // fall-back days through the handler (interval-style expressions, both overlap occurrences) and the jitter check
+    p.wild = [];
+    for (const row of DAY_FIRES.slice(0, 2))
+      p.wild.push(
+        await mk(
+          own,
+          repoIds[ext.o],
+          `wild-${row.timeZone.split("/")[0]}`,
+          schCfg({ cron: row.expression, timezone: row.timeZone }),
+        ),
+      );
+    p.jit = await mk(own, repoIds[ext.o], "jitter", schCfg());
     p.common = await mk(own, repoIds[ext.common], "common-s", schCfg());
     p.common2 = await mk(own, repoIds[ext.common], "common-s2", schCfg());
     p.other = await mk(own, repoIds[ext.o], "workspace-two", schCfg());
@@ -8235,7 +8259,7 @@ const schWorld = () =>
           const wanted =
             v.expect === "parked"
               ? null
-              : new Date(new Date(SCH_SLOT).getTime() + SCH_HOUR + row.jitterOffsetSeconds * 1000);
+              : new Date(new Date(SCH_SLOT).getTime() + SCH_HOUR + schJit(row, SCH_SLOT2));
           if ((row.nextFireAt?.getTime() ?? null) !== (wanted?.getTime() ?? null))
             problems.push(
               `${v.label}: next_fire_at is ${row.nextFireAt?.toISOString() ?? "null"}, expected ${wanted?.toISOString() ?? "null"}`,
@@ -8325,7 +8349,7 @@ const schWorld = () =>
         (await rtMessages((await schExecs(p.id)).map((e) => e.id))).length;
       if ((await messageCount()) !== 1) problems.push("the race did not leave exactly one message");
       const advanced = (await schTrigger(p.id)).nextFireAt.getTime();
-      if (advanced !== new Date(SCH_SLOT2).getTime() + t1.jitterOffsetSeconds * 1000)
+      if (advanced !== new Date(SCH_SLOT2).getTime() + schJit(t1, SCH_SLOT2))
         problems.push("the trigger was not advanced to the next slot");
       // the same slot again: the request exists, the advance is missing
       await schSetDue(p.id, SCH_SLOT);
@@ -8531,7 +8555,9 @@ const schWorld = () =>
       const id = made.json.data.id;
       const row = () => schTrigger(id);
       let t = await row();
-      const slotOf = (r) => new Date(r.nextFireAt.getTime() - r.jitterOffsetSeconds * 1000);
+      // the slot of a planned time: the latest slot of the schedule at or before it (the jitter is below the window)
+      const slotOf = (r, expression = "0 6 * * *", timeZone = "Europe/Berlin") =>
+        previousFireBefore(expression, timeZone, r.nextFireAt, { inclusive: true });
       const berlinSix = (d) => {
         const local = new Intl.DateTimeFormat("en-GB", {
           timeZone: "Europe/Berlin",
@@ -8545,8 +8571,11 @@ const schWorld = () =>
         problems.push("a created schedule has no future next_fire_at");
       else if (!berlinSix(slotOf(t)))
         problems.push("next_fire_at is not 06:00 in the trigger's zone");
-      if (t.jitterOffsetSeconds < 0 || t.jitterOffsetSeconds >= 300)
-        problems.push(`jitter ${t.jitterOffsetSeconds} is outside the window`);
+      else if (
+        t.nextFireAt.getTime() - slotOf(t).getTime() !== schJit(t, slotOf(t).toISOString()) ||
+        schJit(t, slotOf(t).toISOString()) >= SCH_JITTER_WINDOW * 1000
+      )
+        problems.push("next_fire_at is not the slot plus the jitter of that slot");
       const off = await w.api("POST", `/pipelines/${id}/disable`, { cookie: own });
       t = await row();
       if (off.status !== 200 || t.nextFireAt !== null)
@@ -8557,7 +8586,11 @@ const schWorld = () =>
         problems.push("enabling did not recompute next_fire_at from now");
       const edit = await pipPublish(own, id, 1, schCfg({ cron: "0 18 * * *", timezone: "UTC" }));
       t = await row();
-      if (edit.status !== 200 || !t.nextFireAt || slotOf(t).getUTCHours() !== 18)
+      if (
+        edit.status !== 200 ||
+        !t.nextFireAt ||
+        slotOf(t, "0 18 * * *", "UTC")?.getUTCHours() !== 18
+      )
         problems.push("editing the schedule did not recompute next_fire_at");
       const disabledTrigger = await pipPublish(own, id, 2, schCfg({ enabled: false }));
       t = await row();
@@ -8581,7 +8614,7 @@ const schWorld = () =>
   );
   add(
     "PIP-043",
-    "daylight saving and slots (fixed instants, Europe/Berlin and America/New_York, both transitions of 2026): a local time inside the spring-forward gap fires once at the gap end, a repeated local time fires once at its first occurrence, the slot is the UTC instant, the real minimum gap counts the transitions, the missed-run plan fires only the latest pending slot within the lateness limit and records one missed run beyond it",
+    "daylight saving and slots (fixed instants, Europe/Berlin and America/New_York, both transitions of 2026): a local time inside the spring-forward gap fires once at the gap end (a named-hour expression) or is skipped (a wildcard or step-hour expression), a repeated local time fires once at its first occurrence (named hours) or at every real occurrence, 25 fires on a fall-back day (wildcard or step hours), no slot twice, the slot is the UTC instant, the real minimum gap counts the transitions, the missed-run plan fires only the latest pending slot within the lateness limit and records one missed run beyond it",
     { status: 200 },
     async () => ({
       status: 200,
@@ -8650,7 +8683,7 @@ const schWorld = () =>
       const next = (await schTrigger(x.p.mRun.id)).nextFireAt;
       if (
         next.getTime() !==
-        new Date("2026-09-10T15:00:00.000Z").getTime() + t.jitterOffsetSeconds * 1000
+        new Date("2026-09-10T15:00:00.000Z").getTime() + schJit(t, "2026-09-10T15:00:00.000Z")
       )
         problems.push("run_once: next_fire_at is not the slot after the handled one");
       // older than the lateness limit (6 h): a daily schedule down for a day
@@ -8874,6 +8907,270 @@ const schWorld = () =>
       }
       if (refused?.name !== "NonRetryableError")
         problems.push("another message type was not refused");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-048",
+    "a schedule that is skipped by policy at its slot (repository disconnected, unavailable or disabled, workspace archived, pipeline disabled) writes exactly ONE decision row of source type schedule_slot per (trigger, slot) with the reason and the nominal slot, again idempotently when the run repeats, in its own tenant, workspace and repository only; it creates no execution and no message, the counter outcome stays, a suspended tenant (no decision reason) and a missing pipeline write no row, and the rows are readable through GET /pipelines/{id}/trigger-decisions (404 for another tenant)",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      const p = x.p;
+      await schQuiet(x);
+      const db = suiteDb();
+      const problems = [];
+      const decisions = (pipelineId) =>
+        db.pipelineTriggerDecision.findMany({
+          where: { pipelineId, sourceType: "schedule_slot" },
+          orderBy: { scheduleSlot: "asc" },
+        });
+      const variants = [
+        [
+          "repository disconnected",
+          () =>
+            rtSetRepo(x.repoM, {
+              status: "disconnected",
+              disconnectedAt: new Date(),
+              disconnectReason: "suite",
+            }),
+          "repository_inactive",
+        ],
+        [
+          "repository unavailable",
+          () => rtSetRepo(x.repoM, { status: "unavailable" }),
+          "repository_inactive",
+        ],
+        [
+          "repository disabled",
+          () => rtSetRepo(x.repoM, { enabled: false }),
+          "repository_disabled",
+        ],
+        [
+          "workspace archived",
+          () => db.workspace.update({ where: { id: x.ws1 }, data: { status: "archived" } }),
+          "workspace_archived",
+        ],
+      ];
+      const restore = async () => {
+        await rtSetRepo(x.repoM, rtActive);
+        await db.workspace.update({ where: { id: x.ws1 }, data: { status: "active" } });
+      };
+      const pipeline = p.pv;
+      const before = [(await schExecs(pipeline.id)).length, await schMsgCount(x.S.id)];
+      const slots = [];
+      for (const [i, [label, apply, reason]] of variants.entries()) {
+        const slotIso = `2026-06-10T${String(12 + i).padStart(2, "0")}:00:00.000Z`;
+        slots.push(slotIso);
+        await apply();
+        try {
+          const trigger = await schSetDue(pipeline.id, slotIso);
+          const counts = await schRun(schAfter(trigger));
+          if (!counts.skipped_ineligible)
+            problems.push(`${label}: the counter outcome is ${JSON.stringify(counts)}`);
+          const rows = (await decisions(pipeline.id)).filter(
+            (d) => d.scheduleSlot.toISOString() === slotIso,
+          );
+          if (rows.length !== 1) {
+            problems.push(`${label}: ${rows.length} decision rows for the slot`);
+            continue;
+          }
+          const d = rows[0];
+          if (
+            d.reason !== reason ||
+            d.triggerType !== "schedule" ||
+            d.triggerKey !== "nightly" ||
+            d.decision !== "skipped_by_policy" ||
+            d.scmDeliveryId !== null ||
+            d.scmEventKind !== null ||
+            d.manualKey !== null ||
+            d.tenantId !== x.S.id ||
+            d.workspaceId !== x.ws1 ||
+            d.repositoryId !== x.repoM ||
+            d.pipelineId !== pipeline.id ||
+            d.refType !== "branch"
+          )
+            problems.push(
+              `${label}: the decision row is ${JSON.stringify({ reason: d.reason, type: d.triggerType, key: d.triggerKey })}`,
+            );
+          // the run repeated for the same slot (the state after a crash or a second instance): nothing more
+          await schSetDue(pipeline.id, slotIso);
+          await schRun(schAfter(trigger));
+          const again = (await decisions(pipeline.id)).filter(
+            (r) => r.scheduleSlot.toISOString() === slotIso,
+          );
+          if (again.length !== 1)
+            problems.push(`${label}: the repeated run wrote ${again.length} rows`);
+        } finally {
+          await restore();
+        }
+      }
+      // a pipeline disabled by hand while its schedule is due
+      await db.pipeline.update({ where: { id: p.pDis.id }, data: { enabled: false } });
+      try {
+        const slotIso = "2026-06-10T12:00:00.000Z";
+        const trigger = await schSetDue(p.pDis.id, slotIso);
+        await schRun(schAfter(trigger));
+        const rows = await decisions(p.pDis.id);
+        if (rows.length !== 1 || rows[0].reason !== "pipeline_disabled")
+          problems.push(`pipeline disabled: ${rows.map((r) => r.reason).join()}`);
+      } finally {
+        await db.pipeline.update({ where: { id: p.pDis.id }, data: { enabled: true } });
+      }
+      // a suspended tenant has no decision reason: counter only
+      const suspendedBefore = (await decisions(p.pRef.id)).length;
+      await db.tenant.update({ where: { id: x.S.id }, data: { status: "suspended" } });
+      try {
+        const trigger = await schSetDue(p.pRef.id, "2026-06-10T12:00:00.000Z");
+        const counts = await schRun(schAfter(trigger));
+        if (!counts.skipped_ineligible) problems.push("suspended tenant: no counter outcome");
+      } finally {
+        await db.tenant.update({ where: { id: x.S.id }, data: { status: "active" } });
+      }
+      if ((await decisions(p.pRef.id)).length !== suspendedBefore)
+        problems.push("a suspended tenant wrote a decision row");
+      // a deleted pipeline is parked: no row
+      await db.pipeline.update({ where: { id: p.pDel.id }, data: { deletedAt: new Date() } });
+      try {
+        const trigger = await schSetDue(p.pDel.id, "2026-06-10T12:00:00.000Z");
+        await schRun(schAfter(trigger));
+      } finally {
+        await db.pipeline.update({ where: { id: p.pDel.id }, data: { deletedAt: null } });
+      }
+      if ((await decisions(p.pDel.id)).length)
+        problems.push("a deleted pipeline wrote a decision row");
+      // no execution and no message from any skip; the other tenant and workspace saw nothing
+      if (
+        JSON.stringify(before) !==
+        JSON.stringify([(await schExecs(pipeline.id)).length, await schMsgCount(x.S.id)])
+      )
+        problems.push("a policy skip created an execution or a message");
+      for (const other of [p.xCommon, p.other, p.common])
+        if ((await decisions(other.id)).length)
+          problems.push("a decision row appeared on another pipeline");
+      const stray = await db.pipelineTriggerDecision.count({
+        where: { sourceType: "schedule_slot", tenantId: { in: [x.X.id, x.Q.id] } },
+      });
+      if (stray) problems.push("a schedule decision row of another tenant");
+      // the read route: source type and the slot, never a delivery id; hidden for another tenant
+      const read = await w.api(
+        "GET",
+        `/pipelines/${pipeline.id}/trigger-decisions?sourceType=schedule_slot&pageSize=100`,
+        { cookie: x.S.owner },
+      );
+      const items = read.json?.data ?? [];
+      if (read.status !== 200 || items.length !== slots.length)
+        problems.push(`the read route answered ${read.status} with ${items.length} rows`);
+      else if (
+        items.some(
+          (d) =>
+            d.sourceType !== "schedule_slot" ||
+            !slots.includes(d.scheduleSlot) ||
+            d.scmDeliveryId !== null ||
+            d.manualKey !== null ||
+            d.triggerType !== "schedule" ||
+            "tenantId" in d,
+        )
+      )
+        problems.push("the decision DTO has the wrong source fields");
+      const foreign = await w.api("GET", `/pipelines/${pipeline.id}/trigger-decisions`, {
+        cookie: x.X.owner,
+      });
+      if (foreign.status !== 404)
+        problems.push(`another tenant read the decisions (${foreign.status})`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-049",
+    "the jitter of a slot is hash(triggerId + slot) mod window: deterministic for the same trigger and slot across handler runs and the API computation, different across slots and triggers for a sample, inside the window, and the nominal slot key never moves (the execution is keyed by the slot, the planned time by slot plus jitter)",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      await schQuiet(x);
+      const problems = [...runJitterFixtures()];
+      const p = x.p.jit;
+      const slotIso = "2026-06-10T12:00:00.000Z";
+      const t = await schSetDue(p.id, slotIso);
+      const planned = t.nextFireAt.getTime();
+      const jit = schJit(t, slotIso);
+      if (planned !== new Date(slotIso).getTime() + jit)
+        problems.push("the planned time is not slot + jitter");
+      if (jit < 0 || jit >= SCH_JITTER_WINDOW * 1000)
+        problems.push("the jitter is outside the window");
+      // not due one second before the planned time (the jitter delays the fire), due at it
+      await schRun(() => new Date(planned - 1000));
+      if ((await schExecs(p.id)).length)
+        problems.push("the schedule fired before its planned time");
+      await schRun(() => new Date(planned));
+      const rows = await schExecs(p.id);
+      if (rows.length !== 1 || rows[0].scheduleSlot.toISOString() !== slotIso)
+        problems.push(
+          `the slot key is ${rows.map((r) => r.scheduleSlot.toISOString()).join()}, not the nominal slot`,
+        );
+      if (rows[0]?.idempotencyKey !== `schedule:nightly:${slotIso}`)
+        problems.push("the idempotency key is not keyed by the nominal slot");
+      const nextSlot = "2026-06-10T13:00:00.000Z";
+      const advanced = (await schTrigger(p.id)).nextFireAt.getTime();
+      if (advanced !== new Date(nextSlot).getTime() + schJit(t, nextSlot))
+        problems.push("the advance is not the next slot plus the jitter of that slot");
+      // the same inputs again (a second handler run on the same slot) give the same advance
+      await schSetDue(p.id, slotIso);
+      await schRun(() => new Date(planned));
+      if ((await schTrigger(p.id)).nextFireAt.getTime() !== advanced)
+        problems.push("a repeated run advanced to a different planned time");
+      // the API computation (create) used the same function: another trigger of the same slot has another offset
+      const other = await schTrigger(x.p.common.id);
+      const offsets = new Set();
+      for (const id of [t.id, other.id])
+        for (let h = 0; h < 12; h += 1)
+          offsets.add(schJit({ id }, `2026-06-10T${String(h).padStart(2, "0")}:00:00.000Z`));
+      if (offsets.size < 10) problems.push("the jitter does not vary across triggers and slots");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-050",
+    "daylight saving fall back through the scheduler (Europe/Berlin 25 October and America/New_York 1 November 2026, fixed instants): an hourly interval-style schedule fires once per REAL UTC hour (25 executions on the fall-back day, the repeated hour at both occurrences), no slot twice, each slot handled again creates nothing",
+    { status: 200 },
+    async () => {
+      const x = await schWorld();
+      await schQuiet(x);
+      const problems = [];
+      for (const [i, day] of DAY_FIRES.slice(0, 2).entries()) {
+        const pipeline = x.p.wild[i];
+        const expected = [];
+        for (
+          let at = nextFireAfter(day.expression, day.timeZone, new Date(day.from));
+          at && at.getTime() <= new Date(day.to).getTime();
+          at = nextFireAfter(day.expression, day.timeZone, at)
+        )
+          expected.push(at.toISOString());
+        if (expected.length !== 25)
+          problems.push(`${day.name}: the fixture has ${expected.length} instants`);
+        await schSetDue(pipeline.id, expected[0]);
+        for (let n = 0; n < expected.length; n += 1) {
+          const t = await schTrigger(pipeline.id);
+          await schRun(schAfter(t));
+        }
+        const slots = await schSlots(pipeline.id);
+        if (slots.join() !== expected.join())
+          problems.push(`${day.name}: slots ${slots.length} differ from the real hours`);
+        if (new Set(slots).size !== slots.length) problems.push(`${day.name}: a slot fired twice`);
+        for (const walk of OVERLAP_WALKS.filter((w2) => w2.timeZone === day.timeZone))
+          for (const instant of walk.expected)
+            if (!slots.includes(instant)) problems.push(`${walk.name}: ${instant} did not fire`);
+        // every slot handled again (a duplicate delivery of the tick, a second instance): nothing more
+        for (const slot of slots) {
+          await schSetDue(pipeline.id, slot);
+          await schRun(schAfter(await schTrigger(pipeline.id)));
+        }
+        if ((await schExecs(pipeline.id)).length !== expected.length)
+          problems.push(`${day.name}: a slot created a second execution on repeat`);
+      }
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

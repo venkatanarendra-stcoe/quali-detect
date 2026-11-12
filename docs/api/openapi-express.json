@@ -43231,11 +43231,26 @@
               "type": "string",
               "enum": [
                 "push",
-                "pull_request"
+                "pull_request",
+                "schedule",
+                "manual"
               ]
             },
             "required": false,
             "name": "triggerType",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "scm_event",
+                "schedule_slot",
+                "manual"
+              ]
+            },
+            "required": false,
+            "name": "sourceType",
             "in": "query"
           }
         ],
@@ -43282,11 +43297,33 @@
                               "trigger_disabled"
                             ]
                           },
+                          "sourceType": {
+                            "type": "string",
+                            "enum": [
+                              "scm_event",
+                              "schedule_slot",
+                              "manual"
+                            ]
+                          },
+                          "scmDeliveryId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "scheduleSlot": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "manualKey": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "triggerType": {
                             "type": "string",
                             "enum": [
                               "push",
-                              "pull_request"
+                              "pull_request",
+                              "schedule",
+                              "manual"
                             ]
                           },
                           "triggerKey": {
@@ -43313,6 +43350,10 @@
                           "decidedAt",
                           "decision",
                           "reason",
+                          "sourceType",
+                          "scmDeliveryId",
+                          "scheduleSlot",
+                          "manualKey",
                           "triggerType",
                           "triggerKey",
                           "refType",

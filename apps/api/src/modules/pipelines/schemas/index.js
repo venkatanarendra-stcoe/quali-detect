@@ -4,6 +4,7 @@ import {
   PIPELINE_EFFECTIVE_STATES,
   PIPELINE_TRIGGER_TYPES,
   TRIGGER_DECISION_REASONS,
+  TRIGGER_DECISION_SOURCES,
   createPipelineConfigSchema,
   isValidRefName,
 } from "@qmentisai/shared";
@@ -80,7 +81,8 @@ export const decisionsQuerySchema = z
   .object({
     ...paginationShape({ defaultPageSize: 25 }),
     reason: z.enum(TRIGGER_DECISION_REASONS).optional(),
-    triggerType: z.enum(["push", "pull_request"]).optional(),
+    triggerType: z.enum(PIPELINE_TRIGGER_TYPES).optional(),
+    sourceType: z.enum(TRIGGER_DECISION_SOURCES).optional(),
   })
   .strict();
 
@@ -262,7 +264,11 @@ function buildResponses(configSchema) {
         decidedAt: iso,
         decision: z.literal("skipped_by_policy"),
         reason: z.enum(TRIGGER_DECISION_REASONS),
-        triggerType: z.enum(["push", "pull_request"]),
+        sourceType: z.enum(TRIGGER_DECISION_SOURCES),
+        scmDeliveryId: z.string().nullable(),
+        scheduleSlot: iso.nullable(),
+        manualKey: z.string().nullable(),
+        triggerType: z.enum(PIPELINE_TRIGGER_TYPES),
         triggerKey: z.string(),
         refType: z.enum(["branch", "tag", "pull_request"]),
         refName: z.string(),

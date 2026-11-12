@@ -145,6 +145,7 @@ export async function buildPipelineDbWorld(db) {
     pipelineId: pipeline.id,
     triggerType: "pull_request",
     triggerKey: "pr",
+    sourceType: "scm_event",
     scmEventId: randomUUID(),
     scmDeliveryId: `d-${rand()}`,
     scmEventKind: "pull_request",
@@ -969,7 +970,7 @@ export const PIPDB_CHECKS = [
   },
   {
     id: "PIPDB-012",
-    name: "a trigger decision cannot reference another tenant's, workspace's or repository's pipeline, is unique per delivery, kind and trigger key, and is insert-only",
+    name: "a trigger decision cannot reference another tenant's, workspace's or repository's pipeline, is unique per delivery, kind and trigger key (source type scm_event), and is insert-only",
     async run(c) {
       const p = [];
       const { A, B } = c;
@@ -1030,7 +1031,7 @@ export const PIPDB_CHECKS = [
       );
       mustReject(
         p,
-        "a schedule trigger (decisions are for webhook triggers)",
+        "a schedule trigger under the scm_event source type",
         await create(
           c.decisionData(one.pipeline, {
             triggerType: "schedule",
@@ -1039,7 +1040,7 @@ export const PIPDB_CHECKS = [
             pullRequestNumber: null,
           }),
         ),
-        "origin_check",
+        "source_check",
       );
       mustReject(
         p,
@@ -1189,6 +1190,199 @@ export const PIPDB_CHECKS = [
         p.push("the execution row is gone");
       if ((await c.db.repository.count({ where: { id: B.repo[0].id } })) !== 1)
         p.push("another tenant's repository changed");
+      return p;
+    },
+  },
+  {
+    id: "PIPDB-015",
+    name: "a trigger decision has a source type and exactly the matching key (scm_event: delivery and kind; schedule_slot: the slot; manual: the manual key), unique per (tenant, pipeline, trigger, source type, key), and stays insert-only",
+    async run(c) {
+      const p = [];
+      const { A, B } = c;
+      const one = await c.published(A, 0);
+      const two = await c.published(A, 1);
+      const bee = await c.published(B, 0);
+      const create = (data) => attempt(() => c.db.pipelineTriggerDecision.create({ data }));
+      const slotData = (pipeline, extra = {}) => ({
+        ...c.decisionData(pipeline, {
+          triggerType: "schedule",
+          triggerKey: "nightly",
+          scmEventId: null,
+          scmDeliveryId: null,
+          scmEventKind: null,
+          sourceType: "schedule_slot",
+          scheduleSlot: new Date("2026-06-10T02:00:00Z"),
+          reason: "repository_inactive",
+          refType: "branch",
+          refName: "main",
+          pullRequestNumber: null,
+        }),
+        ...extra,
+      });
+      const manualData = (pipeline, extra = {}) => ({
+        ...slotData(pipeline, {
+          triggerType: "manual",
+          triggerKey: "manual",
+          sourceType: "manual",
+          scheduleSlot: null,
+          manualKey: `manual:${randomUUID()}:key-${rand()}`,
+        }),
+        ...extra,
+      });
+      mustAccept(p, "a schedule slot decision", await create(slotData(one.pipeline)));
+      mustReject(
+        p,
+        "the same slot of the same trigger again (a repeated tick)",
+        await create(slotData(one.pipeline)),
+        UNIQUE,
+      );
+      mustAccept(
+        p,
+        "another slot of the same trigger",
+        await create(slotData(one.pipeline, { scheduleSlot: new Date("2026-06-11T02:00:00Z") })),
+      );
+      mustAccept(
+        p,
+        "the same slot for another trigger key",
+        await create(slotData(one.pipeline, { triggerKey: "weekly" })),
+      );
+      mustAccept(p, "the same slot in another pipeline", await create(slotData(two.pipeline)));
+      mustAccept(p, "the same slot in another tenant", await create(slotData(bee.pipeline)));
+      const manual = manualData(one.pipeline);
+      mustAccept(p, "a manual decision", await create(manual));
+      mustReject(
+        p,
+        "the same manual key again",
+        await create(manualData(one.pipeline, { manualKey: manual.manualKey })),
+        UNIQUE,
+      );
+      mustAccept(
+        p,
+        "the same manual key in another pipeline",
+        await create(manualData(two.pipeline, { manualKey: manual.manualKey })),
+      );
+      // exactly the matching key
+      mustReject(
+        p,
+        "a schedule_slot decision without a slot",
+        await create(slotData(one.pipeline, { scheduleSlot: null })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a schedule_slot decision that also carries a delivery id",
+        await create(slotData(one.pipeline, { scmDeliveryId: "d-1", scmEventKind: "push" })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a schedule_slot decision that also carries a manual key",
+        await create(slotData(one.pipeline, { manualKey: "m" })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a schedule_slot decision with a webhook trigger type",
+        await create(slotData(one.pipeline, { triggerType: "push" })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a scm_event decision without a delivery id",
+        await create(c.decisionData(one.pipeline, { scmDeliveryId: null })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a scm_event decision that also carries a slot",
+        await create(c.decisionData(one.pipeline, { scheduleSlot: new Date() })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a scm_event decision that also carries a manual key",
+        await create(c.decisionData(one.pipeline, { manualKey: "m" })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a manual decision without a key",
+        await create(manualData(one.pipeline, { manualKey: null })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a manual decision with a slot",
+        await create(manualData(one.pipeline, { scheduleSlot: new Date() })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a manual decision under the schedule trigger type",
+        await create(manualData(one.pipeline, { triggerType: "schedule" })),
+        "source_check",
+      );
+      mustReject(
+        p,
+        "a manual key of 401 characters",
+        await create(manualData(one.pipeline, { manualKey: "k".repeat(401) })),
+        "lengths_check",
+      );
+      mustReject(
+        p,
+        "a source type outside the enum",
+        await create(slotData(one.pipeline, { sourceType: "email" })),
+        "",
+      );
+      mustReject(
+        p,
+        "a schedule decision of tenant B's pipeline under tenant A",
+        await create(
+          slotData(bee.pipeline, {
+            tenantId: A.tenant.id,
+            scheduleSlot: new Date("2026-06-13T02:00:00Z"),
+          }),
+        ),
+        FK,
+      );
+      mustReject(
+        p,
+        "a schedule decision under another workspace's id",
+        await create(
+          slotData(one.pipeline, {
+            workspaceId: two.pipeline.workspaceId,
+            scheduleSlot: new Date("2026-06-12T02:00:00Z"),
+          }),
+        ),
+        FK,
+      );
+      const row = await c.db.pipelineTriggerDecision.findFirst({
+        where: {
+          tenantId: A.tenant.id,
+          pipelineId: one.pipeline.id,
+          sourceType: "schedule_slot",
+          triggerKey: "nightly",
+        },
+      });
+      mustReject(
+        p,
+        "UPDATE of the source type or key of a decision",
+        await attempt(() =>
+          c.db.pipelineTriggerDecision.update({
+            where: { id: row.id },
+            data: { scheduleSlot: new Date("2030-01-01T00:00:00Z") },
+          }),
+        ),
+        "insert-only",
+      );
+      // the temporary default of the migration is gone: a writer that omits the source type is refused
+      const { sourceType: _omitted, ...withoutSource } = c.decisionData(one.pipeline);
+      mustReject(
+        p,
+        "a decision without a source type (no default)",
+        await create(withoutSource),
+        "",
+      );
       return p;
     },
   },

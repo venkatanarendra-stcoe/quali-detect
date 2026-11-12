@@ -113,6 +113,48 @@ export function createScheduleRepository({ db }) {
         },
       }),
 
+    /**
+     * Records that a due slot was skipped by policy (SPEC §7.8: source type `schedule_slot`, keyed by the nominal UTC slot).
+     * The scope fields come from the claimed trigger row and the composite foreign key makes the database refuse a pipeline of
+     * another tenant, workspace or repository; a repeat for the same (tenant, pipeline, trigger, slot) is absorbed by the
+     * partial unique index. @returns {Promise<number>} rows written (0 or 1)
+     */
+    async createDecision(
+      {
+        tenantId,
+        workspaceId,
+        repositoryId,
+        pipelineId,
+        triggerKey,
+        scheduleSlot,
+        reason,
+        refName,
+        correlationId,
+      },
+      client,
+    ) {
+      const done = await client.pipelineTriggerDecision.createMany({
+        data: [
+          {
+            tenantId,
+            workspaceId,
+            repositoryId,
+            pipelineId,
+            triggerType: "schedule",
+            triggerKey,
+            sourceType: "schedule_slot",
+            scheduleSlot,
+            reason,
+            refType: "branch",
+            refName,
+            correlationId: correlationId ?? null,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      return done.count;
+    },
+
     /** The request this slot already created for the pipeline, if any (idempotency by `(tenant, pipeline, slot)`). */
     findExecutionBySlot: ({ tenantId, pipelineId, scheduleSlot }, client = db) =>
       client.execution.findFirst({

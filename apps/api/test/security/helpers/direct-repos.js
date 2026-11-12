@@ -458,6 +458,7 @@ export async function buildDalWorld(db) {
       pipelineId: pl.id,
       triggerType: "pull_request",
       triggerKey: "pr",
+      sourceType: "scm_event",
       scmEventId: randomUUID(),
       scmDeliveryId: `dal-${rand(6)}`,
       scmEventKind: "pull_request",
@@ -2831,6 +2832,7 @@ export function buildDalEntries() {
     pipelineId: pipe(c).id,
     triggerType: "push",
     triggerKey: "push",
+    sourceType: "scm_event",
     scmEventId: c.pl.pushEvent.id,
     scmDeliveryId: `dal-router-${rand(6)}`,
     scmEventKind: "push",
@@ -2984,6 +2986,53 @@ export function buildDalEntries() {
           id: c.pl.scheduleId,
           data: { nextFireAt: new Date("2099-01-01T02:00:00Z") },
         }),
+    },
+  );
+
+  const slotDecision = (c, tenantId, extra = {}) => ({
+    tenantId,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    triggerKey: "nightly",
+    scheduleSlot: new Date("2099-01-01T02:00:00Z"),
+    reason: "repository_inactive",
+    refName: "main",
+    correlationId: null,
+    ...extra,
+  });
+  const removeSlotDecisions = (c) =>
+    c.db.pipelineTriggerDecision.deleteMany({
+      where: {
+        tenantId: c.x,
+        sourceType: "schedule_slot",
+        scheduleSlot: new Date("2099-01-01T02:00:00Z"),
+      },
+    });
+  E(
+    "schedules.createDecision",
+    (c) => inTx(c, (tx) => SC(c).createDecision(slotDecision(c, c.y), tx)),
+    {
+      // the composite foreign key refuses a decision under another tenant's pipeline; one row written would be a leak
+      mayThrow: true,
+      control: async (c) => {
+        const count = await inTx(c, (tx) => SC(c).createDecision(slotDecision(c, c.x), tx));
+        await removeSlotDecisions(c);
+        return count;
+      },
+    },
+  );
+  E(
+    "schedules.createDecision (wrong workspace)",
+    (c) =>
+      inTx(c, (tx) => SC(c).createDecision(slotDecision(c, c.x, { workspaceId: c.pl.wsB }), tx)),
+    {
+      mayThrow: true,
+      control: async (c) => {
+        const count = await inTx(c, (tx) => SC(c).createDecision(slotDecision(c, c.x), tx));
+        await removeSlotDecisions(c);
+        return count;
+      },
     },
   );
 

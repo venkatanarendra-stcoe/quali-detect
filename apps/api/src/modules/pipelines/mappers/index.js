@@ -92,12 +92,22 @@ export const toExecutionDto = (e) => ({
   requestedAt: e.requestedAt,
 });
 
-/** Trigger decision row (policy skip). @param {any} d */
+/**
+ * Trigger decision row (policy skip) with its source type and the key that matches it: `scmDeliveryId` (scm_event),
+ * `scheduleSlot` (schedule_slot, the nominal UTC slot) or `manualKey` (manual: only the caller-chosen idempotency value,
+ * never the `manual:<userId>:` prefix of the stored key). The other two key fields are null.
+ * @param {any} d
+ */
 export const toDecisionDto = (d) => ({
   id: d.id,
   decidedAt: d.decidedAt,
   decision: d.decision,
   reason: d.reason,
+  sourceType: d.sourceType,
+  scmDeliveryId: d.sourceType === "scm_event" ? (d.scmDeliveryId ?? null) : null,
+  scheduleSlot: d.sourceType === "schedule_slot" ? (d.scheduleSlot ?? null) : null,
+  manualKey:
+    d.sourceType === "manual" && d.manualKey ? d.manualKey.split(":").slice(2).join(":") : null,
   triggerType: d.triggerType,
   triggerKey: d.triggerKey,
   refType: d.refType,

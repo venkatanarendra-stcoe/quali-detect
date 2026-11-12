@@ -28,6 +28,8 @@ const envSchema = z.object({
   PIPELINE_SCHEDULE_MAX_PER_TENANT_PER_TICK: z.coerce.number().int().min(1).max(1000).default(10),
   PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS: z.coerce.number().int().min(0).max(604800).default(21600),
   PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS: z.coerce.number().int().min(0).max(86400).default(120),
+  // Same name and default as the API: the window of the per-slot jitter `hash(triggerId + slot) mod window` (both sides must agree).
+  PIPELINE_SCHEDULE_JITTER_SECONDS: z.coerce.number().int().min(0).max(3600).default(300),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -112,6 +114,7 @@ export function loadWorkerConfig(env = process.env) {
         maxPerTenantPerTick: e.PIPELINE_SCHEDULE_MAX_PER_TENANT_PER_TICK,
         maxLatenessSeconds: e.PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS,
         onTimeGraceSeconds: e.PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS,
+        jitterSeconds: e.PIPELINE_SCHEDULE_JITTER_SECONDS,
       }),
     }),
     outbox: Object.freeze({

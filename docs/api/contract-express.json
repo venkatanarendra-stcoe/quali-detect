@@ -2241,13 +2241,14 @@
           "page",
           "pageSize",
           "reason",
-          "triggerType"
+          "triggerType",
+          "sourceType"
         ],
         "body": null
       },
       "response": {
         "envelope": "paginated",
-        "dataShape": "[{ id, decidedAt, decision, reason, triggerType, triggerKey, refType, refName, pullRequestNumber }]",
+        "dataShape": "[{ id, decidedAt, decision, reason, sourceType, scmDeliveryId, scheduleSlot, manualKey, triggerType, triggerKey, refType, refName, pullRequestNumber }]",
         "metaKeys": [
           "correlationId",
           "pagination"

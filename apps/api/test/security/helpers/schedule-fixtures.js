@@ -7,6 +7,7 @@
  * (02:00 -> 01:00).
  */
 import {
+  jitterOffsetSeconds,
   minimumIntervalSeconds,
   nextFireAfter,
   planScheduledFire,
@@ -64,15 +65,39 @@ export const NEXT_FIRES = Object.freeze([
     ],
   },
   {
-    name: "fall back with a two-hourly schedule: the repeated 02:00 fires once",
+    name: "fall back with a step-hour schedule (interval style): the repeated 02:00 fires at BOTH real occurrences (00:00Z and 01:00Z), 1 h apart, the minimum interval",
     expression: "0 */2 * * *",
     timeZone: "Europe/Berlin",
     after: "2026-10-24T21:00:00Z",
     expected: [
       "2026-10-24T22:00:00.000Z",
       "2026-10-25T00:00:00.000Z",
+      "2026-10-25T01:00:00.000Z",
       "2026-10-25T03:00:00.000Z",
-      "2026-10-25T05:00:00.000Z",
+    ],
+  },
+  {
+    name: "Berlin fall back, hourly: the repeated 02:30 fires at both real occurrences (00:30Z and 01:30Z), once per real UTC hour",
+    expression: "30 * * * *",
+    timeZone: "Europe/Berlin",
+    after: "2026-10-24T23:00:00Z",
+    expected: [
+      "2026-10-24T23:30:00.000Z",
+      "2026-10-25T00:30:00.000Z",
+      "2026-10-25T01:30:00.000Z",
+      "2026-10-25T02:30:00.000Z",
+    ],
+  },
+  {
+    name: "New York fall back, hourly: the repeated 01:15 fires at both real occurrences (05:15Z EDT and 06:15Z EST)",
+    expression: "15 * * * *",
+    timeZone: "America/New_York",
+    after: "2026-11-01T03:30:00Z",
+    expected: [
+      "2026-11-01T04:15:00.000Z",
+      "2026-11-01T05:15:00.000Z",
+      "2026-11-01T06:15:00.000Z",
+      "2026-11-01T07:15:00.000Z",
     ],
   },
   {
@@ -81,6 +106,80 @@ export const NEXT_FIRES = Object.freeze([
     timeZone: "UTC",
     after: "2026-03-28T12:00:00Z",
     expected: ["2026-03-29T02:00:00.000Z", "2026-03-30T02:00:00.000Z"],
+  },
+]);
+
+/**
+ * Fires inside one LOCAL DAY of a transition day, as UTC instants in `(from, to]`. A named-hour expression fires once in the
+ * repeated hour; an interval-style expression fires once per REAL UTC hour (a fall-back day has 25 real hours, a spring-forward
+ * day 23): the instants are asserted, so a double fire of one slot is a different instant count or a repeated instant.
+ */
+export const DAY_FIRES = Object.freeze([
+  {
+    name: "Berlin fall-back day (25 real hours), hourly 30 * * * *: 25 fires, one per real UTC hour",
+    expression: "30 * * * *",
+    timeZone: "Europe/Berlin",
+    from: "2026-10-24T22:00:00Z",
+    to: "2026-10-25T23:00:00Z",
+    count: 25,
+    first: "2026-10-24T22:30:00.000Z",
+    last: "2026-10-25T22:30:00.000Z",
+  },
+  {
+    name: "New York fall-back day (25 real hours), hourly 15 * * * *: 25 fires",
+    expression: "15 * * * *",
+    timeZone: "America/New_York",
+    from: "2026-11-01T04:00:00Z",
+    to: "2026-11-02T05:00:00Z",
+    count: 25,
+    first: "2026-11-01T04:15:00.000Z",
+    last: "2026-11-02T04:15:00.000Z",
+  },
+  {
+    name: "Berlin fall-back day, named hour 30 2 * * *: ONE fire (the first occurrence, 00:30Z)",
+    expression: "30 2 * * *",
+    timeZone: "Europe/Berlin",
+    from: "2026-10-24T22:00:00Z",
+    to: "2026-10-25T23:00:00Z",
+    count: 1,
+    first: "2026-10-25T00:30:00.000Z",
+    last: "2026-10-25T00:30:00.000Z",
+  },
+  {
+    name: "New York fall-back day, named hours 30 1,2 * * *: two fires, the repeated 01:30 once (05:30Z) and 02:30 (07:30Z)",
+    expression: "30 1,2 * * *",
+    timeZone: "America/New_York",
+    from: "2026-11-01T04:00:00Z",
+    to: "2026-11-02T05:00:00Z",
+    count: 2,
+    first: "2026-11-01T05:30:00.000Z",
+    last: "2026-11-01T07:30:00.000Z",
+  },
+  {
+    name: "Berlin spring-forward day (23 real hours), hourly 30 * * * *: 23 fires, none inside the gap",
+    expression: "30 * * * *",
+    timeZone: "Europe/Berlin",
+    from: "2026-03-28T23:00:00Z",
+    to: "2026-03-29T22:00:00Z",
+    count: 23,
+    first: "2026-03-28T23:30:00.000Z",
+    last: "2026-03-29T21:30:00.000Z",
+  },
+]);
+
+/** Fall-back days walked through the scheduler handler (an interval-style expression, both overlap occurrences). */
+export const OVERLAP_WALKS = Object.freeze([
+  {
+    name: "Berlin hourly across the fall back",
+    expression: "30 * * * *",
+    timeZone: "Europe/Berlin",
+    expected: ["2026-10-25T00:30:00.000Z", "2026-10-25T01:30:00.000Z", "2026-10-25T02:30:00.000Z"],
+  },
+  {
+    name: "New York hourly across the fall back",
+    expression: "15 * * * *",
+    timeZone: "America/New_York",
+    expected: ["2026-11-01T05:15:00.000Z", "2026-11-01T06:15:00.000Z", "2026-11-01T07:15:00.000Z"],
   },
 ]);
 
@@ -129,6 +228,18 @@ export function runEvaluationFixtures() {
       problems.push(
         `minimum gap of "${row.expression}" in ${row.timeZone}: ${minGapSeconds}, expected ${row.expected}`,
       );
+  }
+  for (const row of DAY_FIRES) {
+    const got = [];
+    for (
+      let at = nextFireAfter(row.expression, row.timeZone, new Date(row.from));
+      at && at.getTime() <= new Date(row.to).getTime();
+      at = nextFireAfter(row.expression, row.timeZone, at)
+    )
+      got.push(at.toISOString());
+    if (got.length !== row.count || got[0] !== row.first || got[got.length - 1] !== row.last)
+      problems.push(`${row.name}: ${got.length} fires (${got[0]} .. ${got[got.length - 1]})`);
+    if (new Set(got).size !== got.length) problems.push(`${row.name}: a slot fired twice`);
   }
   // previous fire: the gap-end fire is the one at or before 01:00Z on 29 March; strictly before it is the previous day's
   const gapEnd = new Date("2026-03-29T01:00:00Z");
@@ -183,76 +294,155 @@ export function runEvaluationFixtures() {
   return problems;
 }
 
+/** A fixed trigger id and window: the jitter of a slot is `hash(triggerId + slot) mod window` (SPEC §5.6). */
+export const PLAN_TRIGGER_ID = "11111111-1111-4111-8111-111111111111";
+export const PLAN_WINDOW = 300;
+/** The planned fire time of a slot of the plan fixtures (slot + its jitter). @param {string} slotIso */
+const fireOf = (slotIso) =>
+  new Date(
+    new Date(slotIso).getTime() +
+      jitterOffsetSeconds(PLAN_TRIGGER_ID, new Date(slotIso), PLAN_WINDOW) * 1000,
+  );
+
 /** The missed-run plan (SPEC §5.6): which of the pending slots is handled, and whether it fires or is a missed run. @returns {string[]} */
 export function runPlanFixtures() {
   const problems = [];
-  const hourly = { expression: "0 * * * *", timeZone: "UTC", jitterSeconds: 120 };
+  const hourly = {
+    expression: "0 * * * *",
+    timeZone: "UTC",
+    triggerId: PLAN_TRIGGER_ID,
+    jitterWindowSeconds: PLAN_WINDOW,
+  };
   const limits = { maxLatenessSeconds: 21600, onTimeGraceSeconds: 120 };
-  const plan = (nextFireAt, now, missedPolicy) =>
+  const plan = (slotIso, now, missedPolicy) =>
     planScheduledFire({
       ...hourly,
       ...limits,
       missedPolicy,
-      nextFireAt: new Date(nextFireAt),
+      nextFireAt: fireOf(slotIso),
       now: new Date(now),
     });
+  const after = (slotIso, seconds) =>
+    new Date(fireOf(slotIso).getTime() + seconds * 1000).toISOString();
   const expect = (label, got, want) => {
     for (const [key, value] of Object.entries(want)) {
       const actual = key === "slot" || key === "nextFireAt" ? got[key]?.toISOString() : got[key];
       if (actual !== value) problems.push(`${label}: ${key} is ${actual}, expected ${value}`);
     }
   };
-  expect("on time", plan("2026-06-10T12:02:00Z", "2026-06-10T12:02:30Z", "run_once"), {
+  expect("on time", plan("2026-06-10T12:00:00Z", after("2026-06-10T12:00:00Z", 30), "run_once"), {
     action: "fire",
     slot: "2026-06-10T12:00:00.000Z",
     skippedEarlier: false,
-    nextFireAt: "2026-06-10T13:02:00.000Z",
+    nextFireAt: fireOf("2026-06-10T13:00:00Z").toISOString(),
   });
   expect(
     "three slots missed, run_once fires only the latest",
-    plan("2026-06-10T12:02:00Z", "2026-06-10T14:30:00Z", "run_once"),
+    plan("2026-06-10T12:00:00Z", after("2026-06-10T14:00:00Z", 1800), "run_once"),
     {
       action: "fire",
       slot: "2026-06-10T14:00:00.000Z",
       skippedEarlier: true,
-      nextFireAt: "2026-06-10T15:02:00.000Z",
+      nextFireAt: fireOf("2026-06-10T15:00:00Z").toISOString(),
     },
   );
   expect(
     "older than the lateness limit: one missed run for the latest slot",
     planScheduledFire({
+      ...hourly,
       expression: "0 2 * * *",
-      timeZone: "UTC",
-      jitterSeconds: 120,
       ...limits,
       missedPolicy: "run_once",
-      nextFireAt: new Date("2026-06-09T02:02:00Z"),
+      nextFireAt: fireOf("2026-06-09T02:00:00Z"),
       now: new Date("2026-06-10T09:00:00Z"),
     }),
     { action: "missed", slot: "2026-06-10T02:00:00.000Z", skippedEarlier: true },
   );
   expect(
     "skip policy, late: a missed run",
-    plan("2026-06-10T12:02:00Z", "2026-06-10T12:20:00Z", "skip"),
-    {
-      action: "missed",
-      slot: "2026-06-10T12:00:00.000Z",
-    },
+    plan("2026-06-10T12:00:00Z", after("2026-06-10T12:00:00Z", 1200), "skip"),
+    { action: "missed", slot: "2026-06-10T12:00:00.000Z" },
   );
   expect(
-    "skip policy, on time: fires",
-    plan("2026-06-10T12:02:00Z", "2026-06-10T12:03:00Z", "skip"),
-    {
-      action: "fire",
-      slot: "2026-06-10T12:00:00.000Z",
-    },
+    "skip policy, on time (default grace 120 s): fires",
+    plan("2026-06-10T12:00:00Z", after("2026-06-10T12:00:00Z", 60), "skip"),
+    { action: "fire", slot: "2026-06-10T12:00:00.000Z" },
   );
   expect(
-    "a stored time that is not a slot of the schedule: nothing",
-    plan("2026-06-10T12:30:00Z", "2026-06-10T12:31:00Z", "run_once"),
-    {
-      action: "none",
-    },
+    "a stored time that is not the planned time of any slot: nothing",
+    planScheduledFire({
+      ...hourly,
+      ...limits,
+      missedPolicy: "run_once",
+      nextFireAt: new Date("2026-06-10T12:30:00Z"),
+      now: new Date("2026-06-10T12:31:00Z"),
+    }),
+    { action: "none" },
   );
+  // the slot is only handled once ITS planned time (slot + its jitter) has come
+  const early = planScheduledFire({
+    ...hourly,
+    ...limits,
+    missedPolicy: "run_once",
+    nextFireAt: fireOf("2026-06-10T12:00:00Z"),
+    now: new Date(fireOf("2026-06-10T12:00:00Z").getTime() - 1000),
+  });
+  if (early.action !== "none") problems.push(`before the planned time the plan is ${early.action}`);
+  return problems;
+}
+
+/**
+ * The jitter of a slot (SPEC §5.6, owner decision 2026-11-13): `hash(triggerId + slot) mod window`: deterministic for the same
+ * trigger and slot, spread over slots and triggers, inside the window, and the slot key never moves. @returns {string[]}
+ */
+export function runJitterFixtures() {
+  const problems = [];
+  const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-4000-8000-00000000000${i}`);
+  const slots = Array.from({ length: 24 }, (_, i) => new Date(Date.UTC(2026, 5, 10, i, 0, 0)));
+  const window = 300;
+  const offsets = new Set();
+  for (const id of ids)
+    for (const slot of slots) {
+      const a = jitterOffsetSeconds(id, slot, window);
+      const b = jitterOffsetSeconds(id, new Date(slot.getTime()), window);
+      if (a !== b) problems.push(`jitter of ${id} at ${slot.toISOString()} is not deterministic`);
+      if (!Number.isInteger(a) || a < 0 || a >= window)
+        problems.push(`jitter ${a} is outside the window`);
+      offsets.add(a);
+    }
+  if (offsets.size < 50)
+    problems.push(`jitter hardly varies (${offsets.size} distinct offsets of 192)`);
+  const sameTrigger = new Set(slots.map((s) => jitterOffsetSeconds(ids[0], s, window)));
+  if (sameTrigger.size < 8) problems.push("one trigger's jitter does not differ across slots");
+  const sameSlot = new Set(ids.map((id) => jitterOffsetSeconds(id, slots[0], window)));
+  if (sameSlot.size < 3) problems.push("the jitter does not differ across triggers for one slot");
+  if (jitterOffsetSeconds(ids[0], slots[0], 0) !== 0)
+    problems.push("a window of 0 must give no jitter");
+  // the jitter depends on the slot: the same trigger with only the slot changed gives another offset for at least one pair
+  if (
+    jitterOffsetSeconds(ids[0], slots[0], window) ===
+      jitterOffsetSeconds(ids[0], slots[1], window) &&
+    jitterOffsetSeconds(ids[0], slots[1], window) ===
+      jitterOffsetSeconds(ids[0], slots[2], window) &&
+    jitterOffsetSeconds(ids[0], slots[2], window) === jitterOffsetSeconds(ids[0], slots[3], window)
+  )
+    problems.push("the jitter ignores the slot");
+  // the nominal slot key never moves: the plan reports the slot, not the slot plus jitter
+  const trigger = ids[1];
+  const slot = new Date("2026-06-10T12:00:00Z");
+  const fireAt = new Date(slot.getTime() + jitterOffsetSeconds(trigger, slot, window) * 1000);
+  const plan = planScheduledFire({
+    expression: "0 * * * *",
+    timeZone: "UTC",
+    triggerId: trigger,
+    jitterWindowSeconds: window,
+    nextFireAt: fireAt,
+    now: new Date(fireAt.getTime() + 1000),
+    missedPolicy: "run_once",
+    maxLatenessSeconds: 21600,
+    onTimeGraceSeconds: 120,
+  });
+  if (plan.slot?.toISOString() !== slot.toISOString())
+    problems.push(`the slot key moved with the jitter (${plan.slot?.toISOString()})`);
   return problems;
 }

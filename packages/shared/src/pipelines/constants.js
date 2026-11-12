@@ -52,6 +52,9 @@ export const TRIGGER_DECISION_REASONS = Object.freeze([
   "trigger_disabled",
 ]);
 
+/** What a trigger decision row is keyed by (SPEC §7.8): an SCM delivery, a nominal schedule slot, or a manual run. */
+export const TRIGGER_DECISION_SOURCES = Object.freeze(["scm_event", "schedule_slot", "manual"]);
+
 /**
  * Platform limits applied at validation (SPEC §5.5, §5.6, §5.8, §7.3). Every value is a placeholder default that the API
  * reads from platform settings (environment) and may later come from entitlements; none is a product constant.

@@ -2,6 +2,7 @@ import { withTransaction } from "@qmentisai/db";
 import { NonRetryableError } from "@qmentisai/infra";
 import {
   DEFAULT_BRANCH_TOKEN,
+  TRIGGER_DECISION_REASONS,
   computeEffectiveState,
   gateReasonOf,
   nextScheduledFire,
@@ -26,7 +27,12 @@ export const SCHEDULE_DEFAULTS = Object.freeze({
   maxPerTenantPerTick: 10,
   maxLatenessSeconds: 21600,
   onTimeGraceSeconds: 120,
+  jitterSeconds: 300,
 });
+
+/** The ref a decision row shows: the trigger's branch, or the repository's default branch (the literal token when it has none). */
+const scheduleRefName = (ref, defaultBranch) =>
+  (ref === DEFAULT_BRANCH_TOKEN ? (defaultBranch ?? ref) : ref).slice(0, 255);
 
 /**
  * The schedule handler (docs/modules/pipelines-triggers/SPEC.md §6.4), hosted in the scheduler worker: the consumer of the
@@ -47,8 +53,10 @@ export const SCHEDULE_DEFAULTS = Object.freeze({
  * and enabled, pipeline live and enabled, trigger present, enabled and unchanged in the CURRENT configuration version. A
  * pipeline that cannot fire creates nothing; its schedule is advanced to the next slot (no back-fill) and an outcome counter
  * is logged. Schedule syntax or time-zone errors found at fire time deactivate the trigger and are logged as errors; they
- * never stop the batch. A repository state that blocks writes NO trigger decision row: those rows model webhook deliveries
- * (their key is the delivery id), a schedule has none (SPEC §6.4 step 4 asks for a counter).
+ * never stop the batch. A policy/blocking state (repository not active or disabled, workspace archived, pipeline disabled)
+ * writes ONE trigger decision row of source type `schedule_slot` per (trigger, slot) in addition to the counter (SPEC §5.9b,
+ * §7.8; owner decision 2026-11-13); a repeated run adds nothing (unique key). The fire time of a slot is the slot plus
+ * `hash(triggerId + slot) mod window` (`@qmentisai/shared` `nextScheduledFire`, the function the API uses).
  * @param {{
  *   db: any,
  *   config?: { pipelines?: { schedule?: Partial<typeof SCHEDULE_DEFAULTS> } },
@@ -69,13 +77,17 @@ export function createScheduleHandler({ db, config, logger, clock = () => new Da
       tx,
     );
 
-  /** Next planned time after now for a trigger (the slot after now plus its jitter), or null. */
+  /**
+   * Next planned time after now for a trigger (the slot after now plus the jitter of that slot, `hash(triggerId + slot) mod
+   * window`: the same function as the API's `next_fire_at`), or null.
+   */
   const plannedFromNow = (row, cron, timeZone, now) =>
     nextScheduledFire({
       expression: cron,
       timeZone,
       after: now,
-      jitterSeconds: row.jitterOffsetSeconds ?? 0,
+      triggerId: row.id,
+      jitterWindowSeconds: limits.jitterSeconds,
     })?.fireAt ?? null;
 
   /** Everything for ONE claimed due trigger, inside the caller's transaction (and under the pipeline lock). */
@@ -122,7 +134,8 @@ export function createScheduleHandler({ db, config, logger, clock = () => new Da
     const plan = planScheduledFire({
       expression: row.cron,
       timeZone: row.timezone,
-      jitterSeconds: row.jitterOffsetSeconds ?? 0,
+      triggerId: row.id,
+      jitterWindowSeconds: limits.jitterSeconds,
       nextFireAt: row.nextFireAt,
       now,
       missedPolicy: trigger.missedPolicy ?? row.missedPolicy,
@@ -147,7 +160,25 @@ export function createScheduleHandler({ db, config, logger, clock = () => new Da
       repositoryEnabled: repository.enabled,
       pipelineEnabled: pipeline.enabled,
     });
-    if (state !== "running_normally") return done("skipped_ineligible", gateReasonOf(state));
+    if (state !== "running_normally") {
+      // A policy/blocking state after a match (SPEC §5.9b): the counter stays AND one decision row per (trigger, slot) is
+      // written when there is a slot and the reason is one of the decision reasons. A tenant that is not usable
+      // (`tenant_unavailable`) and "no slot" have no decision reason: counter only. Nothing is created.
+      const reason = gateReasonOf(state);
+      if (plan.slot && TRIGGER_DECISION_REASONS.includes(reason))
+        await repo.createDecision(
+          {
+            ...where,
+            triggerKey: row.triggerKey,
+            scheduleSlot: plan.slot,
+            reason,
+            refName: scheduleRefName(trigger.ref, repository.defaultBranch),
+            correlationId: message.correlationId,
+          },
+          tx,
+        );
+      return done("skipped_ineligible", reason);
+    }
     if (plan.action === "none" || !plan.slot) return done("advanced", "not_a_slot");
 
     const slot = plan.slot;

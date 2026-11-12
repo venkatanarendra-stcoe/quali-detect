@@ -355,13 +355,14 @@ export function createPipelineRepository({ db }) {
       return cancelled;
     },
 
-    // ---- trigger decisions (insert-only, written by the router; read here)
-    async listDecisions({ tenantId, pipelineId, reason, triggerType, page, pageSize }) {
+    // ---- trigger decisions (insert-only, written by the router and the schedule handler; read here)
+    async listDecisions({ tenantId, pipelineId, reason, triggerType, sourceType, page, pageSize }) {
       const where = {
         tenantId,
         pipelineId,
         ...(reason ? { reason } : {}),
         ...(triggerType ? { triggerType } : {}),
+        ...(sourceType ? { sourceType } : {}),
       };
       const [items, totalItems] = await Promise.all([
         db.pipelineTriggerDecision.findMany({
@@ -372,6 +373,10 @@ export function createPipelineRepository({ db }) {
             decidedAt: true,
             decision: true,
             reason: true,
+            sourceType: true,
+            scmDeliveryId: true,
+            scheduleSlot: true,
+            manualKey: true,
             triggerType: true,
             triggerKey: true,
             refType: true,

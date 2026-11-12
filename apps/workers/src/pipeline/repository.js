@@ -123,7 +123,7 @@ export function createRouterRepository({ db }) {
         data: { tenantId, workspaceId, repositoryId, pipelineId, ...data },
       }),
 
-    /** Inserts a policy-skip decision; a redelivery is absorbed by the unique key. @returns {Promise<number>} rows written (0 or 1) */
+    /** Inserts a policy-skip decision (`sourceType` and its matching key are required, the database CHECK refuses a mismatch); a redelivery, a repeated tick or a replay is absorbed by the unique key of the source type. @returns {Promise<number>} rows written (0 or 1) */
     async createDecision(
       { tenantId, workspaceId, repositoryId, pipelineId, ...data },
       client = db,

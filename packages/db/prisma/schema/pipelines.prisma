@@ -64,6 +64,15 @@ enum TriggerDecisionKind {
   @@map("trigger_decision_kind")
 }
 
+/// What a trigger decision row is keyed by (SPEC §7.8): an SCM delivery, a nominal schedule slot, or a manual run.
+enum TriggerDecisionSource {
+  scm_event
+  schedule_slot
+  manual
+
+  @@map("trigger_decision_source")
+}
+
 enum TriggerDecisionReason {
   fork_policy_skip
   draft_policy_skip
@@ -225,7 +234,11 @@ model Execution {
 }
 
 /// One row per policy skip of a matching pipeline (SPEC §7.8, §5.9b). Insert-only (database trigger rejects UPDATE).
-/// `scmEventId` has no foreign key, like executions. Ids, enums and short validated strings only.
+/// `sourceType` says what keys the row, and CHECK constraints make exactly the matching key present: `scm_event` ->
+/// `scmDeliveryId` + `scmEventKind` (+ `scmEventId`), `schedule_slot` -> `scheduleSlot` (the nominal UTC slot), `manual` ->
+/// `manualKey` (the manual run's stored idempotency key). Uniqueness per (tenant, pipeline, trigger key, source key) is three
+/// partial unique indexes written in the migration (Prisma cannot model them). `scmEventId` has no foreign key, like
+/// executions. Ids, enums and short validated strings only.
 model PipelineTriggerDecision {
   id                String                @id @default(uuid()) @db.Uuid
   tenantId          String                @map("tenant_id") @db.Uuid
@@ -235,8 +248,11 @@ model PipelineTriggerDecision {
   triggerType       PipelineTriggerType   @map("trigger_type")
   triggerKey        String                @map("trigger_key")
   scmEventId        String?               @map("scm_event_id") @db.Uuid
-  scmDeliveryId     String                @map("scm_delivery_id")
-  scmEventKind      ScmEventKind          @map("scm_event_kind")
+  sourceType        TriggerDecisionSource @map("source_type")
+  scmDeliveryId     String?               @map("scm_delivery_id")
+  scmEventKind      ScmEventKind?         @map("scm_event_kind")
+  scheduleSlot      DateTime?             @map("schedule_slot") @db.Timestamptz(6)
+  manualKey         String?               @map("manual_key")
   decision          TriggerDecisionKind   @default(skipped_by_policy)
   reason            TriggerDecisionReason
   refType           ExecutionRefType      @map("ref_type")
@@ -248,7 +264,6 @@ model PipelineTriggerDecision {
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict)
 
-  @@unique([tenantId, pipelineId, scmDeliveryId, scmEventKind, triggerKey])
   @@index([tenantId, pipelineId, decidedAt(sort: Desc)])
   @@map("pipeline_trigger_decisions")
 }

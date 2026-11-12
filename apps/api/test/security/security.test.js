@@ -9,11 +9,14 @@
 import assert from "node:assert/strict";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
+import { parseMessage } from "@qmentisai/contracts";
 import { getDbClient } from "@qmentisai/db";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
 import { createGitHubClient } from "@qmentisai/infra";
 import { createAuditService } from "../../src/audit/audit-service.js";
 import { createNotificationHandler } from "../../../workers/src/notification/handler.js";
+import { createOwnershipVerifier } from "../../../workers/src/ownership/index.js";
+import { createPipelineTriggerHandler } from "../../../workers/src/pipeline/router.js";
 import { createScmEventHandler } from "../../../workers/src/scm/events.js";
 import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
@@ -22,7 +25,7 @@ import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-re
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 394;
+const EXPECTED_CHECKS = 418;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -6778,6 +6781,1119 @@ const capWorld = () =>
         problems.push("a suspended tenant's run created an execution");
       const other = await pipRun(x.sessions.admin, x.pPay.id);
       if (other.status !== 202) problems.push(`another tenant's run answered ${other.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 14. Pipeline trigger router (SPEC pipelines-triggers §6.2, §14.1, part D). Signed webhook deliveries go through the running
+//     API (webhook -> scm_events + outbox), the stored `scm.*.received` envelope is then handed to the router IN PROCESS exactly
+//     as the `pipeline-triggers` consumer does (parse, ownership verification, handler), against the disposable database.
+//     Tenants: R (all scenarios, two workspaces), X (the same GitHub repository id connected by another tenant) and Q (quota).
+// ---------------------------------------------------------------------------------------------------------------------
+const rtSha = (c) => c.repeat(40);
+const rtPush = ({
+  inst,
+  repo,
+  branch = "main",
+  tag,
+  before = rtSha("a"),
+  after = rtSha("b"),
+  created = false,
+  deleted = false,
+  forced = false,
+}) => ({
+  ref: tag ? `refs/tags/${tag}` : `refs/heads/${branch}`,
+  before,
+  after,
+  created,
+  deleted,
+  forced,
+  commits: deleted ? [] : [{ id: after }],
+  head_commit: deleted ? null : { id: after },
+  pusher: { name: "dev" },
+  repository: { id: Number(repo) },
+  installation: { id: Number(inst) },
+});
+/** `fork`: false (same repository), true (a fork) or "unknown" (GitHub sends no head repository). */
+const rtPr = ({
+  inst,
+  repo,
+  action = "opened",
+  number = 7,
+  base = "main",
+  head = "feature",
+  fork = false,
+  draft = false,
+  sha = rtSha("c"),
+}) => ({
+  action,
+  number,
+  repository: { id: Number(repo) },
+  installation: { id: Number(inst) },
+  pull_request: {
+    number,
+    draft,
+    merged: false,
+    user: { login: "dev" },
+    base: { ref: base, sha: rtSha("d") },
+    head: {
+      ref: head,
+      sha,
+      ...(fork === "unknown"
+        ? {}
+        : { repo: { id: fork ? Number(repo) + 1 : Number(repo), fork: fork === true } }),
+    },
+  },
+});
+const rtHandler = (db = suiteDb()) =>
+  createPipelineTriggerHandler({
+    db,
+    config: { pipelines: { maxPerRepository: 20 } },
+    logger: quietLog,
+  });
+/** What the consumer does with a message: parse, verify ownership against the database, run the handler. */
+async function rtConsume(envelope, { handler } = {}) {
+  const message = parseMessage(envelope);
+  try {
+    await createOwnershipVerifier({ db: suiteDb() })(message);
+    await (handler ?? rtHandler())(message, { log: quietLog });
+    return { ok: true, reason: null };
+  } catch (error) {
+    return { ok: false, reason: error?.reason ?? null, name: error?.name, error };
+  }
+}
+/** Delivers a signed event, reads the stored message, and (unless `route` is false) routes it. */
+async function rtEvent(kind, opts, { route = true } = {}) {
+  const payload = kind === "push" ? rtPush(opts) : rtPr(opts);
+  const delivery = await deliver({ event: kind, payload });
+  const rows = await rowsFor(delivery.deliveryId);
+  const envelope = rows.outbox[0]?.payload ?? null;
+  const consumed = envelope && route ? await rtConsume(envelope) : null;
+  return { ...delivery, rows, envelope, consumed };
+}
+const rtExecs = (pipelineId, where = {}) =>
+  suiteDb().execution.findMany({
+    where: { pipelineId, ...where },
+    orderBy: { requestedAt: "asc" },
+  });
+const rtDecisions = (pipelineId, where = {}) =>
+  suiteDb().pipelineTriggerDecision.findMany({ where: { pipelineId, ...where } });
+const rtAudits = (pipelineId, tenantId) =>
+  suiteDb().auditLog.findMany({
+    where: { tenantId, targetId: pipelineId, action: { startsWith: "execution." } },
+  });
+const rtMessages = (executionIds) =>
+  suiteDb().outboxMessage.findMany({
+    where: {
+      type: "pipeline.execution.requested",
+      messageId: { in: executionIds.map((id) => `execution-requested-${id}`) },
+    },
+  });
+const rtSetRepo = (id, data) => suiteDb().repository.update({ where: { id }, data });
+const rtActive = { status: "active", enabled: true, disconnectedAt: null, disconnectReason: null };
+const rtUsed = async (tenantId) => {
+  const def = await suiteDb().quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+  const row = await suiteDb().tenantQuotaUsage.findFirst({
+    where: {
+      tenantId,
+      quotaDefinitionId: def.id,
+      periodKey: new Date().toISOString().slice(0, 7),
+    },
+  });
+  return Number(row?.used ?? 0);
+};
+
+const rtWorld = () =>
+  once("rt-world", async () => {
+    const db = suiteDb();
+    const base = 7100000 + (Date.now() % 100000) * 20;
+    const ext = {
+      fan: base + 1,
+      common: base + 2,
+      fork: base + 3,
+      bt: base + 4,
+      st: base + 5,
+      conc: base + 6,
+      lc: base + 7,
+      wk: base + 8,
+      oth: base + 9,
+      q: base + 10,
+    };
+    const mk = async (cookie, repositoryId, label, config, enabled = true) => {
+      const r = await pipCreate(cookie, repositoryId, { name: pipName(label), enabled, config });
+      assert.equal(
+        r.status,
+        201,
+        `fixture: pipeline ${label} answered ${r.status} ${JSON.stringify(r.json?.error)}`,
+      );
+      return r.json.data;
+    };
+    const connectAll = async (cookie, workspaceId, flow, ids) => {
+      const wl = flow.link.json.data.id;
+      await putAllowList(cookie, workspaceId, wl, ids);
+      const out = {};
+      for (const id of ids) {
+        const res = await connectRepo(cookie, workspaceId, wl, id);
+        assert.equal(res.status, 201, `fixture: connect ${id} answered ${res.status}`);
+        out[id] = res.json.data.id;
+      }
+      return out;
+    };
+    const workspace = async (cookie, name) => {
+      const r = await w.api("POST", "/workspaces", {
+        cookie,
+        body: { name: `${name} ${w.suffix}` },
+      });
+      assert.equal(r.status, 201, `fixture: workspace answered ${r.status}`);
+      return r.json.data.id;
+    };
+
+    // tenant R: workspace 1 (most repositories) and workspace 2 (one repository)
+    const R = await w.provisionTenant("rtr");
+    const ws1 = await workspace(R.owner, "Router one");
+    const ws2 = await workspace(R.owner, "Router two");
+    const account = orgAccount("rt");
+    const user = ghUser();
+    const inWs1 = [ext.fan, ext.common, ext.fork, ext.bt, ext.st, ext.conc, ext.lc, ext.wk];
+    const flow1 = await linkFlow(R.owner, {
+      workspaceId: ws1,
+      account,
+      user,
+      orgRole: "admin",
+      repos: [...inWs1, ext.oth].map(stubRepo),
+    });
+    assert.equal(flow1.link?.status, 201, "fixture: link R workspace 1");
+    const flow2 = await linkFlow(R.owner, {
+      workspaceId: ws2,
+      installationId: flow1.installationId,
+      account,
+      user,
+      orgRole: "admin",
+    });
+    assert.equal(flow2.link?.status, 201, "fixture: link R workspace 2");
+    const repoIds = { ...(await connectAll(R.owner, ws1, flow1, inWs1)) };
+    Object.assign(repoIds, await connectAll(R.owner, ws2, flow2, [ext.oth]));
+    R.inst = flow1.installationId;
+
+    // tenant X connects the SAME GitHub repository id (`common`) through its own installation
+    const X = await w.provisionTenant("rtx");
+    const wsX = await workspace(X.owner, "Router X");
+    const flowX = await linkFlow(X.owner, {
+      workspaceId: wsX,
+      account: orgAccount("rtx"),
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [stubRepo(ext.common)],
+    });
+    assert.equal(flowX.link?.status, 201, "fixture: link X");
+    const repoX = (await connectAll(X.owner, wsX, flowX, [ext.common]))[ext.common];
+    X.inst = flowX.installationId;
+
+    // tenant Q: one scan per month
+    const Q = await w.provisionTenant("rtq");
+    const wsQ = await workspace(Q.owner, "Router Q");
+    const flowQ = await linkFlow(Q.owner, {
+      workspaceId: wsQ,
+      account: orgAccount("rtq"),
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [stubRepo(ext.q)],
+    });
+    assert.equal(flowQ.link?.status, 201, "fixture: link Q");
+    const repoQ = (await connectAll(Q.owner, wsQ, flowQ, [ext.q]))[ext.q];
+    Q.inst = flowQ.installationId;
+    const quota = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+    await db.tenantQuota.create({
+      data: { tenantId: Q.id, quotaDefinitionId: quota.id, limitValue: 1n },
+    });
+
+    const own = R.owner;
+    const fan = await Promise.all(
+      ["a", "b", "c"].map((n) => mk(own, repoIds[ext.fan], `fan-${n}`, pipCfg())),
+    );
+    const common = {
+      pa: await mk(own, repoIds[ext.common], "common-a", pipCfg()),
+      pb: await mk(X.owner, repoX, "common-b", pipCfg()),
+    };
+    const fork = {
+      skip: await mk(own, repoIds[ext.fork], "fork-skip", pipCfgFork("skip")),
+      run: await mk(own, repoIds[ext.fork], "fork-run", pipCfgFork("run_without_credentials")),
+    };
+    const bt = await mk(
+      own,
+      repoIds[ext.bt],
+      "rules",
+      pipCfg({
+        triggers: [
+          {
+            key: "push",
+            type: "push",
+            branches: { include: ["main", "release/*"], exclude: ["release/old"] },
+            tags: { enabled: true, include: ["v*"], exclude: ["v0*"] },
+          },
+          { key: "manual", type: "manual" },
+        ],
+      }),
+    );
+    const st = {
+      on: await mk(own, repoIds[ext.st], "state-on", pipCfg()),
+      off: await mk(own, repoIds[ext.st], "state-off", pipCfg(), false),
+      trigOff: await mk(
+        own,
+        repoIds[ext.st],
+        "state-trigger-off",
+        pipCfg({
+          triggers: [
+            { key: "push", type: "push", enabled: false },
+            { key: "manual", type: "manual" },
+          ],
+        }),
+      ),
+      del: await mk(own, repoIds[ext.st], "state-deleted", pipCfg()),
+    };
+    const delRes = await w.api("DELETE", `/pipelines/${st.del.id}`, {
+      cookie: own,
+      body: { confirm: st.del.name },
+    });
+    assert.equal(delRes.status, 200, `fixture: delete answered ${delRes.status}`);
+    const conc = {
+      supersede: await mk(own, repoIds[ext.conc], "conc-supersede", pipCfg()),
+      queue: await mk(
+        own,
+        repoIds[ext.conc],
+        "conc-queue",
+        pipCfg({ execution: { concurrency: { policy: "queue", maxQueued: 1 } } }),
+      ),
+      skip: await mk(
+        own,
+        repoIds[ext.conc],
+        "conc-skip",
+        pipCfg({ execution: { concurrency: { policy: "skip" } } }),
+      ),
+    };
+    const lc = await mk(own, repoIds[ext.lc], "lifecycle", pipCfg());
+    const wk = await mk(own, repoIds[ext.wk], "webhook-states", pipCfg());
+    const oth = await mk(own, repoIds[ext.oth], "workspace-two", pipCfg());
+    const q = await mk(
+      Q.owner,
+      repoQ,
+      "quota",
+      pipCfg({
+        triggers: [
+          { key: "push", type: "push", branches: { include: ["main", "dev", "qa", "ops"] } },
+          { key: "manual", type: "manual" },
+        ],
+      }),
+    );
+    return {
+      ext,
+      R,
+      X,
+      Q,
+      ws1,
+      ws2,
+      repoIds,
+      repoX,
+      repoQ,
+      fan,
+      common,
+      fork,
+      bt,
+      st,
+      conc,
+      lc,
+      wk,
+      oth,
+      q,
+    };
+  });
+const rtId = (x, name) => x.repoIds[x.ext[name]];
+
+{
+  const add = group("Pipeline trigger router: isolation and fan-out");
+  add(
+    "PIP-005",
+    "trigger matching never crosses tenants: the same GitHub repository id connected by two tenants only creates executions for the owning tenant's pipelines, in both directions",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const r1 = await rtEvent("push", { inst: x.R.inst, repo: x.ext.common });
+      if (!r1.consumed?.ok) problems.push(`R's push was not routed: ${r1.consumed?.reason}`);
+      const forA = await rtExecs(x.common.pa.id, { scmDeliveryId: r1.deliveryId });
+      if (forA.length !== 1) problems.push(`the owner's pipeline got ${forA.length} executions`);
+      if (
+        (await db.execution.count({
+          where: { tenantId: x.X.id, scmDeliveryId: r1.deliveryId },
+        })) !== 0 ||
+        (await rtExecs(x.common.pb.id)).length !== 0 ||
+        (await rtDecisions(x.common.pb.id)).length !== 0
+      )
+        problems.push("the other tenant's pipeline was touched by R's event");
+      const r2 = await rtEvent("push", { inst: x.X.inst, repo: x.ext.common, after: rtSha("e") });
+      if (!r2.consumed?.ok) problems.push(`X's push was not routed: ${r2.consumed?.reason}`);
+      const forB = await rtExecs(x.common.pb.id, { scmDeliveryId: r2.deliveryId });
+      if (forB.length !== 1) problems.push(`X's pipeline got ${forB.length} executions`);
+      if (
+        (await db.execution.count({
+          where: { tenantId: x.R.id, scmDeliveryId: r2.deliveryId },
+        })) !== 0
+      )
+        problems.push("R's pipelines were touched by X's event");
+      if ((await rtExecs(x.common.pa.id)).length !== 1)
+        problems.push("R's pipeline has executions it should not have");
+      const messages = await rtMessages([...forA, ...forB].map((e) => e.id));
+      if (
+        messages.length !== 2 ||
+        messages.some(
+          (m) =>
+            m.tenantId !== (m.messageId.endsWith(forA[0]?.id) ? x.R.id : x.X.id) ||
+            m.payload.tenantId !== m.tenantId,
+        )
+      )
+        problems.push("the execution messages do not carry their own tenant");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-006",
+    "trigger matching never crosses workspaces or repositories: an event for one repository creates nothing for the other pipelines of the same tenant, in the same or another workspace",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const others = [...x.fan, x.bt, x.st.on, x.conc.supersede, x.lc, x.wk, x.oth];
+      const snapshot = async () =>
+        JSON.stringify(
+          await Promise.all(
+            others.map(async (p) => [
+              (await rtExecs(p.id)).length,
+              (await rtDecisions(p.id)).length,
+            ]),
+          ),
+        );
+      const before = await snapshot();
+      const pa = (await rtExecs(x.common.pa.id)).length;
+      const r = await rtEvent("push", { inst: x.R.inst, repo: x.ext.common, after: rtSha("f") });
+      if (!r.consumed?.ok) problems.push(`not routed: ${r.consumed?.reason}`);
+      if ((await rtExecs(x.common.pa.id)).length !== pa + 1)
+        problems.push("the repository's own pipeline did not run (control)");
+      if ((await snapshot()) !== before)
+        problems.push("pipelines of other repositories or of the other workspace were touched");
+      const stray = await db.execution.count({
+        where: { scmDeliveryId: r.deliveryId, pipelineId: { not: x.common.pa.id } },
+      });
+      if (stray !== 0) problems.push(`${stray} stray executions for the delivery`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-007",
+    "a forged message (tenantId of one tenant with the repository, or the workspace, of another) is dead-lettered with resource-not-in-tenant by the consumer's ownership check, and the router itself refuses it: no execution in either tenant",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const real = await rtEvent("push", { inst: x.R.inst, repo: x.ext.fan }, { route: false });
+      const env = real.envelope;
+      if (!env) return { status: 200, json: null, problems: ["fixture: no stored message"] };
+      const forged = {
+        tenantOnly: { ...env, tenantId: x.X.id },
+        tenantNoWorkspace: (({ workspaceId: _omitted, ...rest }) => ({
+          ...rest,
+          tenantId: x.X.id,
+        }))(env),
+        repositoryOfX: {
+          ...env,
+          payload: { ...env.payload, repositoryId: x.repoX },
+          subject: { type: "repository", id: x.repoX },
+        },
+        otherWorkspace: { ...env, workspaceId: x.ws2 },
+      };
+      for (const [name, envelope] of Object.entries(forged)) {
+        const viaConsumer = await rtConsume(envelope);
+        if (viaConsumer.ok || viaConsumer.reason !== "resource-not-in-tenant")
+          problems.push(`${name}: the consumer answered ${viaConsumer.reason ?? "accepted"}`);
+        // the handler alone (no ownership verification before it) must refuse as well
+        const alone = await (async () => {
+          try {
+            await rtHandler()(parseMessage(envelope), { log: quietLog });
+            return null;
+          } catch (error) {
+            return error?.reason ?? error?.message;
+          }
+        })();
+        if (alone !== "resource-not-in-tenant" && alone !== "scm-event-missing")
+          problems.push(`${name}: the router alone answered ${alone ?? "accepted"}`);
+        const created = await db.execution.count({ where: { scmDeliveryId: real.deliveryId } });
+        if (created !== 0) {
+          problems.push(`${name}: ${created} executions were created`);
+          break;
+        }
+      }
+      const stray = await db.execution.count({ where: { scmDeliveryId: real.deliveryId } });
+      if (stray !== 0) problems.push(`${stray} executions were created by forged messages`);
+      const control = await rtConsume(env);
+      if (!control.ok)
+        problems.push(`control: the genuine message was refused (${control.reason})`);
+      if ((await db.execution.count({ where: { scmDeliveryId: real.deliveryId } })) !== 3)
+        problems.push("control: the genuine message did not create its executions");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-016",
+    "one event with N matching pipelines creates N executions and N messages (N = 3), exactly one per pipeline on a duplicate delivery, when the consumer handles the same message twice, and after a crash between two pipelines",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const ids = x.fan.map((p) => p.id);
+      const byDelivery = (d) => db.execution.findMany({ where: { scmDeliveryId: d } });
+      const first = await rtEvent("push", { inst: x.R.inst, repo: x.ext.fan, after: rtSha("1") });
+      const rows = await byDelivery(first.deliveryId);
+      if (rows.length !== 3 || new Set(rows.map((r) => r.pipelineId)).size !== 3)
+        problems.push(`${rows.length} executions for 3 matching pipelines`);
+      if (rows.some((r) => r.status !== "queued" || !ids.includes(r.pipelineId)))
+        problems.push("an execution is not a queued request of one of the three pipelines");
+      if ((await rtMessages(rows.map((r) => r.id))).length !== 3)
+        problems.push("not one message per execution");
+      // the same delivery again (GitHub retries) and the same message again (the broker redelivers)
+      const dup = await deliver({
+        event: "push",
+        payload: rtPush({ inst: x.R.inst, repo: x.ext.fan, after: rtSha("1") }),
+        deliveryId: first.deliveryId,
+      });
+      if (dup.status !== 202) problems.push(`the duplicate delivery answered ${dup.status}`);
+      const again = await rtConsume(first.envelope);
+      const third = await rtConsume(first.envelope);
+      if (!again.ok || !third.ok) problems.push("a redelivered message was refused");
+      if (
+        (await byDelivery(first.deliveryId)).length !== 3 ||
+        (await rtMessages(rows.map((r) => r.id))).length !== 3 ||
+        (await db.outboxMessage.count({
+          where: { messageId: `scm-github-${first.deliveryId}` },
+        })) !== 1
+      )
+        problems.push("a duplicate created a second execution or message");
+      // a crash in the middle: the second pipeline's transaction fails
+      const crashing = (() => {
+        let calls = 0;
+        return new Proxy(db, {
+          get(target, prop) {
+            const value = target[prop];
+            if (prop === "$transaction")
+              return (fn, options) => {
+                calls += 1;
+                if (calls === 2) throw new Error("simulated crash");
+                return target.$transaction(fn, options);
+              };
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      })();
+      const second = await rtEvent(
+        "push",
+        { inst: x.R.inst, repo: x.ext.fan, after: rtSha("2") },
+        { route: false },
+      );
+      const crashed = await rtConsume(second.envelope, { handler: rtHandler(crashing) });
+      if (crashed.ok || crashed.name !== "TransientError")
+        problems.push(`the crash was not a transient failure (${crashed.name})`);
+      const partial = (await byDelivery(second.deliveryId)).length;
+      if (partial !== 2) problems.push(`${partial} executions after the crash, expected 2`);
+      const retried = await rtConsume(second.envelope);
+      if (!retried.ok) problems.push(`the retry failed (${retried.reason})`);
+      const final = await byDelivery(second.deliveryId);
+      if (final.length !== 3 || new Set(final.map((r) => r.pipelineId)).size !== 3)
+        problems.push(`${final.length} executions after the retry, one per pipeline expected`);
+      if ((await rtMessages(final.map((r) => r.id))).length !== 3)
+        problems.push("the retry did not leave exactly one message per execution");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipeline trigger router: fork rule, branch and tag rules, decisions");
+  const forkEvent = (x, opts) =>
+    rtEvent("pull_request", { inst: x.R.inst, repo: x.ext.fork, ...opts });
+  add(
+    "PIP-008",
+    "fork rule: with the default policy a fork pull request, and one whose head repository is unknown, create no execution and leave a fork_policy_skip decision row; a same-repository pull request runs; run_without_credentials creates an untrusted_fork execution; a draft is skipped by the draft policy",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const outcome = async (opts) => {
+        const r = await forkEvent(x, opts);
+        return {
+          r,
+          skip: await rtExecs(x.fork.skip.id, { scmDeliveryId: r.deliveryId }),
+          run: await rtExecs(x.fork.run.id, { scmDeliveryId: r.deliveryId }),
+          skipDec: await rtDecisions(x.fork.skip.id, { scmDeliveryId: r.deliveryId }),
+          runDec: await rtDecisions(x.fork.run.id, { scmDeliveryId: r.deliveryId }),
+        };
+      };
+      for (const [label, opts] of [
+        ["a fork", { fork: true, number: 11 }],
+        ["an unknown head repository", { fork: "unknown", number: 12 }],
+      ]) {
+        const o = await outcome(opts);
+        if (!o.r.consumed?.ok) problems.push(`${label}: not routed (${o.r.consumed?.reason})`);
+        if (o.skip.length !== 0) problems.push(`${label}: the default policy created an execution`);
+        if (o.skipDec.length !== 1 || o.skipDec[0].reason !== "fork_policy_skip")
+          problems.push(`${label}: no fork_policy_skip decision row`);
+        if (o.run.length !== 1 || o.run[0].trust !== "untrusted_fork" || o.runDec.length !== 0)
+          problems.push(`${label}: run_without_credentials did not create one untrusted_fork run`);
+      }
+      const same = await outcome({ fork: false, number: 13 });
+      if (same.skip.length !== 1 || same.skip[0].trust !== "trusted" || same.skipDec.length !== 0)
+        problems.push("a same-repository pull request did not run (control)");
+      if (same.run.length !== 1 || same.run[0].trust !== "trusted")
+        problems.push("a same-repository pull request did not run trusted under the fork policy");
+      const draft = await outcome({ fork: false, draft: true, number: 14 });
+      if (draft.skip.length || draft.run.length)
+        problems.push("a draft pull request ran under the default draft policy");
+      if (
+        draft.skipDec[0]?.reason !== "draft_policy_skip" ||
+        draft.runDec[0]?.reason !== "draft_policy_skip"
+      )
+        problems.push("a skipped draft left no draft_policy_skip decision row");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-035",
+    "a run_without_credentials execution carries trust untrusted_fork in its row and in its request message, whose payload holds only the allowed ids, enums and short strings (no token, credential or free text)",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const r = await forkEvent(x, { fork: true, number: 21, sha: rtSha("9") });
+      const rows = await rtExecs(x.fork.run.id, { scmDeliveryId: r.deliveryId });
+      if (rows.length !== 1 || rows[0].trust !== "untrusted_fork")
+        return { status: 200, json: null, problems: ["fixture: no untrusted_fork execution"] };
+      const [message] = await rtMessages([rows[0].id]);
+      const allowed = new Set([
+        "executionId",
+        "pipelineId",
+        "repositoryId",
+        "workspaceId",
+        "configVersion",
+        "configHash",
+        "triggerType",
+        "triggerKey",
+        "refType",
+        "refName",
+        "commitSha",
+        "pullRequestNumber",
+        "scanKind",
+        "scanKindReason",
+        "trust",
+      ]);
+      if (!message) problems.push("no request message");
+      else {
+        const extra = Object.keys(message.payload.payload).filter((k) => !allowed.has(k));
+        if (extra.length) problems.push(`unexpected payload fields ${extra}`);
+        if (message.payload.payload.trust !== "untrusted_fork")
+          problems.push("the message does not carry the trust marker");
+        if (
+          message.payload.payload.pullRequestNumber !== 21 ||
+          message.payload.payload.refType !== "pull_request"
+        )
+          problems.push("the message lacks the pull request context");
+        const text = JSON.stringify(message.payload);
+        if (TOKEN_MATERIAL.test(text) || /token|secret|password|credential/i.test(text))
+          problems.push("credential-like content in the message");
+        if (text.includes("authorLogin") || text.includes('"dev"'))
+          problems.push("an author or commit text reached the message");
+        if (
+          message.payload.initiator?.type !== "scm" ||
+          message.payload.causationId !== r.envelope.messageId
+        )
+          problems.push("the message does not name its cause");
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-036",
+    "branch include/exclude and tag rules: matching branches and tags create one execution (full for a created branch, a force push and a tag), excluded or unlisted branches, excluded tags and deleted refs create nothing and leave no decision row and no audit entry",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const run = async (label, opts, expected) => {
+        const r = await rtEvent("push", { inst: x.R.inst, repo: x.ext.bt, ...opts });
+        const rows = await rtExecs(x.bt.id, { scmDeliveryId: r.deliveryId });
+        if (!r.consumed?.ok) problems.push(`${label}: not routed (${r.consumed?.reason})`);
+        if (!expected) {
+          if (rows.length) problems.push(`${label}: created an execution`);
+        } else if (rows.length !== 1) problems.push(`${label}: ${rows.length} executions`);
+        else if (expected !== true) {
+          const [kind, reason] = expected;
+          if (rows[0].scanKind !== kind || rows[0].scanKindReason !== reason)
+            problems.push(`${label}: ${rows[0].scanKind}/${rows[0].scanKindReason}`);
+        }
+        return r;
+      };
+      const decisionsBefore = (await rtDecisions(x.bt.id)).length;
+      await run("main", { branch: "main", after: rtSha("1") }, true);
+      await run("release/1.0", { branch: "release/1.0", after: rtSha("2") }, true);
+      await run("a created branch", { branch: "main", after: rtSha("3"), created: true }, [
+        "full",
+        "branch_created",
+      ]);
+      await run("a force push", { branch: "main", after: rtSha("4"), forced: true }, [
+        "full",
+        "force_push",
+      ]);
+      await run("tag v1.0", { tag: "v1.0", after: rtSha("5") }, ["full", "tag"]);
+      const stateAfterMatches = {
+        decisions: (await rtDecisions(x.bt.id)).length,
+        audits: (await rtAudits(x.bt.id, x.R.id)).length,
+      };
+      await run("an excluded branch", { branch: "release/old", after: rtSha("6") }, false);
+      await run("an unlisted branch", { branch: "feature/x", after: rtSha("7") }, false);
+      await run("an excluded tag", { tag: "v0.9", after: rtSha("8") }, false);
+      await run("an unlisted tag", { tag: "nightly", after: rtSha("9") }, false);
+      await run(
+        "a deleted branch",
+        { branch: "main", after: "0".repeat(40), deleted: true },
+        false,
+      );
+      const decisionsAfter = (await rtDecisions(x.bt.id)).length;
+      if (decisionsBefore !== 0 || decisionsAfter !== stateAfterMatches.decisions)
+        problems.push("a non-matching event left a decision row");
+      const auditsAfter = (await rtAudits(x.bt.id, x.R.id)).length;
+      if (auditsAfter !== stateAfterMatches.audits)
+        problems.push("a non-matching event left an audit entry");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-038",
+    "decision recording: a policy skip leaves exactly one decision row per pipeline and delivery (a redelivered message adds none), no execution, no quota and no audit entry; a pull request to a branch no trigger targets leaves no row at all",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const usedBefore = await rtUsed(x.R.id);
+      const auditsBefore = (await rtAudits(x.fork.skip.id, x.R.id)).length;
+      const r = await forkEvent(x, { fork: true, number: 31 });
+      await rtConsume(r.envelope);
+      await rtConsume(r.envelope);
+      const dec = await rtDecisions(x.fork.skip.id, { scmDeliveryId: r.deliveryId });
+      if (dec.length !== 1)
+        problems.push(`${dec.length} decision rows for one pipeline and delivery`);
+      else if (
+        dec[0].decision !== "skipped_by_policy" ||
+        dec[0].triggerKey !== "pr" ||
+        dec[0].refName !== "pull/31" ||
+        dec[0].pullRequestNumber !== 31
+      )
+        problems.push("the decision row does not describe the event");
+      if ((await rtExecs(x.fork.skip.id, { scmDeliveryId: r.deliveryId })).length !== 0)
+        problems.push("a policy skip created an execution");
+      if ((await rtAudits(x.fork.skip.id, x.R.id)).length !== auditsBefore)
+        problems.push("a policy skip was audited");
+      // the run_without_credentials pipeline ran once (one unit); the skipping one used nothing
+      if ((await rtUsed(x.R.id)) !== usedBefore + 1)
+        problems.push("the quota use is not exactly one unit");
+      const nonMatch = await forkEvent(x, { fork: true, base: "feature/none", number: 32 });
+      const rows = await Promise.all(
+        [x.fork.skip, x.fork.run].map(async (p) => [
+          (await rtDecisions(p.id, { scmDeliveryId: nonMatch.deliveryId })).length,
+          (await rtExecs(p.id, { scmDeliveryId: nonMatch.deliveryId })).length,
+        ]),
+      );
+      if (
+        JSON.stringify(rows) !==
+        JSON.stringify([
+          [0, 0],
+          [0, 0],
+        ])
+      )
+        problems.push("a non-matching target branch left rows");
+      const stored = await suiteDb().pipelineTriggerDecision.findFirst({
+        where: { scmDeliveryId: r.deliveryId },
+      });
+      if (stored && Object.values(stored).some((v) => v === "dev" || String(v).includes("@")))
+        problems.push("an author or title reached the decision row");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipeline trigger router: state, lifecycle and the SCM producer");
+  add(
+    "PIP-015",
+    "disconnected, unavailable and disabled repositories, disabled and deleted pipelines and disabled triggers create no execution for a valid event; the policy-skip cases leave a decision row with the right reason and a non-matching branch leaves none",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const repoId = rtId(x, "st");
+      const all = [x.st.on, x.st.off, x.st.trigOff, x.st.del];
+      const counts = async (d) =>
+        Object.fromEntries(
+          await Promise.all(
+            all.map(async (p) => [
+              p.name,
+              {
+                execs: (await rtExecs(p.id, { scmDeliveryId: d })).length,
+                decisions: (await rtDecisions(p.id, { scmDeliveryId: d })).map((r) => r.reason),
+              },
+            ]),
+          ),
+        );
+      const control = await rtEvent("push", { inst: x.R.inst, repo: x.ext.st, after: rtSha("1") });
+      const c = await counts(control.deliveryId);
+      if (c[x.st.on.name].execs !== 1) problems.push("control: the active pipeline did not run");
+      if (c[x.st.off.name].decisions[0] !== "pipeline_disabled" || c[x.st.off.name].execs)
+        problems.push("a disabled pipeline did not leave pipeline_disabled");
+      if (c[x.st.trigOff.name].decisions[0] !== "trigger_disabled" || c[x.st.trigOff.name].execs)
+        problems.push("a disabled trigger did not leave trigger_disabled");
+      if (c[x.st.del.name].execs || c[x.st.del.name].decisions.length)
+        problems.push("a deleted pipeline was evaluated");
+      const states = [
+        [
+          "disconnected",
+          { status: "disconnected", disconnectedAt: new Date(), disconnectReason: "suite" },
+          "repository_inactive",
+        ],
+        ["unavailable", { status: "unavailable" }, "repository_inactive"],
+        ["disabled", { enabled: false }, "repository_disabled"],
+      ];
+      try {
+        for (const [label, patch, reason] of states) {
+          // published while the repository was usable, consumed after its state changed
+          const e = await rtEvent(
+            "push",
+            {
+              inst: x.R.inst,
+              repo: x.ext.st,
+              after: rtSha(label === "disabled" ? "4" : label === "unavailable" ? "3" : "2"),
+            },
+            { route: false },
+          );
+          await rtSetRepo(repoId, patch);
+          const consumed = await rtConsume(e.envelope);
+          const n = await counts(e.deliveryId);
+          if (!consumed.ok) problems.push(`${label}: the message was refused (${consumed.reason})`);
+          if (all.some((p) => n[p.name].execs)) problems.push(`${label}: an execution was created`);
+          if (
+            n[x.st.on.name].decisions[0] !== reason ||
+            n[x.st.trigOff.name].decisions[0] !== reason
+          )
+            problems.push(`${label}: decision rows ${JSON.stringify(n[x.st.on.name].decisions)}`);
+          if (n[x.st.off.name].decisions[0] !== "pipeline_disabled")
+            problems.push(`${label}: the disabled pipeline's reason changed`);
+          await rtSetRepo(repoId, rtActive);
+        }
+      } finally {
+        await rtSetRepo(repoId, rtActive);
+      }
+      const noMatch = await rtEvent("push", {
+        inst: x.R.inst,
+        repo: x.ext.st,
+        branch: "feature/y",
+        after: rtSha("5"),
+      });
+      const nm = await counts(noMatch.deliveryId);
+      if (all.some((p) => nm[p.name].execs || nm[p.name].decisions.length))
+        problems.push("a non-matching branch left rows");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-017",
+    "suspended and deactivated tenants and an archived workspace create nothing (the consumer dead-letters the message with tenant-not-usable; an archived workspace leaves a workspace_archived decision row); another tenant is unaffected and the legitimate path works once the state is restored",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const e = await rtEvent(
+        "push",
+        { inst: x.R.inst, repo: x.ext.lc, after: rtSha("1") },
+        { route: false },
+      );
+      const execs = () => rtExecs(x.lc.id, { scmDeliveryId: e.deliveryId });
+      try {
+        for (const status of ["suspended", "deactivated"]) {
+          await db.tenant.update({ where: { id: x.R.id }, data: { status } });
+          const refused = await rtConsume(e.envelope);
+          if (refused.ok || refused.reason !== "tenant-not-usable")
+            problems.push(`${status}: the consumer answered ${refused.reason ?? "accepted"}`);
+          // the router alone refuses too
+          const alone = await (async () => {
+            try {
+              await rtHandler()(parseMessage(e.envelope), { log: quietLog });
+              return null;
+            } catch (error) {
+              return error?.reason;
+            }
+          })();
+          if (alone !== "tenant-not-usable")
+            problems.push(`${status}: the router alone answered ${alone ?? "accepted"}`);
+          if ((await execs()).length) problems.push(`${status}: an execution was created`);
+          if ((await rtDecisions(x.lc.id, { scmDeliveryId: e.deliveryId })).length)
+            problems.push(`${status}: a decision row was written`);
+          // another tenant keeps working
+          const other = await rtEvent("push", {
+            inst: x.X.inst,
+            repo: x.ext.common,
+            after: rtSha(status === "suspended" ? "7" : "8"),
+          });
+          if ((await rtExecs(x.common.pb.id, { scmDeliveryId: other.deliveryId })).length !== 1)
+            problems.push(`${status}: another tenant's event was not routed`);
+        }
+      } finally {
+        await db.tenant.update({ where: { id: x.R.id }, data: { status: "active" } });
+      }
+      try {
+        await db.workspace.update({ where: { id: x.ws1 }, data: { status: "archived" } });
+        const archived = await rtConsume(e.envelope);
+        if (!archived.ok) problems.push(`archived: the message was refused (${archived.reason})`);
+        if ((await execs()).length) problems.push("archived: an execution was created");
+        const dec = await rtDecisions(x.lc.id, { scmDeliveryId: e.deliveryId });
+        if (dec.length !== 1 || dec[0].reason !== "workspace_archived")
+          problems.push("archived: no workspace_archived decision row");
+      } finally {
+        await db.workspace.update({ where: { id: x.ws1 }, data: { status: "active" } });
+      }
+      const control = await rtConsume(e.envelope);
+      if (!control.ok || (await execs()).length !== 1)
+        problems.push("control: the restored workspace did not create its execution");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-028",
+    "SCM producer: a signed push and pull-request webhook for a disconnected, unavailable or disabled repository publish no scm.push.received / scm.pull_request.received (delivery ignored, no event row, no outbox row); an active enabled repository publishes both; a repository event for an unavailable repository is still published",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const repoId = rtId(x, "wk");
+      const send = async (kind) => {
+        const d = await rtEvent(
+          kind,
+          { inst: x.R.inst, repo: x.ext.wk, number: 41 },
+          { route: false },
+        );
+        return d;
+      };
+      const published = (d) => d.rows.outbox.length === 1 && d.rows.events.length === 1;
+      const ignored = (d) =>
+        d.status === 202 &&
+        d.rows.delivery?.outcome === "ignored" &&
+        d.rows.events.length === 0 &&
+        d.rows.outbox.length === 0;
+      for (const kind of ["push", "pull_request"]) {
+        const control = await send(kind);
+        if (!published(control) || control.rows.delivery?.outcome !== "accepted")
+          problems.push(`control: an active repository did not publish ${kind}`);
+      }
+      const states = [
+        [
+          "disconnected",
+          { status: "disconnected", disconnectedAt: new Date(), disconnectReason: "suite" },
+        ],
+        ["unavailable", { status: "unavailable" }],
+        ["disabled", { enabled: false }],
+      ];
+      try {
+        for (const [label, patch] of states) {
+          await rtSetRepo(repoId, patch);
+          for (const kind of ["push", "pull_request"]) {
+            const d = await send(kind);
+            if (!ignored(d)) problems.push(`${label}: ${kind} was published or not ignored`);
+          }
+          if (label === "unavailable") {
+            const repoEvent = await deliver({
+              event: "repository",
+              payload: {
+                action: "edited",
+                repository: { id: Number(x.ext.wk), full_name: `org/repo${x.ext.wk}` },
+                installation: { id: Number(x.R.inst) },
+              },
+            });
+            const rows = await rowsFor(repoEvent.deliveryId);
+            if (rows.outbox.length !== 1 || rows.outbox[0].type !== "scm.repository.changed")
+              problems.push("a repository event for an unavailable repository was not published");
+          }
+          await rtSetRepo(repoId, rtActive);
+        }
+      } finally {
+        await rtSetRepo(repoId, rtActive);
+      }
+      // a forged / stale message for an inactive repository still creates nothing (the consumer re-checks)
+      const e = await send("push");
+      await rtSetRepo(repoId, { status: "unavailable" });
+      const consumed = await rtConsume(e.envelope);
+      await rtSetRepo(repoId, rtActive);
+      if (
+        !consumed.ok ||
+        (await db.execution.count({ where: { scmDeliveryId: e.deliveryId } })) !== 0
+      )
+        problems.push("the consumer created a request for an unavailable repository");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipeline trigger router: quota and concurrency");
+  add(
+    "PIP-037",
+    "quota exhaustion: an unattended trigger creates a blocked row (quota_exceeded, then entitlement_required) with no message and no unit consumed, one audit entry per pipeline, reason and day, and another tenant's events still run",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const run = (branch, n) =>
+        rtEvent("push", { inst: x.Q.inst, repo: x.ext.q, branch, after: rtSha(n) });
+      const first = await run("main", "1");
+      const ok = await rtExecs(x.q.id, { scmDeliveryId: first.deliveryId });
+      if (ok.length !== 1 || ok[0].status !== "queued" || ok[0].quotaConsumed !== 1)
+        problems.push("control: the first run inside the limit was not queued with one unit");
+      const used = await rtUsed(x.Q.id);
+      if (used !== 1) problems.push(`the quota use is ${used}, expected 1`);
+      const a = await run("dev", "2");
+      const b = await run("qa", "3");
+      for (const [label, r] of [
+        ["dev", a],
+        ["qa", b],
+      ]) {
+        const rows = await rtExecs(x.q.id, { scmDeliveryId: r.deliveryId });
+        if (
+          rows.length !== 1 ||
+          rows[0].status !== "blocked" ||
+          rows[0].statusReason !== "quota_exceeded" ||
+          rows[0].quotaConsumed !== 0
+        )
+          problems.push(`${label}: not a blocked quota_exceeded row`);
+        if (rows[0] && (await rtMessages([rows[0].id])).length)
+          problems.push(`${label}: a blocked request enqueued a message`);
+      }
+      if ((await rtUsed(x.Q.id)) !== used) problems.push("a blocked request consumed quota");
+      let audits = (await rtAudits(x.q.id, x.Q.id)).filter((e) => e.action === "execution.blocked");
+      if (audits.length !== 1 || audits[0].metadata?.reason !== "quota_exceeded")
+        problems.push(`${audits.length} blocked audit entries for two blocks on one day`);
+      // the redelivered message adds nothing
+      await rtConsume(a.envelope);
+      if ((await rtExecs(x.q.id, { scmDeliveryId: a.deliveryId })).length !== 1)
+        problems.push("a redelivered blocked message created a second row");
+      // entitlement removed: a different reason, audited once more
+      const entitlement = await db.entitlementCatalog.findUnique({
+        where: { key: "scans.monthly" },
+      });
+      await db.tenantEntitlement.create({
+        data: {
+          tenantId: x.Q.id,
+          entitlementId: entitlement.id,
+          enabled: false,
+          limitValue: null,
+          source: "security-suite",
+        },
+      });
+      const c = await run("ops", "4");
+      const rowsC = await rtExecs(x.q.id, { scmDeliveryId: c.deliveryId });
+      if (
+        rowsC.length !== 1 ||
+        rowsC[0].status !== "blocked" ||
+        rowsC[0].statusReason !== "entitlement_required"
+      )
+        problems.push("a disabled entitlement did not block with entitlement_required");
+      audits = (await rtAudits(x.q.id, x.Q.id)).filter((e) => e.action === "execution.blocked");
+      if (audits.length !== 2) problems.push(`${audits.length} blocked audit entries, expected 2`);
+      if (audits.some((e) => /token|secret|password/i.test(JSON.stringify(e.metadata))))
+        problems.push("secret-like content in a blocked audit entry");
+      // another tenant is unaffected
+      const other = await rtEvent("push", {
+        inst: x.X.inst,
+        repo: x.ext.common,
+        after: rtSha("a"),
+      });
+      if ((await rtExecs(x.common.pb.id, { scmDeliveryId: other.deliveryId })).length !== 1)
+        problems.push("another tenant's event was blocked by this tenant's quota");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-039",
+    "concurrency policies on the same ref: supersede cancels the older queued request (reason superseded, unit released, audited), queue stops at maxQueued (queue_full), skip refuses while one is queued (concurrency_skip); an event that arrives late is recorded stale_event and never cancels the newer request; skipped requests consume no quota",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const push = (before, after) =>
+        rtEvent("push", {
+          inst: x.R.inst,
+          repo: x.ext.conc,
+          before: rtSha(before),
+          after: rtSha(after),
+        });
+      const status = async (p) =>
+        (await rtExecs(p.id)).map((e) => `${e.status}:${e.statusReason ?? ""}`);
+      const used0 = await rtUsed(x.R.id);
+      await push("0", "1");
+      if ((await rtUsed(x.R.id)) !== used0 + 3)
+        problems.push("three first requests did not use three units");
+      await push("1", "2");
+      const sup = await status(x.conc.supersede);
+      if (JSON.stringify(sup) !== JSON.stringify(["cancelled:superseded", "queued:"]))
+        problems.push(`supersede: ${sup}`);
+      const que = await status(x.conc.queue);
+      if (JSON.stringify(que) !== JSON.stringify(["queued:", "skipped:queue_full"]))
+        problems.push(`queue: ${que}`);
+      const skp = await status(x.conc.skip);
+      if (JSON.stringify(skp) !== JSON.stringify(["queued:", "skipped:concurrency_skip"]))
+        problems.push(`skip: ${skp}`);
+      if ((await rtUsed(x.R.id)) !== used0 + 3)
+        problems.push("supersede and skips changed the net quota use");
+      const audits = (await rtAudits(x.conc.supersede.id, x.R.id)).map((e) => e.action).sort();
+      if (JSON.stringify(audits) !== JSON.stringify(["execution.cancelled_superseded"]))
+        problems.push(`supersede audit ${audits}`);
+      const skipAudit = (await rtAudits(x.conc.skip.id, x.R.id)).map((e) => e.action);
+      if (JSON.stringify(skipAudit) !== JSON.stringify(["execution.skipped"]))
+        problems.push(`skip audit ${skipAudit}`);
+      // a late event: its commit ("1") is the base of the newer request ("1" -> "2")
+      await push("0", "1");
+      const late = await rtExecs(x.conc.supersede.id);
+      if (
+        late.length !== 3 ||
+        late[2].status !== "skipped" ||
+        late[2].statusReason !== "stale_event"
+      )
+        problems.push("a late event was not recorded as stale_event");
+      if (late[1].status !== "queued") problems.push("a stale event cancelled the newer request");
+      if ((await rtUsed(x.R.id)) !== used0 + 3) problems.push("a stale event consumed quota");
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

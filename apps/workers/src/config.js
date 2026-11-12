@@ -20,6 +20,8 @@ const envSchema = z.object({
   SCHEDULER_SESSION_RETENTION_SECONDS: z.coerce.number().int().min(0).default(86400),
   // Pause between webhook redeliveries requested by the reconciler (GitHub asks for spacing between mutating requests).
   SCM_REDELIVER_PAUSE_MS: z.coerce.number().int().min(0).max(60000).default(1000),
+  // Pipeline trigger router: bounds the fan-out of one event (same name and default as the API, SPEC pipelines-triggers R-7).
+  PIPELINES_MAX_PER_REPOSITORY: z.coerce.number().int().min(1).max(200).default(20),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -96,6 +98,7 @@ export function loadWorkerConfig(env = process.env) {
       sessionPurgeIntervalSeconds: e.SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS,
       sessionRetentionSeconds: e.SCHEDULER_SESSION_RETENTION_SECONDS,
     }),
+    pipelines: Object.freeze({ maxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY }),
     outbox: Object.freeze({
       batchSize: e.OUTBOX_BATCH_SIZE,
       pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS,

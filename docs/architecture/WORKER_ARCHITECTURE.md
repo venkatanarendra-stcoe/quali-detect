@@ -37,6 +37,18 @@ The **outbox relay** (`apps/workers`, `start:outbox`) claims due rows with `SELE
 
 The scheduler worker consumes the `scheduler` queue and, while running, enqueues `maintenance.sessions.purge_requested` through the outbox every `SCHEDULER_SESSION_PURGE_INTERVAL_SECONDS` (default 1 h, also at startup). The messageId is derived from the time bucket and the outbox is unique per (messageId, queue), so several scheduler instances produce one job. The handler deletes tenant and platform sessions that expired, or were revoked, more than `SCHEDULER_SESSION_RETENTION_SECONDS` (default 24 h) ago; it is naturally idempotent because platform-level messages (catalog scope `platform`) carry no tenant to key an idempotency claim on.
 
+## Queues and bindings
+
+Each queue has the derived topology above (`qmentis.<q>`, `qmentis.<q>.retry.<n>`, `qmentis.<q>.dlq`). Queues fed from the SCM topic exchange `qmentis.scm.events` (the webhook transaction writes ONE outbox row; RabbitMQ copies it to every bound queue) add bindings that the consumer declares on start:
+
+| Queue | Worker | Bindings on `qmentis.scm.events` | Handler |
+|---|---|---|---|
+| `scm`, `analysis`, `scan`, `notification`, `usage`, `scheduler`, `pipeline` | their worker | none (direct queue) | as built; `pipeline` is a no-op until the execution module |
+| `scm-events` | `scm` (additional consumer) | `scm.github.#` | repository and installation state (push and pull-request events are acknowledged) |
+| `pipeline-triggers` | `pipeline` (additional consumer) | `scm.github.push`, `scm.github.pull_request` | the trigger router (`apps/workers/src/pipeline/router.js`, docs/modules/pipelines-triggers/SPEC.md §6.2): ownership-verified, one transaction per matching pipeline, idempotent by `(scm event, pipeline)` |
+
+The `pipeline` worker needs `DATABASE_URL` (ownership verification and the router); a queue only receives events published after its binding exists.
+
 ## Consumer pipeline
 
 Per message: parse and validate (`invalid-envelope`, `unknown-type`, `invalid-payload`, `unsupported-version` go straight to the dead-letter queue) -> require `tenantId` -> **ownership verification** -> **idempotency claim** -> handler -> acknowledge.

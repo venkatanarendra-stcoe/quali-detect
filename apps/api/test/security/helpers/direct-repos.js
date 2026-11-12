@@ -20,6 +20,7 @@ import { pipelineScope } from "../../../src/authz/scopes.js";
 import { createRepositoryRepository } from "../../../src/modules/repositories/repositories/index.js";
 import { createRoleAssignmentRepository } from "../../../src/modules/role-assignments/repositories/index.js";
 import { createRoleRepository } from "../../../src/modules/roles/repositories/index.js";
+import { createRouterRepository } from "../../../../workers/src/pipeline/repository.js";
 import { createWebhookRepository } from "../../../src/modules/scm-webhooks/repositories/index.js";
 import { createUserRepository } from "../../../src/modules/users/repositories/index.js";
 import { createWorkspaceMemberRepository } from "../../../src/modules/workspace-members/repositories/index.js";
@@ -362,6 +363,45 @@ export async function buildDalWorld(db) {
     ...extra,
   });
   const plExecution = await db.execution.create({ data: executionData() });
+  // the trigger router's fixtures (part D): a queued push request with its SCM origin and an audited quota block
+  const plPushEvent = await db.scmEvent.create({
+    data: {
+      tenantId: X.id,
+      repositoryId: repo.id,
+      deliveryId: `dal-router-${rand(4)}`,
+      kind: "push",
+      normalized: {},
+    },
+  });
+  const plPushExecution = await db.execution.create({
+    data: executionData({
+      triggerType: "push",
+      triggerKey: "push",
+      requestedByUserId: null,
+      scmEventId: plPushEvent.id,
+      scmDeliveryId: plPushEvent.deliveryId,
+      scmEventKind: "push",
+      refType: "branch",
+      refName: "main",
+      commitSha: "b".repeat(40),
+      baseSha: "a".repeat(40),
+      scanKindReason: "incremental",
+      scanKind: "incremental",
+      concurrencyGroup: "ref:refs/heads/main",
+      idempotencyKey: `scm:${plPushEvent.deliveryId}:push`,
+    }),
+  });
+  await db.auditLog.create({
+    data: {
+      tenantId: X.id,
+      actorType: "system",
+      action: "execution.blocked",
+      targetType: "pipeline",
+      targetId: pl.id,
+      workspaceId: ws.id,
+      metadata: { reason: "quota_exceeded" },
+    },
+  });
   const plRunning = await db.execution.create({
     data: executionData({ status: "running", concurrencyGroup: "manual:running" }),
   });
@@ -390,6 +430,8 @@ export async function buildDalWorld(db) {
     executionId: plExecution.id,
     runningId: plRunning.id,
     decisionId: plDecision.id,
+    pushEvent: plPushEvent,
+    pushExecution: plPushExecution,
     executionData,
   };
 
@@ -541,6 +583,7 @@ export async function buildDalWorld(db) {
     }),
     repositories: createRepositoryRepository({ db }),
     pipelines: createPipelineRepository({ db }),
+    router: createRouterRepository({ db }),
     pipelineCounts: createPipelineCounts({ db }),
     roleAssignments: createRoleAssignmentRepository({ db }),
     roles: createRoleRepository({ db }),
@@ -2575,6 +2618,210 @@ export function buildDalEntries() {
     scanKindReason: "manual",
     trust: "trusted",
   }));
+
+  // ----- the pipeline trigger router's data access (apps/workers/src/pipeline/repository.js, part D). `lockPipeline` reads and
+  // changes no row (a transaction-scoped advisory lock keyed by tenant and pipeline), so it has no entry.
+  const RT = (c) => c.repos.router;
+  E(
+    "router.findRepositoryState",
+    (c) => RT(c).findRepositoryState({ tenantId: c.y, id: c.repo.id }),
+    {
+      control: (c) => RT(c).findRepositoryState({ tenantId: c.x, id: c.repo.id }),
+    },
+  );
+  E(
+    "router.findScmEvent",
+    (c) =>
+      RT(c).findScmEvent({ tenantId: c.y, deliveryId: c.pl.pushEvent.deliveryId, kind: "push" }),
+    {
+      control: (c) =>
+        RT(c).findScmEvent({ tenantId: c.x, deliveryId: c.pl.pushEvent.deliveryId, kind: "push" }),
+    },
+  );
+  E(
+    "router.listRoutingPipelines",
+    async (c) => [
+      await RT(c).listRoutingPipelines({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+        limit: 20,
+      }),
+      await RT(c).listRoutingPipelines({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+        limit: 20,
+      }),
+    ],
+    {
+      control: (c) =>
+        RT(c).listRoutingPipelines({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          limit: 20,
+        }),
+    },
+  );
+  E(
+    "router.findExecutionByScmEvent",
+    (c) =>
+      RT(c).findExecutionByScmEvent({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        scmEventId: c.pl.pushEvent.id,
+      }),
+    {
+      control: (c) =>
+        RT(c).findExecutionByScmEvent({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          scmEventId: c.pl.pushEvent.id,
+        }),
+    },
+  );
+  E(
+    "router.findLatestExecution",
+    (c) => RT(c).findLatestExecution({ tenantId: c.y, pipelineId: pipe(c).id }),
+    {
+      control: (c) => RT(c).findLatestExecution({ tenantId: c.x, pipelineId: pipe(c).id }),
+    },
+  );
+  E(
+    "router.countExecutions",
+    async (c) => [
+      await RT(c).countExecutions({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        statuses: ["queued", "running"],
+      }),
+      await RT(c).countExecutions({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        statuses: ["queued"],
+        concurrencyGroup: "ref:refs/heads/main",
+      }),
+    ],
+    {
+      control: (c) =>
+        RT(c).countExecutions({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          statuses: ["queued"],
+          concurrencyGroup: "ref:refs/heads/main",
+        }),
+    },
+  );
+  E(
+    "router.findNewerInGroup",
+    (c) =>
+      RT(c).findNewerInGroup({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        concurrencyGroup: "ref:refs/heads/main",
+        baseSha: "a".repeat(40),
+      }),
+    {
+      control: (c) =>
+        RT(c).findNewerInGroup({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          concurrencyGroup: "ref:refs/heads/main",
+          baseSha: "a".repeat(40),
+        }),
+    },
+  );
+  E(
+    "router.cancelQueued",
+    async (c) => [
+      await RT(c).cancelQueued({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        concurrencyGroup: "ref:refs/heads/main",
+        reason: "superseded",
+      }),
+      await RT(c).cancelQueued({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        concurrencyGroup: "manual:main",
+        reason: "superseded",
+      }),
+    ],
+    {
+      control: async (c) => {
+        const row = await c.db.execution.create({
+          data: c.pl.executionData({ concurrencyGroup: "scratch-router-cancel" }),
+        });
+        const cancelled = await RT(c).cancelQueued({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          concurrencyGroup: "scratch-router-cancel",
+          reason: "superseded",
+        });
+        await c.db.execution.delete({ where: { id: row.id } });
+        return cancelled;
+      },
+    },
+  );
+  E("router.createExecution", (c) => RT(c).createExecution(c.pl.executionData({ tenantId: c.y })), {
+    mayThrow: true,
+    ...created("the execution", (c, row) => c.db.execution.deleteMany({ where: { id: row.id } })),
+    control: async (c) => {
+      const row = await RT(c).createExecution(
+        c.pl.executionData({ concurrencyGroup: "scratch-router" }),
+      );
+      await c.db.execution.delete({ where: { id: row.id } });
+      return row;
+    },
+  });
+  const decisionData = (c, tenantId) => ({
+    tenantId,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    triggerType: "push",
+    triggerKey: "push",
+    scmEventId: c.pl.pushEvent.id,
+    scmDeliveryId: `dal-router-${rand(6)}`,
+    scmEventKind: "push",
+    reason: "repository_inactive",
+    refType: "branch",
+    refName: "main",
+  });
+  E("router.createDecision", (c) => RT(c).createDecision(decisionData(c, c.y)), {
+    // the composite foreign key refuses a decision under another tenant's pipeline; one row written would be a leak
+    mayThrow: true,
+    control: async (c) => {
+      const data = decisionData(c, c.x);
+      const count = await RT(c).createDecision(data);
+      await c.db.pipelineTriggerDecision.deleteMany({
+        where: { tenantId: c.x, scmDeliveryId: data.scmDeliveryId },
+      });
+      return count;
+    },
+  });
+  E(
+    "router.hasBlockedAuditSince",
+    (c) =>
+      RT(c).hasBlockedAuditSince({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        action: "execution.blocked",
+        reason: "quota_exceeded",
+        since: new Date(0),
+      }),
+    {
+      control: (c) =>
+        RT(c).hasBlockedAuditSince({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          action: "execution.blocked",
+          reason: "quota_exceeded",
+          since: new Date(0),
+        }),
+    },
+  );
 
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,

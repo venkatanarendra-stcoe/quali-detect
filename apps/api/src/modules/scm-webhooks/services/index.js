@@ -237,7 +237,17 @@ export function createWebhookService({ repository, scm, outbox, infra, logger })
       const repo = repositoryId
         ? await repository.findRepository({ tenantId: link.tenantId, externalRepoId: repositoryId })
         : null;
-      const usableRepo = repo && repo.status !== "disconnected" && repo.enabled ? repo : null;
+      // Repository STATE events (`repository`) still apply to an enabled repository that is not disconnected (an `unavailable`
+      // one recovers through them). Trigger events (push, pull request) are published ONLY for a usable repository: `active`
+      // AND enabled (pipelines-triggers SPEC R-9, §5.9a). Otherwise the delivery is `ignored`: no `scm_events` row, no message.
+      // The pipeline consumer re-checks the state anyway, because it can change between publication and consumption.
+      const stateRepo = repo && repo.status !== "disconnected" && repo.enabled ? repo : null;
+      const usableRepo =
+        event === "push" || event === "pull_request"
+          ? stateRepo && stateRepo.status === "active"
+            ? stateRepo
+            : null
+          : stateRepo;
       const normalized = normalize({ event, payload, deliveryId, link, repo: usableRepo });
 
       try {

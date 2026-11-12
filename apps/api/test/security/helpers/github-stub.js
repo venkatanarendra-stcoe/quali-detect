@@ -48,10 +48,14 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     });
+  // Like GitHub, emit 16+ digit ids as raw JSON integers (they can exceed 2^53); the suite keeps them as strings.
+  const rawBigIds = (text) =>
+    text.replace(/("(?:[A-Za-z0-9_]*(?:_id|Id)|id)":)"(\d{16,})"/g, "$1$2");
   const send = (res, status, json, headers = {}) => {
     res.writeHead(status, { "content-type": "application/json", ...headers });
-    res.end(JSON.stringify(json));
+    res.end(rawBigIds(JSON.stringify(json)));
   };
+  const idOf = (value) => (/^\d{16,}$/.test(String(value)) ? String(value) : Number(value));
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://stub");
@@ -75,7 +79,7 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       const body = json();
       if (path === "/__control/installation") {
         state.installations.set(String(body.id), {
-          id: Number(body.id),
+          id: idOf(body.id),
           account: body.account,
           target_type: body.account.type === "User" ? "User" : "Organization",
           repository_selection: body.repository_selection ?? "all",
@@ -165,7 +169,7 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       const record = state.userTokens.get(bearer(req));
       if (!record) return send(res, 401, { message: "Bad credentials" });
       if (path === "/user")
-        return send(res, 200, { id: Number(record.user.id), login: record.user.login });
+        return send(res, 200, { id: idOf(record.user.id), login: record.user.login });
       if (path === "/user/installations") {
         const installations = record.installationIds
           .map((id) => state.installations.get(id))
@@ -211,7 +215,10 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
         action: d.action,
         installation_id: d.installation_id,
       }));
-      return send(res, 200, list);
+      // Like GitHub, emit ids as raw JSON integers (they can exceed 2^53); clients must not parse them as Numbers.
+      const text = JSON.stringify(list).replace(/"id":"(\d{16,})"/g, '"id":$1');
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(text);
     }
     m = /^\/app\/hook\/deliveries\/([^/]+)\/attempts$/.exec(path);
     if (m && req.method === "POST") {

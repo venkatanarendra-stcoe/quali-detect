@@ -1,4 +1,5 @@
 import { childLogger } from "../../logging.js";
+import { parseJsonPreservingIds } from "./json.js";
 import { createAppJwt } from "./jwt.js";
 import { GitHubApiError, rateLimitDelayMs } from "./errors.js";
 import { createInstallationTokenCache } from "./token-cache.js";
@@ -121,7 +122,7 @@ export function createGitHubClient({
     const text = await response.text();
     let json = null;
     try {
-      json = text ? JSON.parse(text) : null;
+      json = text ? parseJsonPreservingIds(text) : null;
     } catch {
       json = null;
     }

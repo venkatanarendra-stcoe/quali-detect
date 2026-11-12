@@ -1,4 +1,5 @@
 import { ERROR_CODES } from "@qmentisai/contracts";
+import { parseJsonPreservingIds } from "@qmentisai/infra";
 import { AppError, ValidationError } from "../../../errors/app-error.js";
 import { DELIVERY_ID, EVENT_NAME } from "../constants/index.js";
 
@@ -26,7 +27,7 @@ export function createWebhookController({ service, logger }) {
       }
       let payload;
       try {
-        payload = JSON.parse(raw.toString("utf8"));
+        payload = parseJsonPreservingIds(raw.toString("utf8"));
       } catch {
         throw new ValidationError(
           [{ path: "", code: "invalid_json", message: "The body is not valid JSON." }],

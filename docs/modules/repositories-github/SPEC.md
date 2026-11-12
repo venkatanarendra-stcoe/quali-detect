@@ -443,6 +443,24 @@ Backend of the §18 amendment (2026-11-12, API, workers and contracts; the secur
 
 Limitations: no live GitHub App was used (the stub implements the documented endpoints only), so the empirical rename/transfer test (Open item 22) and the redelivery GUID assumption (Open item 25) remain unverified.
 
+
+### 16.1 Defect: 64-bit GitHub identifiers (found in the live test, 2026-11-12; fixed)
+**What happened:** the first live reconcile job got a `404` when redelivering a failed webhook delivery. GitHub's webhook-delivery ids are 64-bit integers (`3853579981959463xxx`); `JSON.parse` rounded the id above 2^53 and the redelivery request addressed a different (non-existent) id. The stub suite used small ids, so SCM-016 did not see it.
+**Fix:** `packages/infra/src/scm/github/json.js` (`quoteBigIds`, `parseJsonPreservingIds`) quotes integer values of id-like keys (`id`, `*_id`, `*Id`) with 16 or more digits before parsing; the GitHub adapter parses every API response with it and the webhook controller parses the (already signature-verified) body with it. All GitHub identifiers are strings from the adapter boundary on.
+**Checks:** the stub now emits ids as raw JSON integers like GitHub does; `SCM-016` uses a delivery id above 2^53 (not exactly representable) and asserts the redelivery addressed that exact id; `SCM-045` links an installation, allow-lists and connects a repository, and posts a signed push whose raw body carries installation, repository and account ids above 2^53 and checks they stay exact in the API, the delivery row and the event. Both fail when the parser is disabled (mutation run in a scratch copy).
+
+| Identifier | Parsed at the adapter boundary | Stored as | Handling after that |
+|---|---|---|---|
+| Webhook delivery id (numeric, App hook API) | string (`quoteBigIds`) | not stored (used in memory for redelivery) | URL-encoded string; logged as a string |
+| Delivery GUID (`X-GitHub-Delivery`) | header string | `scm_webhook_deliveries.delivery_id` TEXT, unique per provider | dedupe key, outbox `messageId` derived from it |
+| Hook id (`X-GitHub-Hook-Id`) | not read | not stored | none |
+| Installation id | string | `scm_installations.external_installation_id` TEXT, `scm_webhook_deliveries.external_installation_id` TEXT | API DTO string `externalInstallationId`; linking state and comparisons are string equality |
+| Repository id | string | `repositories.external_repo_id` TEXT, `scm_workspace_link_repositories.external_repo_id` TEXT, `node_id` TEXT | DTO string `externalRepoId`; events carry our UUID `repositoryId`, not the GitHub id |
+| Account id / OAuth user id | string | `scm_installations.account_external_id` TEXT; the user id is only compared (D5), never stored | string equality |
+| Pull request number | number (a small per-repository counter, not an id) | event field | the only GitHub-supplied integer kept as a Number |
+| App id, client id | configuration strings | not stored | JWT `iss` |
+No GitHub id column is `int4`; the only `Int` in the SCM schema is `consecutive_sync_failures`. The frontend never converts these ids with `Number()` (the only `Number(` use is the page parameter).
+
 ## 17. Verification spike: GitHub facts against the official documentation (2026-11-11)
 
 Method: the pages below were fetched from `docs.github.com` on 2026-11-11 by web-fetch subagents; the quotes are as those agents reported them (short, verbatim), not re-read by me. "Not documented" means the pages read do not say it; it does not mean it is false. Pages that returned 404 are listed.
@@ -580,3 +598,14 @@ New checks (ids continue after `SCM-026`; the routing checks `SCM-022..026` and 
 
 ### 18.5 Trust model change (see ADR-012)
 Before: a tenant Admin decided which GitHub accounts the organization uses. After: **GitHub-side proof (D5) plus a workspace-scoped permission** authorize attaching an installation to a workspace; the tenant Admin sees every installation read-only, is notified of uninstalls, and can still act as a workspace admin. Residual risk: a person who is an organization admin on GitHub and a workspace admin in QmentisAI can expose that GitHub account's repositories to *their* workspace's allow-list picker. Mitigations: the allow-list (a repository serves one workspace), audit of every link/unlink/allow-list change, tenant-wide read-only visibility (T-13), `repositories.max`, and the per-tenant exclusivity of the installation.
+
+### 17.6 Live test with the real GitHub App (STCOE-TESTING organization, tunnel to localhost:3000)
+
+| Date | Step | Result |
+|---|---|---|
+| 2026-11-12 | Webhook reachable through the tunnel | The App's webhook URL points at the tunnel host; the API answers an unsigned delivery with `401`. |
+| 2026-11-12 | First `ping` delivery | `404` from GitHub's side at the time (route not reachable yet); later attempts below. |
+| 2026-11-12 | **Defect:** webhook secret not set on GitHub | `GET /app/hook/config` had no `secret` field and delivery records had no `X-Hub-Signature-256` header, so our API correctly answered `401 The signature is not valid` to the redelivered ping. Fixed by `PATCH /app/hook/config` (url, `content_type=json`, `insecure_ssl=0` kept) with the secret from `GITHUB_APP_WEBHOOK_SECRET`, value never printed. |
+| 2026-11-12 | `ping` redelivery after the secret was set | `202`; the delivery record carries `X-Hub-Signature-256` and it equals HMAC-SHA256(raw recorded body, secret from `.env`). Signature verification passes. (The ping has no `installation.id`, so by D8 it is acknowledged and nothing is stored.) |
+| 2026-11-12 | **Q25 (redelivery GUID), REST** | `POST /app/hook/deliveries/{id}/attempts` returned `202`; the new attempt appears with `redelivery: true` and the **same delivery GUID** as the original; three attempts of the one ping (404, 401, 202) share one GUID. So GitHub keeps the GUID on REST redelivery, and `scm_webhook_deliveries (provider, delivery_id)` dedupes redeliveries as designed. The UI-redelivery half of Q25 is recorded below when done. |
+| 2026-11-12 | **Defect:** 64-bit delivery id | See §16.1. |

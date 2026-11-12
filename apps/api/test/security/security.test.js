@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 302;
+const EXPECTED_CHECKS = 303;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -2281,6 +2281,82 @@ const rowsFor = async (deliveryId) => {
     },
   );
   add(
+    "SCM-045",
+    "GitHub identifiers above 2^53 stay exact end to end: link, allow-list, connect, a signed push with raw 64-bit integers, and the redelivery id",
+    { status: 202 },
+    async () => {
+      const admin = S("admin")(w);
+      // 2^53 + 1, + 3, + 5: none of them can be held exactly by a JavaScript Number
+      const bigInstallation = "9007199254740993";
+      const bigRepo = "9007199254740995";
+      const bigAccount = "9007199254740997";
+      const account = {
+        id: bigAccount,
+        login: `big-${randomBytes(3).toString("hex")}`,
+        type: "Organization",
+      };
+      const flow = await linkFlow(admin, {
+        workspaceId: w.A.paymentsWs,
+        installationId: bigInstallation,
+        account,
+        user: ghUser(),
+        orgRole: "admin",
+        repos: [stubRepo(bigRepo)],
+      });
+      const workspaceLinkId = flow.link.json.data.id;
+      const allow = await putAllowList(admin, w.A.paymentsWs, workspaceLinkId, [bigRepo]);
+      const connected = await connectRepo(admin, w.A.paymentsWs, workspaceLinkId, bigRepo);
+      const installations = await w.api("GET", "/integrations/github/installations", {
+        cookie: admin,
+      });
+      const rawBody =
+        '{"ref":"refs/heads/main","before":"' +
+        "a".repeat(40) +
+        '","after":"' +
+        "b".repeat(40) +
+        '","created":false,"deleted":false,"forced":false,"commits":[{"id":"' +
+        "b".repeat(40) +
+        '"}],"head_commit":{"id":"' +
+        "b".repeat(40) +
+        '"},"pusher":{"name":"dev"},"repository":{"id":' +
+        bigRepo +
+        '},"installation":{"id":' +
+        bigInstallation +
+        "}}";
+      const delivery = await deliver({ event: "push", rawBody });
+      return {
+        ...delivery,
+        flow,
+        allow,
+        connected,
+        installations,
+        rows: await rowsFor(delivery.deliveryId),
+        bigRepo,
+        bigInstallation,
+        bigAccount,
+      };
+    },
+    (r) => {
+      const problems = [];
+      if (r.flow.link?.status !== 201) problems.push(`linking answered ${r.flow.link?.status}`);
+      if (r.allow.status !== 200) problems.push(`allow-list answered ${r.allow.status}`);
+      if (r.connected.status !== 201) problems.push(`connect answered ${r.connected.status}`);
+      else if (r.connected.json.data.externalRepoId !== r.bigRepo)
+        problems.push("the repository id was altered");
+      const installation = r.installations.json?.data?.items?.find(
+        (i) => i.externalInstallationId === r.bigInstallation,
+      );
+      if (!installation) problems.push("the installation id was altered or missing");
+      if (r.rows.delivery?.outcome !== "accepted")
+        problems.push(`the push was ${r.rows.delivery?.outcome ?? "not recorded"}, not accepted`);
+      if (r.rows.events.length !== 1)
+        problems.push(`${r.rows.events.length} events for the push (a rounded id matches nothing)`);
+      if (r.rows.delivery && r.rows.delivery.externalInstallationId !== r.bigInstallation)
+        problems.push("the delivery row holds a different installation id");
+      return problems;
+    },
+  );
+  add(
     "SCM-021",
     "an installation event of a linked installation creates one normalized event and one outbox message in that tenant, and a duplicate delivery id creates no second",
     { status: 202 },
@@ -2947,8 +3023,11 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         action: "new_permissions_accepted",
         installation: { id: Number(x.flowA.installationId) },
       };
+      // GitHub delivery ids are 64-bit integers: this one is above 2^53 and NOT exactly representable as a JS number, so a
+      // client that parses it as a Number addresses the wrong id (the live-test defect of 2026-11-12).
+      const bigDeliveryId = String(3853579981959463001n + BigInt(Date.now() % 1000) * 2n);
       await stubCtl("/__control/delivery", {
-        id: Date.now(),
+        id: bigDeliveryId,
         guid,
         status_code: 500,
         event: "installation",
@@ -2987,12 +3066,14 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       await handle(message, { log: quietLog });
       await sleep(300);
       const redeliveries = (await stubCtl("/__control/redeliveries", {})).redeliveries;
-      return { status: 200, json: null, rows: await rowsFor(guid), redeliveries };
+      return { status: 200, json: null, rows: await rowsFor(guid), redeliveries, bigDeliveryId };
     },
     (r) => {
       const problems = [];
       if (r.redeliveries.length !== 1)
         problems.push(`${r.redeliveries.length} redelivery requests`);
+      if (r.redeliveries[0] !== r.bigDeliveryId)
+        problems.push("the redelivery addressed a different (rounded) delivery id");
       if (r.rows.events.length !== 1 || r.rows.outbox.length !== 1)
         problems.push(`events ${r.rows.events.length}, outbox ${r.rows.outbox.length}`);
       if (r.rows.delivery?.outcome !== "accepted")

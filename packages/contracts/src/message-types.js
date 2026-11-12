@@ -104,6 +104,7 @@ export const MESSAGE_TYPES = Object.freeze({
       deliveryId: z.string().min(1).max(128),
       action: z.string().max(64),
       fullName: z.string().max(300).nullable(),
+      htmlUrl: z.string().max(500).nullable().optional(),
       archived: z.boolean().nullable(),
       visibility: z.string().max(32).nullable(),
       defaultBranch: z.string().max(255).nullable(),

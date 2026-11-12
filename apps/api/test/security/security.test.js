@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 304;
+const EXPECTED_CHECKS = 305;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -3062,6 +3062,66 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       };
     },
     (r) => r.problems,
+  );
+  add(
+    "SCM-047",
+    "a signed repository.renamed delivery changes the repository's display fields (full name, name, owner, URL) and never its identity (external id, node id, workspace, links, status)",
+    { status: 202 },
+    async () => {
+      const x = await scmWorld();
+      const db = suiteDb();
+      const id = x.payRepo.json.data.id;
+      const before = await db.repository.findUnique({ where: { id } });
+      const newName = `renamed-${randomBytes(3).toString("hex")}`;
+      const deliveryId = randomUUID();
+      const delivered = await deliver({
+        event: "repository",
+        deliveryId,
+        payload: {
+          action: "renamed",
+          changes: { repository: { name: { from: before.name } } },
+          repository: {
+            id: Number(before.externalRepoId),
+            node_id: before.nodeId,
+            name: newName,
+            full_name: `org/${newName}`,
+            html_url: `https://example.test/org/${newName}`,
+            private: true,
+            default_branch: "main",
+            archived: false,
+            owner: { login: "org" },
+          },
+          installation: { id: Number(x.flowA.installationId) },
+        },
+      });
+      const rows = await rowsFor(deliveryId);
+      await createScmEventHandler({
+        db,
+        config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+        logger: quietLog,
+      })(rows.outbox[0].payload, { log: quietLog });
+      const after = await db.repository.findUnique({ where: { id } });
+      return { ...delivered, before, after, rows, newName };
+    },
+    (r) => {
+      const problems = [];
+      if (r.rows.delivery?.outcome !== "accepted") problems.push("the rename was not accepted");
+      if (r.after.fullName !== `org/${r.newName}` || r.after.name !== r.newName)
+        problems.push("the display name was not updated");
+      if (r.after.htmlUrl !== `https://example.test/org/${r.newName}`)
+        problems.push("the repository URL still points at the old name");
+      for (const field of [
+        "externalRepoId",
+        "nodeId",
+        "workspaceId",
+        "linkId",
+        "workspaceLinkId",
+        "status",
+        "tenantId",
+      ])
+        if (r.after[field] !== r.before[field]) problems.push(`${field} changed on a rename`);
+      return problems;
+    },
   );
   add(
     "SCM-016",

@@ -36,6 +36,7 @@ export function createScmEventHandler({ db, config, logger }) {
                 ownerLogin: payload.fullName.split("/")[0],
               }
             : {}),
+          ...(payload.htmlUrl ? { htmlUrl: payload.htmlUrl } : {}),
           ...(payload.archived === null ? {} : { archived: payload.archived }),
           ...(payload.visibility ? { visibility: payload.visibility } : {}),
           ...(payload.defaultBranch ? { defaultBranch: payload.defaultBranch } : {}),

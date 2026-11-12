@@ -147,6 +147,7 @@ export function createWebhookService({ repository, scm, outbox, infra, logger })
             repositoryId: repo.id,
             action,
             fullName: str(r.full_name, 300),
+            htmlUrl: /^https?:\/\//.test(r.html_url ?? "") ? str(r.html_url, 500) : null,
             archived: bool(r.archived),
             visibility: str(
               r.visibility ??

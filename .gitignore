@@ -9,3 +9,8 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Credentials must never be committed
+githubkey
+githubkey.txt
+*.pem

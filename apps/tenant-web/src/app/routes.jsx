@@ -9,6 +9,11 @@ import {
 import { OverviewPage } from "@/features/organization/pages/overview-page.jsx";
 import { PlannedModulePage } from "@/features/placeholders/pages/planned-module-page.jsx";
 import {
+  PipelineDetailPage,
+  PipelineWizardPage,
+  PipelinesPage,
+} from "@/features/pipelines/index.js";
+import {
   ConnectRepositoryPage,
   RepositoriesPage,
   RepositoryDetailPage,
@@ -140,7 +145,22 @@ export const WORKSPACE_ROUTES = [
     itemId: "pipelines",
     path: "pipelines",
     permission: "pipeline.view",
-    element: planned("Pipelines", "Pipeline configuration is planned."),
+    element: <PipelinesPage />,
+  },
+  {
+    path: "pipelines/new",
+    permission: "pipeline.manage",
+    element: <PipelineWizardPage mode="create" />,
+  },
+  {
+    path: "pipelines/:pipelineId",
+    permission: "pipeline.view",
+    element: <PipelineDetailPage />,
+  },
+  {
+    path: "pipelines/:pipelineId/edit",
+    permission: "pipeline.manage",
+    element: <PipelineWizardPage mode="edit" />,
   },
   {
     itemId: "policies",

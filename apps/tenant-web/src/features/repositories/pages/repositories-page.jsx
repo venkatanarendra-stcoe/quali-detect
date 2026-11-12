@@ -26,7 +26,7 @@ const when = (value) =>
 
 /**
  * T-22 Repositories (workspace). Filters, sort and page live in the URL. The list only holds repositories of this
- * workspace; a "Connect repository" action needs repository.connect there. Pipeline counts arrive with the Pipelines module.
+ * workspace; a "Connect repository" action needs repository.connect there.
  */
 export function RepositoriesPage() {
   const { workspaceId } = useParams();
@@ -70,6 +70,7 @@ export function RepositoriesPage() {
     setParams({}, { replace: true });
   };
   const canConnect = can("repository.connect");
+  const canSeePipelines = can("pipeline.view");
   const connect = (
     <PermissionGate
       permission="repository.connect"
@@ -235,7 +236,7 @@ export function RepositoriesPage() {
                       <RepositoryHealth repository={r} />
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{when(r.lastSyncedAt)}</td>
-                    <td className="px-3 py-2">{r.pipelineCount}</td>
+                    <td className="px-3 py-2">{canSeePipelines ? r.pipelineCount : "—"}</td>
                     <td className="px-3 py-2 text-right">
                       <RepositoryRowActions repository={r} />
                     </td>

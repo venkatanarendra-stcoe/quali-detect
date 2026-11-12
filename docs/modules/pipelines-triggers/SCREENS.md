@@ -1,6 +1,6 @@
 # Screens: pipelines and triggers
 
-Status: **Approved (2026-11-12)**, companion to `SPEC.md` of this module (decisions applied at approval are listed there). Nothing here is built yet. The identifiers, routes and prompts come from `docs/TENANT_APP_WIREFRAME_SPEC.md` (WF §5 inventory, §6 prompts T-24 to T-27, §4 RBAC); the existing built screens are described in `docs/modules/repositories-github/SCREENS.md`. Visual rules: `docs/design/DESIGN_SYSTEM.md` and `UX_GUIDELINES.md` (Geist Sans, mono only for identifiers such as repository full names, branch names, SHAs, cron expressions and pipeline keys, Lucide icons, **mint only for the primary action, active navigation and focus**, severity colors independent of the brand and never the only signal, status as an outlined chip with icon and text). Labels as in the SPEC: **Confirmed**, **Confirmed (owner, 2026-11-12)**, **Recommended — default applied**, **Open**.
+Status: **Approved (2026-11-12)**, **Implemented 2026-11-13** (part F; see section 10 for what was built, the deviations and the verification matrix), companion to `SPEC.md` of this module (decisions applied at approval are listed there). Sections 1 to 9 are the approved specification and are unchanged. The identifiers, routes and prompts come from `docs/TENANT_APP_WIREFRAME_SPEC.md` (WF §5 inventory, §6 prompts T-24 to T-27, §4 RBAC); the existing built screens are described in `docs/modules/repositories-github/SCREENS.md`. Visual rules: `docs/design/DESIGN_SYSTEM.md` and `UX_GUIDELINES.md` (Geist Sans, mono only for identifiers such as repository full names, branch names, SHAs, cron expressions and pipeline keys, Lucide icons, **mint only for the primary action, active navigation and focus**, severity colors independent of the brand and never the only signal, status as an outlined chip with icon and text). Labels as in the SPEC: **Confirmed**, **Confirmed (owner, 2026-11-12)**, **Recommended — default applied**, **Open**.
 
 ## Decisions applied at approval (2026-11-12)
 
@@ -157,3 +157,51 @@ Legend: **E** = enabled, **D** = visible but disabled with a reason, **H** = hid
 ## 9. Verification plan after implementation
 
 A headless-browser pass over all seven seeded roles for T-24 (tab and Add pipeline), T-25, T-26, T-27 and the Run now and Delete dialogs against a disposable stack and the GitHub stub, recorded in this file in the same format as the previous module's verification matrix (which states were exercised, which were not, defects found and fixed). Not part of `pnpm test:security` (ADR-008 forbids UI tests); the API side of the same rules is covered by `PIP-*`.
+
+## 10. As built (Implemented 2026-11-13, part F)
+
+Code: `apps/tenant-web/src/features/pipelines/` (`components/ pages/ hooks/ services/ schemas/ stores/ constants/ index.js`), the T-24 changes in `features/repositories/pages/repository-detail-page.jsx` and `repositories-page.jsx`, `components/ui/switch.jsx` (native `role="switch"`, no new dependency), and `ConfirmDialog` gained `errorText` and `confirmDisabled`. The configuration form validates with `createPipelineConfigSchema(options.limits)` from `@qmentisai/shared`, the same schema as the API (hints only; the API stays authoritative and its `VALIDATION_FAILED` issues are mapped back onto the steps).
+
+**Routes (all inside `WorkspaceScope`, checked in the URL's workspace):** `/workspaces/:id/pipelines` (`pipeline.view`, navigation item `pipelines`), `.../pipelines/new?repository=&copy=` and `.../pipelines/:pipelineId/edit` (`pipeline.manage`; a role without it gets the 403 page), `.../pipelines/:pipelineId` (`pipeline.view`; `?tab=overview|executions|configuration|triggers`). Wizard step in `?step=`. Aliases `/pipelines`, `/pipelines/new`, `/pipelines/:id`, `/pipelines/:id/edit` redirect (the workspace comes from the pipeline or repository after a read; a hidden or missing pipeline stays the same 404 page). T-24 tab in `?tab=pipelines`. Workspace switching keeps the section and the query string.
+
+**Deviations from sections 1 to 9 (the API shapes win):**
+
+| # | Specified | Built | Why |
+|---|---|---|---|
+| 1 | Trigger chips with patterns and scan chips from the list | Chips by type and key from the list DTO; patterns, cron and scan chips come from the current version, fetched per visible row (`GET .../versions/{n}`, immutable, cached for the session) | The pipeline DTO carries no configuration |
+| 2 | Cancel for queued requests (`execution.cancel`) | No cancel control | The API has no cancel route yet (queued requests are cancelled only by deleting the pipeline) |
+| 3 | Activity tab (`workspace.view_activity`) | Not rendered | No workspace-scoped audit API; the tenant audit list needs `audit_log.view_all` |
+| 4 | Overview counters: requests in 30 days, blocked | Skipped by policy (24 h) and the last request only | The API returns only `counters.skippedByPolicyLast24h` |
+| 5 | "Deleted on <date> by <user>" | "Deleted on <date>" | The DTO has `deletedAt` and no deleter |
+| 6 | State filter Enabled / Disabled / Stopped by repository | One option per effective state (enabled, disabled, repository disabled / unavailable / disconnected, workspace archived) | `effectiveState` takes a single value |
+| 7 | Test triggers in the wizard Review | Tests the UNSAVED draft in the browser with the shared evaluator (`evaluatePipelineTriggers`, the function the API and the router use); on T-27 and the row menu it calls the API for the saved version | The API dry run reads the stored configuration, never a draft |
+| 8 | Duplicate through create (`copyFromPipelineId`) | `?copy=<id>` loads the source version into the wizard (name " copy"), then ordinary create | No server-side copy |
+| 9 | Fork policy "disabled with a tooltip" | Option disabled plus a visible sentence under the field (works on touch and for screen readers) | Usability |
+| 10 | Unsaved-changes guard on every exit | `beforeunload` plus a discard dialog on Cancel; sidebar links inside the app are not intercepted | `BrowserRouter` has no navigation blocker |
+| 11 | "Save as version N+1" always publishes | With no configuration change nothing is published (name and description go through `PATCH`, not versioned) | R-3 |
+| 12 | DAST and Asset Discovery "not selectable" | Shown as text badges "manual only (not available as a pipeline trigger)", no control | |
+| 13 | Add pipeline as a button | A link button (opens `/pipelines/new?repository=`) | Middle-click, copy link |
+| 14 | Plan limit message from the 403 only | Also from `options.pipelines` before the click (`limit` 0 reads as "your plan does not include pipelines"); the 403 `QUOTA_EXCEEDED` still shows the banner | |
+
+`fullEvery` of the scan mode is preserved but not editable (SCREENS §5 step 4 does not list it). The T-24 Overview count and the T-22 column show a dash when the caller lacks `pipeline.view` (the API returns the count regardless).
+
+### Verification matrix (headless Chrome against a disposable PostgreSQL, the GitHub stub, the API and Vite on private ports; 7 seeded roles)
+
+Roles x screens (workspace Payments Platform; E enabled, D visible but disabled with the reason, H hidden/403 page, R read only). All cells match section 7.
+
+| Screen / action | Admin | Manager | Lead | Analyst | Dev Lead | Developer | Viewer |
+|---|---|---|---|---|---|---|---|
+| Nav item, T-25, T-27, T-24 tab, real counts | E | E | E | R | E | R | R |
+| Create / Add pipeline, wizard, edit route | E | E | E | H | E | H | H |
+| Row/header switch | E | E | E | D | E | D | D |
+| Run now (menu and T-27) | E | E | E | D | E | D | D |
+| Edit, Duplicate | E | E | E | H | E | H | H |
+| Delete | E | E | H | H | H | H | H |
+| Test triggers | E | E | E | E | E | E | E |
+| Fork policy "Run without credentials" | E | D | E | n/a | D | n/a | n/a |
+
+Exercised: Manager creates a pipeline with push, pull request, schedule and manual triggers (fork policy stays `skip`, option disabled with the reason, the API answers 403 `fork_policy_requires_permission` to a forced attempt); Lead and Admin set it with the confirmation dialog (version 2, change note, diff, versions list, version selector); Manager opens a pipeline already at `run_without_credentials` (sees it, can only go back to `skip`); duplicate; `name_taken`; no-change save publishes nothing; metadata-only edit is not versioned; concurrent publish -> 409 banner "Reload the latest version" -> reload -> re-save as version 4; manual run (success queued row, transport failure then retry with the SAME Idempotency-Key, changed request gets a new key) and the refusal texts for a disabled pipeline, a switched-off manual trigger and a disconnected repository (stale page) plus the disabled-with-reason states after reload, a disabled repository and an archived workspace; enable/disable and `pipeline_incomplete`; soft delete with typed name (case sensitive), refusal while an execution is running (confirm stays disabled), delete with a queued request (cancelled, history kept), Show deleted, read-only deleted view, edit of a deleted pipeline is 404; dry run on T-27 (push would run, fork PR blocked by policy with the reason, invalid ref) and on the unsaved draft; Skipped events with one row of each source type (webhook delivery id, schedule slot with viewer-zone time and the UTC instant, manual key), the reason labels and the source filter; schedule errors (too frequent, unknown time zone, invalid expression) live, in the Review list with a "Fix in Triggers" link, and from the API (`VALIDATION_FAILED` on a tampered request mapped to the Triggers step); loading skeleton, 500 after retries with the reference and Try again, empty-by-filter with Clear filters, true empty (new workspace), no-permission page, not found (other workspace, unknown id, deleted edit), aliases; workspace switch keeps the section and filters; no horizontal overflow at 390, 820 and 1440 px on T-24 tab, T-25, all T-27 tabs and all wizard steps; keyboard order of the wizard (stepper buttons first, in step order, then fields, Cancel, Next; Enter on a step button changes the step).
+
+Not verified or only partly: the plan-limit banner with a real limit (the demo plan allows 100; the banner was checked against a mocked 403 `QUOTA_EXCEEDED`); the viewer's empty T-24 tab and a denied executions tab (checked with mocked API answers); the DB row of a running execution was written through the disposable database (the public paths only create queued rows); Firefox and Safari; dark theme; screen-reader output beyond the roles, names and live regions in the markup; tenant-suspended states.
+
+Defects found and fixed during the pass: `Intl` rejected `dateStyle` with `timeZoneName` (T-27 Overview crashed); step changes dropped the `repository` and `copy` parameters from the wizard URL (duplicate lost its source); the delete dialog showed a generic error instead of the API's reason; the wizard overflowed horizontally at 390 px (manual-only badges); disabled "Add pipeline" was a button, now a link button.

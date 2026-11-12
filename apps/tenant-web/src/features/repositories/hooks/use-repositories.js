@@ -33,6 +33,7 @@ export function useRepository(repositoryId) {
   return useQuery({
     queryKey: repositoryKeys.detail(tenantId, repositoryId),
     queryFn: ({ signal }) => repositoriesService.get(repositoryId, { signal }),
+    enabled: Boolean(repositoryId),
   });
 }
 export function useAvailableRepositories(workspaceId, params, { enabled = true } = {}) {

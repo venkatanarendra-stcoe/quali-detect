@@ -1,6 +1,6 @@
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.j
 import { Textarea } from "@/components/ui/textarea.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import { AddPipelineButton, RepositoryPipelinesTab } from "@/features/pipelines/index.js";
 import { describeError } from "@/lib/api/index.js";
 import { DisconnectDialog, useRepositoryActions } from "../components/repository-actions.jsx";
 import { RepositoryHealth } from "../components/repository-health.jsx";
@@ -134,7 +135,20 @@ function Detail({ repository }) {
   const can = useCan();
   const actions = useRepositoryActions(repository);
   const [confirming, setConfirming] = useState(false);
+  const [params, setParams] = useSearchParams();
   const live = repository.status !== "disconnected";
+  const seesPipelines = can("pipeline.view", {
+    type: "workspace",
+    workspaceId: repository.workspaceId,
+  });
+  const requestedTab = params.get("tab");
+  const tab =
+    ["overview", "pipelines", "branches", "pulls", "webhooks", "settings"].includes(requestedTab) &&
+    (requestedTab !== "pipelines" || seesPipelines)
+      ? requestedTab
+      : "overview";
+  const setTab = (value) =>
+    setParams(value === "overview" ? {} : { tab: value }, { replace: true });
   return (
     <>
       <PageHeader
@@ -143,6 +157,7 @@ function Detail({ repository }) {
         actions={
           <>
             <RepositoryHealth repository={repository} />
+            <AddPipelineButton repository={repository} />
             {actions.canSync ? (
               <Button variant="secondary" disabled={actions.syncing} onClick={actions.sync}>
                 <RefreshCw aria-hidden="true" />
@@ -169,7 +184,8 @@ function Detail({ repository }) {
         >
           GitHub no longer reports this repository to the App ({repository.consecutiveSyncFailures}{" "}
           failed checks in a row). Check the repository&apos;s access on GitHub, then sync again. It
-          is disconnected automatically after repeated failures; nothing is deleted.
+          is disconnected automatically after repeated failures; nothing is deleted. Its pipelines
+          are stopped and resume automatically when the repository is active again.
         </p>
       ) : null}
       {repository.status === "disconnected" ? (
@@ -183,7 +199,8 @@ function Detail({ repository }) {
             ? "The GitHub account was unlinked from this workspace. Link it again on the workspace's Integrations page to restore the repository."
             : repository.disconnectReason === "installation_revoked"
               ? "The GitHub App was removed from the GitHub account. Install and link it again on the workspace's Integrations page to restore the repository."
-              : "Its history is kept. Connect it again from the Connect repository page to restore it."}
+              : "Its history is kept. Connect it again from the Connect repository page to restore it."}{" "}
+          Its pipelines are stopped and resume automatically when the repository is active again.
           {repository.disconnectReason === "workspace_unlinked" ||
           repository.disconnectReason === "installation_revoked" ? (
             <>
@@ -198,9 +215,10 @@ function Detail({ repository }) {
           ) : null}
         </p>
       ) : null}
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          {seesPipelines ? <TabsTrigger value="pipelines">Pipelines</TabsTrigger> : null}
           <TabsTrigger value="branches" disabled={!live}>
             Branches
           </TabsTrigger>
@@ -244,10 +262,42 @@ function Detail({ repository }) {
                   <dt className="text-muted-foreground">Last event</dt>
                   <dd>{when(repository.lastEventAt)}</dd>
                 </div>
-                <div>
-                  <dt className="text-muted-foreground">Pipelines</dt>
-                  <dd>{repository.pipelineCount}</dd>
-                </div>
+                {seesPipelines ? (
+                  <div>
+                    <dt className="text-muted-foreground">Pipelines</dt>
+                    <dd>
+                      {repository.pipelineCount > 0 ? (
+                        <button
+                          type="button"
+                          className="rounded-sm underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => setTab("pipelines")}
+                        >
+                          {repository.pipelineCount}
+                        </button>
+                      ) : (
+                        <>
+                          0
+                          {can("pipeline.manage", {
+                            type: "workspace",
+                            workspaceId: repository.workspaceId,
+                          }) &&
+                          repository.status === "active" &&
+                          repository.enabled ? (
+                            <>
+                              {" · "}
+                              <Link
+                                className="underline underline-offset-2"
+                                to={`/workspaces/${repository.workspaceId}/pipelines/new?repository=${repository.id}`}
+                              >
+                                Add pipeline
+                              </Link>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                ) : null}
                 {repository.htmlUrl ? (
                   <div>
                     <dt className="text-muted-foreground">On GitHub</dt>
@@ -268,6 +318,11 @@ function Detail({ repository }) {
             </CardContent>
           </Card>
         </TabsContent>
+        {seesPipelines ? (
+          <TabsContent value="pipelines">
+            <RepositoryPipelinesTab repository={repository} />
+          </TabsContent>
+        ) : null}
         <TabsContent value="branches">
           <Branches id={repository.id} />
         </TabsContent>

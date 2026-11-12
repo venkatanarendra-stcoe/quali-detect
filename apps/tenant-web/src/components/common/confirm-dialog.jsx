@@ -26,6 +26,8 @@ function ConfirmBody({
   onCancel,
   pending,
   error,
+  errorText,
+  confirmDisabled = false,
   children,
 }) {
   const [typed, setTyped] = useState("");
@@ -75,9 +77,9 @@ function ConfirmBody({
               />
             </div>
           ) : null}
-          {error ? (
+          {error || errorText ? (
             <p role="alert" className="text-sm text-status-danger">
-              {describeError(error)}
+              {errorText ?? describeError(error)}
             </p>
           ) : null}
         </div>
@@ -88,7 +90,7 @@ function ConfirmBody({
           <Button
             type="submit"
             variant={destructive ? "destructive" : "default"}
-            disabled={!typedOk || !reasonOk || pending}
+            disabled={!typedOk || !reasonOk || pending || confirmDisabled}
           >
             {pending ? "Working…" : confirmLabel}
           </Button>
@@ -102,7 +104,8 @@ function ConfirmBody({
  * Confirmation dialog for consequential actions. Optional typed confirmation (`confirmText`: the exact value to type,
  * for example the workspace or tenant name) and optional reason (`reasonLabel`: required, recorded in the audit log).
  * The body state resets every time the dialog opens. `onConfirm({ reason, confirm })` should return when done; the parent
- * closes the dialog on success and passes `error` / `pending` from its mutation.
+ * closes the dialog on success and passes `error` / `pending` from its mutation. `errorText` replaces the generic message of `error` with a more specific sentence. `confirmDisabled` keeps the confirm button
+ * disabled for a refusal the user cannot retry away (for example "cancel the running executions first").
  */
 export function ConfirmDialog({ open, onOpenChange, ...rest }) {
   return (

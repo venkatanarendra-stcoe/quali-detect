@@ -1,0 +1,254 @@
+// ---------------------------------------------------------------- Pipelines and triggers
+// docs/modules/pipelines-triggers/SPEC.md §7. A pipeline is a named configuration attached to one repository; each matching
+// event creates one execution per pipeline. No secret, engine output, source text, commit message or PR title is stored in any
+// column of this file. The migration adds what Prisma cannot express: partial indexes, CHECK constraints and the immutability
+// triggers (config versions, executions, trigger decisions).
+
+enum PipelineTriggerType {
+  push
+  pull_request
+  schedule
+  manual
+
+  @@map("pipeline_trigger_type")
+}
+
+enum PipelineMissedPolicy {
+  skip
+  run_once
+
+  @@map("pipeline_missed_policy")
+}
+
+/// Written by the pipelines module: queued, blocked, skipped, cancelled. Reserved for the execution module: the rest.
+enum ExecutionStatus {
+  queued
+  blocked
+  skipped
+  cancelled
+  preparing
+  running
+  cancelling
+  succeeded
+  failed
+  timed_out
+
+  @@map("execution_status")
+}
+
+enum ExecutionRefType {
+  branch
+  tag
+  pull_request
+
+  @@map("execution_ref_type")
+}
+
+enum ExecutionScanKind {
+  full
+  incremental
+
+  @@map("execution_scan_kind")
+}
+
+enum ExecutionTrust {
+  trusted
+  untrusted_fork
+
+  @@map("execution_trust")
+}
+
+enum TriggerDecisionKind {
+  skipped_by_policy
+
+  @@map("trigger_decision_kind")
+}
+
+enum TriggerDecisionReason {
+  fork_policy_skip
+  draft_policy_skip
+  repository_inactive
+  repository_disabled
+  workspace_archived
+  pipeline_disabled
+  trigger_disabled
+
+  @@map("trigger_decision_reason")
+}
+
+/// A pipeline on one repository. `enabled` is the user's intent; the effective state is derived (SPEC §5.2). Soft-deleted
+/// (`deletedAt`): history stays, the name is released. `currentVersion` 0 / `currentVersionId` null only between the insert
+/// and the first version (same transaction); afterwards both point at the latest immutable version.
+model Pipeline {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  repositoryId     String    @map("repository_id") @db.Uuid
+  name             String
+  nameNormalized   String    @map("name_normalized")
+  description      String?
+  enabled          Boolean   @default(false)
+  currentVersion   Int       @default(0) @map("current_version")
+  currentVersionId String?   @map("current_version_id") @db.Uuid
+  createdByUserId  String    @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId  String?   @map("deleted_by_user_id") @db.Uuid
+
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workspace        Workspace                 @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
+  repository       Repository                @relation(fields: [tenantId, workspaceId, repositoryId], references: [tenantId, workspaceId, id], onDelete: Restrict)
+  currentConfig    PipelineConfigVersion?    @relation("PipelineCurrentVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+  versions         PipelineConfigVersion[]   @relation("PipelineVersions")
+  triggers         PipelineTrigger[]
+  executions       Execution[]
+  triggerDecisions PipelineTriggerDecision[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, workspaceId, repositoryId, id])
+  @@index([tenantId, workspaceId, deletedAt, name])
+  @@index([tenantId, repositoryId, deletedAt, enabled])
+  @@map("pipelines")
+}
+
+/// Immutable configuration snapshot (config JSON v1, SPEC §7.3). A database trigger rejects UPDATE, DELETE and TRUNCATE and
+/// accepts only the next version number of the pipeline.
+model PipelineConfigVersion {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  pipelineId      String   @map("pipeline_id") @db.Uuid
+  version         Int
+  schemaVersion   Int      @map("schema_version")
+  config          Json
+  configHash      String   @map("config_hash")
+  changeSummary   Json     @default("{}") @map("change_summary")
+  changeNote      String?  @map("change_note")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  pipeline   Pipeline          @relation("PipelineVersions", fields: [tenantId, pipelineId], references: [tenantId, id], onDelete: Restrict)
+  currentOf  Pipeline[]        @relation("PipelineCurrentVersion")
+  triggers   PipelineTrigger[]
+  executions Execution[]
+
+  @@unique([tenantId, pipelineId, version])
+  @@unique([tenantId, id])
+  @@unique([tenantId, pipelineId, id])
+  @@map("pipeline_config_versions")
+}
+
+/// Projection of the triggers of the current version (rebuildable; the config JSON is the authority). Schedule columns are
+/// set only for `type = schedule`.
+model PipelineTrigger {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  workspaceId         String                @map("workspace_id") @db.Uuid
+  repositoryId        String                @map("repository_id") @db.Uuid
+  pipelineId          String                @map("pipeline_id") @db.Uuid
+  triggerKey          String                @map("trigger_key")
+  type                PipelineTriggerType
+  enabled             Boolean               @default(true)
+  versionId           String                @map("version_id") @db.Uuid
+  cron                String?
+  timezone            String?
+  nextFireAt          DateTime?             @map("next_fire_at") @db.Timestamptz(6)
+  lastSlotAt          DateTime?             @map("last_slot_at") @db.Timestamptz(6)
+  missedPolicy        PipelineMissedPolicy? @map("missed_policy")
+  jitterOffsetSeconds Int?                  @map("jitter_offset_seconds")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  pipeline Pipeline              @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict)
+  version  PipelineConfigVersion @relation(fields: [tenantId, pipelineId, versionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+
+  @@unique([tenantId, pipelineId, triggerKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, workspaceId])
+  @@map("pipeline_triggers")
+}
+
+/// One execution request (minimum model; the execution module extends it). Everything except `status`, `statusReason`,
+/// `updatedAt` and a one-time `commitSha` null -> value is immutable (database trigger). `scmEventId` has no foreign key
+/// (scm_events retention is undecided, SPEC §7.6).
+model Execution {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  workspaceId       String              @map("workspace_id") @db.Uuid
+  repositoryId      String              @map("repository_id") @db.Uuid
+  pipelineId        String              @map("pipeline_id") @db.Uuid
+  configVersionId   String              @map("config_version_id") @db.Uuid
+  configVersion     Int                 @map("config_version")
+  configHash        String              @map("config_hash")
+  triggerType       PipelineTriggerType @map("trigger_type")
+  triggerKey        String              @map("trigger_key")
+  scmEventId        String?             @map("scm_event_id") @db.Uuid
+  scmDeliveryId     String?             @map("scm_delivery_id")
+  scmEventKind      ScmEventKind?       @map("scm_event_kind")
+  scheduleSlot      DateTime?           @map("schedule_slot") @db.Timestamptz(6)
+  requestedByUserId String?             @map("requested_by_user_id") @db.Uuid
+  refType           ExecutionRefType    @map("ref_type")
+  refName           String              @map("ref_name")
+  baseRef           String?             @map("base_ref")
+  pullRequestNumber Int?                @map("pull_request_number")
+  commitSha         String?             @map("commit_sha")
+  baseSha           String?             @map("base_sha")
+  scanKind          ExecutionScanKind   @map("scan_kind")
+  scanKindReason    String              @map("scan_kind_reason")
+  trust             ExecutionTrust      @default(trusted)
+  concurrencyGroup  String              @map("concurrency_group")
+  status            ExecutionStatus     @default(queued)
+  statusReason      String?             @map("status_reason")
+  quotaPeriod       String?             @map("quota_period")
+  quotaConsumed     Int                 @default(0) @map("quota_consumed")
+  idempotencyKey    String              @map("idempotency_key")
+  correlationId     String?             @map("correlation_id")
+  requestedAt       DateTime            @default(now()) @map("requested_at") @db.Timestamptz(6)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  pipeline Pipeline              @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict)
+  version  PipelineConfigVersion @relation(fields: [tenantId, pipelineId, configVersionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, pipelineId, idempotencyKey])
+  @@unique([tenantId, pipelineId, scmEventId])
+  @@unique([tenantId, pipelineId, scheduleSlot])
+  @@index([tenantId, pipelineId, requestedAt(sort: Desc)])
+  @@index([tenantId, workspaceId, status, requestedAt(sort: Desc)])
+  @@index([tenantId, pipelineId, concurrencyGroup, status])
+  @@index([status, requestedAt])
+  @@map("executions")
+}
+
+/// One row per policy skip of a matching pipeline (SPEC §7.8, §5.9b). Insert-only (database trigger rejects UPDATE).
+/// `scmEventId` has no foreign key, like executions. Ids, enums and short validated strings only.
+model PipelineTriggerDecision {
+  id                String                @id @default(uuid()) @db.Uuid
+  tenantId          String                @map("tenant_id") @db.Uuid
+  workspaceId       String                @map("workspace_id") @db.Uuid
+  repositoryId      String                @map("repository_id") @db.Uuid
+  pipelineId        String                @map("pipeline_id") @db.Uuid
+  triggerType       PipelineTriggerType   @map("trigger_type")
+  triggerKey        String                @map("trigger_key")
+  scmEventId        String?               @map("scm_event_id") @db.Uuid
+  scmDeliveryId     String                @map("scm_delivery_id")
+  scmEventKind      ScmEventKind          @map("scm_event_kind")
+  decision          TriggerDecisionKind   @default(skipped_by_policy)
+  reason            TriggerDecisionReason
+  refType           ExecutionRefType      @map("ref_type")
+  refName           String                @map("ref_name")
+  pullRequestNumber Int?                  @map("pull_request_number")
+  decidedAt         DateTime              @default(now()) @map("decided_at") @db.Timestamptz(6)
+  correlationId     String?               @map("correlation_id")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict)
+
+  @@unique([tenantId, pipelineId, scmDeliveryId, scmEventKind, triggerKey])
+  @@index([tenantId, pipelineId, decidedAt(sort: Desc)])
+  @@map("pipeline_trigger_decisions")
+}

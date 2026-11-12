@@ -2,7 +2,7 @@
 
 Run: `pnpm test:security` (from the repo root). Decision and scope: `docs/decisions/ADR-008-SECURITY-REGRESSION-SUITE.md`.
 
-It covers **only** tenant isolation, the 404/403 authorization rule, platform/tenant session separation, segregation of duties and the sign-in/MFA throttling of ADR-010: 324 checks, 17 controls and 1 integrity test. It is a black box over HTTP, so it works against any implementation of the API (Fastify today, Express after ADR-007).
+It covers **only** tenant isolation, the 404/403 authorization rule, platform/tenant session separation, segregation of duties and the sign-in/MFA throttling of ADR-010: 338 checks, 17 controls and 1 integrity test. It is a black box over HTTP, so it works against any implementation of the API (Fastify today, Express after ADR-007).
 
 ## What it needs
 
@@ -19,10 +19,11 @@ Exit codes of the runner (`node apps/api/scripts/security-suite.js`): `0` passed
 - `helpers/http.js`: minimal `fetch` client with manual cookie handling.
 - `helpers/world.js`: builds tenant B and all sessions through the public API.
 - `helpers/github-stub.js`: the local GitHub stand-in (plain HTTP, no network) the SCM checks link against; the runner also sets `SCM_LINK_STATE_TTL_SECONDS=3` so `SCM-033` can prove that an expired linking state is refused.
+- `helpers/pipeline-db.js`: database integrity of the Pipelines + Triggers tables (`PIPDB-*`, in process): two tenants with two workspaces and repositories each, row factories, and 14 table-driven checks (composite foreign keys, unique identities, immutability triggers, CHECK constraints, RESTRICT), each with a control.
 - `helpers/direct-repos.js`: data-access isolation (`DAL-*`): builds four tenants directly in the database (X owns the data, Y is the "wrong" tenant, Z holds the uninstall fan-out and notification fixtures, V two workspaces with revoked repositories for the shared restore functions of `@qmentisai/db`) and calls every tenant-scoped repository function in process with another tenant's id (table-driven, one check per function; includes the workspace-link, allow-list and tenant-setting functions, the uninstall/suspension fan-out of the scm worker and the notification recipient lookup).
 
 ## Rules
 
 - A new tenant-owned route family adds checks here in the same work item (cross-tenant 404, hidden-workspace 404 vs 403 where relevant, and a control that the legitimate request works).
-- The number of checks is asserted (324: the original 68, 9 `THR` throttling checks of ADR-010, 6 `RST` tenant-restore checks, 9 `SEC` secret-storage checks of ADR-009, 21 HTTP-edge checks `AUD`, `IDM`, `ENT`, `COR`, `RATE`, 58 `SCM` checks for the workspace-level GitHub integration and repositories (SPEC §18.3: linking permissions, second workspace, state binding and expiry, tenant setting, workspace isolation, allow-list, unlink, uninstall fan-out and notification, restore on link, the "use an existing installation" discovery and restore on gaining access), run against a local GitHub stub, and 153 `DAL` data-access isolation checks). Changing it means updating ADR-008.
+- The number of checks is asserted (338: the original 68, 9 `THR` throttling checks of ADR-010, 6 `RST` tenant-restore checks, 9 `SEC` secret-storage checks of ADR-009, 21 HTTP-edge checks `AUD`, `IDM`, `ENT`, `COR`, `RATE`, 58 `SCM` checks for the workspace-level GitHub integration and repositories (SPEC §18.3: linking permissions, second workspace, state binding and expiry, tenant setting, workspace isolation, allow-list, unlink, uninstall fan-out and notification, restore on link, the "use an existing installation" discovery and restore on gaining access), run against a local GitHub stub, 153 `DAL` data-access isolation checks and 14 `PIPDB` database-integrity checks of the pipeline tables). Changing it means updating ADR-008.
 - Never weaken a check to make it pass; never point the suite at a real database.

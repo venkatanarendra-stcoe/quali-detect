@@ -86,6 +86,11 @@ model Tenant {
   repositories        Repository[]
   scmEvents           ScmEvent[]
   processed           ProcessedMessage[]
+  pipelines           Pipeline[]
+  pipelineVersions    PipelineConfigVersion[]
+  pipelineTriggers    PipelineTrigger[]
+  executions          Execution[]
+  triggerDecisions    PipelineTriggerDecision[]
 
   @@index([status])
   @@map("tenants")

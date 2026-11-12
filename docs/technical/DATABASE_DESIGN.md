@@ -53,6 +53,11 @@ Use one PostgreSQL database initially with logical separation between platform a
 - scan_results
 - execution_events
 
+#### Pipelines and executions (modeled, `pipelines.prisma`; SPEC `docs/modules/pipelines-triggers/SPEC.md` §7)
+- `pipelines` (soft delete, name unique per repository among non-deleted), `pipeline_config_versions` (immutable, consecutive numbers, enforced by triggers), `pipeline_triggers` (projection of the current version, schedule fields for the scheduler), `executions` (minimum model; only status, reason and a one-time commit SHA change after insert), `pipeline_trigger_decisions` (insert-only policy-skip rows).
+- Every child carries `(tenant_id, workspace_id, repository_id, pipeline_id)` and a composite foreign key to `pipelines`, which in turn has composite keys to `workspaces` and `repositories` (`repositories` has unique `(tenant_id, workspace_id, id)`), so the database rejects any cross-tenant, cross-workspace or cross-repository link. All foreign keys are `ON DELETE RESTRICT`; history is never cascaded. `scm_event_id` on executions and decisions has no foreign key (scm_events retention is undecided).
+- Migration `20261112120000_pipelines_triggers_executions` adds partial indexes, CHECK constraints and immutability triggers by hand; the security suite checks them (`PIPDB-001..014`).
+
 ### Findings and workflow
 - findings
 - finding_versions
@@ -96,4 +101,4 @@ Finding identities are independent per pipeline. A similar vulnerability in two 
 
 ## Implementation status
 
-Platform (tenants, plans, entitlements, quotas, platform users/roles, platform audit log) and identity/organization (global users with tenant memberships, groups, roles, permissions, assignments, workspaces, workspace members, sessions, audit logs) are modeled in `packages/db/prisma/schema/`; see `packages/db/README.md` for conventions (composite tenant foreign keys, `scopeKey`, CHECK constraints) and deviations. Engineering and findings tables are not modeled yet.
+Platform (tenants, plans, entitlements, quotas, platform users/roles, platform audit log) and identity/organization (global users with tenant memberships, groups, roles, permissions, assignments, workspaces, workspace members, sessions, audit logs) are modeled in `packages/db/prisma/schema/`; see `packages/db/README.md` for conventions (composite tenant foreign keys, `scopeKey`, CHECK constraints) and deviations. The pipelines, versions, triggers, executions and trigger-decision tables are modeled (see above); scan tasks, results, events and the findings tables are not modeled yet.

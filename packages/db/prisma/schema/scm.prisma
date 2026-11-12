@@ -206,9 +206,11 @@ model Repository {
   workspaceLink ScmWorkspaceLink        @relation(fields: [tenantId, workspaceId, workspaceLinkId], references: [tenantId, workspaceId, id], onDelete: Restrict)
   groupAccess   RepositoryGroupAccess[]
   events        ScmEvent[]
+  pipelines     Pipeline[]
 
   @@unique([tenantId, provider, externalRepoId])
   @@unique([tenantId, id])
+  @@unique([tenantId, workspaceId, id])
   @@index([tenantId, workspaceId, status])
   @@index([tenantId, linkId])
   @@index([tenantId, workspaceLinkId])

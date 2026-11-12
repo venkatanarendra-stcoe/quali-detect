@@ -24,6 +24,7 @@ model Workspace {
   members           WorkspaceMember[]
   repositories      Repository[]
   scmWorkspaceLinks ScmWorkspaceLink[]
+  pipelines         Pipeline[]
   userAssignments   UserRoleAssignment[]
   groupAssignments  GroupRoleAssignment[]
 

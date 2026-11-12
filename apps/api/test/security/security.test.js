@@ -19,9 +19,10 @@ import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
+import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 324;
+const EXPECTED_CHECKS = 338;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5318,6 +5319,24 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         json: null,
         problems: await runDalEntry(entry, await dalWorld()),
       }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12. Pipelines: database integrity (ADR-008 area 10, SPEC pipelines-triggers §7, part B): composite tenant-safe foreign keys,
+//     unique identities, immutability triggers and CHECK constraints of the pipeline tables, in process against the
+//     disposable database. Each check pairs its denials with a control; the fixtures live in helpers/pipeline-db.js.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Pipelines: database integrity");
+  const pipdbWorld = () => once("pipdb", () => buildPipelineDbWorld(suiteDb()));
+  for (const { id, name, run } of PIPDB_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await pipdbWorld()) }),
       (r) => r.problems,
     );
 }

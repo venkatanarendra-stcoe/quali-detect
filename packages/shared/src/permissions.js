@@ -56,7 +56,11 @@ export const PERMISSION_CATALOG = Object.freeze(
       ],
       ["pipeline.view", "See pipelines"],
       ["pipeline.manage", "Create, change, enable and disable pipelines"],
-      ["pipeline.delete", "Delete a pipeline"],
+      ["pipeline.delete", "Delete a pipeline (soft delete: history and findings remain)"],
+      [
+        "pipeline.manage_fork_policy",
+        "Allow pull requests from forks to run in a pipeline (without credentials)",
+      ],
       ["execution.view", "See executions and scan history"],
       ["execution.run", "Start executions"],
       ["execution.cancel", "Cancel executions"],

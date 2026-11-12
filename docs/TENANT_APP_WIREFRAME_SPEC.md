@@ -135,7 +135,7 @@ Logo · Command palette search · Notifications bell (badge count) · Account me
 | Workspace | Dashboard | `/workspaces/:id/dashboard` | `workspace.view` | Yes |
 | Workspace | Repositories | `/workspaces/:id/repositories` | `repository.view` | Yes |
 | Workspace | Pipelines | `/workspaces/:id/pipelines` | `pipeline.view` | Yes |
-| Workspace | Executions | `/workspaces/:id/executions` | `execution.view` *(Recommended key)* | **No** |
+| Workspace | Executions | `/workspaces/:id/executions` | `execution.view` *(exists in the catalog; amended 2026-11-12)* | **No** |
 | Security | Findings | `/workspaces/:id/findings` | `finding.view` *(Rec.)* | **No** |
 | Security | Security Reviews | `/workspaces/:id/reviews` | `finding.review` *(Rec.)* | **No** |
 | Security | Approvals | `/workspaces/:id/approvals` | `finding.approve` *(Rec.)* | **No** |
@@ -179,7 +179,7 @@ Legend: ● visible · ◐ visible, read-only (actions hidden/disabled) · — h
 
 ### 4.5 Action-level RBAC patterns (Recommended)
 - **Hide** an action when the user can never perform it in this scope (e.g. "Delete workspace" for Developer).
-- **Disable + tooltip** ("You need `pipeline.run` in this workspace") when the user can see the object but the action depends on a missing permission and they may reasonably request it.
+- **Disable + tooltip** ("You need permission to run pipelines in this workspace"; the key is `execution.run`, never shown in a 403 body) when the user can see the object but the action depends on a missing permission and they may reasonably request it.
 - Segregation of duties: the Security Analyst who records a TP/FP decision cannot approve the same decision; show Approve disabled with tooltip "You reviewed this finding."
 - Never show counts or names of resources the user cannot access.
 
@@ -223,8 +223,8 @@ Legend: ● visible · ◐ visible, read-only (actions hidden/disabled) · — h
 | T-23 | Connect repository | `/repositories/connect?workspace=:id` | `repository.create` (Rec.) | Confirmed |
 | T-24 | Repository detail | `/repositories/:repositoryId` | `repository.view` | Confirmed |
 | T-25 | Pipelines list | `/workspaces/:id/pipelines` | `pipeline.view` | Confirmed |
-| T-26 | Create / edit pipeline (wizard) | `/pipelines/new`, `/pipelines/:id/edit` | `pipeline.manage` (Rec.) | Recommended |
-| T-27 | Pipeline detail | `/pipelines/:id` | `pipeline.view` | Recommended |
+| T-26 | Create / edit pipeline (wizard) | `/workspaces/:workspaceId/pipelines/new?repository=:id`, `/workspaces/:workspaceId/pipelines/:pipelineId/edit` (amended 2026-11-12, owner C4; `/pipelines/...` aliases redirect) | `pipeline.manage` | Confirmed |
+| T-27 | Pipeline detail | `/workspaces/:workspaceId/pipelines/:pipelineId` (amended 2026-11-12, owner C4; `/pipelines/:id` alias redirects) | `pipeline.view` | Confirmed |
 | T-28 | Executions list | `/workspaces/:id/executions` | `execution.view` | Planned |
 | T-29 | Execution detail (live) | `/executions/:id` | `execution.view` | Planned |
 | T-30 | Manual scan request (DAST / Asset Discovery) | dialog | `scan.run_manual` (Rec.) | Planned |

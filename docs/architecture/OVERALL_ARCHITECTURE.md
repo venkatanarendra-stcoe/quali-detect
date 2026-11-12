@@ -23,7 +23,7 @@ flowchart TB
   end
 
   subgraph Backend
-    API["API (Express 5 per ADR-007; Fastify until migrated)"]
+    API["API (Express 5 per ADR-007)"]
     ID[Identity and Authorization]
     ORG[Organization and Workspace]
     ENG[Repository and Pipeline]
@@ -87,7 +87,7 @@ Platform-level administration only. It must not use tenant-facing permissions as
 Tenant users operate within tenant and workspace permissions. Every request must be scoped to the authenticated tenant and authorized resource.
 
 ### Backend
-One initial application (Express 5 per ADR-007; currently Fastify 5) with domain modules. Platform and tenant modules are logically separated.
+One initial application (Express 5 per ADR-007) with domain modules. Platform and tenant modules are logically separated.
 
 ### Workers
 Independent process entry points consuming durable messages. They reuse domain services and contracts but do not bypass authorization, tenant status or entitlement checks.

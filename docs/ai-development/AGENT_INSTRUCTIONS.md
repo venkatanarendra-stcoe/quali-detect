@@ -31,7 +31,7 @@ Do not introduce TypeScript, NestJS or an alternative framework without an accep
 
 ## 3. Application boundaries
 
-- `apps/backend` (superseded: now `apps/api`): API and domain modules (Express 5 per ADR-007; Fastify 5 until the migration lands).
+- `apps/backend` (superseded: now `apps/api`): API and domain modules (Express 5 per ADR-007; migrated, Fastify is gone).
 - `apps/tenant-web`: tenant-facing application.
 - `apps/root-console`: platform administration.
 - `apps/workers`: asynchronous worker entry points.

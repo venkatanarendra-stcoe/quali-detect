@@ -94,6 +94,7 @@ export const BUILT_IN_ROLES = Object.freeze([
       "repository.toggle",
       "workspace_integration.view",
       "pipeline.manage",
+      "pipeline.manage_fork_policy",
       "execution.run",
       "execution.cancel",
       "scan.run_manual",

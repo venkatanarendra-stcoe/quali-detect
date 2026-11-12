@@ -26,7 +26,7 @@ Migration `20261111190000_quota_usage_and_audit_immutability` adds `tenant_quota
 
 - `20261111000000_init_placeholder`: empty placeholder (kept for history).
 - `20261111120000_platform_identity_foundation`: all tables, indexes, foreign keys and the CHECK constraints.
-- Seed (`prisma/seed.js`, idempotent): the permission catalog (82 keys from `@qmentisai/shared`), the 7 built-in roles with their bundles, the platform roles (Super Admin, Support), **one platform super admin** (`superadmin@qmentis.example`), and a demo tenant (`demo`) with 2 workspaces (Payments Platform, Identity & Access), 7 users (one per built-in role, `demo.<role>@demo.example`), a _Security Team_ group that grants Security Analyst in the second workspace, and a _Release Engineers_ group with members but no assignment. **No credentials are seeded** (password hashes are NULL): nobody can sign in until the identity module exists.
+- Seed (`prisma/seed.js`, idempotent): the permission catalog (85 keys from `@qmentisai/shared`), the 7 built-in roles with their bundles, the platform roles (Super Admin, Support), **one platform super admin** (`superadmin@qmentis.example`), and a demo tenant (`demo`) with 2 workspaces (Payments Platform, Identity & Access), 7 users (one per built-in role, `demo.<role>@demo.example`), a _Security Team_ group that grants Security Analyst in the second workspace, and a _Release Engineers_ group with members but no assignment. **No credentials are seeded** (password hashes are NULL): nobody can sign in until the identity module exists.
 
 ```bash
 cp .env.example .env          # set DATABASE_URL (a dedicated dev database; the role needs CREATE rights for migrate dev)

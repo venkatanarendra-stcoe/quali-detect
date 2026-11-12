@@ -14,7 +14,7 @@ import {
   ValidationError,
 } from "../../../errors/app-error.js";
 import { AUDIT_ACTIONS } from "../../../audit/actions.js";
-import { ENTITLEMENT_KEYS } from "../../../entitlements/keys.js";
+import { ENTITLEMENT_KEYS } from "@qmentisai/db";
 import { toPage } from "../../../lib/http.js";
 import { toRepositoryDto } from "../mappers/index.js";
 

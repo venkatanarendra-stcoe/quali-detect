@@ -1,8 +1,8 @@
-import { createEntitlementRepository } from "../entitlements/repository.js";
-import { createEntitlementService } from "../entitlements/service.js";
+import { createEntitlementRepository, createEntitlementService } from "@qmentisai/db";
 
 /**
- * Entitlement service = { checkEntitlement, assertEntitlement, assertWithinLimit, consumeQuota, releaseQuota }.
+ * Entitlement service = { checkEntitlement, assertEntitlement, assertWithinLimit, consumeQuota, releaseQuota }
+ * (shared with the workers, see packages/db/src/entitlements).
  * @param {{ infra: any }} deps
  */
 export function createEntitlements({ infra }) {

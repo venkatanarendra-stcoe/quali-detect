@@ -1,5 +1,6 @@
 import { ZodError } from "zod";
 import { ERROR_CODES } from "@qmentisai/contracts";
+import { EntitlementError } from "@qmentisai/db";
 import { AppError, ERROR_HTTP_STATUS, ValidationError } from "../errors/app-error.js";
 import { formatZodIssues } from "../lib/validation.js";
 
@@ -21,6 +22,14 @@ export function toPublicError(error) {
   if (error instanceof AppError)
     return {
       statusCode: error.statusCode,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    };
+  // Shared domain error of the entitlement helpers (@qmentisai/db): same status, code, message and details as before.
+  if (error instanceof EntitlementError)
+    return {
+      statusCode: ERROR_HTTP_STATUS[error.code] ?? 500,
       code: error.code,
       message: error.message,
       details: error.details,

@@ -5,10 +5,10 @@ import {
   createScmRestoreRepository,
   createSecretRepository,
   createTenantRepository,
+  createEntitlementRepository,
 } from "@qmentisai/db";
 import { NonRetryableError, createOutbox } from "@qmentisai/infra";
 import { createAuthzRepository } from "../../../src/authz/repository.js";
-import { createEntitlementRepository } from "../../../src/entitlements/repository.js";
 import { createGroupRepository } from "../../../src/modules/groups/repositories/index.js";
 import { createAuditLogRepository } from "../../../src/modules/audit-logs/repositories/index.js";
 import { createIdentityRepository } from "../../../src/modules/identity/repositories/index.js";
@@ -1394,7 +1394,7 @@ export function buildDalEntries() {
     },
   );
 
-  // ----- entitlements and quotas (apps/api/src/entitlements/repository.js)
+  // ----- entitlements and quotas (packages/db/src/entitlements/repository.js)
   const EN = (c) => c.repos.entitlements;
   E(
     "entitlements.findTenantEntitlement",

@@ -746,6 +746,8 @@ Dispositions: **Confirmed (owner, 2026-11-12)** = decided by the owner; **Recomm
 
 Not started (spec approved 2026-11-12; the permission key `pipeline.manage_fork_policy` was added to the catalog, the Lead bundle and AZ on the same day). This section will record, per part (§13.3), what was built, the checks actually run (`pnpm lint`, `pnpm build`, `pnpm test:security`, `pnpm contract:parity`), deviations from this spec and known limitations. `docs/development/PROGRESS_TRACKER.md` and `docs/api/` are updated in the same work item.
 
+- **2026-11-12, part A (shared entitlement helpers):** `checkEntitlement`, `assertEntitlement`, `assertWithinLimit`, `consumeQuota`, `releaseQuota` and their repository moved to `@qmentisai/db` (`packages/db/src/entitlements/`) so the pipeline worker can call them; each takes an optional transaction `client` (execution row + quota consume + outbox row in one per-pipeline transaction). Errors are the shared `EntitlementError` (same codes), mapped by the API error handler to the unchanged HTTP responses. `pipelines.max` added to `ENTITLEMENT_KEYS` and to the seed (placeholder 100); `QUOTA_KEYS.SCANS_MONTHLY` added. New security check `ENT-005` (rollback, commit, over-limit refusal, rolled-back release, tenant separation and a two-transaction race for the last unit); suite 324 checks.
+
 ## 17. What I verified in the code (built facts relied on)
 
 | Fact | Where |

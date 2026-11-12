@@ -57,3 +57,7 @@ pnpm --filter @qmentisai/db db:migrate:status
 - `createdBy`/`addedBy`/`invitedBy` columns are plain ids without foreign keys (history survives user removal).
 - "One current subscription per tenant" and "a workspace-scope assignment also creates a workspace member row" are service rules (no partial unique index, which Prisma would try to drop).
 - `finding_*`, `repositories`, `pipelines`, `scan_*` and other engineering tables are not modeled yet.
+
+## Entitlements (`src/entitlements/`)
+
+Entitlement and quota helpers (`createEntitlementRepository`, `createEntitlementService`, `ENTITLEMENT_KEYS`, `QUOTA_KEYS`, `EntitlementError`) live here because they are Prisma-only data access shared by the API and the workers. Every function takes an optional `client` (Prisma or interactive-transaction client) so quota is consumed atomically with the caller's writes.

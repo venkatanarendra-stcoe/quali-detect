@@ -21,7 +21,7 @@ import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 323;
+const EXPECTED_CHECKS = 324;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1214,8 +1214,8 @@ const tenantIdOf = (x, who) =>
     { status: 200 },
     async () => {
       const t = await w.provisionTenant("quota");
-      const { createEntitlementService } = await import("../../src/entitlements/service.js");
-      const { createEntitlementRepository } = await import("../../src/entitlements/repository.js");
+      const { createEntitlementService, createEntitlementRepository } =
+        await import("@qmentisai/db");
       const service = createEntitlementService({
         repository: createEntitlementRepository({ db: suiteDb() }),
       });
@@ -1244,6 +1244,124 @@ const tenantIdOf = (x, who) =>
       if (results.filter((v) => v === "QUOTA_EXCEEDED").length !== 3)
         problems.push(`refusals: ${results}`);
       if (used !== 3n) problems.push(`recorded usage ${used}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "ENT-005",
+    "quota consumption through a transaction client is atomic with the caller's writes, refuses beyond the limit, stays inside its tenant and cannot overshoot under a race",
+    { status: 200 },
+    async () => {
+      const { createEntitlementService, createEntitlementRepository } =
+        await import("@qmentisai/db");
+      const db = suiteDb();
+      const service = createEntitlementService({
+        repository: createEntitlementRepository({ db }),
+      });
+      const x = await w.provisionTenant("quotatx-x");
+      const y = await w.provisionTenant("quotatx-y");
+      const def = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+      for (const t of [x, y])
+        await db.tenantQuota.create({
+          data: { tenantId: t.id, quotaDefinitionId: def.id, limitValue: 3n },
+        });
+      const periodKey = "2026-12";
+      const usage = async (t) =>
+        Number(
+          (
+            await db.tenantQuotaUsage.findFirst({
+              where: { tenantId: t.id, quotaDefinitionId: def.id, periodKey },
+            })
+          )?.used ?? 0,
+        );
+      const consume = (t, client, amount = 1) =>
+        service.consumeQuota(
+          { tenantId: t.id, quotaKey: "scans.monthly", amount, periodKey },
+          client,
+        );
+      const ROLLBACK = new Error("rollback");
+      const rolledBack = (fn) =>
+        db
+          .$transaction(async (tx) => {
+            await fn(tx);
+            throw ROLLBACK;
+          })
+          .then(
+            () => "committed",
+            (e) => (e === ROLLBACK ? "rolled back" : Promise.reject(e)),
+          );
+      const problems = [];
+      const expect = (label, actual, wanted) => {
+        if (actual !== wanted) problems.push(`${label}: ${actual}, expected ${wanted}`);
+      };
+
+      // (a) consumed inside a transaction that is rolled back: usage unchanged (the control proves the consume itself worked).
+      let inside = null;
+      expect(
+        "(a) transaction",
+        await rolledBack(async (tx) => {
+          inside = (await consume(x, tx)).used;
+        }),
+        "rolled back",
+      );
+      expect("(a) usage seen inside the transaction", inside, 1);
+      expect("(a) usage after rollback", await usage(x), 0);
+
+      // (b) committed: exactly the consumed amount persists.
+      await db.$transaction(async (tx) => {
+        await consume(x, tx, 2);
+      });
+      expect("(b) usage after commit", await usage(x), 2);
+
+      // (c) a consume that would exceed the limit inside a transaction is refused and consumes nothing.
+      const refused = await db
+        .$transaction(async (tx) => {
+          await consume(x, tx, 1);
+          return consume(x, tx, 2);
+        })
+        .then(
+          () => "ok",
+          (e) => e.code,
+        );
+      expect("(c) over-limit consume", refused, "QUOTA_EXCEEDED");
+      expect("(c) usage after the refused transaction", await usage(x), 2);
+
+      // (d) a release inside a transaction is rolled back with it.
+      let released = null;
+      await rolledBack(async (tx) => {
+        await service.releaseQuota(
+          { tenantId: x.id, quotaKey: "scans.monthly", amount: 2, periodKey },
+          tx,
+        );
+        released = await tx.tenantQuotaUsage.findFirst({
+          where: { tenantId: x.id, quotaDefinitionId: def.id, periodKey },
+        });
+      });
+      expect("(d) usage seen inside the transaction after release", Number(released?.used), 0);
+      expect("(d) usage after rollback", await usage(x), 2);
+
+      // (e) another tenant's consumption never touches X, and two transactions racing for the last unit: exactly one wins.
+      await db.$transaction(async (tx) => {
+        await consume(y, tx, 2);
+      });
+      expect("(e) usage of Y", await usage(y), 2);
+      expect("(e) usage of X after Y consumed", await usage(x), 2);
+      const racer = (t) =>
+        db
+          .$transaction(async (tx) => {
+            await consume(t, tx);
+            await new Promise((r) => setTimeout(r, 200));
+          })
+          .then(
+            () => "ok",
+            (e) => e.code,
+          );
+      const race = await Promise.all([racer(x), racer(x)]);
+      expect("(e) racers that won", race.filter((v) => v === "ok").length, 1);
+      expect("(e) racers refused", race.filter((v) => v === "QUOTA_EXCEEDED").length, 1);
+      expect("(e) usage of X after the race", await usage(x), 3);
+      expect("(e) usage of Y after the race", await usage(y), 2);
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

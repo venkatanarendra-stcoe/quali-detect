@@ -3,7 +3,7 @@ import { WORKSPACE_ADMINISTRATOR_KEYS, visibleWorkspaceIds } from "@qmentisai/sh
 import { ValidationError, ConflictError, NotFoundError } from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
 import { AUDIT_ACTIONS } from "../../../audit/actions.js";
-import { ENTITLEMENT_KEYS } from "../../../entitlements/keys.js";
+import { ENTITLEMENT_KEYS } from "@qmentisai/db";
 import { MUTABLE_FIELDS } from "../constants/index.js";
 import { toWorkspaceDto } from "../mappers/index.js";
 import { WORKSPACE_EVENT_TYPES } from "../events/index.js";

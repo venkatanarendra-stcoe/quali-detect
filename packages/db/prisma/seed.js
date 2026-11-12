@@ -265,6 +265,7 @@ const ENTITLEMENTS = [
   { key: "workspaces.max", name: "Workspaces (maximum)", kind: "limit", limit: 25 },
   { key: "users.max", name: "Users (maximum)", kind: "limit", limit: 100 },
   { key: "repositories.max", name: "Repositories (maximum)", kind: "limit", limit: 100 },
+  { key: "pipelines.max", name: "Pipelines (maximum)", kind: "limit", limit: 100 },
   { key: "scans.monthly", name: "Scans per month", kind: "limit", limit: 100 },
 ];
 async function seedEntitlements(tx) {

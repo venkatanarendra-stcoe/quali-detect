@@ -62,6 +62,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   REPOSITORY_DISABLED: "repository.disabled",
   REPOSITORY_UNAVAILABLE: "repository.unavailable",
   REPOSITORY_DISCONNECTED: "repository.disconnected",
+  REPOSITORY_RESTORED: "repository.restored",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

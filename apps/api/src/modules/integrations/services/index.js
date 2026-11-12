@@ -143,29 +143,49 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
     });
   }
 
-  /** Re-link: restores the workspace's repositories that an unlink disconnected and puts them back on the allow-list. */
-  async function restoreWorkspaceRepositories(actor, wl, tx) {
-    const scope = { tenantId: actor.tenantId, workspaceId: wl.workspaceId, workspaceLinkId: wl.id };
-    const candidates = await repository.findRestorableRepositories(scope, tx);
+  /**
+   * Restore rule (SPEC §18.7), applied whenever a workspace links an installation. Restored to `active`: repositories of THIS
+   * workspace that were disconnected by an unlink (`workspace_unlinked`, `installation_unlinked`) or an uninstall
+   * (`installation_revoked`), matched by tenant + provider + external repo id (the same row, ids unchanged), that the
+   * installation can access, and, after an uninstall, that are still on this workspace's allow-list. Any other reason
+   * (`repo_inaccessible`, ...) stays disconnected until an explicit Connect. Other workspaces are never touched, and a
+   * repository another workspace has since put on its own list is skipped.
+   */
+  async function restoreWorkspaceRepositories(actor, wl, tenantLinkId, accessible, tx) {
+    const scope = { tenantId: actor.tenantId, workspaceId: wl.workspaceId };
+    const candidates = (await repository.findRestorableRepositories(scope, tx)).filter((r) =>
+      accessible.has(r.externalRepoId),
+    );
     if (candidates.length === 0) return 0;
-    // A repository another workspace put on its list in the meantime stays disconnected (one repository, one workspace).
+    const listed = await repository.findWorkspaceAllowListIds(
+      { ...scope, externalRepoIds: candidates.map((r) => r.externalRepoId) },
+      tx,
+    );
+    const eligible = candidates.filter(
+      (r) => r.disconnectReason !== "installation_revoked" || listed.has(r.externalRepoId),
+    );
+    if (eligible.length === 0) return 0;
     const elsewhere = await repository.findAllowedElsewhere(
       {
-        tenantId: actor.tenantId,
+        ...scope,
         workspaceLinkId: wl.id,
-        externalRepoIds: candidates.map((r) => r.externalRepoId),
+        externalRepoIds: eligible.map((r) => r.externalRepoId),
       },
       tx,
     );
-    const restorable = candidates.filter((r) => !elsewhere.has(r.externalRepoId));
+    const restorable = eligible.filter((r) => !elsewhere.has(r.externalRepoId));
     if (restorable.length === 0) return 0;
-    await repository.restoreRepositories({ ...scope, ids: restorable.map((r) => r.id) }, tx);
+    const externalRepoIds = restorable.map((r) => r.externalRepoId);
+    await repository.restoreRepositories(
+      { ...scope, linkId: tenantLinkId, workspaceLinkId: wl.id, ids: restorable.map((r) => r.id) },
+      tx,
+    );
+    await repository.removeStaleAllowListEntries(
+      { ...scope, workspaceLinkId: wl.id, externalRepoIds },
+      tx,
+    );
     await repository.removeAllowListEntries(
-      {
-        tenantId: actor.tenantId,
-        workspaceLinkId: wl.id,
-        externalRepoIds: restorable.map((r) => r.externalRepoId),
-      },
+      { tenantId: actor.tenantId, workspaceLinkId: wl.id, externalRepoIds },
       tx,
     );
     await repository.addAllowListEntries(
@@ -177,6 +197,43 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
       },
       tx,
     );
+    for (const row of restorable) {
+      await audit.tenant.record(
+        {
+          ...entry(actor, AUDIT_ACTIONS.REPOSITORY_RESTORED, wl),
+          targetType: "repository",
+          targetId: row.id,
+          workspaceId: row.workspaceId,
+          metadata: {
+            fullName: row.fullName,
+            previousReason: row.disconnectReason,
+            workspaceLinkId: wl.id,
+          },
+        },
+        { tx },
+      );
+      await outbox.enqueue(tx, {
+        queue: QUEUE_NAMES.NOTIFICATION,
+        message: createEventEnvelope({
+          type: "repository.connected",
+          schemaVersion: 1,
+          tenantId: actor.tenantId,
+          workspaceId: row.workspaceId,
+          correlationId: actor.requestId,
+          initiator: { type: "user", id: actor.userId },
+          subject: { type: "repository", id: row.id },
+          payload: {
+            repositoryId: row.id,
+            workspaceId: row.workspaceId,
+            provider: "github",
+            externalRepoId: row.externalRepoId,
+            fullName: row.fullName,
+            defaultBranch: row.defaultBranch,
+            linkId: tenantLinkId,
+          },
+        }),
+      });
+    }
     return restorable.length;
   }
 
@@ -346,6 +403,13 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
         }
         return installation; // the user token goes out of scope here and is never stored or logged
       });
+      // What the installation can access now: only these repositories can be restored (SPEC §18.7).
+      const accessible = await guard(async () => {
+        const listing = await client.listAllInstallationRepositories(
+          installation.externalInstallationId,
+        );
+        return new Set(listing.repositories.map((r) => r.externalRepoId));
+      });
       try {
         const workspaceLinkId = await repository.transaction(async (tx) => {
           const workspace = await repository.findWorkspace(
@@ -426,7 +490,7 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
               tx,
             );
             wl = existing;
-            restored = await restoreWorkspaceRepositories(actor, wl, tx);
+            restored = await restoreWorkspaceRepositories(actor, wl, tenantLink.id, accessible, tx);
           } else {
             wl = await repository.createWorkspaceLink(
               {
@@ -437,6 +501,7 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
               },
               tx,
             );
+            restored = await restoreWorkspaceRepositories(actor, wl, tenantLink.id, accessible, tx);
           }
           await audit.tenant.record(
             entry(
@@ -531,7 +596,12 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
         (r) => !needle || r.fullName.toLowerCase().includes(needle),
       );
       const ids = visible.map((r) => r.externalRepoId);
-      const scope = { tenantId: actor.tenantId, workspaceLinkId: wl.id, externalRepoIds: ids };
+      const scope = {
+        tenantId: actor.tenantId,
+        workspaceId,
+        workspaceLinkId: wl.id,
+        externalRepoIds: ids,
+      };
       const [list, elsewhere, connected] = await Promise.all([
         repository.listAllowList({ tenantId: actor.tenantId, workspaceLinkId: wl.id }),
         repository.findAllowedElsewhere(scope),
@@ -561,7 +631,7 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
     async setAllowList(actor, workspaceId, workspaceLinkId, body) {
       const wl = await loadWorkspaceLink(actor, workspaceId, workspaceLinkId);
       requireLinked(wl);
-      const scope = { tenantId: actor.tenantId, workspaceLinkId: wl.id };
+      const scope = { tenantId: actor.tenantId, workspaceId, workspaceLinkId: wl.id };
       const current = await repository.listAllowList(scope);
       const currentIds = new Set(current.map((e) => e.externalRepoId));
       let toAdd;
@@ -617,6 +687,8 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
                 .size > 0
             )
               throw allowListConflict();
+            // Entries of this workspace's earlier links (for example after a re-install) move to this link.
+            await repository.removeStaleAllowListEntries({ ...scope, externalRepoIds: toAdd }, tx);
             await repository.addAllowListEntries({ ...scope, userId: actor.userId, entries }, tx);
           }
           if (toRemove.length > 0)

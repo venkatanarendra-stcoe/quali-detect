@@ -201,15 +201,19 @@ export function createIntegrationRepository({ db }) {
         });
       return rows;
     },
-    /** Repositories of this workspace link that an earlier unlink disconnected (same rows, same ids). */
-    findRestorableRepositories({ tenantId, workspaceId, workspaceLinkId }, client = db) {
+    /**
+     * Repositories of this workspace that an unlink or an uninstall disconnected (same rows, same ids). Other disconnect
+     * reasons (for example `repo_inaccessible`) are never restored automatically: they need an explicit Connect.
+     */
+    findRestorableRepositories({ tenantId, workspaceId }, client = db) {
       return client.repository.findMany({
         where: {
           tenantId,
           workspaceId,
-          workspaceLinkId,
           status: "disconnected",
-          disconnectReason: { in: ["workspace_unlinked", "installation_unlinked"] },
+          disconnectReason: {
+            in: ["installation_revoked", "workspace_unlinked", "installation_unlinked"],
+          },
         },
         select: {
           id: true,
@@ -217,17 +221,22 @@ export function createIntegrationRepository({ db }) {
           fullName: true,
           externalRepoId: true,
           nodeId: true,
+          defaultBranch: true,
+          disconnectReason: true,
         },
       });
     },
-    restoreRepositories({ tenantId, workspaceId, workspaceLinkId, ids }, client = db) {
+    restoreRepositories({ tenantId, workspaceId, linkId, workspaceLinkId, ids }, client = db) {
       return client.repository.updateMany({
-        where: { tenantId, workspaceId, workspaceLinkId, id: { in: ids }, status: "disconnected" },
+        where: { tenantId, workspaceId, id: { in: ids }, status: "disconnected" },
         data: {
           status: "active",
+          linkId,
+          workspaceLinkId,
           disconnectedAt: null,
           disconnectReason: null,
           consecutiveSyncFailures: 0,
+          lastSyncError: null,
         },
       });
     },
@@ -255,18 +264,54 @@ export function createIntegrationRepository({ db }) {
         where: { tenantId, workspaceLinkId },
         orderBy: { fullName: "asc" },
       }),
-    /** External ids that are on the allow-list of ANOTHER workspace link of the tenant (a repository serves one workspace). */
-    async findAllowedElsewhere({ tenantId, workspaceLinkId, externalRepoIds }, client = db) {
+    /**
+     * External ids that are on the allow-list of a link of ANOTHER workspace of the tenant (a repository serves one
+     * workspace). With `workspaceId`, stale entries of the same workspace's earlier links (for example after a re-install)
+     * do not count: they are moved to the new link.
+     */
+    async findAllowedElsewhere(
+      { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
+      client = db,
+    ) {
       const rows = await client.scmWorkspaceLinkRepository.findMany({
         where: {
           tenantId,
           provider: "github",
           externalRepoId: { in: externalRepoIds },
           workspaceLinkId: { not: workspaceLinkId },
+          ...(workspaceId ? { workspaceLink: { workspaceId: { not: workspaceId } } } : {}),
         },
         select: { externalRepoId: true },
       });
       return new Set(rows.map((r) => r.externalRepoId));
+    },
+    /** External ids on the allow-list of ANY link of this workspace (current or earlier). */
+    async findWorkspaceAllowListIds({ tenantId, workspaceId, externalRepoIds }, client = db) {
+      const rows = await client.scmWorkspaceLinkRepository.findMany({
+        where: {
+          tenantId,
+          provider: "github",
+          externalRepoId: { in: externalRepoIds },
+          workspaceLink: { workspaceId },
+        },
+        select: { externalRepoId: true },
+      });
+      return new Set(rows.map((r) => r.externalRepoId));
+    },
+    /** Removes this workspace's entries for these repositories that sit on its EARLIER links (they move to the new link). */
+    removeStaleAllowListEntries(
+      { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
+      client = db,
+    ) {
+      return client.scmWorkspaceLinkRepository.deleteMany({
+        where: {
+          tenantId,
+          provider: "github",
+          externalRepoId: { in: externalRepoIds },
+          workspaceLinkId: { not: workspaceLinkId },
+          workspaceLink: { workspaceId },
+        },
+      });
     },
     addAllowListEntries: ({ tenantId, workspaceLinkId, entries, userId }, client = db) =>
       client.scmWorkspaceLinkRepository.createMany({

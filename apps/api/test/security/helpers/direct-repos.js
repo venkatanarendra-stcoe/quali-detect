@@ -20,6 +20,8 @@ import { createWebhookRepository } from "../../../src/modules/scm-webhooks/repos
 import { createUserRepository } from "../../../src/modules/users/repositories/index.js";
 import { createWorkspaceMemberRepository } from "../../../src/modules/workspace-members/repositories/index.js";
 import { createWorkspaceRepository } from "../../../src/modules/workspaces/repositories/index.js";
+import { createNotificationHandler } from "../../../../workers/src/notification/handler.js";
+import { createRecipientFinder } from "../../../../workers/src/notification/recipients.js";
 import { createOwnershipVerifier } from "../../../../workers/src/ownership/index.js";
 import { createScmEventHandler } from "../../../../workers/src/scm/events.js";
 import { createScmJobHandler } from "../../../../workers/src/scm/jobs.js";
@@ -180,16 +182,17 @@ export async function buildDalWorld(db) {
   const link = await db.scmInstallationLink.create({
     data: { tenantId: X.id, installationId: installation.id, linkedByUserId: uA.id },
   });
-  await db.scmInstallationLinkWorkspace.create({
-    data: { tenantId: X.id, linkId: link.id, workspaceId: ws.id },
+  const wl = await db.scmWorkspaceLink.create({
+    data: { tenantId: X.id, workspaceId: ws.id, linkId: link.id, linkedByUserId: uA.id },
   });
-  await db.scmWorkspaceLinkSetting.create({
-    data: { tenantId: X.id, linkId: link.id, workspaceId: ws.id, updatedByUserId: uA.id },
+  await db.tenantIntegrationSettings.create({
+    data: { tenantId: X.id, allowWorkspaceLinking: false, updatedByUserId: uA.id },
   });
   const repoData = (n, extra = {}) => ({
     tenantId: X.id,
     workspaceId: ws.id,
     linkId: link.id,
+    workspaceLinkId: wl.id,
     provider: "github",
     externalRepoId: `dal-${sfx}-${n}`,
     fullName: `dal-org/repo-${n}`,
@@ -199,8 +202,18 @@ export async function buildDalWorld(db) {
     ...extra,
   });
   const repo = await db.repository.create({ data: repoData(1) });
-  await db.repository.create({
+  const repo2 = await db.repository.create({
     data: repoData(2, { status: "disconnected", disconnectReason: "installation_unlinked" }),
+  });
+  await db.scmWorkspaceLinkRepository.create({
+    data: {
+      tenantId: X.id,
+      workspaceLinkId: wl.id,
+      provider: "github",
+      externalRepoId: repo.externalRepoId,
+      fullName: repo.fullName,
+      addedByUserId: uA.id,
+    },
   });
   await db.scmEvent.create({
     data: {
@@ -285,6 +298,83 @@ export async function buildDalWorld(db) {
     },
   });
 
+  // Tenant Z (a third tenant, never the "wrong tenant" of the entries above): holders of the integration keys and two
+  // installations whose uninstall / suspension fan out over two workspace links each. uA is an ACTIVE member of X but only a
+  // SUSPENDED member of Z (holding an Admin assignment there): a lost membership filter would bring them back as a recipient.
+  // uE holds an Admin assignment in X and is an active member of Z with no assignment there: a lost assignment filter would
+  // make them a recipient for Z.
+  const Z = await db.tenant.create({ data: { slug: `dal-z-${sfx}`, name: `DAL Z ${sfx}` } });
+  const [uZ, uE] = [await user("z"), await user("e")];
+  const zMembership = (u, status) =>
+    db.tenantMembership.create({
+      data: {
+        tenantId: Z.id,
+        userId: u.id,
+        status,
+        joinedAt: status === "active" ? new Date() : null,
+      },
+    });
+  await zMembership(uZ, "active");
+  await zMembership(uE, "active");
+  await zMembership(uA, "suspended");
+  await membership(uE, "invited");
+  const adminOf = (tenantId, userId) =>
+    db.userRoleAssignment.create({
+      data: { tenantId, roleId: builtInAdmin.id, userId, scopeType: "tenant", scopeKey: "tenant" },
+    });
+  await adminOf(Z.id, uZ.id);
+  await adminOf(Z.id, uA.id);
+  await adminOf(X.id, uE.id);
+  const zWorkspaces = [
+    await db.workspace.create({ data: { tenantId: Z.id, name: `DAL Z1 ${sfx}` } }),
+    await db.workspace.create({ data: { tenantId: Z.id, name: `DAL Z2 ${sfx}` } }),
+  ];
+  const zInstallation = async (label) => {
+    const installation = await db.scmInstallation.create({
+      data: {
+        provider: "github",
+        externalInstallationId: `dal-z-${label}-${rand(4)}`,
+        accountExternalId: `acct-z-${label}-${sfx}`,
+        accountLogin: `dal-z-${label}`,
+        accountType: "organization",
+        repositorySelection: "all",
+      },
+    });
+    const zLink = await db.scmInstallationLink.create({
+      data: { tenantId: Z.id, installationId: installation.id, linkedByUserId: uZ.id },
+    });
+    const sets = [];
+    for (const [i, zws] of zWorkspaces.entries()) {
+      const zwl = await db.scmWorkspaceLink.create({
+        data: { tenantId: Z.id, workspaceId: zws.id, linkId: zLink.id, linkedByUserId: uZ.id },
+      });
+      const zrepo = await db.repository.create({
+        data: {
+          tenantId: Z.id,
+          workspaceId: zws.id,
+          linkId: zLink.id,
+          workspaceLinkId: zwl.id,
+          provider: "github",
+          externalRepoId: `dal-z-${label}-${i}-${sfx}`,
+          fullName: `dal-z/${label}-${i}`,
+          name: `${label}-${i}`,
+          ownerLogin: "dal-z",
+          connectedByUserId: uZ.id,
+        },
+      });
+      sets.push({ workspaceId: zws.id, workspaceLink: zwl, repo: zrepo });
+    }
+    return { installation, link: zLink, sets };
+  };
+  const z = {
+    id: Z.id,
+    uZ: uZ.id,
+    uE: uE.id,
+    workspaces: zWorkspaces.map((x) => x.id),
+    revoke: await zInstallation("revoke"),
+    suspend: await zInstallation("suspend"),
+  };
+
   const repos = {
     audit: createAuditLogRepository({ db }),
     groups: createGroupRepository({ db }),
@@ -325,7 +415,10 @@ export async function buildDalWorld(db) {
     installation: installation.id,
     extInstallation,
     link: link.id,
+    wl: wl.id,
     repo,
+    repo2,
+    z,
     secret: secret.id,
     keys,
     entitlementId: planEntitlement.entitlementId,
@@ -353,8 +446,9 @@ async function snapshot(c) {
     db.session.findMany({ where: users }),
     db.scmInstallation.findMany({ where: { id: c.installation } }),
     db.scmInstallationLink.findMany({ where: tenant }),
-    db.scmInstallationLinkWorkspace.findMany({ where: tenant }),
-    db.scmWorkspaceLinkSetting.findMany({ where: tenant }),
+    db.scmWorkspaceLink.findMany({ where: tenant }),
+    db.scmWorkspaceLinkRepository.findMany({ where: tenant }),
+    db.tenantIntegrationSettings.findMany({ where: tenant }),
     db.repository.findMany({ where: tenant }),
     db.scmEvent.findMany({ where: tenant }),
     db.scmWebhookDelivery.findMany({ where: tenant }),
@@ -489,30 +583,42 @@ export function buildDalEntries() {
     { mayThrow: true },
   );
   E("integrations.restoreRepositories", (c) =>
-    N(c).restoreRepositories({ tenantId: c.y, linkId: c.link }),
+    N(c).restoreRepositories({
+      tenantId: c.y,
+      workspaceId: c.ws,
+      workspaceLinkId: c.wl,
+      ids: [c.repo2.id],
+    }),
   );
-  E("integrations.findLink", (c) => N(c).findLink({ tenantId: c.y, linkId: c.link }), {
-    control: (c) => N(c).findLink({ tenantId: c.x, linkId: c.link }),
+  E("integrations.findTenantLink", (c) => N(c).findTenantLink({ tenantId: c.y, linkId: c.link }), {
+    control: (c) => N(c).findTenantLink({ tenantId: c.x, linkId: c.link }),
   });
-  E("integrations.listLinks", (c) => N(c).listLinks({ tenantId: c.y }), {
-    control: (c) => N(c).listLinks({ tenantId: c.x }),
+  E("integrations.listTenantLinks", (c) => N(c).listTenantLinks({ tenantId: c.y }), {
+    control: (c) => N(c).listTenantLinks({ tenantId: c.x }),
   });
   E(
-    "integrations.repositoryCounts",
-    async (c) => [...(await N(c).repositoryCounts({ tenantId: c.y, linkIds: [c.link] })).values()],
+    "integrations.tenantLinkCounts",
+    async (c) => [...(await N(c).tenantLinkCounts({ tenantId: c.y, linkIds: [c.link] })).values()],
     {
       verify: (rows) =>
         rows.some((r) => r.repositoryCount !== 0 || r.unavailableRepositoryCount !== 0)
           ? ["counted another tenant's repositories"]
           : [],
       control: async (c) =>
-        [...(await N(c).repositoryCounts({ tenantId: c.x, linkIds: [c.link] })).values()][0]
+        [...(await N(c).tenantLinkCounts({ tenantId: c.x, linkIds: [c.link] })).values()][0]
           .repositoryCount,
     },
   );
-  E("integrations.unlink", (c) => N(c).unlink({ tenantId: c.y, linkId: c.link, userId: c.uA }));
-  E("integrations.disconnectRepositories", (c) =>
-    N(c).disconnectRepositories({ tenantId: c.y, linkId: c.link, reason: "dal" }),
+  E("integrations.unlinkWorkspaceLink", (c) =>
+    N(c).unlinkWorkspaceLink({ tenantId: c.y, workspaceId: c.ws, id: c.wl, userId: c.uA }),
+  );
+  E("integrations.disconnectWorkspaceRepositories", (c) =>
+    N(c).disconnectWorkspaceRepositories({
+      tenantId: c.y,
+      workspaceId: c.ws,
+      workspaceLinkId: c.wl,
+      reason: "dal",
+    }),
   );
   E(
     "integrations.listWorkspaceLinks",
@@ -521,32 +627,29 @@ export function buildDalEntries() {
   );
   E(
     "integrations.findWorkspaceLink",
-    (c) => N(c).findWorkspaceLink({ tenantId: c.y, workspaceId: c.ws, linkId: c.link }),
+    (c) => N(c).findWorkspaceLink({ tenantId: c.y, workspaceId: c.ws, workspaceLinkId: c.wl }),
     {
-      control: (c) => N(c).findWorkspaceLink({ tenantId: c.x, workspaceId: c.ws, linkId: c.link }),
+      control: (c) =>
+        N(c).findWorkspaceLink({ tenantId: c.x, workspaceId: c.ws, workspaceLinkId: c.wl }),
     },
   );
   E(
-    "integrations.upsertWorkspaceSetting",
-    (c) =>
-      N(c).upsertWorkspaceSetting({
-        tenantId: c.y,
-        workspaceId: c.ws,
-        linkId: c.link,
-        enabled: false,
-        userId: c.uA,
-      }),
-    { mayThrow: true },
+    "integrations.upsertSettings",
+    (c) => N(c).upsertSettings({ tenantId: c.y, allowWorkspaceLinking: false, userId: c.uA }),
+    created("the settings", (c) =>
+      c.db.tenantIntegrationSettings.deleteMany({ where: { tenantId: c.y } }),
+    ),
   );
+  E("integrations.findWorkspace", (c) => N(c).findWorkspace({ tenantId: c.y, workspaceId: c.ws }), {
+    control: (c) => N(c).findWorkspace({ tenantId: c.x, workspaceId: c.ws }),
+  });
   E(
-    "integrations.countWorkspaces",
-    (c) => N(c).countWorkspaces({ tenantId: c.y, workspaceIds: [c.ws] }),
-    { control: (c) => N(c).countWorkspaces({ tenantId: c.x, workspaceIds: [c.ws] }) },
-  );
-  E(
-    "integrations.setScope",
-    (c) => N(c).setScope({ tenantId: c.y, linkId: c.link, workspaceIds: [c.ws] }),
-    { mayThrow: true },
+    "integrations.findWorkspaceLinkForPair",
+    (c) => N(c).findWorkspaceLinkForPair({ tenantId: c.y, workspaceId: c.ws, linkId: c.link }),
+    {
+      control: (c) =>
+        N(c).findWorkspaceLinkForPair({ tenantId: c.x, workspaceId: c.ws, linkId: c.link }),
+    },
   );
   E(
     "integrations.listDeliveries",
@@ -590,11 +693,9 @@ export function buildDalEntries() {
   E("repositories.countLive", (c) => R(c).countLive({ tenantId: c.y }, c.db), {
     control: (c) => R(c).countLive({ tenantId: c.x }, c.db),
   });
-  E(
-    "repositories.findLinkWithScope",
-    (c) => R(c).findLinkWithScope({ tenantId: c.y, linkId: c.link }),
-    { control: (c) => R(c).findLinkWithScope({ tenantId: c.x, linkId: c.link }) },
-  );
+  E("repositories.findLink", (c) => R(c).findLink({ tenantId: c.y, linkId: c.link }), {
+    control: (c) => R(c).findLink({ tenantId: c.x, linkId: c.link }),
+  });
   E("repositories.findWorkspace", (c) => R(c).findWorkspace({ tenantId: c.y, id: c.ws }), {
     control: (c) => R(c).findWorkspace({ tenantId: c.x, id: c.ws }),
   });
@@ -610,6 +711,7 @@ export function buildDalEntries() {
         tenantId: c.y,
         workspaceId: c.ws,
         linkId: c.link,
+        workspaceLinkId: c.wl,
         provider: "github",
         externalRepoId: `dal-create-${rand()}`,
         fullName: "dal-org/create",
@@ -1279,6 +1381,354 @@ export function buildDalEntries() {
   );
   E("entitlements.release", (c) =>
     EN(c).release({ tenantId: c.y, quotaDefinitionId: c.quotaId, periodKey: "all", amount: 2 }),
+  );
+
+  // ----- workspace links, allow-lists and the tenant setting (SPEC §18; appended so the ids above do not shift)
+  const NN = (c) => c.repos.integrations;
+  E(
+    "integrations.createWorkspaceLink",
+    (c) =>
+      NN(c).createWorkspaceLink({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        linkId: c.link,
+        linkedByUserId: c.uA,
+      }),
+    {
+      // The composite foreign keys tie the workspace and the tenant link to the tenant; if the insert is not refused the
+      // row must be Y's.
+      mayThrow: true,
+      ...created("the workspace link", (c, row) =>
+        c.db.scmWorkspaceLink.deleteMany({ where: { id: row.id } }),
+      ),
+    },
+  );
+  E("integrations.reactivateWorkspaceLink", (c) =>
+    NN(c).reactivateWorkspaceLink({
+      tenantId: c.y,
+      workspaceId: c.ws,
+      id: c.wl,
+      linkedByUserId: c.uA,
+    }),
+  );
+  E(
+    "integrations.workspaceLinkStats",
+    async (c) => [
+      ...(
+        await NN(c).workspaceLinkStats({
+          tenantId: c.y,
+          workspaceId: c.ws,
+          workspaceLinkIds: [c.wl],
+        })
+      ).values(),
+    ],
+    {
+      verify: (rows) =>
+        rows.some(
+          (r) =>
+            r.repositoryCount !== 0 ||
+            r.unavailableRepositoryCount !== 0 ||
+            r.allowListCount !== 0 ||
+            r.lastEventAt !== null,
+        )
+          ? ["counted another tenant's repositories or allow-list"]
+          : [],
+      control: async (c) => [
+        (
+          await NN(c).workspaceLinkStats({
+            tenantId: c.x,
+            workspaceId: c.ws,
+            workspaceLinkIds: [c.wl],
+          })
+        ).get(c.wl).allowListCount,
+      ],
+    },
+  );
+  E(
+    "integrations.findRestorableRepositories",
+    (c) =>
+      NN(c).findRestorableRepositories({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        workspaceLinkId: c.wl,
+      }),
+    {
+      control: (c) =>
+        NN(c).findRestorableRepositories({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          workspaceLinkId: c.wl,
+        }),
+    },
+  );
+  const live = (which) => (c) =>
+    NN(c)
+      .findLiveExternalIds({
+        tenantId: c[which],
+        workspaceId: c.ws,
+        workspaceLinkId: c.wl,
+        externalRepoIds: [c.repo.externalRepoId],
+      })
+      .then((set) => [...set]);
+  E("integrations.findLiveExternalIds", live("y"), { control: live("x") });
+  E(
+    "integrations.listAllowList",
+    (c) => NN(c).listAllowList({ tenantId: c.y, workspaceLinkId: c.wl }),
+    {
+      control: (c) => NN(c).listAllowList({ tenantId: c.x, workspaceLinkId: c.wl }),
+    },
+  );
+  E(
+    "integrations.findAllowedElsewhere",
+    async (c) => [
+      ...(await NN(c).findAllowedElsewhere({
+        tenantId: c.y,
+        workspaceLinkId: randomUUID(),
+        externalRepoIds: [c.repo.externalRepoId],
+      })),
+    ],
+    {
+      control: async (c) => [
+        ...(await NN(c).findAllowedElsewhere({
+          tenantId: c.x,
+          workspaceLinkId: randomUUID(),
+          externalRepoIds: [c.repo.externalRepoId],
+        })),
+      ],
+    },
+  );
+  E(
+    "integrations.addAllowListEntries",
+    (c) =>
+      NN(c).addAllowListEntries({
+        tenantId: c.y,
+        workspaceLinkId: c.wl,
+        userId: c.uA,
+        entries: [{ externalRepoId: `dal-allow-${rand()}`, fullName: "dal-org/allow" }],
+      }),
+    // The composite foreign key (tenant, workspace link) refuses another tenant's workspace link.
+    { mayThrow: true },
+  );
+  E("integrations.removeAllowListEntries", (c) =>
+    NN(c).removeAllowListEntries({
+      tenantId: c.y,
+      workspaceLinkId: c.wl,
+      externalRepoIds: [c.repo.externalRepoId],
+    }),
+  );
+  E("integrations.clearAllowList", (c) =>
+    NN(c).clearAllowList({ tenantId: c.y, workspaceLinkId: c.wl }),
+  );
+  E("integrations.findSettings", (c) => NN(c).findSettings({ tenantId: c.y }), {
+    control: (c) => NN(c).findSettings({ tenantId: c.x }),
+  });
+  const RR = (c) => c.repos.repositories;
+  E(
+    "repositories.findWorkspaceLink",
+    (c) => RR(c).findWorkspaceLink({ tenantId: c.y, workspaceId: c.ws, workspaceLinkId: c.wl }),
+    {
+      control: (c) =>
+        RR(c).findWorkspaceLink({ tenantId: c.x, workspaceId: c.ws, workspaceLinkId: c.wl }),
+    },
+  );
+  E(
+    "repositories.findAllowListEntries",
+    (c) =>
+      RR(c).findAllowListEntries({
+        tenantId: c.y,
+        workspaceLinkId: c.wl,
+        externalRepoIds: [c.repo.externalRepoId],
+      }),
+    {
+      control: (c) =>
+        RR(c).findAllowListEntries({
+          tenantId: c.x,
+          workspaceLinkId: c.wl,
+          externalRepoIds: [c.repo.externalRepoId],
+        }),
+    },
+  );
+  E(
+    "repositories.listAllowList",
+    (c) => RR(c).listAllowList({ tenantId: c.y, workspaceLinkId: c.wl }),
+    {
+      control: (c) => RR(c).listAllowList({ tenantId: c.x, workspaceLinkId: c.wl }),
+    },
+  );
+
+  // ----- workers: uninstall / suspension fan-out. The installations belong to tenant Z; tenant X's rows must not change, and
+  //       everything written for Z must carry Z (audit, outbox) and cover each of Z's workspaces.
+  const zRows = async (c, set) => {
+    const ids = set.sets.map((x) => x.repo.id);
+    const wlIds = set.sets.map((x) => x.workspaceLink.id);
+    return {
+      repos: await c.db.repository.findMany({ where: { id: { in: ids } } }),
+      installation: await c.db.scmInstallation.findUnique({ where: { id: set.installation.id } }),
+      audits: await c.db.auditLog.findMany({
+        where: {
+          tenantId: c.z.id,
+          OR: [
+            { action: "scm_installation.status_changed", targetId: set.link.id },
+            { action: "scm_workspace_link.status_changed", targetId: { in: wlIds } },
+            { action: "repository.disconnected", targetId: { in: ids } },
+          ],
+        },
+      }),
+      messages: (
+        await c.db.outboxMessage.findMany({
+          where: { tenantId: c.z.id, type: "scm.installation.revoked" },
+        })
+      ).filter((m) => m.payload?.payload?.linkId === set.link.id),
+    };
+  };
+  const fanOutProblems = (rows, set, c, { status, reason, cause }) => {
+    const problems = [];
+    if (rows.installation.status !== status)
+      problems.push(`installation is ${rows.installation.status}`);
+    for (const repo of rows.repos)
+      if (repo.status !== (status === "revoked" ? "disconnected" : "unavailable"))
+        problems.push(`a repository is ${repo.status}`);
+      else if ((repo.disconnectReason ?? repo.lastSyncError) !== reason)
+        problems.push(`reason ${repo.disconnectReason ?? repo.lastSyncError}`);
+    const count = (action) => rows.audits.filter((a) => a.action === action).length;
+    if (count("scm_installation.status_changed") !== 1) problems.push("tenant-level audit entries");
+    if (count("scm_workspace_link.status_changed") !== set.sets.length)
+      problems.push("per-workspace audit entries");
+    if (rows.audits.some((a) => a.tenantId !== c.z.id))
+      problems.push("an audit entry of another tenant");
+    if (rows.messages.length !== 1) problems.push(`${rows.messages.length} notification messages`);
+    else {
+      const m = rows.messages[0].payload;
+      const named = m.payload.workspaces.map((x) => x.workspaceId).sort();
+      if (
+        m.payload.cause !== cause ||
+        JSON.stringify(named) !== JSON.stringify([...c.z.workspaces].sort())
+      )
+        problems.push("the notification message does not list this tenant's workspaces");
+    }
+    return problems;
+  };
+  E(
+    "workers.state.revokeInstallation",
+    async (c) => {
+      await states(c).revokeInstallation(c.z.revoke.installation.id);
+      return zRows(c, c.z.revoke);
+    },
+    {
+      verify: (rows, c) =>
+        fanOutProblems(rows, c.z.revoke, c, {
+          status: "revoked",
+          reason: "installation_revoked",
+          cause: "deleted",
+        }),
+      control: async (c) => (await zRows(c, c.z.revoke)).repos,
+    },
+  );
+  E(
+    "workers.state.suspendInstallation",
+    async (c) => {
+      await states(c).suspendInstallation(c.z.suspend.installation.id, true);
+      return zRows(c, c.z.suspend);
+    },
+    {
+      verify: (rows, c) =>
+        fanOutProblems(rows, c.z.suspend, c, {
+          status: "suspended",
+          reason: "installation_suspended",
+          cause: "suspended",
+        }),
+      control: async (c) => (await zRows(c, c.z.suspend)).repos,
+    },
+  );
+
+  // ----- workers: notification recipients (every query carries the message's tenant)
+  const recipientsOf = (c, tenantId, workspaceIds) =>
+    createRecipientFinder({ db: c.db }).forInstallationRevoked({ tenantId, workspaceIds });
+  E(
+    "workers.notification.recipients.forInstallationRevoked",
+    (c) => recipientsOf(c, c.z.id, [...c.z.workspaces, c.ws]),
+    {
+      // Tenant Z's own administrator is a recipient; nobody of tenant X (uA is only a SUSPENDED member of Z, uE has an Admin
+      // assignment in X only) and no one else may be.
+      verify: (people, c) => {
+        const ids = people.map((p) => p.userId);
+        const problems = [];
+        if (!ids.includes(c.z.uZ)) problems.push("the tenant's own administrator is missing");
+        for (const id of ids)
+          if (id !== c.z.uZ)
+            problems.push("a person of another tenant or without an active membership");
+        return problems;
+      },
+      control: (c) => recipientsOf(c, c.x, [c.ws]),
+    },
+  );
+  const notifyAs = async (c, tenantId, payload) => {
+    const warnings = [];
+    const log = { warn: (fields) => warnings.push(fields), info() {}, error() {}, debug() {} };
+    await createNotificationHandler({ db: c.db })(
+      { type: "scm.installation.revoked", tenantId, payload },
+      { log, attempt: 1 },
+    );
+    return warnings.map((w) => w.recipientUserId);
+  };
+  E(
+    "workers.notification.handler.scm.installation.revoked",
+    (c) =>
+      notifyAs(c, c.z.id, {
+        linkId: c.link,
+        cause: "deleted",
+        repositoriesAffected: 0,
+        workspaces: [{ workspaceId: c.ws, repositoryCount: 0 }],
+      }),
+    {
+      verify: (ids, c) =>
+        ids.some((id) => id !== c.z.uZ)
+          ? ["notified a person who is not in the message's tenant"]
+          : [],
+      control: (c) =>
+        notifyAs(c, c.x, {
+          linkId: c.link,
+          cause: "deleted",
+          repositoriesAffected: 0,
+          workspaces: [{ workspaceId: c.ws, repositoryCount: 0 }],
+        }),
+    },
+  );
+  const revokedPayload = (link, workspaceId) => ({
+    linkId: link,
+    cause: "deleted",
+    repositoriesAffected: 0,
+    workspaces: [{ workspaceId, repositoryCount: 0 }],
+  });
+  E(
+    "workers.ownership.installation-revoked-foreign-link",
+    (c) => verifyAs(c, c.y, "scm.installation.revoked", revokedPayload(c.link, c.ws)),
+    {
+      mustThrow: true,
+      control: async (c) =>
+        (await verifyAs(c, c.x, "scm.installation.revoked", revokedPayload(c.link, c.ws))) ===
+        undefined
+          ? "accepted"
+          : null,
+    },
+  );
+  E(
+    "workers.ownership.installation-revoked-foreign-workspace",
+    // The tenant link is Z's own; the workspace named in the payload is X's.
+    (c) =>
+      verifyAs(c, c.z.id, "scm.installation.revoked", revokedPayload(c.z.suspend.link.id, c.ws)),
+    {
+      mustThrow: true,
+      control: async (c) =>
+        (await verifyAs(
+          c,
+          c.z.id,
+          "scm.installation.revoked",
+          revokedPayload(c.z.suspend.link.id, c.z.workspaces[0]),
+        )) === undefined
+          ? "accepted"
+          : null,
+    },
   );
 
   return list.map((entry, i) => ({

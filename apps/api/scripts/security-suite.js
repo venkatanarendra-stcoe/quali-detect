@@ -212,6 +212,8 @@ async function main() {
     GITHUB_APP_CLIENT_SECRET: gh.clientSecret,
     GITHUB_APP_WEBHOOK_SECRET: gh.webhookSecret,
     SCM_SYNC_FAILURES_BEFORE_DISCONNECT: "3",
+    // Lifetime of a workspace-link state: 3 s so SCM-033 can prove that an expired state is refused (production default: 600).
+    SCM_LINK_STATE_TTL_SECONDS: "3",
     DATABASE_URL: databaseUrl,
     MOCK_AUTH_PASSWORD: tenantPassword,
     MOCK_PLATFORM_AUTH_PASSWORD: platformPassword,

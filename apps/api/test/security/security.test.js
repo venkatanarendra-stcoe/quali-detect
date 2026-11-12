@@ -13,13 +13,15 @@ import { getDbClient } from "@qmentisai/db";
 import { assertSecretFreeMessage, resolveFromMessage, toSecretResponse } from "@qmentisai/infra";
 import { createGitHubClient } from "@qmentisai/infra";
 import { createAuditService } from "../../src/audit/audit-service.js";
+import { createNotificationHandler } from "../../../workers/src/notification/handler.js";
+import { createScmEventHandler } from "../../../workers/src/scm/events.js";
 import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 264;
+const EXPECTED_CHECKS = 302;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -1319,40 +1321,74 @@ const tenantIdOf = (x, who) =>
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// 10. GitHub integration: installation linking (SCM). The App is a local stub (no network); see helpers/github-stub.js.
+// 10. GitHub integration: workspace-level linking (SCM, SPEC §18). The App is a local stub (no network); see helpers/github-stub.js.
 // ---------------------------------------------------------------------------------------------------------------------
 const STUB = env("SECURITY_GITHUB_STUB_URL");
 const stubCtl = (path, body) =>
   fetch(STUB + path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
 let installationCounter = 0;
 const nextInstallationId = () => 700000000 + (Date.now() % 1000000) * 10 + installationCounter++;
+const ghPath = (workspaceId) => `/workspaces/${workspaceId}/integrations/github`;
+/** A fresh sign-in (a new session) of one of the seeded tenant-A users. */
+const loginAs = async (email) => {
+  const response = await w.api("POST", "/auth/login", {
+    body: { email, password: w.secrets.tenantPassword },
+  });
+  assert.equal(response.status, 200, `fixture: sign-in of ${email} answered ${response.status}`);
+  return response.cookie;
+};
+/** A workspace of the edge tenant (another tenant) the suite can link GitHub into. */
+const edgeWorkspace = () =>
+  once("edge-scm-workspace", async () => {
+    const edge = await edgeTenant();
+    const response = await w.api("POST", "/workspaces", {
+      cookie: edge.owner,
+      body: { name: `Edge SCM ${w.suffix}` },
+    });
+    assert.equal(response.status, 201, `fixture: edge workspace answered ${response.status}`);
+    return response.json.data.id;
+  });
+const meId = async (cookie) => (await w.api("GET", "/me", { cookie })).json.data.user.id;
+const tenantIdA = () => once("tenant-a-id", () => tenantIdOf(w, "admin"));
 /**
- * The documented linking sequence against the stub: set up GitHub's side, ask for our single-use state, then verify.
- * `orgRole`: the user's role in the organization ("admin", "member"); omit for a personal account.
+ * Steps 1 and 2 of the documented linking sequence against the stub: set up GitHub's side, then ask for our single-use state
+ * in a workspace. `orgRole`: the user's role in the organization ("admin", "member"); omit for a personal account. Omit
+ * `installationId` for a new installation; pass it (without `repos`) to reuse an installation that is already set up.
  */
-async function linkFlow(
+async function mintState(
   cookie,
-  { installationId = nextInstallationId(), account, user, orgRole, listed = true, repos = [] },
+  { workspaceId, installationId, account, user, orgRole, listed = true, repos },
 ) {
-  await stubCtl("/__control/installation", { id: installationId, account, repos });
+  const fresh = installationId === undefined;
+  const id = installationId ?? nextInstallationId();
+  await stubCtl("/__control/installation", {
+    id,
+    account,
+    ...(repos ? { repos } : fresh ? { repos: [] } : {}),
+  });
   const code = `code-${randomBytes(6).toString("hex")}`;
   await stubCtl("/__control/code", {
     code,
     user,
-    installationIds: listed ? [installationId] : [],
+    installationIds: listed ? [id] : [],
     orgRoles: orgRole ? { [account.login]: { role: orgRole, state: "active" } } : {},
   });
-  const auth = await w.api("POST", "/integrations/github/installations/authorize", {
+  const auth = await w.api("POST", `${ghPath(workspaceId)}/authorize`, {
     cookie,
-    body: { installationId: String(installationId) },
+    body: { installationId: String(id) },
   });
-  if (auth.status !== 200) return { auth, installationId };
-  const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
-  const link = await w.api("POST", "/integrations/github/installations", {
-    cookie,
-    body: { code, state },
-  });
-  return { auth, state, code, link, installationId };
+  const state =
+    auth.status === 200 ? new URL(auth.json.data.authorizeUrl).searchParams.get("state") : null;
+  return { auth, state, code, installationId: id, workspaceId };
+}
+/** Step 3: verify and link. The workspace comes only from the stored state. */
+const consumeState = (cookie, { code, state }) =>
+  w.api("POST", "/integrations/github/links", { cookie, body: { code, state } });
+/** The whole sequence. The result carries `auth` and, when a state was issued, `state`, `code` and `link`. */
+async function linkFlow(cookie, options) {
+  const minted = await mintState(cookie, options);
+  if (!minted.state) return minted;
+  return { ...minted, link: await consumeState(cookie, minted) };
 }
 const orgAccount = (label) => ({
   id: 880000 + Math.floor(Math.random() * 90000),
@@ -1363,51 +1399,118 @@ const ghUser = () => ({
   id: 550000 + Math.floor(Math.random() * 90000),
   login: `dev-${randomBytes(3).toString("hex")}`,
 });
+/** Replaces the allow-list of a workspace link. */
+const putAllowList = (cookie, workspaceId, workspaceLinkId, ids) =>
+  w.api("PUT", `${ghPath(workspaceId)}/links/${workspaceLinkId}/repositories`, {
+    cookie,
+    body: { externalRepoIds: ids.map(String) },
+  });
+const connectRepo = (cookie, workspaceId, workspaceLinkId, externalRepoId, key) =>
+  w.api("POST", `/workspaces/${workspaceId}/repositories`, {
+    cookie,
+    body: { workspaceLinkId, externalRepoId: String(externalRepoId) },
+    ...(key ? { headers: { "idempotency-key": key } } : {}),
+  });
+/** Runs `fn` while `userCookie`'s owner also holds a role (assigned by the tenant-A administrator), then removes it. */
+async function withRole({ userId, roleId, workspaceId }, fn) {
+  const admin = S("admin")(w);
+  const path = workspaceId ? `/workspaces/${workspaceId}/role-assignments` : "/role-assignments";
+  const made = await w.api("POST", path, {
+    cookie: admin,
+    body: { subjectType: "user", subjectId: userId, roleId },
+  });
+  assert.equal(
+    made.status,
+    201,
+    `fixture: role assignment answered ${made.status} ${JSON.stringify(made.json?.error)}`,
+  );
+  try {
+    return await fn();
+  } finally {
+    const removed = await w.api("DELETE", `${path}/${made.json.data.id}`, { cookie: admin });
+    assert.ok(
+      removed.status < 300,
+      `fixture: removing the role assignment answered ${removed.status} ${JSON.stringify(removed.json?.error)}`,
+    );
+  }
+}
+/** A custom role holding only workspace_integration.manage (and what it needs to see the workspace). */
+const integrationManagerRoleId = () =>
+  once("scm-integration-manager-role", async () => {
+    const made = await w.api("POST", "/roles", {
+      cookie: S("admin")(w),
+      body: {
+        name: `SCM integration manager ${w.suffix}`,
+        description: "workspace_integration.manage only",
+        permissions: [
+          "workspace.view",
+          "workspace_integration.view",
+          "workspace_integration.manage",
+        ],
+      },
+    });
+    assert.equal(made.status, 201, `fixture: custom role answered ${made.status}`);
+    return made.json.data.id;
+  });
+/** A tenant-scope custom role holding only integration.view (the read-only list of installations). */
+const viewOnlyRoleId = () =>
+  once("scm-view-only-role", async () => {
+    const made = await w.api("POST", "/roles", {
+      cookie: S("admin")(w),
+      body: {
+        name: `SCM view only ${w.suffix}`,
+        description: "integration.view only",
+        permissions: ["integration.view"],
+      },
+    });
+    assert.equal(made.status, 201, `fixture: custom role answered ${made.status}`);
+    return made.json.data.id;
+  });
 {
   const add = group("GitHub integration: linking");
   const asA = () => S("admin")(w);
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
   const scenario = () =>
     once("scm-linking", async () => {
       const edge = await edgeTenant();
+      const edgeWs = await edgeWorkspace();
       const user = ghUser();
       const account = orgAccount("a");
-      const adminLink = await linkFlow(asA(), { account, user, orgRole: "admin" });
+      const adminLink = await linkFlow(asA(), {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+      });
       // tenant E (a different tenant) tries to link the very same installation with a perfectly valid GitHub user
-      const sameInstallation = await (async () => {
-        const code = `code-${randomBytes(6).toString("hex")}`;
-        await stubCtl("/__control/code", {
-          code,
-          user,
-          installationIds: [adminLink.installationId],
-          orgRoles: { [account.login]: { role: "admin", state: "active" } },
-        });
-        const auth = await w.api("POST", "/integrations/github/installations/authorize", {
-          cookie: edge.owner,
-          body: { installationId: String(adminLink.installationId) },
-        });
-        const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
-        const link = await w.api("POST", "/integrations/github/installations", {
-          cookie: edge.owner,
-          body: { code, state },
-        });
-        return { auth, state, link };
-      })();
+      const sameInstallation = await linkFlow(edge.owner, {
+        workspaceId: edgeWs,
+        installationId: adminLink.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
       const memberAccount = orgAccount("m");
       const memberLink = await linkFlow(asA(), {
+        workspaceId: PAY(),
         account: memberAccount,
         user: ghUser(),
         orgRole: "member",
       });
       const personalUser = ghUser();
       const personalMismatch = await linkFlow(asA(), {
+        workspaceId: PAY(),
         account: { id: personalUser.id + 1, login: personalUser.login, type: "User" },
         user: personalUser,
       });
       const personalOwn = await linkFlow(asA(), {
+        workspaceId: PAY(),
         account: { id: personalUser.id, login: personalUser.login, type: "User" },
         user: personalUser,
       });
       const notListed = await linkFlow(asA(), {
+        workspaceId: PAY(),
         account: orgAccount("n"),
         user: ghUser(),
         orgRole: "admin",
@@ -1415,43 +1518,30 @@ const ghUser = () => ({
       });
       // state: single use, and bound to the tenant that asked for it
       const stateUse = await linkFlow(asA(), {
+        workspaceId: PAY(),
         account: orgAccount("s"),
         user: ghUser(),
         orgRole: "admin",
       });
-      const reused = await w.api("POST", "/integrations/github/installations", {
-        cookie: asA(),
-        body: { code: stateUse.code, state: stateUse.state },
-      });
+      const reused = await consumeState(asA(), stateUse);
       const foreignState = await (async () => {
-        const installationId = nextInstallationId();
-        const account = orgAccount("f");
-        const u = ghUser();
-        await stubCtl("/__control/installation", { id: installationId, account });
-        const code = `code-${randomBytes(6).toString("hex")}`;
-        await stubCtl("/__control/code", {
-          code,
-          user: u,
-          installationIds: [installationId],
-          orgRoles: { [account.login]: { role: "admin", state: "active" } },
+        const minted = await mintState(asA(), {
+          workspaceId: PAY(),
+          account: orgAccount("f"),
+          user: ghUser(),
+          orgRole: "admin",
         });
-        const auth = await w.api("POST", "/integrations/github/installations/authorize", {
-          cookie: asA(),
-          body: { installationId: String(installationId) },
-        });
-        const state = new URL(auth.json.data.authorizeUrl).searchParams.get("state");
-        return w.api("POST", "/integrations/github/installations", {
-          cookie: edge.owner,
-          body: { code, state },
-        });
+        return consumeState(edge.owner, minted);
       })();
-      const viewerStart = await w.api("POST", "/integrations/github/installations/start", {
+      const viewerStart = await w.api("POST", `${ghPath(PAY())}/start`, {
         cookie: S("viewer")(w),
       });
       const listA = await w.api("GET", "/integrations/github/installations", { cookie: asA() });
       const listEdge = await w.api("GET", "/integrations/github/installations", {
         cookie: edge.owner,
       });
+      const edgeOverview = await w.api("GET", ghPath(edgeWs), { cookie: edge.owner });
+      const paymentsOverview = await w.api("GET", ghPath(PAY()), { cookie: asA() });
       return {
         stateUse,
         memberAccount,
@@ -1466,6 +1556,8 @@ const ghUser = () => ({
         viewerStart,
         listA,
         listEdge,
+        edgeOverview,
+        paymentsOverview,
         account,
       };
     });
@@ -1482,16 +1574,23 @@ const ghUser = () => ({
       if (r.json.error.details?.reason !== "installation_unavailable")
         problems.push(`reason ${r.json.error.details?.reason}`);
       const text = JSON.stringify(r.json);
-      if (text.includes(x.account.login) || text.includes(x.adminLink.link.json.data.id))
+      const first = x.adminLink.link.json.data;
+      if (
+        text.includes(x.account.login) ||
+        text.includes(first.id) ||
+        text.includes(first.installationLinkId)
+      )
         problems.push("the refusal reveals the other tenant's link or account");
       if (
         !x.listA.json.data.items.some(
-          (l) => l.id === x.adminLink.link.json.data.id && l.status === "linked",
+          (l) => l.id === first.installationLinkId && l.status === "linked",
         )
       )
         problems.push("the first tenant's link changed");
-      if (x.listEdge.json.data.items.length !== 0)
+      if (x.listEdge.json.data.items.some((l) => l.account.login === x.account.login))
         problems.push("the second tenant ended up with a link");
+      if (x.edgeOverview.json.data.items.length !== 0)
+        problems.push("the second tenant's workspace ended up with a link");
       return problems;
     },
   );
@@ -1502,7 +1601,8 @@ const ghUser = () => ({
     async () => (await scenario()).memberLink.link,
     async () => {
       const x = await scenario();
-      return x.listA.json.data.items.some((l) => l.account.login === x.memberAccount.login)
+      return x.listA.json.data.items.some((l) => l.account.login === x.memberAccount.login) ||
+        x.paymentsOverview.json.data.items.some((l) => l.account.login === x.memberAccount.login)
         ? ["a link was created for the organization"]
         : [];
     },
@@ -1542,9 +1642,475 @@ const ghUser = () => ({
   );
   add(
     "SCM-020",
-    "only holders of integration.manage can start linking",
+    "only holders of workspace_integration.manage can start linking: a viewer gets 403",
     FORBIDDEN,
     async () => (await scenario()).viewerStart,
+  );
+
+  // ---- who may link (SPEC §18.3 items 2 and 3)
+  const managerScenario = () =>
+    once("scm-manager-link", async () => {
+      const manager = S("manager")(w);
+      const account = orgAccount("mg");
+      const user = ghUser();
+      const own = await linkFlow(manager, { workspaceId: PAY(), account, user, orgRole: "admin" });
+      const hidden = await linkFlow(manager, {
+        workspaceId: IDN(),
+        account: orgAccount("mh"),
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      return {
+        own,
+        hidden,
+        account,
+        paymentsOverview: await w.api("GET", ghPath(PAY()), { cookie: manager }),
+        identityOverview: await w.api("GET", ghPath(IDN()), { cookie: asA() }),
+        tenantList: await w.api("GET", "/integrations/github/installations", { cookie: manager }),
+        tenantSettings: await w.api("PUT", "/integrations/settings", {
+          cookie: manager,
+          body: { allowWorkspaceLinking: true },
+        }),
+      };
+    });
+  add(
+    "SCM-027",
+    "a workspace-scoped Manager without tenant Admin completes the whole link flow (201) in their own workspace, and gets 404 for a workspace they cannot see",
+    { status: 201 },
+    async () => (await managerScenario()).own.link,
+    async () => {
+      const x = await managerScenario();
+      const problems = [];
+      if (x.own.link.json.data.workspaceId !== PAY())
+        problems.push("the link is in another workspace");
+      if (x.hidden.auth.status !== 404)
+        problems.push(`a workspace they cannot see answered ${x.hidden.auth.status}`);
+      if (x.identityOverview.json.data.items.some((l) => l.account.login === x.account.login))
+        problems.push("the link also appears in another workspace");
+      if (!x.paymentsOverview.json.data.items.some((l) => l.account.login === x.account.login))
+        problems.push("the workspace overview does not show the new link");
+      // the Manager really holds no tenant keys: the tenant installation list and the tenant setting are refused
+      if (x.tenantList.status !== 403) problems.push(`tenant list answered ${x.tenantList.status}`);
+      if (x.tenantSettings.status !== 403)
+        problems.push(`tenant setting answered ${x.tenantSettings.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-028",
+    "Viewer, Developer, Lead, Dev Lead and Security Analyst cannot start or authorize linking in a workspace they can see (403), the Manager can",
+    FORBIDDEN,
+    async () => {
+      const devLead = await loginAs("demo.devlead@demo.example");
+      const analyst = await loginAs("demo.analyst@demo.example");
+      const who = {
+        viewer: S("viewer")(w),
+        developer: S("developer")(w),
+        lead: S("lead")(w),
+        devLead,
+        analyst,
+      };
+      const results = {};
+      for (const [name, cookie] of Object.entries(who)) {
+        results[name] = {
+          start: await w.api("POST", `${ghPath(PAY())}/start`, { cookie }),
+          authorize: await w.api("POST", `${ghPath(PAY())}/authorize`, {
+            cookie,
+            body: { installationId: "1" },
+          }),
+        };
+      }
+      const control = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: S("manager")(w) });
+      return Object.assign({}, results.viewer.start, { results, control });
+    },
+    (r) => {
+      const problems = [];
+      for (const [name, res] of Object.entries(r.results))
+        for (const [op, answer] of Object.entries(res))
+          if (answer.status !== 403) problems.push(`${name} ${op} answered ${answer.status}`);
+      if (r.control.status !== 200)
+        problems.push(`the manager's start answered ${r.control.status}`);
+      return problems;
+    },
+  );
+  const secondScenario = () =>
+    once("scm-second-ws", async () => {
+      const admin = asA();
+      const account = orgAccount("sw");
+      const user = ghUser();
+      const first = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [],
+      });
+      // D5 is evaluated again for the second workspace, for the person linking: an organization member is refused
+      const memberSecond = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: first.installationId,
+        account,
+        user: ghUser(),
+        orgRole: "member",
+      });
+      const identityAfterMember = await w.api("GET", ghPath(IDN()), { cookie: admin });
+      const second = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: first.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      return {
+        account,
+        first,
+        memberSecond,
+        identityAfterMember,
+        second,
+        list: await w.api("GET", "/integrations/github/installations", { cookie: admin }),
+        paymentsOverview: await w.api("GET", ghPath(PAY()), { cookie: admin }),
+        identityOverview: await w.api("GET", ghPath(IDN()), { cookie: admin }),
+      };
+    });
+  add(
+    "SCM-029",
+    "the same tenant linking a second workspace to the same installation reuses it (201, no 409): one installation record, two workspace links",
+    { status: 201 },
+    async () => (await secondScenario()).second.link,
+    async () => {
+      const x = await secondScenario();
+      const problems = [];
+      const a = x.first.link.json?.data;
+      const b = x.second.link.json?.data;
+      if (x.first.link.status !== 201)
+        problems.push(`the first link answered ${x.first.link.status}`);
+      if (a?.installationLinkId !== b?.installationLinkId)
+        problems.push("the second workspace did not reuse the tenant installation link");
+      if (a?.id === b?.id || a?.workspaceId === b?.workspaceId)
+        problems.push("the two workspaces share one workspace link");
+      const items = x.list.json.data.items.filter((l) => l.account.login === x.account.login);
+      if (items.length !== 1 || items[0].workspaceCount !== 2)
+        problems.push(`installations ${items.length}, workspaces ${items[0]?.workspaceCount}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-030",
+    "linking a second workspace evaluates the GitHub-side ownership checks again for that person: an organization member is refused and no link is created",
+    FORBIDDEN,
+    async () => (await secondScenario()).memberSecond.link,
+    async () => {
+      const x = await secondScenario();
+      const problems = [];
+      if (x.first.link.status !== 201) problems.push("the first link was not created");
+      if (x.identityAfterMember.json.data.items.length !== 0)
+        problems.push("the refused person left a link behind");
+      if (x.second.link.status !== 201)
+        problems.push(`the organization admin got ${x.second.link.status}`);
+      return problems;
+    },
+  );
+  const bindingScenario = () =>
+    once("scm-state-binding", async () => {
+      const admin = asA();
+      const manager = S("manager")(w);
+      const account = orgAccount("sb");
+      const user = ghUser();
+      const installationId = nextInstallationId();
+      const mint = (cookie = admin, workspaceId = PAY()) =>
+        mintState(cookie, {
+          workspaceId,
+          installationId,
+          account,
+          user,
+          orgRole: "admin",
+        });
+      await stubCtl("/__control/installation", { id: installationId, account, repos: [] });
+      const byOtherUser = await (async () => consumeState(manager, await mint()))();
+      const otherSession = await loginAs("demo.admin@demo.example");
+      const byOtherSession = await (async () => consumeState(otherSession, await mint()))();
+      // the consume request cannot name a workspace: an extra field is refused before the state is touched
+      const withWorkspace = await (async () => {
+        const minted = await mint();
+        const refused = await w.api("POST", "/integrations/github/links", {
+          cookie: admin,
+          body: { code: minted.code, state: minted.state, workspaceId: IDN() },
+        });
+        return { minted, refused, accepted: await consumeState(admin, minted) };
+      })();
+      return {
+        byOtherUser,
+        byOtherSession,
+        withWorkspace,
+        account,
+        identityOverview: await w.api("GET", ghPath(IDN()), { cookie: admin }),
+        paymentsOverview: await w.api("GET", ghPath(PAY()), { cookie: admin }),
+      };
+    });
+  add(
+    "SCM-031",
+    "a linking state cannot be consumed by another user or in another session, cannot be pointed at another workspace, and links only the workspace it was minted for",
+    { status: 400, code: "BAD_REQUEST" },
+    async () => (await bindingScenario()).byOtherUser,
+    async () => {
+      const x = await bindingScenario();
+      const problems = [];
+      if (x.byOtherSession.status !== 400)
+        problems.push(`the same user in another session got ${x.byOtherSession.status}`);
+      if (x.withWorkspace.refused.status !== 400)
+        problems.push(`naming a workspace answered ${x.withWorkspace.refused.status}`);
+      if (x.withWorkspace.accepted.status !== 201)
+        problems.push(`the right user and session got ${x.withWorkspace.accepted.status}`);
+      else if (x.withWorkspace.accepted.json.data.workspaceId !== PAY())
+        problems.push("the link landed in another workspace");
+      if (x.identityOverview.json.data.items.some((l) => l.account.login === x.account.login))
+        problems.push("another workspace got a link");
+      if (!x.paymentsOverview.json.data.items.some((l) => l.account.login === x.account.login))
+        problems.push("the minted workspace got no link");
+      return problems;
+    },
+  );
+  const lostKeyScenario = () =>
+    once("scm-lost-key", async () => {
+      const analystId = w.A.user;
+      const managerRole = await integrationManagerRoleId();
+      const account = orgAccount("lk");
+      const user = ghUser();
+      const analyst = await loginAs("demo.analyst@demo.example");
+      const withKey = await withRole(
+        { userId: analystId, roleId: managerRole, workspaceId: IDN() },
+        () => linkFlow(analyst, { workspaceId: IDN(), account, user, orgRole: "admin" }),
+      );
+      const lost = await (async () => {
+        const account2 = orgAccount("lk2");
+        let minted;
+        await withRole({ userId: analystId, roleId: managerRole, workspaceId: IDN() }, async () => {
+          minted = await mintState(analyst, {
+            workspaceId: IDN(),
+            account: account2,
+            user,
+            orgRole: "admin",
+          });
+        });
+        // the assignment is gone now: the state is still valid, the person no longer holds the key
+        return { minted, consume: await consumeState(analyst, minted), account: account2 };
+      })();
+      return {
+        withKey,
+        lost,
+        identityOverview: await w.api("GET", ghPath(IDN()), { cookie: S("admin")(w) }),
+      };
+    });
+  add(
+    "SCM-032",
+    "consuming a state re-checks workspace_integration.manage: a person who lost the key after minting is refused (403) and nothing is linked",
+    FORBIDDEN,
+    async () => (await lostKeyScenario()).lost.consume,
+    async () => {
+      const x = await lostKeyScenario();
+      const problems = [];
+      if (x.withKey.auth.status !== 200 || x.withKey.link.status !== 201)
+        problems.push(
+          `with the key: authorize ${x.withKey.auth.status}, link ${x.withKey.link?.status}`,
+        );
+      if (x.lost.minted.auth.status !== 200) problems.push("the state could not be minted");
+      if (x.identityOverview.json.data.items.some((l) => l.account.login === x.lost.account.login))
+        problems.push("a link was created without the key");
+      return problems;
+    },
+  );
+  add(
+    "SCM-033",
+    "an expired linking state is refused (400) while a fresh one is accepted",
+    { status: 400, code: "BAD_REQUEST" },
+    async () => {
+      const account = orgAccount("ex");
+      const user = ghUser();
+      const fresh = await linkFlow(asA(), { workspaceId: PAY(), account, user, orgRole: "admin" });
+      const stale = await mintState(asA(), {
+        workspaceId: PAY(),
+        installationId: fresh.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      await sleep(3600); // SCM_LINK_STATE_TTL_SECONDS is 3 in this run (scripts/security-suite.js)
+      return Object.assign(await consumeState(asA(), stale), { fresh });
+    },
+    (r) => (r.fresh.link?.status === 201 ? [] : [`the fresh state got ${r.fresh.link?.status}`]),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 10b. GitHub integration: the tenant setting "allow workspace admins to link source control" (SPEC §18.6, Q28).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: tenant linking setting");
+  const asA = () => S("admin")(w);
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
+  const setting = (cookie, value) =>
+    w.api("PUT", "/integrations/settings", { cookie, body: { allowWorkspaceLinking: value } });
+  const defaultScenario = () =>
+    once("scm-setting-default", async () => {
+      const edge = await edgeTenant();
+      const read = {
+        admin: await w.api("GET", "/integrations/settings", { cookie: asA() }),
+        edge: await w.api("GET", "/integrations/settings", { cookie: edge.owner }),
+      };
+      const writes = {};
+      for (const who of ["manager", "lead", "developer", "viewer"])
+        writes[who] = await setting(S(who)(w), false);
+      const viewOnly = await withRole(
+        { userId: await meId(S("manager")(w)), roleId: await viewOnlyRoleId() },
+        async () => ({
+          read: await w.api("GET", "/integrations/settings", { cookie: S("manager")(w) }),
+          write: await setting(S("manager")(w), false),
+        }),
+      );
+      // another tenant changing its own setting must not touch this tenant's
+      const edgeOff = await setting(edge.owner, false);
+      const adminAfterEdge = await w.api("GET", "/integrations/settings", { cookie: asA() });
+      const edgeOn = await setting(edge.owner, true);
+      const readAfter = await w.api("GET", "/integrations/settings", { cookie: asA() });
+      return { read, writes, viewOnly, edgeOff, adminAfterEdge, edgeOn, readAfter };
+    });
+  add(
+    "SCM-034",
+    "the tenant linking setting is on by default; only integration.manage changes it (view-only and every other role get 403); another tenant's change does not touch it",
+    FORBIDDEN,
+    async () => (await defaultScenario()).writes.manager,
+    async () => {
+      const x = await defaultScenario();
+      const problems = [];
+      if (x.read.admin.status !== 200 || x.read.admin.json.data.allowWorkspaceLinking !== true)
+        problems.push("the default is not on");
+      for (const [who, res] of Object.entries(x.writes))
+        if (res.status !== 403) problems.push(`${who} write answered ${res.status}`);
+      if (x.viewOnly.read.status !== 200) problems.push(`view-only read ${x.viewOnly.read.status}`);
+      if (x.viewOnly.write.status !== 403)
+        problems.push(`view-only write ${x.viewOnly.write.status}`);
+      if (x.edgeOff.status !== 200 || x.edgeOff.json.data.allowWorkspaceLinking !== false)
+        problems.push("the other tenant could not change its own setting");
+      if (x.adminAfterEdge.json.data.allowWorkspaceLinking !== true)
+        problems.push("another tenant's change reached this tenant");
+      if (x.readAfter.json.data.allowWorkspaceLinking !== true)
+        problems.push("the setting changed without integration.manage");
+      return problems;
+    },
+  );
+  const offScenario = () =>
+    once("scm-setting-off", async () => {
+      const admin = asA();
+      const manager = S("manager")(w);
+      const user = ghUser();
+      const account = orgAccount("off");
+      // an existing link in two workspaces, and a state minted while linking is still allowed
+      const linkedP = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [stubRepo(9100001), stubRepo(9100002)],
+      });
+      const linkedI = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: linkedP.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const minted = await mintState(manager, {
+        workspaceId: PAY(),
+        account: orgAccount("off2"),
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      const before = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: manager });
+      const off = await setting(admin, false);
+      const out = {};
+      try {
+        out.start = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: manager });
+        out.authorize = await w.api("POST", `${ghPath(PAY())}/authorize`, {
+          cookie: manager,
+          body: { installationId: String(linkedP.installationId) },
+        });
+        out.consume = await consumeState(manager, minted);
+        out.overview = await w.api("GET", ghPath(PAY()), { cookie: manager });
+        // existing links keep working: test connection, allow-list edit and unlink are not blocked
+        const wlP = linkedP.link.json.data.id;
+        const wlI = linkedI.link.json.data.id;
+        out.refresh = await w.api("POST", `${ghPath(PAY())}/links/${wlP}/refresh`, {
+          cookie: manager,
+        });
+        out.allowList = await putAllowList(manager, PAY(), wlP, [9100001]);
+        out.unlink = await w.api("DELETE", `${ghPath(IDN())}/links/${wlI}`, {
+          cookie: admin,
+          body: { confirm: account.login },
+        });
+      } finally {
+        out.on = await setting(admin, true);
+      }
+      out.afterOn = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: manager });
+      const rows = await suiteDb().auditLog.findMany({
+        where: {
+          tenantId: await tenantIdA(),
+          action: "scm_settings.workspace_linking_updated",
+          actorUserId: await meId(admin),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 2,
+      });
+      return { before, off, out, rows };
+    });
+  add(
+    "SCM-035",
+    "with the setting off, starting, authorizing and consuming a linking state answer 403 workspace_linking_disabled with the documented message, while test connection, allow-list edits and unlink still work; both changes are audited",
+    FORBIDDEN,
+    async () => {
+      const x = await offScenario();
+      return x.out.start;
+    },
+    async () => {
+      const x = await offScenario();
+      const problems = [];
+      if (x.before.status !== 200)
+        problems.push(`start before turning it off answered ${x.before.status}`);
+      if (x.off.status !== 200) problems.push(`turning it off answered ${x.off.status}`);
+      for (const op of ["start", "authorize", "consume"]) {
+        const res = x.out[op];
+        if (res.status !== 403) problems.push(`${op} answered ${res.status}`);
+        else {
+          if (res.json.error.details?.reason !== "workspace_linking_disabled")
+            problems.push(`${op} reason ${res.json.error.details?.reason}`);
+          if (
+            res.json.error.message !==
+            "Your organization administrator has turned off linking source control from workspaces."
+          )
+            problems.push(`${op} message ${res.json.error.message}`);
+        }
+      }
+      if (x.out.overview.json?.data?.linkingEnabled !== false)
+        problems.push("the workspace overview still says linking is enabled");
+      for (const op of ["refresh", "allowList"])
+        if (x.out[op].status !== 200) problems.push(`${op} answered ${x.out[op].status}`);
+      if (x.out.unlink.status !== 200) problems.push(`unlink answered ${x.out.unlink.status}`);
+      if (x.out.on.status !== 200) problems.push("the setting could not be turned back on");
+      if (x.out.afterOn.status !== 200)
+        problems.push(`start after turning it on answered ${x.out.afterOn.status}`);
+      const after = x.rows.map((r) => r.changes?.after?.allowWorkspaceLinking);
+      const beforeValues = x.rows.map((r) => r.changes?.before?.allowWorkspaceLinking);
+      if (x.rows.length < 2) problems.push(`${x.rows.length} audit entries`);
+      else if (
+        after[0] !== true ||
+        beforeValues[0] !== false ||
+        after[1] !== false ||
+        beforeValues[1] !== true ||
+        x.rows.some((r) => r.targetType !== "tenant_integration_settings")
+      )
+        problems.push(`audit entries ${JSON.stringify(x.rows.map((r) => r.changes))}`);
+      return problems;
+    },
   );
 }
 
@@ -1603,11 +2169,16 @@ const rowsFor = async (deliveryId) => {
   const linked = () =>
     once("scm-webhook-link", async () => {
       const account = orgAccount("w");
-      const flow = await linkFlow(S("admin")(w), { account, user: ghUser(), orgRole: "admin" });
+      const flow = await linkFlow(S("admin")(w), {
+        workspaceId: w.A.paymentsWs,
+        account,
+        user: ghUser(),
+        orgRole: "admin",
+      });
       if (flow.link.status !== 201) throw new Error(`link answered ${flow.link.status}`);
       return {
         installationId: flow.installationId,
-        linkId: flow.link.json.data.id,
+        linkId: flow.link.json.data.installationLinkId,
         tenantId: (await w.api("GET", "/me", { cookie: S("admin")(w) })).json.data.tenant.id,
       };
     });
@@ -1756,109 +2327,157 @@ const rowsFor = async (deliveryId) => {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// 12. GitHub integration: repositories and webhook events (SCM). The scm worker's handlers run in-process against the stub
-//     (no broker): the reconciler and the unavailable -> disconnected path.
+// 11b. GitHub integration: workspace permissions (SCM-022..026). workspace_integration.view / .manage are evaluated in the
+//      workspace of the URL; a link id is bound to its workspace; tenant-level actions need tenant keys.
 // ---------------------------------------------------------------------------------------------------------------------
 {
-  // Workspace routing (workspace_integration.view / .manage): a workspace may switch a connection off or on for itself,
-  // inside the ceiling the organization administrator set. It never widens that ceiling and never links or unlinks.
-  const add = group("GitHub integration: workspace routing");
+  const add = group("GitHub integration: workspace permissions");
   const base = 5000000 + (Date.now() % 100000) * 10;
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
   const world = () =>
     once("scm-routing", async () => {
       const edge = await edgeTenant();
+      const edgeWs = await edgeWorkspace();
       const admin = S("admin")(w);
-      const flow = await linkFlow(admin, {
-        account: orgAccount("w"),
-        user: ghUser(),
+      const manager = S("manager")(w);
+      const lead = S("lead")(w);
+      const developer = S("developer")(w);
+      const account = orgAccount("w");
+      const user = ghUser();
+      const flowP = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
         orgRole: "admin",
         repos: [base + 1, base + 2, base + 3, base + 4].map(stubRepo),
       });
-      const linkId = flow.link.json.data.id;
-      const wsLinks = (cookie, ws) => w.api("GET", `/workspaces/${ws}/integrations`, { cookie });
-      const route = (cookie, ws, id, enabled) =>
-        w.api("PUT", `/workspaces/${ws}/integrations/${id}`, { cookie, body: { enabled } });
-      const connect = (cookie, ws, id, repo) =>
-        w.api("POST", `/workspaces/${ws}/repositories`, {
-          cookie,
-          body: { installationId: id, externalRepoId: String(repo) },
-        });
-      const manager = S("manager")(w);
+      const flowI = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: flowP.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const wlP = flowP.link.json.data.id;
+      const wlI = flowI.link.json.data.id;
       const read = {
-        manager: await wsLinks(manager, w.A.paymentsWs),
-        lead: await wsLinks(S("lead")(w), w.A.paymentsWs),
-        developer: await wsLinks(S("developer")(w), w.A.paymentsWs),
-        viewer: await wsLinks(S("viewer")(w), w.A.paymentsWs),
-        edgeOnA: await wsLinks(edge.owner, w.A.paymentsWs),
+        manager: await w.api("GET", ghPath(PAY()), { cookie: manager }),
+        lead: await w.api("GET", ghPath(PAY()), { cookie: lead }),
+        developer: await w.api("GET", ghPath(PAY()), { cookie: developer }),
+        viewer: await w.api("GET", ghPath(PAY()), { cookie: S("viewer")(w) }),
+        edgeOnA: await w.api("GET", ghPath(PAY()), { cookie: edge.owner }),
       };
-      const leadWrite = await route(S("lead")(w), w.A.paymentsWs, linkId, false);
-      const developerWrite = await route(S("developer")(w), w.A.paymentsWs, linkId, false);
-      // manager switches the connection off for payments only
-      const off = await route(manager, w.A.paymentsWs, linkId, false);
-      const blockedConnect = await connect(manager, w.A.paymentsWs, linkId, base + 1);
-      const blockedAvailable = await w.api(
+      const leadWrite = await putAllowList(lead, PAY(), wlP, [base + 1]);
+      const developerWrite = await putAllowList(developer, PAY(), wlP, [base + 1]);
+      const leadStart = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: lead });
+      const leadRefresh = await w.api("POST", `${ghPath(PAY())}/links/${wlP}/refresh`, {
+        cookie: lead,
+      });
+      const managerWrite = await putAllowList(manager, PAY(), wlP, [base + 1, base + 2]);
+      const idAllow = await putAllowList(admin, IDN(), wlI, [base + 3]);
+      // SCM-023: a workspace that is no longer linked cannot list or connect repositories through the connection
+      const unlink = await w.api("DELETE", `${ghPath(IDN())}/links/${wlI}`, {
+        cookie: admin,
+        body: { confirm: account.login },
+      });
+      const unlinked = {
+        picker: await w.api("GET", `${ghPath(IDN())}/links/${wlI}/repositories`, { cookie: admin }),
+        available: await w.api(
+          "GET",
+          `/workspaces/${IDN()}/repositories/available?workspaceLinkId=${wlI}`,
+          { cookie: admin },
+        ),
+        connect: await connectRepo(admin, IDN(), wlI, base + 3),
+        overview: await w.api("GET", ghPath(IDN()), { cookie: admin }),
+      };
+      const otherWorkspaceConnect = await connectRepo(manager, PAY(), wlP, base + 1);
+      const otherWorkspaceAvailable = await w.api(
         "GET",
-        `/workspaces/${w.A.paymentsWs}/repositories/available?installationId=${linkId}`,
+        `/workspaces/${PAY()}/repositories/available?workspaceLinkId=${wlP}`,
         { cookie: manager },
       );
-      const otherWorkspaceConnect = await connect(admin, w.A.identityWs, linkId, base + 2);
-      const on = await route(manager, w.A.paymentsWs, linkId, true);
-      const allowedConnect = await connect(manager, w.A.paymentsWs, linkId, base + 3);
-      // the ceiling: the administrator allows identity only; payments can then neither see nor enable the connection
-      const scoped = await w.api("PUT", `/integrations/github/installations/${linkId}/workspaces`, {
-        cookie: admin,
-        body: { workspaceIds: [w.A.identityWs] },
+      const relinked = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: flowP.installationId,
+        account,
+        user,
+        orgRole: "admin",
       });
-      const outsideRead = await wsLinks(manager, w.A.paymentsWs);
-      const outsideWrite = await route(manager, w.A.paymentsWs, linkId, true);
-      const scopeAfter = await w.api("GET", "/integrations/github/installations", {
-        cookie: admin,
-      });
-      // organization-level actions stay with integration.manage
-      const orgAttempts = {
-        list: await w.api("GET", "/integrations/github/installations", { cookie: manager }),
-        scope: await w.api("PUT", `/integrations/github/installations/${linkId}/workspaces`, {
+      const relinkAllow = await putAllowList(admin, IDN(), wlI, [base + 3]);
+      const relinkConnect = await connectRepo(admin, IDN(), wlI, base + 3);
+      // SCM-024: link ids are bound to their workspace
+      const under = (op, path, options) =>
+        w.api(op, `${ghPath(PAY())}/links/${wlI}${path}`, { cookie: manager, ...options });
+      const crossPair = {
+        picker: await under("GET", "/repositories"),
+        allowList: await under("PUT", "/repositories", { body: { add: [String(base + 4)] } }),
+        refresh: await under("POST", "/refresh"),
+        unlink: await w.api("DELETE", `${ghPath(PAY())}/links/${wlI}`, {
           cookie: manager,
-          body: { workspaceIds: [] },
+          body: { confirm: account.login },
         }),
-        unlink: await w.api("DELETE", `/integrations/github/installations/${linkId}`, {
-          cookie: manager,
-          body: { confirm: "x" },
-        }),
-        start: await w.api("POST", "/integrations/github/installations/start", { cookie: manager }),
+        connect: await connectRepo(manager, PAY(), wlI, base + 3),
+        available: await w.api(
+          "GET",
+          `/workspaces/${PAY()}/repositories/available?workspaceLinkId=${wlI}`,
+          { cookie: manager },
+        ),
+        overview: await w.api("GET", ghPath(PAY()), { cookie: manager }),
       };
-      // cross-tenant: the other tenant cannot route a connection of this tenant, from its own workspace or ours
-      const edgeWs = (
-        await w.api("POST", "/workspaces", {
-          cookie: edge.owner,
-          body: { name: `Edge route ${w.suffix}` },
-        })
-      ).json.data.id;
-      const edgeOwnWorkspace = await route(edge.owner, edgeWs, linkId, false);
-      const edgeInA = await route(edge.owner, w.A.identityWs, linkId, false);
+      // SCM-025: tenant-level reads and the tenant setting need tenant keys; a workspace Manager has none
+      const tenantLevel = {
+        list: await w.api("GET", "/integrations/github/installations", { cookie: manager }),
+        deliveries: await w.api(
+          "GET",
+          `/integrations/github/installations/${flowP.link.json.data.installationLinkId}/deliveries`,
+          { cookie: manager },
+        ),
+        settingsRead: await w.api("GET", "/integrations/settings", { cookie: manager }),
+        settingsWrite: await w.api("PUT", "/integrations/settings", {
+          cookie: manager,
+          body: { allowWorkspaceLinking: false },
+        }),
+        overview: await w.api("GET", "/integrations/github", { cookie: manager }),
+        control: await w.api("GET", "/integrations/github/installations", { cookie: admin }),
+      };
+      // SCM-026: another tenant can neither reach this tenant's workspace nor use this tenant's link ids
+      const edgeOwn = await w.api("POST", `${ghPath(edgeWs)}/links/${wlP}/refresh`, {
+        cookie: edge.owner,
+      });
+      const edgeOwnPut = await putAllowList(edge.owner, edgeWs, wlP, [base + 1]);
+      const edgeInA = await w.api("POST", `${ghPath(PAY())}/links/${wlP}/refresh`, {
+        cookie: edge.owner,
+      });
+      const edgeInAStart = await w.api("POST", `${ghPath(PAY())}/start`, { cookie: edge.owner });
       return {
-        linkId,
+        wlP,
+        wlI,
         read,
         leadWrite,
         developerWrite,
-        off,
-        blockedConnect,
-        blockedAvailable,
+        leadStart,
+        leadRefresh,
+        managerWrite,
+        idAllow,
+        unlink,
+        unlinked,
         otherWorkspaceConnect,
-        on,
-        allowedConnect,
-        scoped,
-        outsideRead,
-        outsideWrite,
-        scopeAfter,
-        orgAttempts,
-        edgeOwnWorkspace,
+        otherWorkspaceAvailable,
+        relinked,
+        relinkAllow,
+        relinkConnect,
+        crossPair,
+        tenantLevel,
+        edgeOwn,
+        edgeOwnPut,
         edgeInA,
+        edgeInAStart,
       };
     });
   add(
     "SCM-022",
-    "reading workspace integrations needs workspace_integration.view (manager and lead can, developer and viewer cannot, another tenant sees a 404); changing needs .manage (lead cannot)",
+    "reading a workspace's GitHub connections needs workspace_integration.view (manager and lead can, developer and viewer cannot, another tenant sees a 404); changing needs .manage (lead cannot)",
     FORBIDDEN,
     async () => {
       const x = await world();
@@ -1872,96 +2491,126 @@ const rowsFor = async (deliveryId) => {
         if (r.read[who].status !== 403) problems.push(`${who} read ${r.read[who].status}`);
       if (r.read.edgeOnA.status !== 404)
         problems.push(`other tenant read ${r.read.edgeOnA.status}`);
-      if (r.leadWrite.status !== 403) problems.push(`lead write ${r.leadWrite.status}`);
+      if (r.leadWrite.status !== 403) problems.push(`lead allow-list edit ${r.leadWrite.status}`);
+      if (r.leadStart.status !== 403) problems.push(`lead start ${r.leadStart.status}`);
+      if (r.leadRefresh.status !== 403) problems.push(`lead refresh ${r.leadRefresh.status}`);
       if (r.developerWrite.status !== 403)
-        problems.push(`developer write ${r.developerWrite.status}`);
+        problems.push(`developer allow-list edit ${r.developerWrite.status}`);
+      if (r.managerWrite.status !== 200)
+        problems.push(`manager allow-list edit ${r.managerWrite.status}`);
       return problems;
     },
   );
   add(
     "SCM-023",
-    "a workspace that switches a connection off cannot list or connect repositories through it, another workspace still can, and switching it on restores it",
+    "a workspace that unlinked a connection cannot list or connect repositories through it, another workspace on the same installation still can, and linking again restores it",
     FORBIDDEN,
     async () => {
       const x = await world();
-      return Object.assign({}, x.blockedConnect, x);
+      return Object.assign({}, x.unlinked.connect, x);
     },
     (r) => {
       const problems = [];
-      if (r.off.status !== 200 || r.off.json.data.enabled !== false)
-        problems.push("switching off failed");
-      if (r.blockedConnect.status !== 403)
-        problems.push(`connect while off ${r.blockedConnect.status}`);
-      if (r.blockedAvailable.status !== 403)
-        problems.push(`available while off ${r.blockedAvailable.status}`);
+      if (r.unlink.status !== 200 || r.unlink.json.data.unlinked !== true)
+        problems.push("unlink failed");
+      if (r.unlinked.picker.status !== 409)
+        problems.push(`picker after unlink ${r.unlinked.picker.status}`);
+      if (r.unlinked.available.status !== 403)
+        problems.push(`available after unlink ${r.unlinked.available.status}`);
+      if (r.unlinked.connect.json.error?.details?.reason !== "workspace_link_not_linked")
+        problems.push(`connect reason ${r.unlinked.connect.json.error?.details?.reason}`);
+      if (r.unlinked.overview.json.data.items.some((l) => l.id === r.wlI))
+        problems.push("the unlinked connection is still listed");
       if (r.otherWorkspaceConnect.status !== 201)
-        problems.push(`other workspace ${r.otherWorkspaceConnect.status}`);
-      if (r.on.status !== 200 || r.on.json.data.enabled !== true)
-        problems.push("switching on failed");
-      if (r.allowedConnect.status !== 201)
-        problems.push(`connect after on ${r.allowedConnect.status}`);
+        problems.push(`the other workspace could not connect (${r.otherWorkspaceConnect.status})`);
+      if (r.otherWorkspaceAvailable.status !== 200)
+        problems.push(`the other workspace's list answered ${r.otherWorkspaceAvailable.status}`);
+      if (r.relinked.link?.status !== 201 || r.relinked.link.json.data.id !== r.wlI)
+        problems.push(`linking again answered ${r.relinked.link?.status}`);
+      if (r.relinkAllow.status !== 200 || r.relinkConnect.status !== 201)
+        problems.push(
+          `after linking again: allow-list ${r.relinkAllow.status}, connect ${r.relinkConnect.status}`,
+        );
       return problems;
     },
   );
   add(
     "SCM-024",
-    "workspace routing cannot widen the organization scope: a connection the administrator did not allow for the workspace is neither listed nor switchable (404) and the scope is unchanged",
+    "a workspace link id is bound to its workspace: another workspace's connection under this workspace's URL is a 404 for list, edit, test, unlink, connect and available, and is not in this workspace's own list",
     NOT_FOUND,
     async () => {
       const x = await world();
-      return Object.assign({ status: x.outsideWrite.status, json: x.outsideWrite.json }, x);
+      return Object.assign(
+        { status: x.crossPair.allowList.status, json: x.crossPair.allowList.json },
+        x,
+      );
     },
     (r) => {
       const problems = [];
-      if (r.scoped.status !== 200) problems.push(`scoping failed ${r.scoped.status}`);
+      for (const [name, res] of Object.entries(r.crossPair))
+        if (name !== "overview" && res.status !== 404)
+          problems.push(`${name} answered ${res.status}`);
       if (
-        r.outsideRead.status !== 200 ||
-        r.outsideRead.json.data.items.some((l) => l.id === r.linkId)
+        r.crossPair.overview.status !== 200 ||
+        r.crossPair.overview.json.data.items.some((l) => l.id === r.wlI)
       )
-        problems.push("a connection outside the scope is listed");
-      const link = r.scopeAfter.json.data.items.find((l) => l.id === r.linkId);
-      if (JSON.stringify(link?.workspaceScope) !== JSON.stringify([w.A.identityWs]))
-        problems.push("the organization scope changed");
+        problems.push("the workspace lists another workspace's connection");
+      if (!r.crossPair.overview.json.data.items.some((l) => l.id === r.wlP))
+        problems.push("the workspace does not list its own connection");
+      if (JSON.stringify(r.crossPair).includes(r.wlI))
+        problems.push("a body repeats the foreign link id");
       return problems;
     },
   );
   add(
     "SCM-025",
-    "organization-level connection actions (list, set scope, unlink, start linking) stay with integration.manage: a manager gets 403 on all of them",
+    "tenant-level GitHub reads and the tenant setting need tenant keys: a workspace Manager gets 403 on the installation list, its deliveries, the setting (read and write) and the overview",
     FORBIDDEN,
     async () => {
       const x = await world();
       return Object.assign(
-        { status: x.orgAttempts.scope.status, json: x.orgAttempts.scope.json },
+        { status: x.tenantLevel.settingsWrite.status, json: x.tenantLevel.settingsWrite.json },
         x,
       );
     },
-    (r) =>
-      Object.entries(r.orgAttempts)
-        .filter(([, res]) => res.status !== 403)
-        .map(([name, res]) => `${name} answered ${res.status}`),
+    (r) => {
+      const problems = Object.entries(r.tenantLevel)
+        .filter(([name, res]) => name !== "control" && res.status !== 403)
+        .map(([name, res]) => `${name} answered ${res.status}`);
+      if (r.tenantLevel.control.status !== 200)
+        problems.push(`the tenant administrator's list answered ${r.tenantLevel.control.status}`);
+      return problems;
+    },
   );
   add(
     "SCM-026",
-    "another tenant cannot route this tenant's connection, from its own workspace or from ours (404) and the workspace list leaks no installation number",
+    "another tenant cannot use this tenant's workspace connections, from its own workspace or from ours (404), and the workspace overview exposes no organization-level fields",
     NOT_FOUND,
     async () => {
       const x = await world();
-      return Object.assign({ status: x.edgeOwnWorkspace.status, json: x.edgeOwnWorkspace.json }, x);
+      return Object.assign({ status: x.edgeOwn.status, json: x.edgeOwn.json }, x);
     },
     (r) => {
       const problems = [];
+      if (r.edgeOwnPut.status !== 404) problems.push(`edge allow-list edit ${r.edgeOwnPut.status}`);
       if (r.edgeInA.status !== 404) problems.push(`edge in A's workspace ${r.edgeInA.status}`);
+      if (r.edgeInAStart.status !== 404)
+        problems.push(`edge start in A's workspace ${r.edgeInAStart.status}`);
       if (
         /externalInstallationId|permissions|workspaceScope/.test(
           JSON.stringify(r.read.manager.json),
         )
       )
-        problems.push("the workspace list exposes organization-level fields");
+        problems.push("the workspace overview exposes organization-level fields");
       return problems;
     },
   );
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12. GitHub integration: repositories and webhook events (SCM). The scm worker's handlers run in-process against the stub
+//     (no broker): the reconciler and the unavailable -> disconnected path.
+// ---------------------------------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------------------------------
 const stubRepo = (id) => ({
   id,
@@ -1992,52 +2641,68 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
   const scmWorld = () =>
     once("scm-world", async () => {
       const edge = await edgeTenant();
+      const edgeWorkspaceId = await edgeWorkspace();
       const admin = S("admin")(w);
       const user = ghUser();
       const accountA = orgAccount("r");
+      const PAY = w.A.paymentsWs;
+      const IDN = w.A.identityWs;
       const flowA = await linkFlow(admin, {
+        workspaceId: PAY,
         account: accountA,
         user,
         orgRole: "admin",
-        repos: [base + 1, base + 2, base + 3, base + 5, common].map(stubRepo),
+        repos: [base + 1, base + 2, base + 3, base + 4, base + 5, base + 6, common].map(stubRepo),
+      });
+      // the second workspace of the same tenant uses the same installation (SPEC §18 A2)
+      const flowAI = await linkFlow(admin, {
+        workspaceId: IDN,
+        installationId: flowA.installationId,
+        account: accountA,
+        user,
+        orgRole: "admin",
       });
       const accountE = orgAccount("re");
       const userE = ghUser();
       const flowE = await linkFlow(edge.owner, {
+        workspaceId: edgeWorkspaceId,
         account: accountE,
         user: userE,
         orgRole: "admin",
         repos: [common, base + 20].map(stubRepo),
       });
-      const linkA = flowA.link.json.data.id;
-      const linkE = flowE.link.json.data.id;
-      const connect = (cookie, workspaceId, installationId, externalRepoId, key) =>
-        w.api("POST", `/workspaces/${workspaceId}/repositories`, {
-          cookie,
-          body: { installationId, externalRepoId: String(externalRepoId) },
-          ...(key ? { headers: { "idempotency-key": key } } : {}),
-        });
-      const edgeWorkspace = (
-        await w.api("POST", "/workspaces", {
-          cookie: edge.owner,
-          body: { name: `Edge repos ${w.suffix}` },
-        })
-      ).json.data.id;
-      const payRepo = await connect(admin, w.A.paymentsWs, linkA, base + 1);
-      const idRepo = await connect(admin, w.A.identityWs, linkA, base + 2);
-      const managerRepo = await connect(S("manager")(w), w.A.paymentsWs, linkA, base + 3);
-      const duplicate = await connect(admin, w.A.paymentsWs, linkA, base + 1);
-      const commonA = await connect(admin, w.A.paymentsWs, linkA, common);
-      const commonE = await connect(edge.owner, edgeWorkspace, linkE, common);
-      const syncRepoRes = await connect(admin, w.A.paymentsWs, linkA, base + 5);
+      const wlP = flowA.link.json.data.id;
+      const wlI = flowAI.link.json.data.id;
+      const wlE = flowE.link.json.data.id;
+      const linkA = flowA.link.json.data.installationLinkId;
+      // a repository is on ONE workspace's allow-list: payments gets 1, 3, 5 and the shared one; identity gets 2
+      const allowP = await putAllowList(admin, PAY, wlP, [base + 1, base + 3, base + 5, common]);
+      const allowI = await putAllowList(admin, IDN, wlI, [base + 2]);
+      const allowE = await putAllowList(edge.owner, edgeWorkspaceId, wlE, [common]);
+      const connect = (cookie, workspaceId, workspaceLinkId, externalRepoId, key) =>
+        connectRepo(cookie, workspaceId, workspaceLinkId, externalRepoId, key);
+      const payRepo = await connect(admin, PAY, wlP, base + 1);
+      const idRepo = await connect(admin, IDN, wlI, base + 2);
+      const managerRepo = await connect(S("manager")(w), PAY, wlP, base + 3);
+      const duplicate = await connect(admin, PAY, wlP, base + 1);
+      const commonA = await connect(admin, PAY, wlP, common);
+      const commonE = await connect(edge.owner, edgeWorkspaceId, wlE, common);
+      const syncRepoRes = await connect(admin, PAY, wlP, base + 5);
+      const notOnList = await connect(admin, PAY, wlP, base + 4);
       const tenantId = (await w.api("GET", "/me", { cookie: admin })).json.data.tenant.id;
       return {
         edge,
         admin,
         flowA,
+        flowAI,
         flowE,
+        wlP,
+        wlI,
+        wlE,
         linkA,
-        linkE,
+        allowP,
+        allowI,
+        allowE,
         payRepo,
         idRepo,
         managerRepo,
@@ -2045,9 +2710,11 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         commonA,
         commonE,
         syncRepoRes,
+        notOnList,
         tenantId,
         edgeTenantId: edge.id,
-        edgeWorkspace,
+        edgeWorkspace: edgeWorkspaceId,
+        account: accountA,
       };
     });
   const push = (installationId, externalRepoId, extra = {}) => ({
@@ -2369,7 +3036,7 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       statuses.push((await db.repository.findUnique({ where: { id: repoId } })).status);
       await stubCtl("/__control/repos", {
         installationId: x.flowA.installationId,
-        repos: [base + 1, base + 2, base + 3, common].map(stubRepo),
+        repos: [base + 1, base + 2, base + 3, base + 4, base + 6, common].map(stubRepo),
       });
       for (let i = 0; i < 3; i += 1) {
         await sync();
@@ -2412,6 +3079,724 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         problems.push(`audit ${JSON.stringify(r.audits)}`);
       if (r.events !== 1) problems.push(`${r.events} disconnect events`);
       if (!r.exists) problems.push("the row was deleted");
+      return problems;
+    },
+  );
+
+  // ---- workspace isolation under one installation (SPEC §18.3 items 1, 5 and 6). Workspace A and workspace B use the SAME
+  //      installation; neither may list, connect or see the other's repositories, allow-list or link records.
+  const PAYW = () => w.A.paymentsWs;
+  const IDNW = () => w.A.identityWs;
+  /** Every operation a workspace connection offers, aimed at (workspace, workspace link, repository). */
+  const probe = async (cookie, workspaceId, workspaceLinkId, externalRepoId) => ({
+    overview: await w.api("GET", ghPath(workspaceId), { cookie }),
+    picker: await w.api("GET", `${ghPath(workspaceId)}/links/${workspaceLinkId}/repositories`, {
+      cookie,
+    }),
+    allowList: await w.api("PUT", `${ghPath(workspaceId)}/links/${workspaceLinkId}/repositories`, {
+      cookie,
+      body: { add: [String(externalRepoId)] },
+    }),
+    refresh: await w.api("POST", `${ghPath(workspaceId)}/links/${workspaceLinkId}/refresh`, {
+      cookie,
+    }),
+    unlink: await w.api("DELETE", `${ghPath(workspaceId)}/links/${workspaceLinkId}`, {
+      cookie,
+      body: { confirm: "not-the-account" },
+    }),
+    available: await w.api(
+      "GET",
+      `/workspaces/${workspaceId}/repositories/available?workspaceLinkId=${workspaceLinkId}`,
+      { cookie },
+    ),
+    connect: await connectRepo(cookie, workspaceId, workspaceLinkId, externalRepoId),
+  });
+  const isoWorld = () =>
+    once("scm-iso", async () => {
+      const x = await scmWorld();
+      const manager = S("manager")(w);
+      const developer = S("developer")(w);
+      const lead = S("lead")(w);
+      const missingWorkspace = await w.api("GET", ghPath(w.UNKNOWN), { cookie: manager });
+      return {
+        x,
+        hidden: await probe(manager, IDNW(), x.wlI, base + 2),
+        missingWorkspace,
+        crossPair: await probe(manager, PAYW(), x.wlI, base + 2),
+        visibleNoKey: await probe(developer, IDNW(), x.wlI, base + 2),
+        leadOwn: {
+          overview: await w.api("GET", ghPath(PAYW()), { cookie: lead }),
+          picker: await w.api("GET", `${ghPath(PAYW())}/links/${x.wlP}/repositories`, {
+            cookie: lead,
+          }),
+          allowList: await w.api("PUT", `${ghPath(PAYW())}/links/${x.wlP}/repositories`, {
+            cookie: lead,
+            body: { add: [String(base + 4)] },
+          }),
+        },
+        ownOverview: await w.api("GET", ghPath(PAYW()), { cookie: manager }),
+        ownAvailable: await w.api(
+          "GET",
+          `/workspaces/${PAYW()}/repositories/available?workspaceLinkId=${x.wlP}`,
+          { cookie: manager },
+        ),
+        identityOverview: await w.api("GET", ghPath(IDNW()), { cookie: x.admin }),
+        managerRepos: await w.api("GET", "/repositories?pageSize=100", { cookie: manager }),
+        identityRepoById: await w.api("GET", `/repositories/${x.idRepo.json.data.id}`, {
+          cookie: manager,
+        }),
+      };
+    });
+  add(
+    "SCM-036",
+    "workspace A cannot list, connect or see workspace B's repositories, allow-list or link records under the same installation: a workspace the caller cannot see is a 404 identical to a missing one, also through A's own URL with B's link id",
+    NOT_FOUND,
+    async () => {
+      const x = await isoWorld();
+      return Object.assign({}, x.hidden.picker, x);
+    },
+    (r) => {
+      const problems = [];
+      for (const [group, results] of [
+        ["hidden workspace", r.hidden],
+        ["foreign link id", r.crossPair],
+      ])
+        for (const [name, res] of Object.entries(results)) {
+          if (group === "foreign link id" && name === "overview") continue;
+          if (res.status !== 404) problems.push(`${group}: ${name} answered ${res.status}`);
+        }
+      if (
+        JSON.stringify(r.hidden.overview.json.error) !==
+        JSON.stringify(r.missingWorkspace.json.error)
+      )
+        problems.push("a hidden workspace differs from a missing one");
+      const text = JSON.stringify([r.hidden, r.crossPair]);
+      if (
+        text.includes(r.x.wlI) ||
+        text.includes(`repo${base + 2}`) ||
+        text.includes(r.x.idRepo.json.data.id)
+      )
+        problems.push("a refusal repeats an identifier or name of the other workspace");
+      // controls: the legitimate requests work, and the foreign data is not in the caller's own views
+      if (
+        r.ownOverview.status !== 200 ||
+        !r.ownOverview.json.data.items.some((l) => l.id === r.x.wlP)
+      )
+        problems.push("the Manager cannot read their own workspace's connection");
+      if (r.ownOverview.json.data.items.some((l) => l.id === r.x.wlI))
+        problems.push("the Manager's list shows the other workspace's connection");
+      if (r.ownAvailable.status !== 200)
+        problems.push(`own available answered ${r.ownAvailable.status}`);
+      else if (r.ownAvailable.json.data.some((i) => i.externalRepoId === String(base + 2)))
+        problems.push("the available list shows the other workspace's repository");
+      if (
+        r.identityOverview.status !== 200 ||
+        !r.identityOverview.json.data.items.some((l) => l.id === r.x.wlI)
+      )
+        problems.push("the administrator cannot read the other workspace's connection");
+      if (r.managerRepos.json.data.some((repo) => repo.id === r.x.idRepo.json.data.id))
+        problems.push("the repository list shows the other workspace's repository");
+      if (r.identityRepoById.status !== 404)
+        problems.push(`repository by id answered ${r.identityRepoById.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-037",
+    "a workspace the caller can see but holds no workspace_integration key in answers 403 for the connection overview, list, allow-list edit, test, unlink, available and connect, while a Lead can read but not edit",
+    FORBIDDEN,
+    async () => {
+      const x = await isoWorld();
+      return Object.assign({}, x.visibleNoKey.picker, x);
+    },
+    (r) => {
+      const problems = [];
+      for (const [name, res] of Object.entries(r.visibleNoKey))
+        if (res.status !== 403) problems.push(`developer ${name} answered ${res.status}`);
+      if (r.leadOwn.overview.status !== 200)
+        problems.push(`lead overview ${r.leadOwn.overview.status}`);
+      if (r.leadOwn.picker.status !== 200) problems.push(`lead picker ${r.leadOwn.picker.status}`);
+      if (r.leadOwn.allowList.status !== 403)
+        problems.push(`lead allow-list edit ${r.leadOwn.allowList.status}`);
+      if (JSON.stringify(r.visibleNoKey).includes(`repo${base + 2}`))
+        problems.push("a refusal repeats a repository name");
+      return problems;
+    },
+  );
+  add(
+    "SCM-038",
+    "a repository that is not on the workspace's allow-list cannot be connected (403 repository_not_allowed) and is not offered; only workspace_integration.manage edits the list; adding it makes it connectable and a connected one cannot be removed",
+    FORBIDDEN,
+    async () => (await scmWorld()).notOnList,
+    async (r) => {
+      const x = await scmWorld();
+      const problems = [];
+      if (r.json.error.details?.reason !== "repository_not_allowed")
+        problems.push(`reason ${r.json.error.details?.reason}`);
+      const manager = S("manager")(w);
+      const available = await w.api(
+        "GET",
+        `/workspaces/${PAYW()}/repositories/available?workspaceLinkId=${x.wlP}&pageSize=100`,
+        { cookie: manager },
+      );
+      const offered = (available.json?.data ?? []).map((i) => i.externalRepoId).sort();
+      // base + 5 is on the list but no longer listed by GitHub (SCM-017 removes it from the stub), so it is not offered
+      const expected = [base + 1, base + 3, common].map(String).sort();
+      if (JSON.stringify(offered) !== JSON.stringify(expected))
+        problems.push(`offered ${offered.join(",")}`);
+      const picker = await w.api(
+        "GET",
+        `${ghPath(PAYW())}/links/${x.wlP}/repositories?pageSize=100`,
+        { cookie: manager },
+      );
+      const flag = (id) => picker.json?.data?.find((i) => i.externalRepoId === String(id));
+      if (flag(base + 1)?.allowed !== true || flag(base + 1)?.connected !== true)
+        problems.push("the picker does not show an allowed, connected repository");
+      if (flag(base + 2)?.allowed !== false || flag(base + 2)?.allowedElsewhere !== true)
+        problems.push(
+          "the picker does not mark the other workspace's repository as allowed elsewhere",
+        );
+      if (flag(base + 4)?.allowed !== false || flag(base + 4)?.allowedElsewhere !== false)
+        problems.push("the picker marks an unlisted repository");
+      // control: the editor adds it, then it connects; and a connected repository cannot be removed
+      const added = await w.api("PUT", `${ghPath(PAYW())}/links/${x.wlP}/repositories`, {
+        cookie: manager,
+        body: { add: [String(base + 4)] },
+      });
+      if (added.status !== 200 || added.json.data.added !== 1)
+        problems.push(`adding answered ${added.status}`);
+      const connected = await connectRepo(manager, PAYW(), x.wlP, base + 4);
+      if (connected.status !== 201)
+        problems.push(`connecting after adding answered ${connected.status}`);
+      const removeConnected = await w.api("PUT", `${ghPath(PAYW())}/links/${x.wlP}/repositories`, {
+        cookie: manager,
+        body: { remove: [String(base + 4)] },
+      });
+      if (
+        removeConnected.status !== 409 ||
+        removeConnected.json.error.details?.reason !== "repository_connected"
+      )
+        problems.push(`removing a connected repository answered ${removeConnected.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-039",
+    "a repository on one workspace's allow-list cannot be added to another's (generic 409 that names no workspace), by patch or replace, and the other list is unchanged; the same GitHub repository may be listed by another tenant",
+    { status: 409, code: "CONFLICT" },
+    async () => {
+      const x = await scmWorld();
+      return w.api("PUT", `${ghPath(IDNW())}/links/${x.wlI}/repositories`, {
+        cookie: x.admin,
+        body: { add: [String(base + 1)] },
+      });
+    },
+    async (r) => {
+      const x = await scmWorld();
+      const problems = [];
+      if (r.json.error.details?.reason !== "allow_list_conflict")
+        problems.push(`reason ${r.json.error.details?.reason}`);
+      const replace = await putAllowList(x.admin, IDNW(), x.wlI, [base + 2, base + 1]);
+      if (replace.status !== 409) problems.push(`replace answered ${replace.status}`);
+      const text = JSON.stringify([r.json, replace.json]);
+      if (text.includes("Payments") || text.includes(x.wlP))
+        problems.push("the refusal names the other workspace");
+      const picker = await w.api(
+        "GET",
+        `${ghPath(IDNW())}/links/${x.wlI}/repositories?pageSize=100`,
+        {
+          cookie: x.admin,
+        },
+      );
+      const mine = (picker.json?.data ?? []).filter((i) => i.allowed).map((i) => i.externalRepoId);
+      if (JSON.stringify(mine) !== JSON.stringify([String(base + 2)]))
+        problems.push(`the list changed: ${mine.join(",")}`);
+      if (x.allowE.status !== 200 || x.commonE.status !== 201)
+        problems.push("the other tenant could not list and connect the same GitHub repository");
+      const control = await w.api("PUT", `${ghPath(IDNW())}/links/${x.wlI}/repositories`, {
+        cookie: x.admin,
+        body: { add: [String(base + 6)] },
+      });
+      if (control.status !== 200)
+        problems.push(`adding an unlisted repository answered ${control.status}`);
+      return problems;
+    },
+  );
+  add(
+    "SCM-040",
+    "unlinking a workspace disconnects only its own repositories (the other workspace's stay active), keeps the installation record, needs the typed account name, and linking again restores them",
+    { status: 200 },
+    async () => {
+      const x = await scmWorld();
+      const admin = x.admin;
+      const status = async (id) =>
+        (await w.api("GET", `/repositories/${id}`, { cookie: admin })).json.data;
+      const wrong = await w.api("DELETE", `${ghPath(IDNW())}/links/${x.wlI}`, {
+        cookie: admin,
+        body: { confirm: "not-the-account" },
+      });
+      const before = {
+        identity: (await status(x.idRepo.json.data.id)).status,
+        payments: (await status(x.payRepo.json.data.id)).status,
+      };
+      const unlink = await w.api("DELETE", `${ghPath(IDNW())}/links/${x.wlI}`, {
+        cookie: admin,
+        body: { confirm: x.account.login },
+      });
+      const after = {
+        identity: await status(x.idRepo.json.data.id),
+        payments: await status(x.payRepo.json.data.id),
+        manager: await status(x.managerRepo.json.data.id),
+      };
+      const list = await w.api("GET", "/integrations/github/installations", { cookie: admin });
+      const paymentsOverview = await w.api("GET", ghPath(PAYW()), { cookie: admin });
+      const relink = await linkFlow(admin, {
+        workspaceId: IDNW(),
+        installationId: x.flowA.installationId,
+        account: x.account,
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      const restored = await status(x.idRepo.json.data.id);
+      return { ...unlink, wrong, before, after, list, paymentsOverview, relink, restored, x };
+    },
+    (r) => {
+      const problems = [];
+      if (r.wrong.status !== 400) problems.push(`a wrong confirmation answered ${r.wrong.status}`);
+      if (r.before.identity !== "active" || r.before.payments !== "active")
+        problems.push(`before: ${JSON.stringify(r.before)}`);
+      if (r.json.data.unlinked !== true || r.json.data.repositoriesDisconnected !== 1)
+        problems.push(`unlink result ${JSON.stringify(r.json.data)}`);
+      if (
+        r.after.identity.status !== "disconnected" ||
+        r.after.identity.disconnectReason !== "workspace_unlinked"
+      )
+        problems.push(`the unlinked workspace's repository is ${r.after.identity.status}`);
+      for (const k of ["payments", "manager"])
+        if (r.after[k].status !== "active")
+          problems.push(`the other workspace's repository is ${r.after[k].status}`);
+      const link = r.list.json.data.items.find((l) => l.id === r.x.linkA);
+      if (!link || link.status !== "linked" || link.workspaceCount !== 1)
+        problems.push(
+          `the installation record is ${JSON.stringify(link && [link.status, link.workspaceCount])}`,
+        );
+      if (!r.paymentsOverview.json.data.items.some((l) => l.id === r.x.wlP))
+        problems.push("the other workspace lost its connection");
+      if (r.relink.link?.status !== 201)
+        problems.push(`linking again answered ${r.relink.link?.status}`);
+      else if (r.restored.status !== "active")
+        problems.push(`after linking again: ${r.restored.status}`);
+      return problems;
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12b. GitHub integration: the tenant view is read-only (SPEC §18.2, A7), and the removed tenant-level endpoints stay removed.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: tenant read-only view");
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
+  const twoWorkspaces = () =>
+    once("scm-readonly", async () => {
+      const admin = S("admin")(w);
+      const account = orgAccount("ro");
+      const user = ghUser();
+      const first = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [],
+      });
+      const second = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: first.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const edge = await edgeTenant();
+      const names = await w.api("GET", "/workspaces?pageSize=100", { cookie: admin });
+      return {
+        account,
+        first,
+        second,
+        adminList: await w.api("GET", "/integrations/github/installations", { cookie: admin }),
+        edgeList: await w.api("GET", "/integrations/github/installations", { cookie: edge.owner }),
+        paymentsName: names.json.data.find((n) => n.id === PAY()).name,
+        identityName: names.json.data.find((n) => n.id === IDN()).name,
+      };
+    });
+  add(
+    "SCM-041",
+    "the tenant installation list (integration.view) is read-only and names only the workspaces the caller can see, counting the rest; a holder of integration.view with no sight of a workspace never learns its name; callers without integration.view get 403; another tenant sees none of it",
+    FORBIDDEN,
+    async () => {
+      await twoWorkspaces();
+      return w.api("GET", "/integrations/github/installations", { cookie: S("viewer")(w) });
+    },
+    async () => {
+      const x = await twoWorkspaces();
+      const problems = [];
+      const forAdmin = x.adminList.json.data.items.find((l) => l.account.login === x.account.login);
+      if (!forAdmin || forAdmin.workspaceCount !== 2 || forAdmin.hiddenWorkspaceCount !== 0)
+        problems.push(`administrator view ${JSON.stringify(forAdmin?.workspaces)}`);
+      else if (
+        !forAdmin.workspaces.some((n) => n.name === x.paymentsName) ||
+        !forAdmin.workspaces.some((n) => n.name === x.identityName)
+      )
+        problems.push("the administrator does not see both workspace names");
+      // a Manager of the first workspace only, holding the tenant key integration.view through a custom role
+      const manager = S("manager")(w);
+      const restricted = await withRole(
+        { userId: await meId(manager), roleId: await viewOnlyRoleId() },
+        async () => ({
+          list: await w.api("GET", "/integrations/github/installations", { cookie: manager }),
+          write: await w.api("PUT", "/integrations/settings", {
+            cookie: manager,
+            body: { allowWorkspaceLinking: true },
+          }),
+        }),
+      );
+      const seen = restricted.list.json?.data?.items?.find(
+        (l) => l.account.login === x.account.login,
+      );
+      if (restricted.list.status !== 200 || !seen)
+        problems.push(`restricted list ${restricted.list.status}`);
+      else {
+        if (seen.workspaceCount !== 2 || seen.hiddenWorkspaceCount !== 1)
+          problems.push(`restricted counts ${seen.workspaceCount}/${seen.hiddenWorkspaceCount}`);
+        if (JSON.stringify(seen.workspaces.map((n) => n.name)) !== JSON.stringify([x.paymentsName]))
+          problems.push("the restricted view does not name exactly the visible workspace");
+        if (JSON.stringify(restricted.list.json).includes(x.identityName))
+          problems.push("a hidden workspace's name is in the response");
+        if (JSON.stringify(restricted.list.json).includes(IDN()))
+          problems.push("a hidden workspace's id is in the response");
+      }
+      if (restricted.write.status !== 403)
+        problems.push(`view-only write answered ${restricted.write.status}`);
+      for (const who of ["manager", "lead", "developer"]) {
+        const res = await w.api("GET", "/integrations/github/installations", { cookie: S(who)(w) });
+        if (res.status !== 403) problems.push(`${who} list answered ${res.status}`);
+      }
+      if (
+        JSON.stringify(x.edgeList.json).includes(x.account.login) ||
+        JSON.stringify(x.edgeList.json).includes(x.paymentsName)
+      )
+        problems.push("another tenant sees this tenant's installation");
+      return problems;
+    },
+  );
+  add(
+    "SCM-042",
+    "no tenant-level GitHub write endpoint exists: the removed link, scope, refresh and unlink endpoints and the workspace routing endpoints answer 404 even for the administrator, who can still do the same through the workspace endpoints",
+    { status: 404 },
+    async () => {
+      await twoWorkspaces();
+      return w.api("POST", "/integrations/github/installations/start", { cookie: S("admin")(w) });
+    },
+    async () => {
+      const x = await twoWorkspaces();
+      const admin = S("admin")(w);
+      const linkId = x.first.link.json.data.installationLinkId;
+      const wl = x.first.link.json.data.id;
+      const removed = {
+        authorize: await w.api("POST", "/integrations/github/installations/authorize", {
+          cookie: admin,
+          body: { installationId: "1" },
+        }),
+        link: await w.api("POST", "/integrations/github/installations", {
+          cookie: admin,
+          body: { code: "x", state: "y".repeat(30) },
+        }),
+        refresh: await w.api("POST", `/integrations/github/installations/${linkId}/refresh`, {
+          cookie: admin,
+        }),
+        scope: await w.api("PUT", `/integrations/github/installations/${linkId}/workspaces`, {
+          cookie: admin,
+          body: { workspaceIds: [] },
+        }),
+        unlink: await w.api("DELETE", `/integrations/github/installations/${linkId}`, {
+          cookie: admin,
+          body: { confirm: x.account.login },
+        }),
+        routingList: await w.api("GET", `/workspaces/${PAY()}/integrations`, { cookie: admin }),
+        routingSet: await w.api("PUT", `/workspaces/${PAY()}/integrations/${wl}`, {
+          cookie: admin,
+          body: { enabled: false },
+        }),
+      };
+      const problems = Object.entries(removed)
+        .filter(([, res]) => res.status !== 404)
+        .map(([name, res]) => `${name} answered ${res.status}`);
+      // controls: the connection is intact, and the workspace endpoints do the work
+      const overview = await w.api("GET", ghPath(PAY()), { cookie: admin });
+      if (!overview.json.data.items.some((l) => l.id === wl && l.status === "linked"))
+        problems.push("a removed endpoint changed the connection");
+      const refresh = await w.api("POST", `${ghPath(PAY())}/links/${wl}/refresh`, {
+        cookie: admin,
+      });
+      if (refresh.status !== 200) problems.push(`the workspace refresh answered ${refresh.status}`);
+      return problems;
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12c. GitHub integration: uninstall on GitHub (installation.deleted) affects every linked workspace (SPEC §18 A6, §18.6).
+//      The signed webhook runs through the API; the scm event consumer and the notification handler run in-process.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: uninstall and notification");
+  const base = 6000000 + (Date.now() % 100000) * 10;
+  const PAY = () => w.A.paymentsWs;
+  const IDN = () => w.A.identityWs;
+  const world = () =>
+    once("scm-uninstall", async () => {
+      const edge = await edgeTenant();
+      const admin = S("admin")(w);
+      const manager = S("manager")(w);
+      const tenantId = await tenantIdA();
+      const account = orgAccount("un");
+      const user = ghUser();
+      const flowP = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user,
+        orgRole: "admin",
+        repos: [base + 1, base + 2, base + 3].map(stubRepo),
+      });
+      const flowI = await linkFlow(admin, {
+        workspaceId: IDN(),
+        installationId: flowP.installationId,
+        account,
+        user,
+        orgRole: "admin",
+      });
+      const wlP = flowP.link.json.data.id;
+      const wlI = flowI.link.json.data.id;
+      const linkId = flowP.link.json.data.installationLinkId;
+      await putAllowList(admin, PAY(), wlP, [base + 1, base + 2]);
+      await putAllowList(admin, IDN(), wlI, [base + 3]);
+      const repoP1 = await connectRepo(manager, PAY(), wlP, base + 1);
+      const repoP2 = await connectRepo(admin, PAY(), wlP, base + 2);
+      const repoI = await connectRepo(admin, IDN(), wlI, base + 3);
+      const repoIds = [repoP1, repoP2, repoI].map((r) => r.json.data.id);
+      const db = suiteDb();
+      const statusOf = async () =>
+        (await db.repository.findMany({ where: { id: { in: repoIds } } })).map((r) => [
+          r.status,
+          r.disconnectReason,
+        ]);
+      const before = await statusOf();
+      // people: the Manager of Payments, a Security Analyst made workspace Manager of Identity (removed again below)
+      const people = {
+        admin: await meId(admin),
+        manager: await meId(manager),
+        analyst: w.A.user,
+        viewer: await meId(S("viewer")(w)),
+        lead: await meId(S("lead")(w)),
+        developer: await meId(S("developer")(w)),
+        bOwner: w.B.userId,
+        edgeOwner: await meId(edge.owner),
+      };
+      const managerRole = await integrationManagerRoleId();
+      const edgeBefore = await w.api("GET", "/integrations/github/installations", {
+        cookie: edge.owner,
+      });
+      const handleEvent = (message) =>
+        createScmEventHandler({
+          db,
+          config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+          logger: quietLog,
+        })(message, { log: quietLog });
+      let deleted;
+      let envelope;
+      const fetchAudits = () =>
+        db.auditLog.findMany({
+          where: {
+            tenantId,
+            OR: [
+              { action: "scm_workspace_link.status_changed", targetId: { in: [wlP, wlI] } },
+              { action: "scm_installation.status_changed", targetId: linkId },
+              { action: "repository.disconnected", targetId: { in: repoIds } },
+            ],
+          },
+        });
+      let audits = [];
+
+      let revokedMessages = [];
+      const warnings = [];
+      await withRole(
+        { userId: people.analyst, roleId: managerRole, workspaceId: IDN() },
+        async () => {
+          const deliveryId = randomUUID();
+          deleted = await deliver({
+            payload: {
+              action: "deleted",
+              installation: { id: Number(flowP.installationId), account: { login: account.login } },
+            },
+            deliveryId,
+          });
+          const rows = await rowsFor(deliveryId);
+          envelope = rows.outbox[0]?.payload;
+          await handleEvent(envelope);
+          audits = await fetchAudits(); // what the first delivery wrote
+          // the same event again and a later "unsuspend": revoked is terminal and notifies nobody a second time
+          await handleEvent(envelope);
+          const later = await deliver({
+            payload: {
+              action: "unsuspend",
+              installation: { id: Number(flowP.installationId), account: { login: account.login } },
+            },
+          });
+          const laterRows = await rowsFor(later.deliveryId);
+          if (laterRows.outbox[0]) await handleEvent(laterRows.outbox[0].payload);
+          revokedMessages = (
+            await db.outboxMessage.findMany({
+              where: { tenantId, type: "scm.installation.revoked" },
+            })
+          ).filter((m) => m.payload?.payload?.linkId === linkId);
+          // notification: the handler turns the stored message into recipients (it needs no broker). It runs while the
+          // analyst still holds the Identity Manager role, because recipients are looked up when the message is handled.
+          const log = {
+            warn: (fields) => warnings.push(fields),
+            info() {},
+            error() {},
+            debug() {},
+          };
+          if (revokedMessages[0])
+            await createNotificationHandler({ db })(revokedMessages[0].payload, {
+              log,
+              attempt: 1,
+            });
+        },
+      );
+      const afterPush = await deliver({
+        event: "push",
+        payload: {
+          ref: "refs/heads/main",
+          before: "a".repeat(40),
+          after: "b".repeat(40),
+          commits: [{ id: "b".repeat(40) }],
+          head_commit: { id: "b".repeat(40) },
+          pusher: { name: "dev" },
+          repository: { id: base + 1 },
+          installation: { id: Number(flowP.installationId) },
+        },
+      });
+      const pushRows = await rowsFor(afterPush.deliveryId);
+      const installation = await db.scmInstallation.findFirst({
+        where: { externalInstallationId: String(flowP.installationId) },
+      });
+      return {
+        account,
+        people,
+        deleted,
+        before,
+        after: await statusOf(),
+        installation,
+        audits,
+        revokedMessages,
+        wlP,
+        wlI,
+        linkId,
+        repoIds,
+        afterPush,
+        pushRows,
+        edgeBefore,
+        warnings,
+        edgeAfter: await w.api("GET", "/integrations/github/installations", { cookie: edge.owner }),
+        statusAfterAll: await statusOf(),
+      };
+    });
+  add(
+    "SCM-043",
+    "a signed installation.deleted disconnects the repositories of every linked workspace (reason installation_revoked), audits each workspace and the tenant once, queues exactly one admin notification, and later events and webhooks for the installation change nothing",
+    { status: 202 },
+    async () => (await world()).deleted,
+    async () => {
+      const x = await world();
+      const problems = [];
+      if (
+        JSON.stringify(x.before.map((s) => s[0])) !== JSON.stringify(["active", "active", "active"])
+      )
+        problems.push(`before: ${JSON.stringify(x.before)}`);
+      if (x.installation?.status !== "revoked")
+        problems.push(`installation is ${x.installation?.status}`);
+      for (const [status, reason] of x.statusAfterAll)
+        if (status !== "disconnected" || reason !== "installation_revoked")
+          problems.push(`a repository is ${status}/${reason}`);
+      const count = (action) => x.audits.filter((a) => a.action === action);
+      const perWorkspace = count("scm_workspace_link.status_changed");
+      if (
+        perWorkspace.length !== 2 ||
+        new Set(perWorkspace.map((a) => a.workspaceId)).size !== 2 ||
+        !perWorkspace.some((a) => a.workspaceId === w.A.paymentsWs) ||
+        !perWorkspace.some((a) => a.workspaceId === w.A.identityWs)
+      )
+        problems.push(`${perWorkspace.length} per-workspace audit entries`);
+      const tenantLevel = count("scm_installation.status_changed");
+      if (tenantLevel.length !== 1 || tenantLevel[0].workspaceId !== null)
+        problems.push(`${tenantLevel.length} tenant-level audit entries`);
+      if (count("repository.disconnected").length !== 3)
+        problems.push(`${count("repository.disconnected").length} repository audit entries`);
+      if (x.revokedMessages.length !== 1)
+        problems.push(`${x.revokedMessages.length} notification messages`);
+      else {
+        const m = x.revokedMessages[0].payload;
+        const text = JSON.stringify(m);
+        if (m.payload.cause !== "deleted" || m.payload.repositoriesAffected !== 3)
+          problems.push(`message ${m.payload.cause}/${m.payload.repositoriesAffected}`);
+        if (m.payload.workspaces.length !== 2)
+          problems.push("the message does not list both workspaces");
+        if (text.includes(x.account.login) || /secret|token|ghs_/i.test(text))
+          problems.push("the message carries a name or secret");
+      }
+      if (x.pushRows.events.length || x.pushRows.outbox.length || x.afterPush.status !== 202)
+        problems.push("a push for a repository of the revoked installation was processed");
+      if (x.pushRows.delivery?.outcome !== "ignored")
+        problems.push(`push outcome ${x.pushRows.delivery?.outcome}`);
+      if (
+        JSON.stringify(x.edgeBefore.json.data.items) !== JSON.stringify(x.edgeAfter.json.data.items)
+      )
+        problems.push("another tenant's installations changed");
+      return problems;
+    },
+  );
+  add(
+    "SCM-044",
+    "the uninstall notification reaches the active holders of tenant integration.manage and each affected workspace's workspace_integration.manage holders once each, never a Viewer or anyone of another tenant",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await world() }),
+    (r) => {
+      const { people, warnings, wlP } = r.x;
+      const problems = [];
+      const byUser = new Map();
+      for (const w1 of warnings) {
+        if (byUser.has(w1.recipientUserId)) problems.push("a person was notified twice");
+        byUser.set(w1.recipientUserId, w1);
+      }
+      const get = (name) => byUser.get(people[name]);
+      if (!get("admin")?.tenantLevel || get("admin").workspaceIds.length !== 2)
+        problems.push(`administrator: ${JSON.stringify(get("admin"))}`);
+      if (
+        !get("manager") ||
+        get("manager").tenantLevel ||
+        JSON.stringify(get("manager").workspaceIds) !== JSON.stringify([w.A.paymentsWs])
+      )
+        problems.push(`payments manager: ${JSON.stringify(get("manager"))}`);
+      if (
+        !get("analyst") ||
+        JSON.stringify(get("analyst").workspaceIds) !== JSON.stringify([w.A.identityWs])
+      )
+        problems.push(`identity manager: ${JSON.stringify(get("analyst"))}`);
+      for (const name of ["viewer", "lead", "developer", "bOwner", "edgeOwner"])
+        if (get(name)) problems.push(`${name} was notified`);
+      if (warnings.length === 0) problems.push("nobody was notified");
+      if (wlP === undefined) problems.push("no world");
       return problems;
     },
   );

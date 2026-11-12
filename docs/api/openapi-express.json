@@ -23403,12 +23403,16 @@
                         },
                         "installations": {
                           "type": "number"
+                        },
+                        "allowWorkspaceLinking": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
                         "configured",
                         "status",
-                        "installations"
+                        "installations",
+                        "allowWorkspaceLinking"
                       ]
                     },
                     "meta": {
@@ -23600,12 +23604,12 @@
         }
       }
     },
-    "/api/v1/integrations/github/installations": {
+    "/api/v1/integrations/settings": {
       "get": {
         "tags": [
           "Integrations"
         ],
-        "summary": "GitHub installations linked to this organization",
+        "summary": "Tenant source-control settings (allow workspace admins to link source control)",
         "security": [
           {
             "tenantSession": []
@@ -23628,111 +23632,22 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "items": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string"
-                              },
-                              "provider": {
-                                "type": "string",
-                                "enum": [
-                                  "github"
-                                ]
-                              },
-                              "status": {
-                                "type": "string",
-                                "enum": [
-                                  "linked",
-                                  "unlinked"
-                                ]
-                              },
-                              "health": {
-                                "type": "string",
-                                "enum": [
-                                  "healthy",
-                                  "degraded",
-                                  "suspended",
-                                  "revoked",
-                                  "unlinked"
-                                ]
-                              },
-                              "account": {
-                                "type": "object",
-                                "properties": {
-                                  "login": {
-                                    "type": "string"
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "organization",
-                                      "user"
-                                    ]
-                                  }
-                                },
-                                "required": [
-                                  "login",
-                                  "type"
-                                ]
-                              },
-                              "externalInstallationId": {
-                                "type": "string"
-                              },
-                              "repositorySelection": {
-                                "type": "string",
-                                "enum": [
-                                  "all",
-                                  "selected"
-                                ]
-                              },
-                              "permissions": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "nullable": true
-                                }
-                              },
-                              "linkedAt": {
-                                "type": "string"
-                              },
-                              "linkedByUserId": {
-                                "type": "string"
-                              },
-                              "repositoryCount": {
-                                "type": "number"
-                              },
-                              "unavailableRepositoryCount": {
-                                "type": "number"
-                              },
-                              "workspaceScope": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "provider",
-                              "status",
-                              "health",
-                              "account",
-                              "externalInstallationId",
-                              "repositorySelection",
-                              "permissions",
-                              "linkedAt",
-                              "linkedByUserId",
-                              "repositoryCount",
-                              "unavailableRepositoryCount",
-                              "workspaceScope"
-                            ]
-                          }
+                        "allowWorkspaceLinking": {
+                          "type": "boolean"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updatedByUserId": {
+                          "type": "string",
+                          "nullable": true
                         }
                       },
                       "required": [
-                        "items"
+                        "allowWorkspaceLinking",
+                        "updatedAt",
+                        "updatedByUserId"
                       ]
                     },
                     "meta": {
@@ -23923,1544 +23838,14 @@
           }
         }
       },
-      "post": {
-        "tags": [
-          "Integrations"
-        ],
-        "summary": "Verify the user's authorization and link the installation (organization admin or account owner required)",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "state": {
-                    "type": "string",
-                    "minLength": 20,
-                    "maxLength": 100
-                  }
-                },
-                "required": [
-                  "code",
-                  "state"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "provider": {
-                          "type": "string",
-                          "enum": [
-                            "github"
-                          ]
-                        },
-                        "status": {
-                          "type": "string",
-                          "enum": [
-                            "linked",
-                            "unlinked"
-                          ]
-                        },
-                        "health": {
-                          "type": "string",
-                          "enum": [
-                            "healthy",
-                            "degraded",
-                            "suspended",
-                            "revoked",
-                            "unlinked"
-                          ]
-                        },
-                        "account": {
-                          "type": "object",
-                          "properties": {
-                            "login": {
-                              "type": "string"
-                            },
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "organization",
-                                "user"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "login",
-                            "type"
-                          ]
-                        },
-                        "externalInstallationId": {
-                          "type": "string"
-                        },
-                        "repositorySelection": {
-                          "type": "string",
-                          "enum": [
-                            "all",
-                            "selected"
-                          ]
-                        },
-                        "permissions": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        },
-                        "linkedAt": {
-                          "type": "string"
-                        },
-                        "linkedByUserId": {
-                          "type": "string"
-                        },
-                        "repositoryCount": {
-                          "type": "number"
-                        },
-                        "unavailableRepositoryCount": {
-                          "type": "number"
-                        },
-                        "workspaceScope": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "provider",
-                        "status",
-                        "health",
-                        "account",
-                        "externalInstallationId",
-                        "repositorySelection",
-                        "permissions",
-                        "linkedAt",
-                        "linkedByUserId",
-                        "repositoryCount",
-                        "unavailableRepositoryCount",
-                        "workspaceScope"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many attempts (RATE_LIMITED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/github/installations/start": {
-      "post": {
-        "tags": [
-          "Integrations"
-        ],
-        "summary": "Start linking: the GitHub page where the App is installed",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "installUrl": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "installUrl"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many attempts (RATE_LIMITED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/github/installations/authorize": {
-      "post": {
-        "tags": [
-          "Integrations"
-        ],
-        "summary": "After the setup redirect: create the single-use state and return GitHub's authorize URL",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "installationId": {
-                    "type": "string",
-                    "pattern": "^\\d{1,20}$"
-                  }
-                },
-                "required": [
-                  "installationId"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "authorizeUrl": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "authorizeUrl"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many attempts (RATE_LIMITED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/github/installations/{linkId}/refresh": {
-      "post": {
-        "tags": [
-          "Integrations"
-        ],
-        "summary": "Test the connection: re-read the installation and mint a token",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "linkId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "provider": {
-                          "type": "string",
-                          "enum": [
-                            "github"
-                          ]
-                        },
-                        "status": {
-                          "type": "string",
-                          "enum": [
-                            "linked",
-                            "unlinked"
-                          ]
-                        },
-                        "health": {
-                          "type": "string",
-                          "enum": [
-                            "healthy",
-                            "degraded",
-                            "suspended",
-                            "revoked",
-                            "unlinked"
-                          ]
-                        },
-                        "account": {
-                          "type": "object",
-                          "properties": {
-                            "login": {
-                              "type": "string"
-                            },
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "organization",
-                                "user"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "login",
-                            "type"
-                          ]
-                        },
-                        "externalInstallationId": {
-                          "type": "string"
-                        },
-                        "repositorySelection": {
-                          "type": "string",
-                          "enum": [
-                            "all",
-                            "selected"
-                          ]
-                        },
-                        "permissions": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        },
-                        "linkedAt": {
-                          "type": "string"
-                        },
-                        "linkedByUserId": {
-                          "type": "string"
-                        },
-                        "repositoryCount": {
-                          "type": "number"
-                        },
-                        "unavailableRepositoryCount": {
-                          "type": "number"
-                        },
-                        "workspaceScope": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "provider",
-                        "status",
-                        "health",
-                        "account",
-                        "externalInstallationId",
-                        "repositorySelection",
-                        "permissions",
-                        "linkedAt",
-                        "linkedByUserId",
-                        "repositoryCount",
-                        "unavailableRepositoryCount",
-                        "workspaceScope"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many attempts (RATE_LIMITED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/integrations/github/installations/{linkId}/workspaces": {
       "put": {
         "tags": [
           "Integrations"
         ],
-        "summary": "Set the workspaces allowed to use the connection (empty = all)",
+        "summary": "Turn workspace-level linking of source control on or off for the organization",
         "security": [
           {
             "tenantSession": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "linkId",
-            "in": "path"
           }
         ],
         "requestBody": {
@@ -25470,17 +23855,12 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "workspaceIds": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "maxItems": 500
+                  "allowWorkspaceLinking": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
-                  "workspaceIds"
+                  "allowWorkspaceLinking"
                 ],
                 "additionalProperties": false
               }
@@ -25504,100 +23884,22 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "id": {
-                          "type": "string"
+                        "allowWorkspaceLinking": {
+                          "type": "boolean"
                         },
-                        "provider": {
+                        "updatedAt": {
                           "type": "string",
-                          "enum": [
-                            "github"
-                          ]
+                          "nullable": true
                         },
-                        "status": {
+                        "updatedByUserId": {
                           "type": "string",
-                          "enum": [
-                            "linked",
-                            "unlinked"
-                          ]
-                        },
-                        "health": {
-                          "type": "string",
-                          "enum": [
-                            "healthy",
-                            "degraded",
-                            "suspended",
-                            "revoked",
-                            "unlinked"
-                          ]
-                        },
-                        "account": {
-                          "type": "object",
-                          "properties": {
-                            "login": {
-                              "type": "string"
-                            },
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "organization",
-                                "user"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "login",
-                            "type"
-                          ]
-                        },
-                        "externalInstallationId": {
-                          "type": "string"
-                        },
-                        "repositorySelection": {
-                          "type": "string",
-                          "enum": [
-                            "all",
-                            "selected"
-                          ]
-                        },
-                        "permissions": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        },
-                        "linkedAt": {
-                          "type": "string"
-                        },
-                        "linkedByUserId": {
-                          "type": "string"
-                        },
-                        "repositoryCount": {
-                          "type": "number"
-                        },
-                        "unavailableRepositoryCount": {
-                          "type": "number"
-                        },
-                        "workspaceScope": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
+                          "nullable": true
                         }
                       },
                       "required": [
-                        "id",
-                        "provider",
-                        "status",
-                        "health",
-                        "account",
-                        "externalInstallationId",
-                        "repositorySelection",
-                        "permissions",
-                        "linkedAt",
-                        "linkedByUserId",
-                        "repositoryCount",
-                        "unavailableRepositoryCount",
-                        "workspaceScope"
+                        "allowWorkspaceLinking",
+                        "updatedAt",
+                        "updatedByUserId"
                       ]
                     },
                     "meta": {
@@ -25840,30 +24142,74 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/v1/workspaces/{workspaceId}/integrations": {
+    "/api/v1/integrations/github/installations": {
       "get": {
         "tags": [
           "Integrations"
         ],
-        "summary": "Linked GitHub connections this workspace may use, with the workspace's on/off setting",
+        "summary": "GitHub installations of this organization and the workspaces using them (read-only)",
         "security": [
           {
             "tenantSession": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "workspaceId",
-            "in": "path"
           }
         ],
         "responses": {
@@ -25897,6 +24243,13 @@
                                   "github"
                                 ]
                               },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "linked",
+                                  "unlinked"
+                                ]
+                              },
                               "health": {
                                 "type": "string",
                                 "enum": [
@@ -25926,16 +24279,75 @@
                                   "type"
                                 ]
                               },
-                              "enabled": {
-                                "type": "boolean"
+                              "externalInstallationId": {
+                                "type": "string"
+                              },
+                              "repositorySelection": {
+                                "type": "string",
+                                "enum": [
+                                  "all",
+                                  "selected"
+                                ]
+                              },
+                              "permissions": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "nullable": true
+                                }
+                              },
+                              "linkedAt": {
+                                "type": "string"
+                              },
+                              "linkedByUserId": {
+                                "type": "string"
+                              },
+                              "repositoryCount": {
+                                "type": "number"
+                              },
+                              "unavailableRepositoryCount": {
+                                "type": "number"
+                              },
+                              "workspaceCount": {
+                                "type": "number"
+                              },
+                              "workspaces": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ]
+                                }
+                              },
+                              "hiddenWorkspaceCount": {
+                                "type": "number"
                               }
                             },
                             "required": [
                               "id",
                               "provider",
+                              "status",
                               "health",
                               "account",
-                              "enabled"
+                              "externalInstallationId",
+                              "repositorySelection",
+                              "permissions",
+                              "linkedAt",
+                              "linkedByUserId",
+                              "repositoryCount",
+                              "unavailableRepositoryCount",
+                              "workspaceCount",
+                              "workspaces",
+                              "hiddenWorkspaceCount"
                             ]
                           }
                         }
@@ -25965,61 +24377,6 @@
               }
             }
           },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
           "401": {
             "description": "No valid session (UNAUTHENTICATED)",
             "content": {
@@ -26132,422 +24489,6 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspaceId}/integrations/{linkId}": {
-      "put": {
-        "tags": [
-          "Integrations"
-        ],
-        "summary": "Turn a connection on or off for this workspace (routing only; cannot widen the organization scope)",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "workspaceId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "linkId",
-            "in": "path"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "enabled"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "provider": {
-                          "type": "string",
-                          "enum": [
-                            "github"
-                          ]
-                        },
-                        "health": {
-                          "type": "string",
-                          "enum": [
-                            "healthy",
-                            "degraded",
-                            "suspended",
-                            "revoked",
-                            "unlinked"
-                          ]
-                        },
-                        "account": {
-                          "type": "object",
-                          "properties": {
-                            "login": {
-                              "type": "string"
-                            },
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "organization",
-                                "user"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "login",
-                            "type"
-                          ]
-                        },
-                        "enabled": {
-                          "type": "boolean"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "provider",
-                        "health",
-                        "account",
-                        "enabled"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26971,18 +24912,2027 @@
         }
       }
     },
-    "/api/v1/integrations/github/installations/{linkId}": {
-      "delete": {
+    "/api/v1/integrations/github/links": {
+      "post": {
         "tags": [
           "Integrations"
         ],
-        "summary": "Unlink the installation: repositories are disconnected, nothing is deleted",
+        "summary": "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required)",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "state": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "code",
+                  "state"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "workspaceId": {
+                          "type": "string"
+                        },
+                        "installationLinkId": {
+                          "type": "string"
+                        },
+                        "provider": {
+                          "type": "string",
+                          "enum": [
+                            "github"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "linked",
+                            "unlinked"
+                          ]
+                        },
+                        "health": {
+                          "type": "string",
+                          "enum": [
+                            "healthy",
+                            "degraded",
+                            "suspended",
+                            "revoked",
+                            "unlinked"
+                          ]
+                        },
+                        "account": {
+                          "type": "object",
+                          "properties": {
+                            "login": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "organization",
+                                "user"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "login",
+                            "type"
+                          ]
+                        },
+                        "repositorySelection": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "selected"
+                          ]
+                        },
+                        "linkedAt": {
+                          "type": "string"
+                        },
+                        "linkedByUserId": {
+                          "type": "string"
+                        },
+                        "repositoryCount": {
+                          "type": "number"
+                        },
+                        "unavailableRepositoryCount": {
+                          "type": "number"
+                        },
+                        "allowListCount": {
+                          "type": "number"
+                        },
+                        "lastEventAt": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "workspaceId",
+                        "installationLinkId",
+                        "provider",
+                        "status",
+                        "health",
+                        "account",
+                        "repositorySelection",
+                        "linkedAt",
+                        "linkedByUserId",
+                        "repositoryCount",
+                        "unavailableRepositoryCount",
+                        "allowListCount",
+                        "lastEventAt"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "This workspace's GitHub connections",
         "security": [
           {
             "tenantSession": []
           }
         ],
         "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "configured": {
+                          "type": "boolean"
+                        },
+                        "linkingEnabled": {
+                          "type": "boolean"
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "workspaceId": {
+                                "type": "string"
+                              },
+                              "installationLinkId": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string",
+                                "enum": [
+                                  "github"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "linked",
+                                  "unlinked"
+                                ]
+                              },
+                              "health": {
+                                "type": "string",
+                                "enum": [
+                                  "healthy",
+                                  "degraded",
+                                  "suspended",
+                                  "revoked",
+                                  "unlinked"
+                                ]
+                              },
+                              "account": {
+                                "type": "object",
+                                "properties": {
+                                  "login": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "organization",
+                                      "user"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "login",
+                                  "type"
+                                ]
+                              },
+                              "repositorySelection": {
+                                "type": "string",
+                                "enum": [
+                                  "all",
+                                  "selected"
+                                ]
+                              },
+                              "linkedAt": {
+                                "type": "string"
+                              },
+                              "linkedByUserId": {
+                                "type": "string"
+                              },
+                              "repositoryCount": {
+                                "type": "number"
+                              },
+                              "unavailableRepositoryCount": {
+                                "type": "number"
+                              },
+                              "allowListCount": {
+                                "type": "number"
+                              },
+                              "lastEventAt": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "workspaceId",
+                              "installationLinkId",
+                              "provider",
+                              "status",
+                              "health",
+                              "account",
+                              "repositorySelection",
+                              "linkedAt",
+                              "linkedByUserId",
+                              "repositoryCount",
+                              "unavailableRepositoryCount",
+                              "allowListCount",
+                              "lastEventAt"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "configured",
+                        "linkingEnabled",
+                        "items"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github/start": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Start linking: the GitHub page where the App is installed",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "installUrl": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "installUrl"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github/authorize": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "After the setup redirect: create the single-use state (bound to this workspace) and return GitHub's authorize URL",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "installationId": {
+                    "type": "string",
+                    "pattern": "^\\d{1,20}$"
+                  }
+                },
+                "required": [
+                  "installationId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "authorizeUrl": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "authorizeUrl"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}/refresh": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Test the connection: re-read the installation and mint a token",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "linkId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "workspaceId": {
+                          "type": "string"
+                        },
+                        "installationLinkId": {
+                          "type": "string"
+                        },
+                        "provider": {
+                          "type": "string",
+                          "enum": [
+                            "github"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "linked",
+                            "unlinked"
+                          ]
+                        },
+                        "health": {
+                          "type": "string",
+                          "enum": [
+                            "healthy",
+                            "degraded",
+                            "suspended",
+                            "revoked",
+                            "unlinked"
+                          ]
+                        },
+                        "account": {
+                          "type": "object",
+                          "properties": {
+                            "login": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "organization",
+                                "user"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "login",
+                            "type"
+                          ]
+                        },
+                        "repositorySelection": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "selected"
+                          ]
+                        },
+                        "linkedAt": {
+                          "type": "string"
+                        },
+                        "linkedByUserId": {
+                          "type": "string"
+                        },
+                        "repositoryCount": {
+                          "type": "number"
+                        },
+                        "unavailableRepositoryCount": {
+                          "type": "number"
+                        },
+                        "allowListCount": {
+                          "type": "number"
+                        },
+                        "lastEventAt": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "workspaceId",
+                        "installationLinkId",
+                        "provider",
+                        "status",
+                        "health",
+                        "account",
+                        "repositorySelection",
+                        "linkedAt",
+                        "linkedByUserId",
+                        "repositoryCount",
+                        "unavailableRepositoryCount",
+                        "allowListCount",
+                        "lastEventAt"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}": {
+      "delete": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Disconnect this workspace from the installation: only its repositories are disconnected, nothing is deleted",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          },
           {
             "schema": {
               "type": "string",
@@ -27234,6 +27184,850 @@
           },
           "404": {
             "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}/repositories": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Repositories the installation can access (live, paged) with this workspace's allow-list flag",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "linkId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "q",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "externalRepoId": {
+                            "type": "string"
+                          },
+                          "fullName": {
+                            "type": "string"
+                          },
+                          "visibility": {
+                            "type": "string"
+                          },
+                          "defaultBranch": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "archived": {
+                            "type": "boolean"
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          },
+                          "allowedElsewhere": {
+                            "type": "boolean"
+                          },
+                          "connected": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "externalRepoId",
+                          "fullName",
+                          "visibility",
+                          "defaultBranch",
+                          "archived",
+                          "allowed",
+                          "allowedElsewhere",
+                          "connected"
+                        ]
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "pagination": {
+                          "type": "object",
+                          "properties": {
+                            "page": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "pageSize": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "totalItems": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "totalPages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "pageSize",
+                            "totalItems",
+                            "totalPages"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "correlationId",
+                        "pagination"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Replace or patch the repositories this workspace may connect (allow-list)",
+        "security": [
+          {
+            "tenantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspaceId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "linkId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "externalRepoIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{1,19}$"
+                    },
+                    "maxItems": 500
+                  },
+                  "add": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{1,19}$"
+                    },
+                    "maxItems": 500
+                  },
+                  "remove": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{1,19}$"
+                    },
+                    "maxItems": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "allowListCount": {
+                          "type": "number"
+                        },
+                        "added": {
+                          "type": "number"
+                        },
+                        "removed": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "allowListCount",
+                        "added",
+                        "removed"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (UNAUTHENTICATED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "details": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "correlationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "error",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (RATE_LIMITED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27641,6 +28435,9 @@
                           "linkId": {
                             "type": "string"
                           },
+                          "workspaceLinkId": {
+                            "type": "string"
+                          },
                           "provider": {
                             "type": "string",
                             "enum": [
@@ -27739,6 +28536,7 @@
                           "id",
                           "workspaceId",
                           "linkId",
+                          "workspaceLinkId",
                           "provider",
                           "externalRepoId",
                           "fullName",
@@ -28042,7 +28840,7 @@
         "tags": [
           "Repositories"
         ],
-        "summary": "Repositories a linked GitHub connection can access (marks the ones already connected)",
+        "summary": "Allow-listed repositories of a workspace GitHub connection (marks the ones already connected)",
         "security": [
           {
             "tenantSession": []
@@ -28085,7 +28883,7 @@
               "format": "uuid"
             },
             "required": true,
-            "name": "installationId",
+            "name": "workspaceLinkId",
             "in": "query"
           },
           {
@@ -28472,7 +29270,7 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "installationId": {
+                  "workspaceLinkId": {
                     "type": "string",
                     "format": "uuid"
                   },
@@ -28498,7 +29296,7 @@
                   }
                 },
                 "required": [
-                  "installationId",
+                  "workspaceLinkId",
                   "externalRepoId"
                 ],
                 "additionalProperties": false
@@ -28530,6 +29328,9 @@
                           "type": "string"
                         },
                         "linkId": {
+                          "type": "string"
+                        },
+                        "workspaceLinkId": {
                           "type": "string"
                         },
                         "provider": {
@@ -28630,6 +29431,7 @@
                         "id",
                         "workspaceId",
                         "linkId",
+                        "workspaceLinkId",
                         "provider",
                         "externalRepoId",
                         "fullName",
@@ -29057,6 +29859,9 @@
                         "linkId": {
                           "type": "string"
                         },
+                        "workspaceLinkId": {
+                          "type": "string"
+                        },
                         "provider": {
                           "type": "string",
                           "enum": [
@@ -29155,6 +29960,7 @@
                         "id",
                         "workspaceId",
                         "linkId",
+                        "workspaceLinkId",
                         "provider",
                         "externalRepoId",
                         "fullName",
@@ -29500,6 +30306,9 @@
                         "linkId": {
                           "type": "string"
                         },
+                        "workspaceLinkId": {
+                          "type": "string"
+                        },
                         "provider": {
                           "type": "string",
                           "enum": [
@@ -29598,6 +30407,7 @@
                         "id",
                         "workspaceId",
                         "linkId",
+                        "workspaceLinkId",
                         "provider",
                         "externalRepoId",
                         "fullName",
@@ -30652,6 +31462,9 @@
                         "linkId": {
                           "type": "string"
                         },
+                        "workspaceLinkId": {
+                          "type": "string"
+                        },
                         "provider": {
                           "type": "string",
                           "enum": [
@@ -30750,6 +31563,7 @@
                         "id",
                         "workspaceId",
                         "linkId",
+                        "workspaceLinkId",
                         "provider",
                         "externalRepoId",
                         "fullName",
@@ -31187,6 +32001,9 @@
                         "linkId": {
                           "type": "string"
                         },
+                        "workspaceLinkId": {
+                          "type": "string"
+                        },
                         "provider": {
                           "type": "string",
                           "enum": [
@@ -31285,6 +32102,7 @@
                         "id",
                         "workspaceId",
                         "linkId",
+                        "workspaceLinkId",
                         "provider",
                         "externalRepoId",
                         "fullName",

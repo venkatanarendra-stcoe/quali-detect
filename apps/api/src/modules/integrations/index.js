@@ -10,7 +10,10 @@ async function integrationsPlugin(app) {
   const service = createIntegrationService({
     repository: createIntegrationRepository({ db: app.infra.db }),
     scm: app.scm,
-    stateStore: createLinkStateStore({ infra: app.infra }),
+    stateStore: createLinkStateStore({
+      infra: app.infra,
+      ttlSeconds: app.config.scm?.linkStateTtlSeconds,
+    }),
     audit: app.audit,
     outbox: app.outbox,
   });
@@ -21,7 +24,7 @@ async function integrationsPlugin(app) {
 export const integrationsModule = {
   name: MODULE_NAME,
   description:
-    "Integrations catalog and the GitHub App installation lifecycle: link (verified), refresh, scope, deliveries, unlink.",
+    "Integrations catalog, tenant settings, the read-only installation view and the workspace-level GitHub lifecycle: link (verified), allow-list, refresh, unlink.",
   prefix: API_PREFIX,
   plugin: integrationsPlugin,
 };

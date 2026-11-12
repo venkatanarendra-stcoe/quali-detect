@@ -10,6 +10,7 @@ export const toRepositoryDto = (r) => ({
   id: r.id,
   workspaceId: r.workspaceId,
   linkId: r.linkId,
+  workspaceLinkId: r.workspaceLinkId,
   provider: r.provider,
   externalRepoId: r.externalRepoId,
   fullName: r.fullName,

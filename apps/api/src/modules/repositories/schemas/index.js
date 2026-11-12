@@ -20,14 +20,14 @@ export const listRepositoriesQuerySchema = createCollectionQuerySchema({
 export const availableQuerySchema = z
   .object({
     ...paginationShape({ defaultPageSize: 30, maxPageSize: 100 }),
-    installationId: z.string().uuid(),
+    workspaceLinkId: z.string().uuid(),
     q: searchText,
     visibility: z.enum(["public", "private", "internal"]).optional(),
   })
   .strict();
 export const connectBodySchema = z
   .object({
-    installationId: z.string().uuid(),
+    workspaceLinkId: z.string().uuid(),
     externalRepoId: z.string().regex(/^\d{1,19}$/),
     displayName: text(100).nullish(),
     description: text(500).nullish(),
@@ -47,6 +47,7 @@ const repositoryDto = z.object({
   id: z.string(),
   workspaceId: z.string(),
   linkId: z.string(),
+  workspaceLinkId: z.string(),
   provider: z.literal("github"),
   externalRepoId: z.string(),
   fullName: z.string(),

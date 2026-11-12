@@ -14,7 +14,7 @@ export function start() {
   return runWorker({
     name: WORKER_NAME,
     queue: QUEUE_NAMES.NOTIFICATION,
-    handler: createNotificationHandler(),
+    buildHandler: ({ db }) => createNotificationHandler({ db }),
     verifyOwnership: true,
   });
 }

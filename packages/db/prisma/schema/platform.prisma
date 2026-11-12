@@ -67,24 +67,25 @@ model Tenant {
   updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   deactivatedAt DateTime?    @map("deactivated_at") @db.Timestamptz(6)
 
-  memberships   TenantMembership[]
-  groups        Group[]
-  roles         Role[]
-  workspaces    Workspace[]
-  sessions      Session[]
-  auditLogs     AuditLog[]
-  subscriptions TenantSubscription[]
-  entitlements  TenantEntitlement[]
-  quotas        TenantQuota[]
-  quotaUsage    TenantQuotaUsage[]
-  platformAudit PlatformAuditLog[]
-  dataKeys      TenantDataKey[]
-  secrets       Secret[]
-  outbox        OutboxMessage[]
-  scmLinks      ScmInstallationLink[]
-  repositories  Repository[]
-  scmEvents     ScmEvent[]
-  processed     ProcessedMessage[]
+  memberships         TenantMembership[]
+  groups              Group[]
+  roles               Role[]
+  workspaces          Workspace[]
+  sessions            Session[]
+  auditLogs           AuditLog[]
+  subscriptions       TenantSubscription[]
+  entitlements        TenantEntitlement[]
+  quotas              TenantQuota[]
+  quotaUsage          TenantQuotaUsage[]
+  platformAudit       PlatformAuditLog[]
+  dataKeys            TenantDataKey[]
+  secrets             Secret[]
+  outbox              OutboxMessage[]
+  scmLinks            ScmInstallationLink[]
+  integrationSettings TenantIntegrationSettings?
+  repositories        Repository[]
+  scmEvents           ScmEvent[]
+  processed           ProcessedMessage[]
 
   @@index([status])
   @@map("tenants")

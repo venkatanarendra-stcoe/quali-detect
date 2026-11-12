@@ -107,16 +107,29 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
     }
     return null;
   }
-  /** The organization scope is the ceiling; the workspace may additionally switch the connection off (routing). */
-  const assertUsableInWorkspace = (link, workspaceId) => {
-    const allowed =
-      link.workspaces.length === 0 || link.workspaces.some((w) => w.workspaceId === workspaceId);
-    const off = link.workspaceSettings.some((s) => s.workspaceId === workspaceId && !s.enabled);
-    if (!allowed || off)
-      throw new ForbiddenError("This GitHub connection is not enabled for the workspace.");
+  /**
+   * The workspace link must belong to this tenant AND workspace (a foreign id is a plain 404) and be `linked`; a link that is
+   * not usable is refused with a clear 403 (SPEC §18.2).
+   */
+  const loadUsableWorkspaceLink = async (actor, workspaceId, workspaceLinkId) => {
+    const wl = await repository.findWorkspaceLink({
+      tenantId: actor.tenantId,
+      workspaceId,
+      workspaceLinkId,
+    });
+    if (!wl) throw new NotFoundError();
+    if (wl.status !== "linked" || wl.link.status !== "linked")
+      throw new ForbiddenError("This workspace is not linked to that GitHub connection.", {
+        details: { reason: "workspace_link_not_linked" },
+      });
+    if (wl.link.installation.status === "revoked")
+      throw new ConflictError("The GitHub App was uninstalled from this account.", {
+        details: { reason: "installation_revoked" },
+      });
+    return wl;
   };
   const loadLink = async (tenantId, linkId) => {
-    const link = await repository.findLinkWithScope({ tenantId, linkId });
+    const link = await repository.findLink({ tenantId, linkId });
     if (!link) throw new NotFoundError();
     return link;
   };
@@ -146,23 +159,32 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
       return toPage({ items: page.items.map(toRepositoryDto), totalItems: page.totalItems }, query);
     },
 
-    /** Repositories the chosen linked installation can access, marked when already connected (T-23 step 2). */
-    async available(actor, workspaceId, { installationId, q, visibility, page, pageSize }) {
-      const link = await loadLink(actor.tenantId, installationId);
-      if (link.status !== "linked") throw new NotFoundError();
-      assertUsableInWorkspace(link, workspaceId);
-      const result = await providerCall(() =>
-        requireGitHub().listInstallationRepositories(link.installation.externalInstallationId, {
-          page,
-          perPage: pageSize,
-        }),
+    /**
+     * Repositories on the allow-list of the chosen workspace link, with live data from GitHub, marked when already connected
+     * (T-23 step 2). Repositories the installation can reach but the workspace admin did not allow are never returned.
+     */
+    async available(actor, workspaceId, { workspaceLinkId, q, visibility, page, pageSize }) {
+      const wl = await loadUsableWorkspaceLink(actor, workspaceId, workspaceLinkId);
+      const allowed = new Set(
+        (await repository.listAllowList({ tenantId: actor.tenantId, workspaceLinkId: wl.id })).map(
+          (e) => e.externalRepoId,
+        ),
+      );
+      const listing = await providerCall(() =>
+        requireGitHub().listAllInstallationRepositories(
+          wl.link.installation.externalInstallationId,
+        ),
       );
       const needle = q?.toLowerCase();
-      const visible = result.repositories.filter(
-        (r) =>
-          (!needle || r.fullName.toLowerCase().includes(needle)) &&
-          (!visibility || r.visibility === visibility),
-      );
+      const matching = listing.repositories
+        .filter(
+          (r) =>
+            allowed.has(r.externalRepoId) &&
+            (!needle || r.fullName.toLowerCase().includes(needle)) &&
+            (!visibility || r.visibility === visibility),
+        )
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
+      const visible = matching.slice((page - 1) * pageSize, page * pageSize);
       const connected = new Set(
         (
           await repository.findManyExternal({
@@ -181,7 +203,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
             archived: r.archived,
             alreadyConnected: connected.has(r.externalRepoId),
           })),
-          totalItems: result.totalCount,
+          totalItems: matching.length,
         },
         { page, pageSize },
       );
@@ -189,12 +211,18 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
 
     /** Connect (or reconnect) one repository into a workspace. */
     async connect(actor, workspaceId, input) {
-      const link = await loadLink(actor.tenantId, input.installationId);
-      if (link.status !== "linked")
-        throw new ConflictError("This GitHub connection is not linked.", {
-          details: { reason: "installation_not_linked" },
-        });
-      assertUsableInWorkspace(link, workspaceId);
+      const wl = await loadUsableWorkspaceLink(actor, workspaceId, input.workspaceLinkId);
+      const link = wl.link;
+      const onList = await repository.findAllowListEntries({
+        tenantId: actor.tenantId,
+        workspaceLinkId: wl.id,
+        externalRepoIds: [input.externalRepoId],
+      });
+      if (onList.length === 0)
+        throw new ForbiddenError(
+          "This repository is not on the workspace's list of repositories that may be connected.",
+          { details: { reason: "repository_not_allowed" } },
+        );
       const remote = await providerCall(() =>
         findAccessible(link.installation.externalInstallationId, input.externalRepoId),
       );
@@ -241,6 +269,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
         });
         const fields = {
           linkId: link.id,
+          workspaceLinkId: wl.id,
           nodeId: remote.nodeId,
           fullName: remote.fullName,
           name: remote.name,

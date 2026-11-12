@@ -50,6 +50,16 @@ const RESOURCE_CHECKS = {
   "scm.repository.changed": async (db, message) => repositoryInTenant(db, message),
   "scm.installation.changed": async (db, message) => linkInTenant(db, message),
   "scm.installation_repositories.changed": async (db, message) => linkInTenant(db, message),
+  // Uninstall/suspension fan-out: the installation link AND every workspace named in the payload must belong to the tenant.
+  "scm.installation.revoked": async (db, message) => {
+    if (!(await linkInTenant(db, message))) return false;
+    const ids = [...new Set(message.payload.workspaces.map((w) => w.workspaceId))];
+    if (ids.length === 0) return true;
+    return (
+      (await db.workspace.count({ where: { tenantId: message.tenantId, id: { in: ids } } })) ===
+      ids.length
+    );
+  },
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({

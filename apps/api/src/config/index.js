@@ -38,6 +38,8 @@ const envSchema = z.object({
     .min(1)
     .max(31536000)
     .default(2592000),
+  // Lifetime of the single-use GitHub linking state (SPEC §18.6: 10 minutes). Shortened by the security suite to test expiry.
+  SCM_LINK_STATE_TTL_SECONDS: z.coerce.number().int().min(1).max(3600).default(600),
   // Secret storage (ADR-009). Off unless a feature needs it. The "env" key provider (master key from the environment) is
   // for DEVELOPMENT only and is refused in production; the KMS and Vault adapters are not implemented yet.
   SECRETS_ENABLED: booleanFlag.optional(),
@@ -261,6 +263,7 @@ export function loadConfig(env = process.env) {
       masterKey: e.SECRETS_ENABLED === true ? e.SECRET_MASTER_KEY : undefined,
       masterKeyVersion: e.SECRET_MASTER_KEY_VERSION,
     }),
+    scm: Object.freeze({ linkStateTtlSeconds: e.SCM_LINK_STATE_TTL_SECONDS }),
     tenants: Object.freeze({
       deactivationRetentionSeconds: e.TENANT_DEACTIVATION_RETENTION_SECONDS,
     }),

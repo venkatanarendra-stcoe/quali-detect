@@ -48,8 +48,13 @@ export const AUDIT_ACTIONS = Object.freeze({
   // Source control (docs/modules/repositories-github/SPEC.md)
   SCM_INSTALLATION_LINKED: "scm_installation.linked",
   SCM_INSTALLATION_UNLINKED: "scm_installation.unlinked",
-  SCM_INSTALLATION_SCOPE_UPDATED: "scm_installation.scope_updated",
-  SCM_WORKSPACE_ROUTING_UPDATED: "scm_installation.workspace_routing_updated",
+  // Workspace-level links (SPEC §18, ADR-012)
+  SCM_WORKSPACE_LINK_CREATED: "scm_workspace_link.created",
+  SCM_WORKSPACE_LINK_REACTIVATED: "scm_workspace_link.reactivated",
+  SCM_WORKSPACE_LINK_UNLINKED: "scm_workspace_link.unlinked",
+  SCM_WORKSPACE_LINK_STATUS_CHANGED: "scm_workspace_link.status_changed",
+  SCM_WORKSPACE_LINK_ALLOW_LIST_UPDATED: "scm_workspace_link.allow_list_updated",
+  SCM_SETTINGS_WORKSPACE_LINKING_UPDATED: "scm_settings.workspace_linking_updated",
   SCM_INSTALLATION_STATUS_CHANGED: "scm_installation.status_changed",
   REPOSITORY_CONNECTED: "repository.connected",
   REPOSITORY_UPDATED: "repository.updated",

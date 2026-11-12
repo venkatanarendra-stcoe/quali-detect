@@ -33,12 +33,16 @@ export function createScmJobHandler({ db, config, logger, github }) {
   async function syncRepository({ tenantId, repositoryId }, log) {
     const repo = await db.repository.findFirst({
       where: { id: repositoryId, tenantId },
-      include: { link: { include: { installation: true } } },
+      include: { link: { include: { installation: true } }, workspaceLink: true },
     });
     if (!repo || repo.status === "disconnected" || !repo.enabled)
       return log.info("Sync skipped (repository disconnected, disabled or gone)");
-    const { link } = repo;
-    if (link.status !== "linked" || link.installation.status === "revoked")
+    const { link, workspaceLink } = repo;
+    if (
+      link.status !== "linked" ||
+      workspaceLink.status !== "linked" ||
+      link.installation.status === "revoked"
+    )
       return log.info("Sync skipped (installation not linked or revoked)");
     let listing;
     try {
@@ -77,6 +81,7 @@ export function createScmJobHandler({ db, config, logger, github }) {
         status: { in: ["active", "unavailable"] },
         enabled: true,
         link: { status: "linked", installation: { status: "active" } },
+        workspaceLink: { status: "linked" },
         OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: cutoff } }],
       },
       select: { id: true, tenantId: true, workspaceId: true },

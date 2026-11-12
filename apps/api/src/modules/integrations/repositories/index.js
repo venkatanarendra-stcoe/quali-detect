@@ -1,13 +1,24 @@
 /**
- * Data access for GitHub installations and tenant links. Installations are platform-level facts (no tenant); every link
- * query carries the tenantId. Never exposes tokens (none are stored).
+ * Data access for GitHub installations, tenant links, workspace links and their allow-lists (SPEC §18, ADR-012).
+ * Installations are platform-level facts (no tenant). EVERY other function takes the tenantId (and the workspaceId where
+ * the row is workspace-owned) and puts it in the `where`, including compound-unique upserts and updates. `client` is the
+ * Prisma client or a transaction client. Never exposes tokens (none are stored).
  * @param {{ db: any }} deps
  */
 export function createIntegrationRepository({ db }) {
-  const linkInclude = { installation: true, workspaces: { select: { workspaceId: true } } };
+  const tenantLinkInclude = {
+    installation: true,
+    workspaceLinks: {
+      where: { status: "linked" },
+      select: { id: true, workspaceId: true, workspace: { select: { name: true } } },
+    },
+  };
+  const workspaceLinkInclude = { link: { include: { installation: true } } };
+
   return Object.freeze({
     transaction: (fn) => db.$transaction(fn),
 
+    // ---- Installations (platform facts)
     findInstallationByExternalId: (externalInstallationId, client = db) =>
       client.scmInstallation.findUnique({
         where: { provider_externalInstallationId: { provider: "github", externalInstallationId } },
@@ -23,6 +34,14 @@ export function createIntegrationRepository({ db }) {
         create: { provider: "github", ...data, lastCheckedAt: new Date() },
         update: { ...data, lastCheckedAt: new Date() },
       }),
+    markInstallationRevoked: (installationId, client = db) =>
+      client.scmInstallation.update({
+        where: { id: installationId },
+        data: { status: "revoked", lastCheckedAt: new Date() },
+      }),
+
+    // ---- Tenant installation links (exclusivity across tenants is the partial unique index; this read is the only
+    // deliberately tenant-less lookup: "who holds this installation")
     findLinkedByInstallation: (installationId, client = db) =>
       client.scmInstallationLink.findFirst({ where: { installationId, status: "linked" } }),
     findTenantLinkForInstallation: ({ tenantId, installationId }, client = db) =>
@@ -41,34 +60,108 @@ export function createIntegrationRepository({ db }) {
           unlinkedByUserId: null,
         },
       }),
-    /** Re-link restores the repositories that an unlink disconnected (same rows, same ids). */
-    restoreRepositories: ({ tenantId, linkId }, client = db) =>
-      client.repository.updateMany({
-        where: {
-          tenantId,
-          linkId,
-          status: "disconnected",
-          disconnectReason: "installation_unlinked",
-        },
-        data: {
-          status: "active",
-          disconnectedAt: null,
-          disconnectReason: null,
-          consecutiveSyncFailures: 0,
-        },
-      }),
-    findLink: ({ tenantId, linkId }, client = db) =>
+    findTenantLink: ({ tenantId, linkId }, client = db) =>
       client.scmInstallationLink.findFirst({
         where: { id: linkId, tenantId },
-        include: linkInclude,
+        include: tenantLinkInclude,
       }),
-    listLinks: ({ tenantId }, client = db) =>
+    listTenantLinks: ({ tenantId }, client = db) =>
       client.scmInstallationLink.findMany({
         where: { tenantId },
-        include: linkInclude,
+        include: tenantLinkInclude,
         orderBy: { linkedAt: "asc" },
       }),
-    async repositoryCounts({ tenantId, linkIds }, client = db) {
+
+    // ---- Workspace links
+    findWorkspace: ({ tenantId, workspaceId }, client = db) =>
+      client.workspace.findFirst({
+        where: { tenantId, id: workspaceId },
+        select: { id: true, name: true, status: true },
+      }),
+    findWorkspaceLink: ({ tenantId, workspaceId, workspaceLinkId }, client = db) =>
+      client.scmWorkspaceLink.findFirst({
+        where: { id: workspaceLinkId, tenantId, workspaceId },
+        include: workspaceLinkInclude,
+      }),
+    findWorkspaceLinkForPair: ({ tenantId, workspaceId, linkId }, client = db) =>
+      client.scmWorkspaceLink.findFirst({
+        where: { tenantId, workspaceId, linkId },
+        include: workspaceLinkInclude,
+      }),
+    listWorkspaceLinks: ({ tenantId, workspaceId }, client = db) =>
+      client.scmWorkspaceLink.findMany({
+        where: { tenantId, workspaceId, status: "linked" },
+        include: workspaceLinkInclude,
+        orderBy: { linkedAt: "asc" },
+      }),
+    createWorkspaceLink: ({ tenantId, workspaceId, linkId, linkedByUserId }, client = db) =>
+      client.scmWorkspaceLink.create({
+        data: { tenantId, workspaceId, linkId, linkedByUserId },
+      }),
+    reactivateWorkspaceLink: ({ tenantId, workspaceId, id, linkedByUserId }, client = db) =>
+      client.scmWorkspaceLink.updateMany({
+        where: { id, tenantId, workspaceId },
+        data: {
+          status: "linked",
+          linkedByUserId,
+          linkedAt: new Date(),
+          unlinkedAt: null,
+          unlinkedByUserId: null,
+        },
+      }),
+    unlinkWorkspaceLink: ({ tenantId, workspaceId, id, userId }, client = db) =>
+      client.scmWorkspaceLink.updateMany({
+        where: { id, tenantId, workspaceId },
+        data: { status: "unlinked", unlinkedAt: new Date(), unlinkedByUserId: userId },
+      }),
+
+    /** Per workspace link: live repositories, unavailable ones, allow-list size and last event time. */
+    async workspaceLinkStats({ tenantId, workspaceId, workspaceLinkIds }, client = db) {
+      const [rows, allow, last] = await Promise.all([
+        client.repository.groupBy({
+          by: ["workspaceLinkId", "status"],
+          where: {
+            tenantId,
+            workspaceId,
+            workspaceLinkId: { in: workspaceLinkIds },
+            status: { not: "disconnected" },
+          },
+          _count: { _all: true },
+        }),
+        client.scmWorkspaceLinkRepository.groupBy({
+          by: ["workspaceLinkId"],
+          where: { tenantId, workspaceLinkId: { in: workspaceLinkIds } },
+          _count: { _all: true },
+        }),
+        client.repository.groupBy({
+          by: ["workspaceLinkId"],
+          where: { tenantId, workspaceId, workspaceLinkId: { in: workspaceLinkIds } },
+          _max: { lastEventAt: true },
+        }),
+      ]);
+      const stats = new Map(
+        workspaceLinkIds.map((id) => [
+          id,
+          {
+            repositoryCount: 0,
+            unavailableRepositoryCount: 0,
+            allowListCount: 0,
+            lastEventAt: null,
+          },
+        ]),
+      );
+      for (const row of rows) {
+        const s = stats.get(row.workspaceLinkId);
+        s.repositoryCount += row._count._all;
+        if (row.status === "unavailable") s.unavailableRepositoryCount += row._count._all;
+      }
+      for (const row of allow) stats.get(row.workspaceLinkId).allowListCount = row._count._all;
+      for (const row of last) stats.get(row.workspaceLinkId).lastEventAt = row._max.lastEventAt;
+      return stats;
+    },
+
+    /** Per tenant link: live and unavailable repositories (all workspaces of the tenant). */
+    async tenantLinkCounts({ tenantId, linkIds }, client = db) {
       const rows = await client.repository.groupBy({
         by: ["linkId", "status"],
         where: { tenantId, linkId: { in: linkIds }, status: { not: "disconnected" } },
@@ -84,60 +177,127 @@ export function createIntegrationRepository({ db }) {
       }
       return counts;
     },
-    unlink: ({ tenantId, linkId, userId }, client = db) =>
-      client.scmInstallationLink.updateMany({
-        where: { id: linkId, tenantId },
-        data: { status: "unlinked", unlinkedAt: new Date(), unlinkedByUserId: userId },
-      }),
-    /** Disconnects (never deletes) the link's live repositories. Returns the affected rows for events and audit. */
-    async disconnectRepositories({ tenantId, linkId, reason }, client = db) {
+
+    // ---- Repositories of one workspace link (workspace unlink and re-link)
+    /** Disconnects (never deletes) the workspace link's live repositories. Returns the affected rows for events and audit. */
+    async disconnectWorkspaceRepositories(
+      { tenantId, workspaceId, workspaceLinkId, reason },
+      client = db,
+    ) {
       const rows = await client.repository.findMany({
-        where: { tenantId, linkId, status: { not: "disconnected" } },
-        select: { id: true, workspaceId: true, provider: true, fullName: true },
+        where: { tenantId, workspaceId, workspaceLinkId, status: { not: "disconnected" } },
+        select: {
+          id: true,
+          workspaceId: true,
+          provider: true,
+          fullName: true,
+          externalRepoId: true,
+        },
       });
       if (rows.length > 0)
         await client.repository.updateMany({
-          where: { tenantId, id: { in: rows.map((r) => r.id) } },
+          where: { tenantId, workspaceId, workspaceLinkId, id: { in: rows.map((r) => r.id) } },
           data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: reason },
         });
       return rows;
     },
-    /** Linked connections of the tenant with their organization scope and this workspace's own setting. */
-    listWorkspaceLinks: ({ tenantId, workspaceId }, client = db) =>
-      client.scmInstallationLink.findMany({
-        where: { tenantId, status: "linked" },
-        include: {
-          installation: true,
-          workspaces: { select: { workspaceId: true } },
-          workspaceSettings: { where: { tenantId, workspaceId } },
+    /** Repositories of this workspace link that an earlier unlink disconnected (same rows, same ids). */
+    findRestorableRepositories({ tenantId, workspaceId, workspaceLinkId }, client = db) {
+      return client.repository.findMany({
+        where: {
+          tenantId,
+          workspaceId,
+          workspaceLinkId,
+          status: "disconnected",
+          disconnectReason: { in: ["workspace_unlinked", "installation_unlinked"] },
         },
-        orderBy: { linkedAt: "asc" },
-      }),
-    findWorkspaceLink: ({ tenantId, workspaceId, linkId }, client = db) =>
-      client.scmInstallationLink.findFirst({
-        where: { id: linkId, tenantId, status: "linked" },
-        include: {
-          installation: true,
-          workspaces: { select: { workspaceId: true } },
-          workspaceSettings: { where: { tenantId, workspaceId } },
+        select: {
+          id: true,
+          workspaceId: true,
+          fullName: true,
+          externalRepoId: true,
+          nodeId: true,
         },
-      }),
-    upsertWorkspaceSetting: ({ tenantId, workspaceId, linkId, enabled, userId }, client = db) =>
-      client.scmWorkspaceLinkSetting.upsert({
-        where: { workspaceId_linkId: { workspaceId, linkId }, tenantId },
-        create: { tenantId, workspaceId, linkId, enabled, updatedByUserId: userId },
-        update: { enabled, updatedByUserId: userId },
-      }),
-    async countWorkspaces({ tenantId, workspaceIds }, client = db) {
-      return client.workspace.count({ where: { tenantId, id: { in: workspaceIds } } });
+      });
     },
-    async setScope({ tenantId, linkId, workspaceIds }, client = db) {
-      await client.scmInstallationLinkWorkspace.deleteMany({ where: { tenantId, linkId } });
-      if (workspaceIds.length > 0)
-        await client.scmInstallationLinkWorkspace.createMany({
-          data: workspaceIds.map((workspaceId) => ({ tenantId, linkId, workspaceId })),
-        });
+    restoreRepositories({ tenantId, workspaceId, workspaceLinkId, ids }, client = db) {
+      return client.repository.updateMany({
+        where: { tenantId, workspaceId, workspaceLinkId, id: { in: ids }, status: "disconnected" },
+        data: {
+          status: "active",
+          disconnectedAt: null,
+          disconnectReason: null,
+          consecutiveSyncFailures: 0,
+        },
+      });
     },
+    /** External ids among `externalRepoIds` that are connected (live) in this workspace link. */
+    async findLiveExternalIds(
+      { tenantId, workspaceId, workspaceLinkId, externalRepoIds },
+      client = db,
+    ) {
+      const rows = await client.repository.findMany({
+        where: {
+          tenantId,
+          workspaceId,
+          workspaceLinkId,
+          externalRepoId: { in: externalRepoIds },
+          status: { not: "disconnected" },
+        },
+        select: { externalRepoId: true },
+      });
+      return new Set(rows.map((r) => r.externalRepoId));
+    },
+
+    // ---- Allow-list
+    listAllowList: ({ tenantId, workspaceLinkId }, client = db) =>
+      client.scmWorkspaceLinkRepository.findMany({
+        where: { tenantId, workspaceLinkId },
+        orderBy: { fullName: "asc" },
+      }),
+    /** External ids that are on the allow-list of ANOTHER workspace link of the tenant (a repository serves one workspace). */
+    async findAllowedElsewhere({ tenantId, workspaceLinkId, externalRepoIds }, client = db) {
+      const rows = await client.scmWorkspaceLinkRepository.findMany({
+        where: {
+          tenantId,
+          provider: "github",
+          externalRepoId: { in: externalRepoIds },
+          workspaceLinkId: { not: workspaceLinkId },
+        },
+        select: { externalRepoId: true },
+      });
+      return new Set(rows.map((r) => r.externalRepoId));
+    },
+    addAllowListEntries: ({ tenantId, workspaceLinkId, entries, userId }, client = db) =>
+      client.scmWorkspaceLinkRepository.createMany({
+        data: entries.map((e) => ({
+          tenantId,
+          workspaceLinkId,
+          provider: "github",
+          externalRepoId: e.externalRepoId,
+          nodeId: e.nodeId ?? null,
+          fullName: e.fullName,
+          addedByUserId: userId,
+        })),
+      }),
+    removeAllowListEntries: ({ tenantId, workspaceLinkId, externalRepoIds }, client = db) =>
+      client.scmWorkspaceLinkRepository.deleteMany({
+        where: { tenantId, workspaceLinkId, externalRepoId: { in: externalRepoIds } },
+      }),
+    clearAllowList: ({ tenantId, workspaceLinkId }, client = db) =>
+      client.scmWorkspaceLinkRepository.deleteMany({ where: { tenantId, workspaceLinkId } }),
+
+    // ---- Tenant setting
+    findSettings: ({ tenantId }, client = db) =>
+      client.tenantIntegrationSettings.findFirst({ where: { tenantId } }),
+    upsertSettings: ({ tenantId, allowWorkspaceLinking, userId }, client = db) =>
+      client.tenantIntegrationSettings.upsert({
+        where: { tenantId },
+        create: { tenantId, allowWorkspaceLinking, updatedByUserId: userId },
+        update: { allowWorkspaceLinking, updatedByUserId: userId },
+      }),
+
+    // ---- Deliveries (installation-level webhook health)
     async listDeliveries({ tenantId, externalInstallationId, page, pageSize }) {
       const where = { tenantId, externalInstallationId };
       const [items, totalItems] = await Promise.all([

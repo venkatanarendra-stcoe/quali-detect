@@ -76,14 +76,28 @@ export function createRepositoryRepository({ db }) {
       client.repository.count({ where: { tenantId, status: { not: "disconnected" } } }),
     lockLimit: (tenantId, client) =>
       client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`limit:repositories:${tenantId}`}))`,
-    findLinkWithScope: ({ tenantId, linkId }, client = db) =>
+    /** The tenant's installation link (for live reads of a connected repository). */
+    findLink: ({ tenantId, linkId }, client = db) =>
       client.scmInstallationLink.findFirst({
         where: { id: linkId, tenantId },
-        include: {
-          installation: true,
-          workspaces: { select: { workspaceId: true } },
-          workspaceSettings: { select: { workspaceId: true, enabled: true } },
-        },
+        include: { installation: true },
+      }),
+    /** A workspace link, only when it belongs to this tenant AND this workspace (foreign ids are not found). */
+    findWorkspaceLink: ({ tenantId, workspaceId, workspaceLinkId }, client = db) =>
+      client.scmWorkspaceLink.findFirst({
+        where: { id: workspaceLinkId, tenantId, workspaceId },
+        include: { link: { include: { installation: true } } },
+      }),
+    /** The allow-list entries of a workspace link among `externalRepoIds`. */
+    findAllowListEntries: ({ tenantId, workspaceLinkId, externalRepoIds }, client = db) =>
+      client.scmWorkspaceLinkRepository.findMany({
+        where: { tenantId, workspaceLinkId, externalRepoId: { in: externalRepoIds } },
+        select: { externalRepoId: true, fullName: true },
+      }),
+    listAllowList: ({ tenantId, workspaceLinkId }, client = db) =>
+      client.scmWorkspaceLinkRepository.findMany({
+        where: { tenantId, workspaceLinkId },
+        select: { externalRepoId: true },
       }),
     findWorkspace: ({ tenantId, id }, client = db) =>
       client.workspace.findFirst({ where: { tenantId, id }, select: { id: true, status: true } }),

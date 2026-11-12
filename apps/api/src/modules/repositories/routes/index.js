@@ -53,7 +53,7 @@ export const repositoryRoutes = (controller, authz) =>
         schema: {
           tags,
           summary:
-            "Repositories a linked GitHub connection can access (marks the ones already connected)",
+            "Allow-listed repositories of a workspace GitHub connection (marks the ones already connected)",
           params: workspaceParamsSchema,
           querystring: availableQuerySchema,
           response: { 200: availableListResponseSchema },

@@ -50,6 +50,7 @@ export const MESSAGE_TYPES = Object.freeze({
       reason: z.enum([
         "user",
         "installation_unlinked",
+        "workspace_unlinked",
         "installation_revoked",
         "repo_inaccessible",
       ]),
@@ -128,6 +129,24 @@ export const MESSAGE_TYPES = Object.freeze({
       action: z.string().max(64),
       repositoriesAdded: z.array(z.string().max(32)).max(500),
       repositoriesRemoved: z.array(z.string().max(32)).max(500),
+    }),
+  }),
+  /**
+   * The App was uninstalled (`deleted`) or suspended on GitHub: every workspace link of the installation is affected (SPEC §18
+   * A6). The notification worker resolves the recipients (tenant `integration.manage` holders and, per affected workspace,
+   * `workspace_integration.manage` holders) from the database. Ids and counts only: no names, no addresses, no secrets.
+   */
+  "scm.installation.revoked": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({
+      linkId: uuid,
+      cause: z.enum(["deleted", "suspended"]),
+      repositoriesAffected: z.number().int().min(0),
+      workspaces: z
+        .array(z.object({ workspaceId: uuid, repositoryCount: z.number().int().min(0) }))
+        .max(500),
     }),
   }),
   // ---- SCM jobs

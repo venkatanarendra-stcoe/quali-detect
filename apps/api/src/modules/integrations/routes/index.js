@@ -1,31 +1,36 @@
 import { OPENAPI_TAG } from "../constants/index.js";
 import {
+  allowListBodySchema,
+  allowListQuerySchema,
+  allowListResponseSchema,
+  allowListUpdateResponseSchema,
   authorizeBodySchema,
   authorizeResponseSchema,
   catalogResponseSchema,
   deliveriesQuerySchema,
   deliveryListResponseSchema,
   githubOverviewResponseSchema,
+  installationListResponseSchema,
   linkBodySchema,
-  linkListResponseSchema,
   linkParamsSchema,
-  linkResponseSchema,
-  routingBodySchema,
-  scopeBodySchema,
+  settingsBodySchema,
+  settingsResponseSchema,
   startResponseSchema,
   unlinkBodySchema,
   unlinkResponseSchema,
-  workspaceLinkListResponseSchema,
+  workspaceIntegrationResponseSchema,
   workspaceLinkParamsSchema,
   workspaceLinkResponseSchema,
   workspaceParamsSchema,
 } from "../schemas/index.js";
 
 /**
- * Integration routes (tenant scope): `integration.view` reads, `integration.manage` changes. Linking follows the documented
- * GitHub sequence (SPEC §6.1): start -> authorize (our single-use state) -> link (verification).
+ * Integration routes (SPEC §18, ADR-012). Tenant scope is READ-ONLY for GitHub (`integration.view`: catalog, installations,
+ * deliveries, settings); `integration.manage` only changes the tenant setting. Linking, allow-list, test connection and
+ * unlink are workspace-scoped (`workspace_integration.view` / `.manage`, evaluated in the workspace of the URL). Consuming
+ * a linking state has no workspace in the URL: the service re-checks the permission in the state's workspace.
  * @param {ReturnType<typeof import("../controllers/index.js").createIntegrationController>} controller
- * @param {{ authorize: Function }} authz
+ * @param {{ authorize: Function, context: Function, scopes: any }} authz
  * @returns {import("../../../lib/route-kit.js").RouteRegistrarFn}
  */
 export const integrationRoutes = (controller, authz) =>
@@ -34,7 +39,6 @@ export const integrationRoutes = (controller, authz) =>
     const config = { audience: "tenant" };
     const view = authz.authorize("integration.view");
     const manage = authz.authorize("integration.manage");
-    // Workspace routing (T-42): workspace-scope permissions, evaluated in the workspace of the URL.
     const wsView = authz.authorize("workspace_integration.view", authz.scopes.workspace());
     const wsManage = authz.authorize("workspace_integration.manage", authz.scopes.workspace());
     app.get(
@@ -64,125 +68,46 @@ export const integrationRoutes = (controller, authz) =>
       controller.overview,
     );
     app.get(
+      "/integrations/settings",
+      {
+        config,
+        preHandler: view,
+        schema: {
+          tags,
+          summary: "Tenant source-control settings (allow workspace admins to link source control)",
+          response: { 200: settingsResponseSchema },
+        },
+      },
+      controller.getSettings,
+    );
+    app.put(
+      "/integrations/settings",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: manage,
+        schema: {
+          tags,
+          summary: "Turn workspace-level linking of source control on or off for the organization",
+          body: settingsBodySchema,
+          response: { 200: settingsResponseSchema },
+        },
+      },
+      controller.updateSettings,
+    );
+    app.get(
       "/integrations/github/installations",
       {
         config,
         preHandler: view,
         schema: {
           tags,
-          summary: "GitHub installations linked to this organization",
-          response: { 200: linkListResponseSchema },
-        },
-      },
-      controller.list,
-    );
-    app.post(
-      "/integrations/github/installations/start",
-      {
-        config,
-        rateLimit: "write",
-        preHandler: manage,
-        schema: {
-          tags,
-          summary: "Start linking: the GitHub page where the App is installed",
-          response: { 200: startResponseSchema },
-        },
-      },
-      controller.start,
-    );
-    app.post(
-      "/integrations/github/installations/authorize",
-      {
-        config,
-        rateLimit: "write",
-        preHandler: manage,
-        schema: {
-          tags,
           summary:
-            "After the setup redirect: create the single-use state and return GitHub's authorize URL",
-          body: authorizeBodySchema,
-          response: { 200: authorizeResponseSchema },
+            "GitHub installations of this organization and the workspaces using them (read-only)",
+          response: { 200: installationListResponseSchema },
         },
       },
-      controller.authorize,
-    );
-    app.post(
-      "/integrations/github/installations",
-      {
-        config,
-        rateLimit: "write",
-        preHandler: manage,
-        schema: {
-          tags,
-          summary:
-            "Verify the user's authorization and link the installation (organization admin or account owner required)",
-          body: linkBodySchema,
-          response: { 201: linkResponseSchema },
-        },
-      },
-      controller.link,
-    );
-    app.post(
-      "/integrations/github/installations/:linkId/refresh",
-      {
-        config,
-        rateLimit: "write",
-        preHandler: manage,
-        schema: {
-          tags,
-          summary: "Test the connection: re-read the installation and mint a token",
-          params: linkParamsSchema,
-          response: { 200: linkResponseSchema },
-        },
-      },
-      controller.refresh,
-    );
-    app.put(
-      "/integrations/github/installations/:linkId/workspaces",
-      {
-        config,
-        preHandler: manage,
-        schema: {
-          tags,
-          summary: "Set the workspaces allowed to use the connection (empty = all)",
-          params: linkParamsSchema,
-          body: scopeBodySchema,
-          response: { 200: linkResponseSchema },
-        },
-      },
-      controller.setScope,
-    );
-    app.get(
-      "/workspaces/:workspaceId/integrations",
-      {
-        config,
-        preHandler: wsView,
-        schema: {
-          tags,
-          summary:
-            "Linked GitHub connections this workspace may use, with the workspace's on/off setting",
-          params: workspaceParamsSchema,
-          response: { 200: workspaceLinkListResponseSchema },
-        },
-      },
-      controller.workspaceLinks,
-    );
-    app.put(
-      "/workspaces/:workspaceId/integrations/:linkId",
-      {
-        config,
-        rateLimit: "write",
-        preHandler: wsManage,
-        schema: {
-          tags,
-          summary:
-            "Turn a connection on or off for this workspace (routing only; cannot widen the organization scope)",
-          params: workspaceLinkParamsSchema,
-          body: routingBodySchema,
-          response: { 200: workspaceLinkResponseSchema },
-        },
-      },
-      controller.setWorkspaceRouting,
+      controller.listInstallations,
     );
     app.get(
       "/integrations/github/installations/:linkId/deliveries",
@@ -199,19 +124,130 @@ export const integrationRoutes = (controller, authz) =>
       },
       controller.deliveries,
     );
-    app.delete(
-      "/integrations/github/installations/:linkId",
+    app.post(
+      "/integrations/github/links",
       {
         config,
-        preHandler: manage,
+        rateLimit: "write",
+        preHandler: authz.context,
         schema: {
           tags,
-          summary: "Unlink the installation: repositories are disconnected, nothing is deleted",
-          params: linkParamsSchema,
+          summary:
+            "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required)",
+          body: linkBodySchema,
+          response: { 201: workspaceLinkResponseSchema },
+        },
+      },
+      controller.link,
+    );
+    app.get(
+      "/workspaces/:workspaceId/integrations/github",
+      {
+        config,
+        preHandler: wsView,
+        schema: {
+          tags,
+          summary: "This workspace's GitHub connections",
+          params: workspaceParamsSchema,
+          response: { 200: workspaceIntegrationResponseSchema },
+        },
+      },
+      controller.workspaceOverview,
+    );
+    app.post(
+      "/workspaces/:workspaceId/integrations/github/start",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary: "Start linking: the GitHub page where the App is installed",
+          params: workspaceParamsSchema,
+          response: { 200: startResponseSchema },
+        },
+      },
+      controller.start,
+    );
+    app.post(
+      "/workspaces/:workspaceId/integrations/github/authorize",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary:
+            "After the setup redirect: create the single-use state (bound to this workspace) and return GitHub's authorize URL",
+          params: workspaceParamsSchema,
+          body: authorizeBodySchema,
+          response: { 200: authorizeResponseSchema },
+        },
+      },
+      controller.authorize,
+    );
+    app.post(
+      "/workspaces/:workspaceId/integrations/github/links/:linkId/refresh",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary: "Test the connection: re-read the installation and mint a token",
+          params: workspaceLinkParamsSchema,
+          response: { 200: workspaceLinkResponseSchema },
+        },
+      },
+      controller.refresh,
+    );
+    app.delete(
+      "/workspaces/:workspaceId/integrations/github/links/:linkId",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary:
+            "Disconnect this workspace from the installation: only its repositories are disconnected, nothing is deleted",
+          params: workspaceLinkParamsSchema,
           body: unlinkBodySchema,
           response: { 200: unlinkResponseSchema },
         },
       },
       controller.unlink,
+    );
+    app.get(
+      "/workspaces/:workspaceId/integrations/github/links/:linkId/repositories",
+      {
+        config,
+        preHandler: wsView,
+        schema: {
+          tags,
+          summary:
+            "Repositories the installation can access (live, paged) with this workspace's allow-list flag",
+          params: workspaceLinkParamsSchema,
+          querystring: allowListQuerySchema,
+          response: { 200: allowListResponseSchema },
+        },
+      },
+      controller.listAllowList,
+    );
+    app.put(
+      "/workspaces/:workspaceId/integrations/github/links/:linkId/repositories",
+      {
+        config,
+        rateLimit: "write",
+        preHandler: wsManage,
+        schema: {
+          tags,
+          summary: "Replace or patch the repositories this workspace may connect (allow-list)",
+          params: workspaceLinkParamsSchema,
+          body: allowListBodySchema,
+          response: { 200: allowListUpdateResponseSchema },
+        },
+      },
+      controller.setAllowList,
     );
   };

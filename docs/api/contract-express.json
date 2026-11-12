@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 88,
+  "operationCount": 90,
   "operations": [
     {
       "method": "GET",
@@ -868,7 +868,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ configured, status, installations }",
+        "dataShape": "{ configured, status, installations, allowWorkspaceLinking }",
         "metaKeys": [
           "correlationId"
         ]
@@ -925,158 +925,7 @@
           "correlationId"
         ]
       },
-      "summary": "GitHub installations linked to this organization"
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/integrations/github/installations",
-      "module": "integrations",
-      "audience": "tenant",
-      "permission": "integration.manage",
-      "permissionScope": "tenant",
-      "successStatus": 201,
-      "documentedErrorStatuses": [
-        400,
-        401,
-        403,
-        404,
-        429
-      ],
-      "errorCodes": {
-        "transport": [
-          {
-            "code": "FORBIDDEN",
-            "status": 403
-          },
-          {
-            "code": "INTERNAL_ERROR",
-            "status": 500
-          },
-          {
-            "code": "TENANT_CONTEXT_REQUIRED",
-            "status": 403
-          },
-          {
-            "code": "TENANT_SUSPENDED",
-            "status": 403
-          },
-          {
-            "code": "UNAUTHENTICATED",
-            "status": 401
-          },
-          {
-            "code": "VALIDATION_FAILED",
-            "status": 400
-          }
-        ],
-        "domain": [
-          {
-            "code": "BAD_REQUEST",
-            "status": 400
-          },
-          {
-            "code": "CONFLICT",
-            "status": 409
-          },
-          {
-            "code": "PROVIDER_UNAVAILABLE",
-            "status": 502
-          },
-          {
-            "code": "RESOURCE_NOT_FOUND",
-            "status": 404
-          }
-        ]
-      },
-      "request": {
-        "params": [],
-        "query": [],
-        "body": "{ code, state }"
-      },
-      "response": {
-        "envelope": "success",
-        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
-        "metaKeys": [
-          "correlationId"
-        ]
-      },
-      "summary": "Verify the user's authorization and link the installation (organization admin or account owner required)"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/v1/integrations/github/installations/{linkId}",
-      "module": "integrations",
-      "audience": "tenant",
-      "permission": "integration.manage",
-      "permissionScope": "tenant",
-      "successStatus": 200,
-      "documentedErrorStatuses": [
-        400,
-        401,
-        403,
-        404
-      ],
-      "errorCodes": {
-        "transport": [
-          {
-            "code": "FORBIDDEN",
-            "status": 403
-          },
-          {
-            "code": "INTERNAL_ERROR",
-            "status": 500
-          },
-          {
-            "code": "RESOURCE_NOT_FOUND",
-            "status": 404
-          },
-          {
-            "code": "TENANT_CONTEXT_REQUIRED",
-            "status": 403
-          },
-          {
-            "code": "TENANT_SUSPENDED",
-            "status": 403
-          },
-          {
-            "code": "UNAUTHENTICATED",
-            "status": 401
-          },
-          {
-            "code": "VALIDATION_FAILED",
-            "status": 400
-          }
-        ],
-        "domain": [
-          {
-            "code": "BAD_REQUEST",
-            "status": 400
-          },
-          {
-            "code": "CONFLICT",
-            "status": 409
-          },
-          {
-            "code": "PROVIDER_UNAVAILABLE",
-            "status": 502
-          }
-        ]
-      },
-      "request": {
-        "params": [
-          "linkId"
-        ],
-        "query": [],
-        "body": "{ confirm }"
-      },
-      "response": {
-        "envelope": "success",
-        "dataShape": "{ unlinked, repositoriesDisconnected }",
-        "metaKeys": [
-          "correlationId"
-        ]
-      },
-      "summary": "Unlink the installation: repositories are disconnected, nothing is deleted"
+      "summary": "GitHub installations of this organization and the workspaces using them (read-only)"
     },
     {
       "method": "GET",
@@ -1147,12 +996,12 @@
     },
     {
       "method": "POST",
-      "path": "/api/v1/integrations/github/installations/{linkId}/refresh",
+      "path": "/api/v1/integrations/github/links",
       "module": "integrations",
       "audience": "tenant",
-      "permission": "integration.manage",
-      "permissionScope": "tenant",
-      "successStatus": 200,
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 201,
       "documentedErrorStatuses": [
         400,
         401,
@@ -1163,16 +1012,8 @@
       "errorCodes": {
         "transport": [
           {
-            "code": "FORBIDDEN",
-            "status": 403
-          },
-          {
             "code": "INTERNAL_ERROR",
             "status": 500
-          },
-          {
-            "code": "RESOURCE_NOT_FOUND",
-            "status": 404
           },
           {
             "code": "TENANT_CONTEXT_REQUIRED",
@@ -1201,37 +1042,42 @@
             "status": 409
           },
           {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
             "code": "PROVIDER_UNAVAILABLE",
             "status": 502
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
           }
         ]
       },
       "request": {
-        "params": [
-          "linkId"
-        ],
+        "params": [],
         "query": [],
-        "body": null
+        "body": "{ code, state }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
+        "dataShape": "{ id, workspaceId, installationLinkId, provider, status, health, account, repositorySelection, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, allowListCount, lastEventAt }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "Test the connection: re-read the installation and mint a token"
+      "summary": "Verify the user's authorization and link the installation to the workspace of the state (organization admin or account owner required)"
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/integrations/github/installations/{linkId}/workspaces",
+      "method": "GET",
+      "path": "/api/v1/integrations/settings",
       "module": "integrations",
       "audience": "tenant",
-      "permission": "integration.manage",
+      "permission": "integration.view",
       "permissionScope": "tenant",
       "successStatus": 200,
       "documentedErrorStatuses": [
-        400,
         401,
         403,
         404
@@ -1247,10 +1093,6 @@
             "status": 500
           },
           {
-            "code": "RESOURCE_NOT_FOUND",
-            "status": 404
-          },
-          {
             "code": "TENANT_CONTEXT_REQUIRED",
             "status": 403
           },
@@ -1261,46 +1103,27 @@
           {
             "code": "UNAUTHENTICATED",
             "status": 401
-          },
-          {
-            "code": "VALIDATION_FAILED",
-            "status": 400
           }
         ],
-        "domain": [
-          {
-            "code": "BAD_REQUEST",
-            "status": 400
-          },
-          {
-            "code": "CONFLICT",
-            "status": 409
-          },
-          {
-            "code": "PROVIDER_UNAVAILABLE",
-            "status": 502
-          }
-        ]
+        "domain": []
       },
       "request": {
-        "params": [
-          "linkId"
-        ],
+        "params": [],
         "query": [],
-        "body": "{ workspaceIds }"
+        "body": null
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, provider, status, health, account, externalInstallationId, repositorySelection, permissions, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, workspaceScope }",
+        "dataShape": "{ allowWorkspaceLinking, updatedAt, updatedByUserId }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "Set the workspaces allowed to use the connection (empty = all)"
+      "summary": "Tenant source-control settings (allow workspace admins to link source control)"
     },
     {
-      "method": "POST",
-      "path": "/api/v1/integrations/github/installations/authorize",
+      "method": "PUT",
+      "path": "/api/v1/integrations/settings",
       "module": "integrations",
       "audience": "tenant",
       "permission": "integration.manage",
@@ -1362,90 +1185,16 @@
       "request": {
         "params": [],
         "query": [],
-        "body": "{ installationId }"
+        "body": "{ allowWorkspaceLinking }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ authorizeUrl }",
+        "dataShape": "{ allowWorkspaceLinking, updatedAt, updatedByUserId }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "After the setup redirect: create the single-use state and return GitHub's authorize URL"
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/integrations/github/installations/start",
-      "module": "integrations",
-      "audience": "tenant",
-      "permission": "integration.manage",
-      "permissionScope": "tenant",
-      "successStatus": 200,
-      "documentedErrorStatuses": [
-        401,
-        403,
-        404,
-        429
-      ],
-      "errorCodes": {
-        "transport": [
-          {
-            "code": "FORBIDDEN",
-            "status": 403
-          },
-          {
-            "code": "INTERNAL_ERROR",
-            "status": 500
-          },
-          {
-            "code": "TENANT_CONTEXT_REQUIRED",
-            "status": 403
-          },
-          {
-            "code": "TENANT_SUSPENDED",
-            "status": 403
-          },
-          {
-            "code": "UNAUTHENTICATED",
-            "status": 401
-          }
-        ],
-        "domain": [
-          {
-            "code": "BAD_REQUEST",
-            "status": 400
-          },
-          {
-            "code": "CONFLICT",
-            "status": 409
-          },
-          {
-            "code": "PROVIDER_UNAVAILABLE",
-            "status": 502
-          },
-          {
-            "code": "RESOURCE_NOT_FOUND",
-            "status": 404
-          },
-          {
-            "code": "VALIDATION_FAILED",
-            "status": 400
-          }
-        ]
-      },
-      "request": {
-        "params": [],
-        "query": [],
-        "body": null
-      },
-      "response": {
-        "envelope": "success",
-        "dataShape": "{ installUrl }",
-        "metaKeys": [
-          "correlationId"
-        ]
-      },
-      "summary": "Start linking: the GitHub page where the App is installed"
+      "summary": "Turn workspace-level linking of source control on or off for the organization"
     },
     {
       "method": "GET",
@@ -2581,7 +2330,7 @@
       },
       "response": {
         "envelope": "paginated",
-        "dataShape": "[{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }]",
+        "dataShape": "[{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }]",
         "metaKeys": [
           "correlationId",
           "pagination"
@@ -2721,7 +2470,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "dataShape": "{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
         "metaKeys": [
           "correlationId"
         ]
@@ -2801,7 +2550,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "dataShape": "{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
         "metaKeys": [
           "correlationId"
         ]
@@ -2942,7 +2691,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "dataShape": "{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
         "metaKeys": [
           "correlationId"
         ]
@@ -3024,7 +2773,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "dataShape": "{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
         "metaKeys": [
           "correlationId"
         ]
@@ -4773,7 +4522,7 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/workspaces/{workspaceId}/integrations",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github",
       "module": "integrations",
       "audience": "tenant",
       "permission": null,
@@ -4823,16 +4572,93 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ items }",
+        "dataShape": "{ configured, linkingEnabled, items }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "Linked GitHub connections this workspace may use, with the workspace's on/off setting"
+      "summary": "This workspace's GitHub connections"
     },
     {
-      "method": "PUT",
-      "path": "/api/v1/workspaces/{workspaceId}/integrations/{linkId}",
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/authorize",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": "{ installationId }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ authorizeUrl }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "After the setup redirect: create the single-use state (bound to this workspace) and return GitHub's authorize URL"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}",
       "module": "integrations",
       "audience": "tenant",
       "permission": null,
@@ -4897,16 +4723,314 @@
           "linkId"
         ],
         "query": [],
-        "body": "{ enabled }"
+        "body": "{ confirm }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, provider, health, account, enabled }",
+        "dataShape": "{ unlinked, repositoriesDisconnected }",
         "metaKeys": [
           "correlationId"
         ]
       },
-      "summary": "Turn a connection on or off for this workspace (routing only; cannot widen the organization scope)"
+      "summary": "Disconnect this workspace from the installation: only its repositories are disconnected, nothing is deleted"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}/refresh",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "linkId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, installationLinkId, provider, status, health, account, repositorySelection, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, allowListCount, lastEventAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Test the connection: re-read the installation and mint a token"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}/repositories",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "linkId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "q"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ externalRepoId, fullName, visibility, defaultBranch, archived, allowed, allowedElsewhere, connected }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Repositories the installation can access (live, paged) with this workspace's allow-list flag"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/links/{linkId}/repositories",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId",
+          "linkId"
+        ],
+        "query": [],
+        "body": "{ externalRepoIds, add, remove }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ allowListCount, added, removed }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Replace or patch the repositories this workspace may connect (allow-list)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/{workspaceId}/integrations/github/start",
+      "module": "integrations",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "BAD_REQUEST",
+            "status": 400
+          },
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "PROVIDER_UNAVAILABLE",
+            "status": 502
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ installUrl }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Start linking: the GitHub page where the App is installed"
     },
     {
       "method": "GET",
@@ -5186,11 +5310,11 @@
           "workspaceId"
         ],
         "query": [],
-        "body": "{ installationId, externalRepoId, displayName, description, ownerUserId }"
+        "body": "{ workspaceLinkId, externalRepoId, displayName, description, ownerUserId }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, linkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
+        "dataShape": "{ id, workspaceId, linkId, workspaceLinkId, provider, externalRepoId, fullName, name, ownerLogin, htmlUrl, visibility, defaultBranch, description, displayName, ownerUserId, status, enabled, archived, health, healthReason, consecutiveSyncFailures, lastSyncedAt, lastEventAt, connectedAt, disconnectedAt, disconnectReason, pipelineCount }",
         "metaKeys": [
           "correlationId"
         ]
@@ -5251,7 +5375,7 @@
         "query": [
           "page",
           "pageSize",
-          "installationId",
+          "workspaceLinkId",
           "q",
           "visibility"
         ],
@@ -5265,7 +5389,7 @@
           "pagination"
         ]
       },
-      "summary": "Repositories a linked GitHub connection can access (marks the ones already connected)"
+      "summary": "Allow-listed repositories of a workspace GitHub connection (marks the ones already connected)"
     },
     {
       "method": "POST",

@@ -8,21 +8,36 @@ export function createIntegrationController({ service }) {
   return {
     catalog: async (request, reply) => reply.success(await service.catalog(actor(request))),
     overview: async (request, reply) => reply.success(await service.overview(actor(request))),
-    list: async (request, reply) => reply.success(await service.list(actor(request))),
-    start: async (_request, reply) => reply.success(service.start()),
+    listInstallations: async (request, reply) =>
+      reply.success(await service.listInstallations(actor(request))),
+    getSettings: async (request, reply) => reply.success(await service.getSettings(actor(request))),
+    updateSettings: async (request, reply) =>
+      reply.success(await service.updateSettings(actor(request), request.body)),
+    workspaceOverview: async (request, reply) =>
+      reply.success(await service.workspaceOverview(actor(request), request.params.workspaceId)),
+    start: async (request, reply) => reply.success(await service.start(actor(request))),
     authorize: async (request, reply) =>
-      reply.success(await service.authorize(actor(request), request.body)),
+      reply.success(
+        await service.authorize(actor(request), request.params.workspaceId, request.body),
+      ),
     link: async (request, reply) =>
       reply.code(201).success(await service.link(actor(request), request.body)),
     refresh: async (request, reply) =>
-      reply.success(await service.refresh(actor(request), request.params.linkId)),
-    setScope: async (request, reply) =>
-      reply.success(await service.setScope(actor(request), request.params.linkId, request.body)),
-    workspaceLinks: async (request, reply) =>
-      reply.success(await service.workspaceLinks(actor(request), request.params.workspaceId)),
-    setWorkspaceRouting: async (request, reply) =>
       reply.success(
-        await service.setWorkspaceRouting(
+        await service.refresh(actor(request), request.params.workspaceId, request.params.linkId),
+      ),
+    listAllowList: async (request, reply) => {
+      const { items, pagination } = await service.listAllowList(
+        actor(request),
+        request.params.workspaceId,
+        request.params.linkId,
+        request.query,
+      );
+      return reply.paginated(items, pagination);
+    },
+    setAllowList: async (request, reply) =>
+      reply.success(
+        await service.setAllowList(
           actor(request),
           request.params.workspaceId,
           request.params.linkId,
@@ -38,6 +53,13 @@ export function createIntegrationController({ service }) {
       return reply.paginated(items, pagination);
     },
     unlink: async (request, reply) =>
-      reply.success(await service.unlink(actor(request), request.params.linkId, request.body)),
+      reply.success(
+        await service.unlink(
+          actor(request),
+          request.params.workspaceId,
+          request.params.linkId,
+          request.body,
+        ),
+      ),
   };
 }

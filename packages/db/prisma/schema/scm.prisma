@@ -99,11 +99,10 @@ model ScmInstallationLink {
   unlinkedByUserId String?       @map("unlinked_by_user_id") @db.Uuid
   unlinkedAt       DateTime?     @map("unlinked_at") @db.Timestamptz(6)
 
-  tenant            Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  installation      ScmInstallation                @relation(fields: [installationId], references: [id], onDelete: Restrict)
-  workspaces        ScmInstallationLinkWorkspace[]
-  workspaceSettings ScmWorkspaceLinkSetting[]
-  repositories      Repository[]
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  installation   ScmInstallation    @relation(fields: [installationId], references: [id], onDelete: Restrict)
+  workspaceLinks ScmWorkspaceLink[]
+  repositories   Repository[]
 
   @@unique([tenantId, installationId])
   @@unique([tenantId, id])
@@ -111,36 +110,60 @@ model ScmInstallationLink {
   @@map("scm_installation_links")
 }
 
-/// Optional scope of a link: the workspaces allowed to use it. No rows = every workspace of the tenant.
-model ScmInstallationLinkWorkspace {
-  tenantId    String @map("tenant_id") @db.Uuid
-  linkId      String @map("link_id") @db.Uuid
-  workspaceId String @map("workspace_id") @db.Uuid
+/// Workspace <-> installation link (SPEC §18, ADR-012): a workspace uses a tenant installation link. This row is the scope of
+/// the workspace; unlinking disconnects only this workspace's repositories. Re-linking the same pair reactivates the row.
+model ScmWorkspaceLink {
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  workspaceId      String        @map("workspace_id") @db.Uuid
+  linkId           String        @map("link_id") @db.Uuid
+  status           ScmLinkStatus @default(linked)
+  linkedByUserId   String        @map("linked_by_user_id") @db.Uuid
+  linkedAt         DateTime      @default(now()) @map("linked_at") @db.Timestamptz(6)
+  unlinkedByUserId String?       @map("unlinked_by_user_id") @db.Uuid
+  unlinkedAt       DateTime?     @map("unlinked_at") @db.Timestamptz(6)
 
-  link      ScmInstallationLink @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Cascade)
-  workspace Workspace           @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade)
+  workspace    Workspace                    @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
+  link         ScmInstallationLink          @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Restrict)
+  repositories Repository[]
+  allowList    ScmWorkspaceLinkRepository[]
 
-  @@id([linkId, workspaceId])
-  @@index([tenantId, workspaceId])
-  @@map("scm_installation_link_workspaces")
+  @@unique([workspaceId, linkId])
+  @@unique([tenantId, id])
+  @@unique([tenantId, workspaceId, id])
+  @@index([tenantId, linkId, status])
+  @@map("scm_workspace_links")
 }
 
-/// Workspace-level routing of a link (permission `workspace_integration.manage`): a workspace can switch an account it is
-/// allowed to use (the organization scope above is the ceiling) off or on. No row = enabled. It never widens the scope.
-model ScmWorkspaceLinkSetting {
-  tenantId        String   @map("tenant_id") @db.Uuid
-  workspaceId     String   @map("workspace_id") @db.Uuid
-  linkId          String   @map("link_id") @db.Uuid
-  enabled         Boolean  @default(true)
-  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+/// Per-workspace repository allow-list: the installation repositories a workspace may connect. A repository is on one
+/// workspace's list at a time (unique per tenant, provider and external id); cross-workspace sharing is Open.
+model ScmWorkspaceLinkRepository {
+  tenantId        String      @map("tenant_id") @db.Uuid
+  workspaceLinkId String      @map("workspace_link_id") @db.Uuid
+  provider        ScmProvider @default(github)
+  externalRepoId  String      @map("external_repo_id")
+  nodeId          String?     @map("node_id")
+  fullName        String      @map("full_name")
+  addedByUserId   String      @map("added_by_user_id") @db.Uuid
+  addedAt         DateTime    @default(now()) @map("added_at") @db.Timestamptz(6)
 
-  link      ScmInstallationLink @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Cascade)
-  workspace Workspace           @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Cascade)
+  workspaceLink ScmWorkspaceLink @relation(fields: [tenantId, workspaceLinkId], references: [tenantId, id], onDelete: Cascade)
 
-  @@id([workspaceId, linkId])
-  @@index([tenantId, linkId])
-  @@map("scm_workspace_link_settings")
+  @@id([workspaceLinkId, externalRepoId])
+  @@unique([tenantId, provider, externalRepoId])
+  @@map("scm_workspace_link_repositories")
+}
+
+/// Tenant-wide source-control settings (one row per tenant; no row = defaults). `integration.manage` changes it.
+model TenantIntegrationSettings {
+  tenantId              String   @id @map("tenant_id") @db.Uuid
+  allowWorkspaceLinking Boolean  @default(true) @map("allow_workspace_linking")
+  updatedByUserId       String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_integration_settings")
 }
 
 /// A connected source repository. Identity per tenant is (provider, external repo id); `nodeId` is the secondary identity
@@ -150,6 +173,7 @@ model Repository {
   tenantId                String           @map("tenant_id") @db.Uuid
   workspaceId             String           @map("workspace_id") @db.Uuid
   linkId                  String           @map("link_id") @db.Uuid
+  workspaceLinkId         String           @map("workspace_link_id") @db.Uuid
   provider                ScmProvider
   externalRepoId          String           @map("external_repo_id")
   nodeId                  String?          @map("node_id")
@@ -176,16 +200,18 @@ model Repository {
   createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  workspace   Workspace               @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
-  link        ScmInstallationLink     @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Restrict)
-  groupAccess RepositoryGroupAccess[]
-  events      ScmEvent[]
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workspace     Workspace               @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
+  link          ScmInstallationLink     @relation(fields: [tenantId, linkId], references: [tenantId, id], onDelete: Restrict)
+  workspaceLink ScmWorkspaceLink        @relation(fields: [tenantId, workspaceId, workspaceLinkId], references: [tenantId, workspaceId, id], onDelete: Restrict)
+  groupAccess   RepositoryGroupAccess[]
+  events        ScmEvent[]
 
   @@unique([tenantId, provider, externalRepoId])
   @@unique([tenantId, id])
   @@index([tenantId, workspaceId, status])
   @@index([tenantId, linkId])
+  @@index([tenantId, workspaceLinkId])
   @@index([tenantId, nodeId])
   @@index([status, lastSyncedAt])
   @@map("repositories")

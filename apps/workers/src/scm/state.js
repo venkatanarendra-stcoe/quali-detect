@@ -129,68 +129,139 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
       });
     },
 
-    /** The installation is gone (uninstalled or revoked): it and every repository of its links are disconnected. */
+    /**
+     * The installation is gone (uninstalled or revoked): it and every repository of EVERY workspace link of its tenant links
+     * are disconnected (SPEC §18 A6). Per tenant link: one tenant-level audit entry, one entry per affected workspace, a
+     * per-repository entry and event, and one `scm.installation.revoked` event for the notification worker. Repeating it
+     * for an installation that is already revoked does nothing (no second notification).
+     */
     async revokeInstallation(installationId) {
-      const links = await db.scmInstallationLink.findMany({
-        where: { installationId, status: "linked" },
-        select: { id: true, tenantId: true },
-      });
-      await db.$transaction(async (tx) => {
-        await tx.scmInstallation.update({
-          where: { id: installationId },
-          data: { status: "revoked", lastCheckedAt: new Date() },
-        });
-        for (const link of links) {
-          await auditSystem(tx, {
-            tenantId: link.tenantId,
-            action: "scm_installation.status_changed",
-            targetType: "scm_installation_link",
-            targetId: link.id,
-            metadata: { status: "revoked" },
-          });
+      await changeInstallation(installationId, "revoked", async (tx, link, workspaceLinks) => {
+        let total = 0;
+        const summary = [];
+        for (const wl of workspaceLinks) {
           const repos = await tx.repository.findMany({
-            where: { tenantId: link.tenantId, linkId: link.id, status: { not: "disconnected" } },
+            where: {
+              tenantId: link.tenantId,
+              workspaceId: wl.workspaceId,
+              workspaceLinkId: wl.id,
+              status: { not: "disconnected" },
+            },
           });
           for (const repo of repos) await disconnect(tx, repo, "installation_revoked");
+          total += repos.length;
+          summary.push({ workspaceLink: wl, repositoryCount: repos.length });
         }
+        return { total, summary };
       });
     },
 
+    /** Suspension (or lifting it): repositories of all workspace links become `unavailable` (or return to `active`). */
     async suspendInstallation(installationId, suspended) {
-      const links = await db.scmInstallationLink.findMany({
-        where: { installationId, status: "linked" },
-        select: { id: true, tenantId: true },
-      });
-      await db.$transaction(async (tx) => {
-        await tx.scmInstallation.update({
-          where: { id: installationId },
-          data: { status: suspended ? "suspended" : "active", lastCheckedAt: new Date() },
-        });
-        for (const link of links) {
-          await auditSystem(tx, {
-            tenantId: link.tenantId,
-            action: "scm_installation.status_changed",
-            targetType: "scm_installation_link",
-            targetId: link.id,
-            metadata: { status: suspended ? "suspended" : "active" },
-          });
-          if (suspended)
-            await tx.repository.updateMany({
-              where: { tenantId: link.tenantId, linkId: link.id, status: "active" },
-              data: { status: "unavailable", lastSyncError: "installation_suspended" },
-            });
-          else
-            await tx.repository.updateMany({
-              where: {
-                tenantId: link.tenantId,
-                linkId: link.id,
-                status: "unavailable",
-                lastSyncError: "installation_suspended",
-              },
-              data: { status: "active", lastSyncError: null },
-            });
-        }
-      });
+      await changeInstallation(
+        installationId,
+        suspended ? "suspended" : "active",
+        async (tx, link, workspaceLinks) => {
+          let total = 0;
+          const summary = [];
+          for (const wl of workspaceLinks) {
+            const scope = {
+              tenantId: link.tenantId,
+              workspaceId: wl.workspaceId,
+              workspaceLinkId: wl.id,
+            };
+            const changed = suspended
+              ? await tx.repository.updateMany({
+                  where: { ...scope, status: "active" },
+                  data: { status: "unavailable", lastSyncError: "installation_suspended" },
+                })
+              : await tx.repository.updateMany({
+                  where: {
+                    ...scope,
+                    status: "unavailable",
+                    lastSyncError: "installation_suspended",
+                  },
+                  data: { status: "active", lastSyncError: null },
+                });
+            total += changed.count;
+            summary.push({ workspaceLink: wl, repositoryCount: changed.count });
+          }
+          return { total, summary };
+        },
+      );
     },
   });
+
+  /**
+   * Shared shape of an installation status change. In one transaction: set the installation status (a no-op when it already
+   * has it), then per tenant link write the tenant-level audit entry, run `apply` for the link's workspace links, write one
+   * audit entry per affected workspace, and for `revoked` / `suspended` queue the notification event.
+   */
+  async function changeInstallation(installationId, status, apply) {
+    const installation = await db.scmInstallation.findUnique({
+      where: { id: installationId },
+      select: { id: true, status: true },
+    });
+    if (!installation) return;
+    if (installation.status === "revoked" && status !== "revoked") return; // revoked is terminal: later events are ignored
+    const changed = installation.status !== status;
+    const links = await db.scmInstallationLink.findMany({
+      where: { installationId, status: "linked" },
+      select: { id: true, tenantId: true },
+    });
+    await db.$transaction(async (tx) => {
+      await tx.scmInstallation.update({
+        where: { id: installationId },
+        data: { status, lastCheckedAt: new Date() },
+      });
+      for (const link of links) {
+        await auditSystem(tx, {
+          tenantId: link.tenantId,
+          action: "scm_installation.status_changed",
+          targetType: "scm_installation_link",
+          targetId: link.id,
+          metadata: { status },
+        });
+        const workspaceLinks = await tx.scmWorkspaceLink.findMany({
+          where: { tenantId: link.tenantId, linkId: link.id, status: "linked" },
+          select: { id: true, workspaceId: true },
+        });
+        const { total, summary } = await apply(tx, link, workspaceLinks);
+        for (const { workspaceLink, repositoryCount } of summary)
+          await auditSystem(tx, {
+            tenantId: link.tenantId,
+            action: "scm_workspace_link.status_changed",
+            targetType: "scm_workspace_link",
+            targetId: workspaceLink.id,
+            workspaceId: workspaceLink.workspaceId,
+            metadata: {
+              status,
+              installationLinkId: link.id,
+              repositoriesAffected: repositoryCount,
+            },
+          });
+        // Repeating a transition that changed nothing must not notify again.
+        if ((status === "revoked" || status === "suspended") && (changed || total > 0))
+          await outbox.enqueue(tx, {
+            queue: QUEUE_NAMES.NOTIFICATION,
+            message: createEventEnvelope({
+              type: "scm.installation.revoked",
+              schemaVersion: 1,
+              tenantId: link.tenantId,
+              initiator,
+              subject: { type: "installation", id: link.id },
+              payload: {
+                linkId: link.id,
+                cause: status === "revoked" ? "deleted" : "suspended",
+                repositoriesAffected: total,
+                workspaces: summary.map((x) => ({
+                  workspaceId: x.workspaceLink.workspaceId,
+                  repositoryCount: x.repositoryCount,
+                })),
+              },
+            }),
+          });
+      }
+    });
+  }
 }

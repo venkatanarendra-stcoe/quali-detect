@@ -3036,6 +3036,147 @@ export function buildDalEntries() {
     },
   );
 
+  // ----- advisory locks of the pipelines module (SPEC §13.3 part G, DAL-208..210): a lock key carries the tenant (and the pipeline),
+  // so one tenant's transaction can never block, or be confused with, another tenant's. The holder takes the lock for tenant X;
+  // from a second connection a non-blocking attempt on X's own key must FAIL (held) and the same attempt on tenant Y's key must
+  // succeed (free). A key without the tenant is "free" for X (the attempt succeeds) and is reported.
+  const tryKey = (client, key) =>
+    client.$queryRaw`SELECT pg_try_advisory_xact_lock(hashtext(${key})) AS ok`.then((r) => r[0].ok);
+  const probeLock = (c, take, keyOf) =>
+    c.db.$transaction(async (tx) => {
+      await take(tx, c.x);
+      const probe = (tenantId) => c.db.$transaction((other) => tryKey(other, keyOf(tenantId)));
+      const problems = [];
+      if (await probe(c.x)) problems.push("the lock key of the holder's own tenant was free");
+      if (!(await probe(c.y))) problems.push("another tenant's lock key was held");
+      return problems;
+    });
+  const lockEntry = (name, take, keyOf) =>
+    E(name, (c) => probeLock(c, take(c), keyOf(c)), {
+      verify: (problems) => problems,
+      // the control: the same probe on the legitimate keys finds the lock held for its tenant and free for the other
+      control: async (c) => ((await probeLock(c, take(c), keyOf(c))).length === 0 ? [1] : []),
+    });
+  lockEntry(
+    "pipelines.lockLimit (key scoped by tenant)",
+    (c) => (tx, tenantId) => PL(c).lockLimit(tenantId, tx),
+    () => (tenantId) => `limit:pipelines:${tenantId}`,
+  );
+  lockEntry(
+    "pipelines.lockPipeline (key scoped by tenant and pipeline)",
+    (c) => (tx, tenantId) => PL(c).lockPipeline({ tenantId, pipelineId: pipe(c).id }, tx),
+    (c) => (tenantId) => `pipeline:${tenantId}:${pipe(c).id}`,
+  );
+  lockEntry(
+    "router.lockPipeline (key scoped by tenant and pipeline, the same key as the API)",
+    (c) => (tx, tenantId) => RT(c).lockPipeline({ tenantId, pipelineId: pipe(c).id }, tx),
+    (c) => (tenantId) => `pipeline:${tenantId}:${pipe(c).id}`,
+  );
+
+  // ----- right tenant and workspace, WRONG repository (part G): the repository condition of the parent chain is checked on its own
+  E(
+    "pipelines.listForRepository (wrong repository)",
+    (c) => PL(c).listForRepository({ tenantId: c.x, workspaceId: c.ws, repositoryId: c.repo2.id }),
+    {
+      control: (c) =>
+        PL(c).listForRepository({ tenantId: c.x, workspaceId: c.ws, repositoryId: c.repo.id }),
+    },
+  );
+  E(
+    "router.listRoutingPipelines (wrong repository)",
+    (c) =>
+      RT(c).listRoutingPipelines({
+        tenantId: c.x,
+        workspaceId: c.ws,
+        repositoryId: c.repo2.id,
+        limit: 20,
+      }),
+    {
+      control: (c) =>
+        RT(c).listRoutingPipelines({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          limit: 20,
+        }),
+    },
+  );
+  E(
+    "schedules.claimDue (wrong repository)",
+    (c) => inTx(c, (tx) => SC(c).claimDue({ ...dueWhere(c, c.x), repositoryId: c.repo2.id }, tx)),
+    { control: (c) => inTx(c, (tx) => SC(c).claimDue(dueWhere(c, c.x), tx)) },
+  );
+
+  E(
+    "schedules.claimUnscheduled (wrong workspace)",
+    (c) =>
+      inTx(c, (tx) => SC(c).claimUnscheduled({ ...unplanned(c, c.x), workspaceId: c.pl.wsB }, tx)),
+    { control: (c) => inTx(c, (tx) => SC(c).claimUnscheduled(unplanned(c, c.x), tx)) },
+  );
+  E(
+    "schedules.claimUnscheduled (wrong repository)",
+    (c) =>
+      inTx(c, (tx) =>
+        SC(c).claimUnscheduled({ ...unplanned(c, c.x), repositoryId: c.repo2.id }, tx),
+      ),
+    { control: (c) => inTx(c, (tx) => SC(c).claimUnscheduled(unplanned(c, c.x), tx)) },
+  );
+  E(
+    "schedules.findPipelineForFire (wrong repository)",
+    (c) =>
+      SC(c).findPipelineForFire({
+        tenantId: c.x,
+        workspaceId: c.ws,
+        repositoryId: c.repo2.id,
+        pipelineId: pipe(c).id,
+      }),
+    {
+      control: (c) =>
+        SC(c).findPipelineForFire({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: pipe(c).id,
+        }),
+    },
+  );
+  // the ownership verifier of the pipeline request: right tenant, but the stated workspace or repository is not the pipeline's
+  const requestPayload = (c, over = {}) => ({
+    executionId: c.pl.executionId,
+    pipelineId: pipe(c).id,
+    repositoryId: c.repo.id,
+    workspaceId: c.ws,
+    configVersion: 1,
+    configHash: "a".repeat(64),
+    triggerType: "manual",
+    triggerKey: "manual",
+    refType: "branch",
+    refName: "main",
+    commitSha: null,
+    pullRequestNumber: null,
+    scanKind: "full",
+    scanKindReason: "manual",
+    trust: "trusted",
+    ...over,
+  });
+  for (const [label, over] of [
+    ["workspace", (c) => ({ workspaceId: c.pl.wsB })],
+    ["repository", (c) => ({ repositoryId: c.repo2.id })],
+  ])
+    E(
+      `workers.ownership.pipeline-execution (right tenant, wrong ${label})`,
+      (c) =>
+        verifyAs(c, c.x, "pipeline.execution.requested", requestPayload(c, over(c)), undefined),
+      {
+        mustThrow: true,
+        control: async (c) =>
+          (await verifyAs(c, c.x, "pipeline.execution.requested", requestPayload(c), undefined)) ===
+          undefined
+            ? "accepted"
+            : null,
+      },
+    );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

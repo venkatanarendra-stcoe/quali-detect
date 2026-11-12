@@ -36,7 +36,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 441;
+const EXPECTED_CHECKS = 457;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -9217,6 +9217,385 @@ const schWorld = () =>
         if ((await schExecs(pipeline.id)).length !== expected.length)
           problems.push(`${day.name}: a slot created a second execution on repeat`);
       }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 16. Pipelines and triggers: consolidation (part G, SPEC pipelines-triggers §16 "part G, suite coverage matrix"). Gaps the audit
+//     of §14.1 found: audit atomicity under a forced failure, idempotency keys across tenants, soft-deleted pipelines outside the
+//     caller's workspaces, and "pipeline.manage cannot grant anything".
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Pipelines: consolidation (part G)");
+  add(
+    "PIP-051",
+    "audit atomicity: when the audit write of a pipeline change or a manual run fails (forced by a database trigger that rejects the entry) the change is rolled back with it, and when the change cannot commit (a deferred constraint trigger raises at COMMIT) no audit entry survives (create, publish, disable, delete and manual run leave no row, no version, no message, no quota unit and no entry); once the fault is removed the same calls succeed and are audited",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const admin = x.sessions.admin;
+      const p = (await pipCreate(admin, x.payRepo, { name: pipName("atomic") })).json.data;
+      await pipPublish(admin, p.id, 1, pipCfg({ failOn: { severity: "medium" } }));
+      const name = pipName("atomic-new");
+      const quota = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+      const used = () =>
+        db.tenantQuotaUsage
+          .findFirst({ where: { tenantId: x.tenantId, quotaDefinitionId: quota.id } })
+          .then((u) => Number(u?.used ?? 0));
+      const state = async () => ({
+        pipelines: await db.pipeline.count({ where: { tenantId: x.tenantId } }),
+        versions: await db.pipelineConfigVersion.count({ where: { pipelineId: p.id } }),
+        executions: await db.execution.count({ where: { tenantId: x.tenantId } }),
+        messages: await db.outboxMessage.count({
+          where: { tenantId: x.tenantId, type: "pipeline.execution.requested" },
+        }),
+        used: await used(),
+        audit: await db.auditLog.count({
+          where: {
+            tenantId: x.tenantId,
+            OR: [{ action: { startsWith: "pipeline." } }, { action: "execution.manual_requested" }],
+          },
+        }),
+        row: JSON.stringify(
+          await db.pipeline.findFirst({
+            where: { id: p.id },
+            select: { enabled: true, deletedAt: true, currentVersionId: true },
+          }),
+        ),
+      });
+      const calls = () => [
+        ["create", () => pipCreate(admin, x.payRepo, { name })],
+        ["publish", () => pipPublish(admin, p.id, 2, pipCfg({ failOn: { severity: "high" } }))],
+        ["disable", () => w.api("POST", `/pipelines/${p.id}/disable`, { cookie: admin })],
+        [
+          "delete",
+          () => w.api("DELETE", `/pipelines/${p.id}`, { cookie: admin, body: { confirm: p.name } }),
+        ],
+        ["run", () => pipRun(admin, p.id, { ref: { type: "branch", name: "main" } })],
+      ];
+      // two faults: (1) the audit entry cannot be written, (2) the change itself cannot commit (a deferred constraint trigger that
+      // raises at COMMIT). Atomic means both leave nothing: no change in (1), and no audit entry for a change that never happened in (2).
+      const T = `'${x.tenantId}'::uuid`;
+      const fault = async (kind) => {
+        if (kind === "audit") {
+          await db.$executeRawUnsafe(
+            `CREATE OR REPLACE FUNCTION suite_fail_pipeline_audit() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'suite: forced failure'; END $f$`,
+          );
+          await db.$executeRawUnsafe(
+            `CREATE TRIGGER suite_fail_pipeline_audit BEFORE INSERT ON audit_logs FOR EACH ROW WHEN (NEW.tenant_id = ${T} AND (NEW.action LIKE 'pipeline.%' OR NEW.action = 'execution.manual_requested')) EXECUTE FUNCTION suite_fail_pipeline_audit()`,
+          );
+        } else if (kind === "commit") {
+          await db.$executeRawUnsafe(
+            `CREATE OR REPLACE FUNCTION suite_fail_pipeline_audit() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'suite: forced failure'; END $f$`,
+          );
+          for (const table of ["pipelines", "pipeline_config_versions", "executions"])
+            await db.$executeRawUnsafe(
+              `CREATE CONSTRAINT TRIGGER suite_fail_commit_${table} AFTER INSERT OR UPDATE ON ${table} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.tenant_id = ${T}) EXECUTE FUNCTION suite_fail_pipeline_audit()`,
+            );
+        } else {
+          await db.$executeRawUnsafe(
+            `DROP TRIGGER IF EXISTS suite_fail_pipeline_audit ON audit_logs`,
+          );
+          for (const table of ["pipelines", "pipeline_config_versions", "executions"])
+            await db.$executeRawUnsafe(
+              `DROP TRIGGER IF EXISTS suite_fail_commit_${table} ON ${table}`,
+            );
+          await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS suite_fail_pipeline_audit()`);
+        }
+      };
+      for (const [kind, what] of [
+        ["audit", "its audit entry could not be written"],
+        ["commit", "the change could not commit"],
+      ]) {
+        try {
+          await fault(kind);
+          const before = await state();
+          for (const [label, run] of calls()) {
+            const r = await run();
+            if (r.status >= 200 && r.status < 300)
+              problems.push(`${label} succeeded although ${what}`);
+            const after = await state();
+            if (JSON.stringify(after) !== JSON.stringify(before))
+              problems.push(`${label} left a change or an audit entry behind when ${what}`);
+          }
+        } finally {
+          await fault("off");
+        }
+      }
+      // control: without the fault the same calls work, and each leaves its audit entry
+      const entriesBefore = await db.auditLog.count({ where: { tenantId: x.tenantId } });
+      const okCalls = [
+        ["create", () => pipCreate(admin, x.payRepo, { name }), 201],
+        [
+          "publish",
+          () => pipPublish(admin, p.id, 2, pipCfg({ failOn: { severity: "high" } })),
+          200,
+        ],
+        ["disable", () => w.api("POST", `/pipelines/${p.id}/disable`, { cookie: admin }), 200],
+        ["enable", () => w.api("POST", `/pipelines/${p.id}/enable`, { cookie: admin }), 200],
+        ["run", () => pipRun(admin, p.id, { ref: { type: "branch", name: "main" } }), 202],
+      ];
+      for (const [label, run, status] of okCalls) {
+        const r = await run();
+        if (r.status !== status) problems.push(`control: ${label} answered ${r.status}`);
+      }
+      const entriesAfter = await db.auditLog.count({ where: { tenantId: x.tenantId } });
+      if (entriesAfter - entriesBefore < okCalls.length)
+        problems.push("control: the legitimate calls did not leave their audit entries");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-055",
+    "an unknown fork flag is never a trusted run: a pull-request message whose fork flag is missing, null or not a boolean is refused by the message contract (or, if it ever got through, routed as a fork) and creates no execution under the default policy; an explicit false (control) runs",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const sent = await rtEvent(
+        "pull_request",
+        { inst: x.R.inst, repo: x.ext.fork, fork: true, number: 31 },
+        { route: false },
+      );
+      if (!sent.envelope) return { status: 200, json: null, problems: ["fixture: no message"] };
+      const withFlag = (flag, drop = false) => {
+        const e = structuredClone(sent.envelope);
+        if (drop) delete e.payload.isFork;
+        else e.payload.isFork = flag;
+        return e;
+      };
+      const trustedFor = async (deliveryId) =>
+        (await rtExecs(x.fork.skip.id, { scmDeliveryId: deliveryId })).length;
+      for (const [label, envelope] of [
+        ["missing", withFlag(undefined, true)],
+        ["null", withFlag(null)],
+        ["the string false", withFlag("false")],
+        ["the number 0", withFlag(0)],
+      ]) {
+        let outcome;
+        try {
+          outcome = await rtConsume(envelope);
+        } catch (error) {
+          outcome = { ok: false, refused: true, error };
+        }
+        if ((await trustedFor(sent.deliveryId)) !== 0)
+          problems.push(
+            `a fork flag that is ${label} created an execution under the default policy`,
+          );
+        if (outcome.ok === true) {
+          const trust = (await rtExecs(x.fork.run.id, { scmDeliveryId: sent.deliveryId })).map(
+            (e) => e.trust,
+          );
+          if (trust.some((t) => t !== "untrusted_fork"))
+            problems.push(`a fork flag that is ${label} ran as trusted`);
+        }
+      }
+      // control: an explicit false is a same-repository pull request and runs trusted; an explicit true is skipped
+      const control = await rtConsume(withFlag(false));
+      if (!control.ok || (await trustedFor(sent.deliveryId)) !== 1)
+        problems.push("control: an explicit false did not run the default-policy pipeline");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-052",
+    "idempotency keys never cross tenants or pipelines: the same Idempotency-Key used by two tenants (and on two pipelines of one tenant) for a manual run or a create answers each caller with its own new resource, never a replay of the other's, and the rows carry the caller's own tenant",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const key = KEY("shared-run");
+      const a = await pipRun(
+        x.sessions.admin,
+        x.pPay.id,
+        { ref: { type: "branch", name: "main" } },
+        key,
+      );
+      const b = await pipRun(
+        x.sessions.edge,
+        x.pEdge.id,
+        { ref: { type: "branch", name: "main" } },
+        key,
+      );
+      const c2 = await pipRun(
+        x.sessions.admin,
+        x.pId.id,
+        { ref: { type: "branch", name: "main" } },
+        key,
+      );
+      for (const [label, r] of [
+        ["tenant A", a],
+        ["the other tenant", b],
+      ])
+        if (r.status !== 202) problems.push(`control: ${label} run answered ${r.status}`);
+      if (a.status === 202 && b.status === 202) {
+        const ea = a.json.data.execution.id;
+        const eb = b.json.data.execution.id;
+        if (ea === eb) problems.push("the other tenant received the first tenant's execution");
+        if (JSON.stringify(b.json).includes(ea))
+          problems.push("a response of the other tenant carries the first tenant's execution id");
+        const rowB = await db.execution.findFirst({ where: { id: eb } });
+        if (rowB?.tenantId !== x.edgeTenantId || rowB?.pipelineId !== x.pEdge.id)
+          problems.push("the other tenant's run is not in its own tenant and pipeline");
+        const rowA = await db.execution.findFirst({ where: { id: ea } });
+        if (rowA?.tenantId !== x.tenantId) problems.push("the first run is not in its own tenant");
+        if (c2.status === 202 && c2.json.data.execution.id === ea)
+          problems.push("a second pipeline replayed the first pipeline's run for the same key");
+        if (c2.status === 202) {
+          const rowC = await db.execution.findFirst({ where: { id: c2.json.data.execution.id } });
+          if (rowC?.pipelineId !== x.pId.id) problems.push("the run is not on the pipeline asked");
+        }
+      }
+      // the create route takes a key too
+      const createKey = KEY("shared-create");
+      const ca = await pipCreate(
+        x.sessions.admin,
+        x.payRepo2,
+        { name: pipName("idem-a") },
+        createKey,
+      );
+      const cb = await pipCreate(
+        x.sessions.edge,
+        x.edgeRepo,
+        { name: pipName("idem-b") },
+        createKey,
+      );
+      if (ca.status !== 201 || cb.status !== 201)
+        problems.push(`control: creates answered ${ca.status} and ${cb.status}`);
+      else {
+        if (ca.json.data.id === cb.json.data.id)
+          problems.push("a create was replayed across tenants");
+        const row = await db.pipeline.findFirst({ where: { id: cb.json.data.id } });
+        if (row?.tenantId !== x.edgeTenantId)
+          problems.push("the other tenant's pipeline is not in its own tenant");
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-053",
+    "soft-deleted pipelines stay inside their workspace: with includeDeleted or effectiveState=deleted the manager (Payments only) lists the deleted Payments pipeline and nothing of the hidden Identity workspace or of another tenant, and a deleted pipeline of a hidden workspace or another tenant answers the same 404 as a missing id on every read",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const admin = x.sessions.admin;
+      const del = async (cookie, repo, label) => {
+        const p = (await pipCreate(cookie, repo, { name: pipName(label) })).json.data;
+        const r = await w.api("DELETE", `/pipelines/${p.id}`, {
+          cookie,
+          body: { confirm: p.name },
+        });
+        if (r.status !== 200 && r.status !== 204)
+          problems.push(`fixture: delete answered ${r.status}`);
+        return p;
+      };
+      const pay = await del(admin, x.payRepo, "gone-pay");
+      const idn = await del(admin, x.idRepo, "gone-idn");
+      const foreign = await del(x.sessions.edge, x.edgeRepo, "gone-edge");
+      for (const query of ["includeDeleted=true", "effectiveState=deleted"]) {
+        const m = await w.api("GET", `/pipelines?pageSize=100&${query}`, {
+          cookie: x.sessions.manager,
+        });
+        const a = await w.api("GET", `/pipelines?pageSize=100&${query}`, { cookie: admin });
+        const ids = (r) => (r.json?.data ?? []).map((p) => p.id);
+        if (m.status !== 200 || !ids(m).includes(pay.id))
+          problems.push(`control: ${query} did not show the manager the deleted Payments pipeline`);
+        if (ids(m).includes(idn.id))
+          problems.push(`${query} showed a deleted pipeline of a hidden workspace`);
+        if (ids(m).includes(foreign.id) || ids(a).includes(foreign.id))
+          problems.push(`${query} showed another tenant's deleted pipeline`);
+        if (a.status !== 200 || !ids(a).includes(idn.id))
+          problems.push(`control: ${query} did not show the administrator the Identity one`);
+      }
+      const missing = await w.api("GET", `/pipelines/${missingId()}`, {
+        cookie: x.sessions.manager,
+      });
+      for (const [who, cookie, target] of [
+        ["manager", x.sessions.manager, idn],
+        ["administrator", admin, foreign],
+      ]) {
+        for (const path of ["", "/versions", "/versions/1", "/executions", "/trigger-decisions"]) {
+          const r = await w.api("GET", `/pipelines/${target.id}${path}`, { cookie });
+          if (r.status !== 404)
+            problems.push(`${who}: deleted ${path || "pipeline"} answered ${r.status}`);
+          else if (path === "" && strip(r.json) !== strip(missing.json))
+            problems.push(`${who}: a deleted pipeline's 404 differs from a missing id's`);
+        }
+      }
+      const readable = await w.api("GET", `/pipelines/${pay.id}`, { cookie: x.sessions.manager });
+      if (readable.status !== 200 || !readable.json?.data?.deletedAt)
+        problems.push("control: the manager cannot read the deleted pipeline of its own workspace");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-054",
+    "pipeline.manage cannot grant anything: a manager's create, edit and publish with role, permission, member or assignment fields answer 400 and write nothing, and the tenant's roles, role assignments, group memberships and the caller's own permissions are identical before and after the legitimate calls",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const cookie = x.sessions.manager;
+      const snapshotOf = async () =>
+        JSON.stringify({
+          roles: await db.role.count({ where: { tenantId: x.tenantId } }),
+          rolePermissions: await db.rolePermission.count({
+            where: { role: { tenantId: x.tenantId } },
+          }),
+          userAssignments: await db.userRoleAssignment.count({ where: { tenantId: x.tenantId } }),
+          groupAssignments: await db.groupRoleAssignment.count({ where: { tenantId: x.tenantId } }),
+          members: await db.groupMember.count({ where: { tenantId: x.tenantId } }),
+          me: (await w.api("GET", "/me", { cookie })).json?.data,
+        });
+      const before = await snapshotOf();
+      const extras = [
+        { roleId: randomUUID() },
+        { permissions: ["pipeline.manage_fork_policy", "tenant.manage"] },
+        { role: "admin" },
+        { members: [randomUUID()] },
+        { assignments: [{ userId: randomUUID(), roleId: randomUUID() }] },
+        { grantTo: "manager" },
+      ];
+      const p = (await pipCreate(cookie, x.payRepo, { name: pipName("mgr") })).json?.data;
+      if (!p?.id) problems.push("control: the manager could not create a pipeline");
+      for (const extra of extras) {
+        const key = Object.keys(extra)[0];
+        const c1 = await pipCreate(cookie, x.payRepo, { name: pipName("mgr-x"), ...extra });
+        if (c1.status !== 400) problems.push(`create with ${key} answered ${c1.status}`);
+        if (p?.id) {
+          const e1 = await w.api("PATCH", `/pipelines/${p.id}`, {
+            cookie,
+            body: { description: "x", ...extra },
+          });
+          if (e1.status !== 400) problems.push(`edit with ${key} answered ${e1.status}`);
+          const e2 = await w.api("PUT", `/pipelines/${p.id}/config`, {
+            cookie,
+            body: { expectedVersion: 1, config: pipCfg(), ...extra },
+          });
+          if (e2.status !== 400) problems.push(`publish with ${key} answered ${e2.status}`);
+        }
+      }
+      if (p?.id) {
+        const ok = await pipPublish(cookie, p.id, 1, pipCfg({ failOn: { severity: "low" } }));
+        if (ok.status !== 200)
+          problems.push(`control: the manager's publish answered ${ok.status}`);
+      }
+      if (await db.pipeline.count({ where: { name: { startsWith: "mgr-x" } } }))
+        problems.push("a refused create left a pipeline behind");
+      if ((await snapshotOf()) !== before)
+        problems.push("roles, assignments, memberships or the caller's permissions changed");
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

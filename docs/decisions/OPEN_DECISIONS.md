@@ -30,6 +30,7 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | Reasons for replacing Fastify (ADR-007) | Not stated with the instruction | Owner to record in the ADR |
 | ~~Manager visibility of Workspace Integrations (wireframe §4.4 vs Admin-only `integration.view`)~~ | Decided by the owner 2026-11-11: workspace-scope `workspace_integration.view` (Admin, Manager, Lead, Dev Lead) and `.manage` (Admin, Manager), routing only; organization connect/disconnect stays `integration.manage` (AUTHORIZATION Q26) | Resolved |
 | GitHub integration leftovers (`docs/modules/repositories-github/SPEC.md` §15) | GHES / GitLab / Bitbucket (Q20); empirical repository rename and transfer test with a real App (Q22); per-tenant fairness on the shared `scm-events` consumer (Q23); `GET /repositories/{id}` for lighter sync (Q24); whether REST redelivery keeps the delivery GUID (Q25) | Verify with a development GitHub App; owner to decide the rest |
+| Workspace-level GitHub integration leftovers (`docs/modules/repositories-github/SPEC.md` §18.4) | Q26 cross-workspace repository sharing; Q27 temporary pause of a workspace link; Q29 workspace-admin visibility of installation delivery history. **Q28 closed** (tenant setting, SPEC §18.6). The amendment (A1 to A11) is Approved 2026-11-12 | Owner to decide |
 
 ## Rule
 

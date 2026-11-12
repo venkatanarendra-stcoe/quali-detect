@@ -403,7 +403,7 @@ Decisions by the owner are marked **Decided**; every other item carries **Recomm
 | 22 | Repository id stability | **Decided**: risk accepted; `node_id` stored as secondary identity; the empirical rename and transfer test with the development GitHub App is **Open** |
 | 23 | Per-tenant fairness on the shared `scm-events` consumer | **Open** |
 | 24 | `GET /repositories/{id}` (by numeric id) as a lighter per-repository sync call | **Open**: not covered by the spike; sync lists the installation's repositories instead |
-| 25 | Redelivery GUID in the REST API | **Open**: the docs are silent whether `POST .../attempts` keeps the GUID; the reconciler assumes it does (best-practices page) and dedupes either way |
+| 25 | Redelivery GUID in the REST API | **Closed 2026-11-12**: `POST .../attempts` keeps the GUID (live test, §17.6); the reconciler's assumption holds and dedupe works |
 
 ## 16. Implementation notes
 

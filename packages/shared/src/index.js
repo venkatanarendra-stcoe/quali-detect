@@ -6,3 +6,4 @@ export * from "./keys.js";
 export * from "./authorization.js";
 export * from "./platform-navigation.js";
 export * from "./platform-permissions.js";
+export * from "./pipelines/index.js";

@@ -1,4 +1,5 @@
 import { API_PREFIX, MODULE_NAME } from "./constants/index.js";
+import { createPipelineCounts } from "../pipelines/index.js";
 import { createRepositoryController } from "./controllers/index.js";
 import { createRepositoryRepository } from "./repositories/index.js";
 import { repositoryRoutes } from "./routes/index.js";
@@ -12,6 +13,7 @@ async function repositoriesPlugin(app) {
     audit: app.audit,
     outbox: app.outbox,
     entitlements: app.entitlements,
+    pipelineCounts: createPipelineCounts({ db: app.infra.db }),
     infra: app.infra,
   });
   await app.register(repositoryRoutes(createRepositoryController({ service }), app.authz));

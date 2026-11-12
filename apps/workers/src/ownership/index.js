@@ -60,6 +60,22 @@ const RESOURCE_CHECKS = {
       ids.length
     );
   },
+  // A pipeline request: the pipeline must be in the tenant with the stated workspace and repository (composite chain), and the
+  // execution row must exist in the tenant for that pipeline (SPEC pipelines-triggers §9).
+  "pipeline.execution.requested": async (db, message) => {
+    const { pipelineId, workspaceId, repositoryId, executionId } = message.payload;
+    const pipeline = await db.pipeline.findFirst({
+      where: { id: pipelineId, tenantId: message.tenantId, workspaceId, repositoryId },
+      select: { id: true },
+    });
+    if (!pipeline) return false;
+    return Boolean(
+      await db.execution.findFirst({
+        where: { id: executionId, tenantId: message.tenantId, pipelineId },
+        select: { id: true },
+      }),
+    );
+  },
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({

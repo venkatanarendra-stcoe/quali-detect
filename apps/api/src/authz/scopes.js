@@ -57,3 +57,24 @@ export function repositoryScope(param = "repositoryId") {
     },
   });
 }
+
+/**
+ * Operations on one pipeline, identified by a route param. Loads the pipeline by id AND tenant (soft-deleted ones too:
+ * their history stays readable; mutating services refuse them) and yields the scope of the workspace it lives in, so
+ * `pipeline.*` and `execution.*` permissions are checked in that workspace. A pipeline of another tenant, or that does not
+ * exist, resolves to null (404), exactly like one in a workspace the caller cannot see.
+ * @param {string} [param]
+ */
+export function pipelineScope(param = "pipelineId") {
+  return Object.freeze({
+    scopeType: "workspace",
+    async resolve(request, { tenantId, db }) {
+      const id = request.params?.[param];
+      if (typeof id !== "string") throw new NotFoundError();
+      const pipeline = await db.pipeline.findFirst({ where: { tenantId, id } });
+      return pipeline
+        ? { scope: { type: "workspace", workspaceId: pipeline.workspaceId }, resource: pipeline }
+        : null;
+    },
+  });
+}

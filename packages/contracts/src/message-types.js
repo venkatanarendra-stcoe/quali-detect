@@ -150,6 +150,42 @@ export const MESSAGE_TYPES = Object.freeze({
         .max(500),
     }),
   }),
+  /**
+   * One execution request of a pipeline (docs/modules/pipelines-triggers/SPEC.md §9, EVENT_CONTRACTS naming). The execution
+   * row is the source of truth; the message is a wake-up for the execution module. IDS, ENUMS AND SHORT VALIDATED STRINGS
+   * ONLY: no secret, no token, no source text, no commit message, no PR title (SCM R-7, ADR-009). Envelope: `subject`
+   * `{ type: "execution", id }`, `messageId = execution-requested-<executionId>`, `initiator` `{ type: "user" | "scm" |
+   * "schedule", id }`.
+   */
+  "pipeline.execution.requested": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({
+      executionId: uuid,
+      pipelineId: uuid,
+      repositoryId: uuid,
+      workspaceId: uuid,
+      configVersion: z.number().int().min(1),
+      configHash: z.string().min(1).max(128),
+      triggerType: z.enum(["push", "pull_request", "schedule", "manual"]),
+      triggerKey: z.string().min(1).max(64),
+      refType: z.enum(["branch", "tag", "pull_request"]),
+      refName: z.string().min(1).max(255),
+      commitSha: z.string().max(64).nullable(),
+      pullRequestNumber: z.number().int().min(1).nullable(),
+      scanKind: z.enum(["full", "incremental"]),
+      scanKindReason: z.string().min(1).max(64),
+      trust: z.enum(["trusted", "untrusted_fork"]),
+    }),
+  }),
+  /** Scheduler tick: the handler selects due schedule triggers (SPEC §6.4). Platform job, naturally idempotent per slot. */
+  "pipeline.schedules.due_requested": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z.object({ bucket: z.number().int().min(0) }),
+  }),
   // ---- SCM jobs
   "scm.repository.sync_requested": Object.freeze({
     kind: "job",

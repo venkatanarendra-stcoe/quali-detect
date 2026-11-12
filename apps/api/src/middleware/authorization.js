@@ -1,7 +1,7 @@
 import { can, getPermission } from "@qmentisai/shared";
 import { ForbiddenError, NotFoundError } from "../errors/app-error.js";
 import { createAuthzRepository } from "../authz/repository.js";
-import { repositoryScope, tenantScope, workspaceScope } from "../authz/scopes.js";
+import { pipelineScope, repositoryScope, tenantScope, workspaceScope } from "../authz/scopes.js";
 import { createAuthzService } from "../authz/service.js";
 
 /**
@@ -25,6 +25,7 @@ export function createAuthorization({ db }) {
     tenant: tenantScope,
     workspace: workspaceScope,
     repository: repositoryScope,
+    pipeline: pipelineScope,
   });
 
   /** Effective permissions of the request's principal (resolved once per request). */

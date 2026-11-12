@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 91,
+  "operationCount": 107,
   "operations": [
     {
       "method": "GET",
@@ -1539,6 +1539,847 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/pipelines",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q",
+          "enabled",
+          "effectiveState",
+          "triggerType",
+          "includeDeleted",
+          "workspaceId",
+          "repositoryId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List pipelines in the workspaces the caller can see"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/pipelines/{pipelineId}",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": "{ confirm }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ deleted }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Soft delete a pipeline (history and findings stay; refused while executions are running)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/{pipelineId}",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a pipeline"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/pipelines/{pipelineId}",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": "{ name, description }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Edit name or description (not versioned)"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/pipelines/{pipelineId}/config",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": "{ expectedVersion, config, changeNote }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ version, schemaVersion, configHash, changeNote, changeSummary, createdBy, createdAt, config }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Publish configuration version N+1 (needs pipeline.manage_fork_policy to set a fork policy other than skip)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines/{pipelineId}/disable",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Disable a pipeline"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines/{pipelineId}/enable",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Enable a pipeline"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/{pipelineId}/executions",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "status",
+          "triggerType"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, status, statusReason, triggerType, refType, refName, pullRequestNumber, commitSha, scanKind, trust, requestedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Minimal list of the pipeline's execution requests"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines/{pipelineId}/runs",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [],
+        "body": "{ ref, scanKind }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ execution }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Manual run (Idempotency-Key is REQUIRED); creates one queued execution request"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/{pipelineId}/trigger-decisions",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "reason",
+          "triggerType"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, decidedAt, decision, reason, triggerType, triggerKey, refType, refName, pullRequestNumber }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Events skipped by policy (fork, draft, state)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/{pipelineId}/versions",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "pipelineId"
+        ],
+        "query": [
+          "page",
+          "pageSize"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ version, schemaVersion, configHash, changeNote, changeSummary, createdBy, createdAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List configuration versions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/{pipelineId}/versions/{version}",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "pipelineId",
+          "version"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ version, schemaVersion, configHash, changeNote, changeSummary, createdBy, createdAt, config }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get one immutable configuration version"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/platform/audit-logs",
       "module": "platform-audit-logs",
       "audience": "platform",
@@ -2779,6 +3620,230 @@
         ]
       },
       "summary": "Enable a repository"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repositories/{repositoryId}/pipelines",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [
+          "page",
+          "pageSize",
+          "sort",
+          "q",
+          "enabled",
+          "effectiveState",
+          "triggerType",
+          "includeDeleted"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List the pipelines of a repository"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repositories/{repositoryId}/pipelines",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": "{ name, description, enabled, config }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, repositoryId, name, description, enabled, effectiveState, repository, currentVersion, triggers, lastRequest, counters, createdAt, updatedAt, deletedAt }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Create a pipeline (and its first configuration version) on an active repository"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repositories/{repositoryId}/pipelines/test-triggers",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "ENTITLEMENT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "QUOTA_EXCEEDED",
+            "status": 403
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [],
+        "body": "unknown"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items, quota }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Dry-run: which triggers would match a sample event (no side effects)"
     },
     {
       "method": "GET",
@@ -5315,6 +6380,69 @@
         ]
       },
       "summary": "Add a tenant member to the workspace (idempotent)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces/{workspaceId}/pipelines/options",
+      "module": "pipelines",
+      "audience": "tenant",
+      "permission": "pipeline.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "workspaceId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ limits, triggerTypes, scanTypes, severities, engines, pipelines }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Platform limits and allowed values for the pipeline wizard"
     },
     {
       "method": "POST",

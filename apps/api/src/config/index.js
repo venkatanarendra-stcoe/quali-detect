@@ -40,6 +40,26 @@ const envSchema = z.object({
     .default(2592000),
   // Lifetime of the single-use GitHub linking state (SPEC §18.6: 10 minutes). Shortened by the security suite to test expiry.
   SCM_LINK_STATE_TTL_SECONDS: z.coerce.number().int().min(1).max(3600).default(600),
+  // Pipelines and triggers (docs/modules/pipelines-triggers/SPEC.md §5.5 to §5.8, §7.3): platform limits applied when a
+  // configuration is validated. Placeholders now, entitlements later (Q12).
+  PIPELINES_MAX_PER_REPOSITORY: z.coerce.number().int().min(1).max(200).default(20),
+  PIPELINE_TIMEOUT_DEFAULT_SECONDS: z.coerce.number().int().min(60).max(86400).default(1800),
+  PIPELINE_TIMEOUT_MAX_SECONDS: z.coerce.number().int().min(60).max(86400).default(7200),
+  PIPELINE_SCAN_TASK_TIMEOUT_DEFAULT_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(86400)
+    .default(900),
+  PIPELINE_MAX_QUEUED_PER_PIPELINE: z.coerce.number().int().min(0).max(1000).default(20),
+  PIPELINE_SCHEDULE_MIN_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(2592000)
+    .default(3600),
+  PIPELINE_MAX_SCHEDULES_PER_PIPELINE: z.coerce.number().int().min(0).max(20).default(3),
+  PIPELINE_SCHEDULE_JITTER_SECONDS: z.coerce.number().int().min(0).max(3600).default(300),
   // Secret storage (ADR-009). Off unless a feature needs it. The "env" key provider (master key from the environment) is
   // for DEVELOPMENT only and is refused in production; the KMS and Vault adapters are not implemented yet.
   SECRETS_ENABLED: booleanFlag.optional(),
@@ -134,6 +154,11 @@ function crossChecks(e, allowedOrigins) {
       }
     }
   }
+  if (e.PIPELINE_TIMEOUT_DEFAULT_SECONDS > e.PIPELINE_TIMEOUT_MAX_SECONDS)
+    problems.push({
+      variable: "PIPELINE_TIMEOUT_DEFAULT_SECONDS",
+      message: "must not exceed PIPELINE_TIMEOUT_MAX_SECONDS",
+    });
   for (const origin of allowedOrigins) {
     // CORS with credentials: only exact origins (scheme://host[:port]); never "*" or a path.
     if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/.test(origin))
@@ -264,6 +289,19 @@ export function loadConfig(env = process.env) {
       masterKeyVersion: e.SECRET_MASTER_KEY_VERSION,
     }),
     scm: Object.freeze({ linkStateTtlSeconds: e.SCM_LINK_STATE_TTL_SECONDS }),
+    pipelines: Object.freeze({
+      maxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY,
+      limits: Object.freeze({
+        timeoutDefaultSeconds: e.PIPELINE_TIMEOUT_DEFAULT_SECONDS,
+        timeoutMaxSeconds: e.PIPELINE_TIMEOUT_MAX_SECONDS,
+        scanTaskTimeoutDefaultSeconds: e.PIPELINE_SCAN_TASK_TIMEOUT_DEFAULT_SECONDS,
+        maxQueuedPerPipeline: e.PIPELINE_MAX_QUEUED_PER_PIPELINE,
+        scheduleMinIntervalSeconds: e.PIPELINE_SCHEDULE_MIN_INTERVAL_SECONDS,
+        maxSchedulesPerPipeline: e.PIPELINE_MAX_SCHEDULES_PER_PIPELINE,
+        scheduleJitterSeconds: e.PIPELINE_SCHEDULE_JITTER_SECONDS,
+        pipelinesMaxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY,
+      }),
+    }),
     tenants: Object.freeze({
       deactivationRetentionSeconds: e.TENANT_DEACTIVATION_RETENTION_SECONDS,
     }),

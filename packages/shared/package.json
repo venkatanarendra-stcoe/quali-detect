@@ -2,7 +2,7 @@
   "name": "@qmentisai/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "Permission keys, navigation definitions and constants shared by apps",
+  "description": "Permission keys, navigation definitions, constants and pure pipeline logic shared by apps",
   "type": "module",
   "engines": {
     "node": ">=22.22.0"
@@ -17,5 +17,8 @@
   "devDependencies": {
     "@qmentisai/config": "workspace:*",
     "eslint": "catalog:"
+  },
+  "dependencies": {
+    "zod": "catalog:"
   }
 }

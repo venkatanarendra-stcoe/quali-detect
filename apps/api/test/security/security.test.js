@@ -22,7 +22,7 @@ import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-re
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 338;
+const EXPECTED_CHECKS = 394;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5339,6 +5339,1449 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       async () => ({ status: 200, json: null, problems: await run(await pipdbWorld()) }),
       (r) => r.problems,
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 13. Pipelines API (SPEC pipelines-triggers §14.1, part C): tenant isolation, 404/403, the fork-policy permission, the manual
+//     run, quota and entitlement blocks, immutable versions and the "no code execution" configuration. HTTP checks run against
+//     the real API; the world is built through the public API (GitHub stub, linking, connecting) and read back from the
+//     disposable database. The router, scheduler and producer checks belong to later parts.
+// ---------------------------------------------------------------------------------------------------------------------
+const pipCfg = (over = {}) => ({
+  schemaVersion: 1,
+  triggers: [
+    { key: "push", type: "push" },
+    { key: "manual", type: "manual" },
+  ],
+  scans: { sca: { enabled: true } },
+  ...over,
+});
+const pipCfgFork = (forkPolicy) =>
+  pipCfg({
+    triggers: [
+      { key: "push", type: "push" },
+      { key: "pr", type: "pull_request", forkPolicy },
+      { key: "manual", type: "manual" },
+    ],
+  });
+const pipName = (label) => `${label} ${randomBytes(3).toString("hex")}`;
+const pipCreate = (cookie, repositoryId, body, key) =>
+  w.api("POST", `/repositories/${repositoryId}/pipelines`, {
+    cookie,
+    body: { name: pipName("pipe"), enabled: true, config: pipCfg(), ...body },
+    ...(key ? { headers: { "idempotency-key": key } } : {}),
+  });
+const pipRun = (cookie, pipelineId, body = {}, key = KEY("run")) =>
+  w.api("POST", `/pipelines/${pipelineId}/runs`, {
+    cookie,
+    body,
+    headers: { "idempotency-key": key },
+  });
+const pipPublish = (cookie, pipelineId, expectedVersion, config) =>
+  w.api("PUT", `/pipelines/${pipelineId}/config`, { cookie, body: { expectedVersion, config } });
+const strip = (json) => JSON.stringify({ ...json, meta: undefined });
+
+const pipWorld = () =>
+  once("pip-world", async () => {
+    const admin = S("admin")(w);
+    const PAY = w.A.paymentsWs;
+    const IDN = w.A.identityWs;
+    const base = 6000000 + (Date.now() % 100000) * 10;
+    const account = orgAccount("pip");
+    const user = ghUser();
+    const flowP = await linkFlow(admin, {
+      workspaceId: PAY,
+      account,
+      user,
+      orgRole: "admin",
+      repos: [base + 1, base + 2, base + 3].map(stubRepo),
+    });
+    const flowI = await linkFlow(admin, {
+      workspaceId: IDN,
+      installationId: flowP.installationId,
+      account,
+      user,
+      orgRole: "admin",
+    });
+    const wlP = flowP.link.json.data.id;
+    const wlI = flowI.link.json.data.id;
+    await putAllowList(admin, PAY, wlP, [base + 1, base + 3]);
+    await putAllowList(admin, IDN, wlI, [base + 2]);
+    const payRepo = (await connectRepo(admin, PAY, wlP, base + 1)).json.data.id;
+    const payRepo2 = (await connectRepo(admin, PAY, wlP, base + 3)).json.data.id;
+    const idRepo = (await connectRepo(admin, IDN, wlI, base + 2)).json.data.id;
+    const edge = await edgeTenant();
+    // a workspace of its own: the SCM checks assume the shared edge workspace has no link
+    const edgeWs = (
+      await w.api("POST", "/workspaces", {
+        cookie: edge.owner,
+        body: { name: `Edge pipelines ${w.suffix}` },
+      })
+    ).json.data.id;
+    const edgeAccount = orgAccount("pipe");
+    const edgeFlow = await linkFlow(edge.owner, {
+      workspaceId: edgeWs,
+      account: edgeAccount,
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [base + 21].map(stubRepo),
+    });
+    await putAllowList(edge.owner, edgeWs, edgeFlow.link.json.data.id, [base + 21]);
+    const edgeRepo = (await connectRepo(edge.owner, edgeWs, edgeFlow.link.json.data.id, base + 21))
+      .json.data.id;
+    const sessions = {
+      admin,
+      manager: S("manager")(w),
+      lead: S("lead")(w),
+      developer: S("developer")(w),
+      viewer: S("viewer")(w),
+      analyst: await loginAs("demo.analyst@demo.example"),
+      devlead: await loginAs("demo.devlead@demo.example"),
+      edge: edge.owner,
+    };
+    const made = async (cookie, repositoryId, body) => {
+      const r = await pipCreate(cookie, repositoryId, body);
+      assert.equal(
+        r.status,
+        201,
+        `fixture: pipeline create answered ${r.status} ${JSON.stringify(r.json?.error)}`,
+      );
+      return r.json.data;
+    };
+    const pPay = await made(admin, payRepo, { name: pipName("pay") });
+    const pId = await made(admin, idRepo, { name: pipName("idn") });
+    const pEdge = await made(edge.owner, edgeRepo, { name: pipName("edge") });
+    const tenantId = await tenantIdA();
+    return {
+      PAY,
+      IDN,
+      payRepo,
+      payRepo2,
+      idRepo,
+      edge,
+      edgeWs,
+      edgeRepo,
+      sessions,
+      pPay,
+      pId,
+      pEdge,
+      tenantId,
+      edgeTenantId: edge.id,
+      account,
+      user,
+    };
+  });
+const missingId = () => randomUUID();
+
+/** Runs requests in order; the response carries the first unexpected status, or `expected` when all matched. */
+async function sweep(calls, expected) {
+  const results = [];
+  for (const call of calls) results.push({ call, response: await call.run() });
+  const wrong = results.filter((r) => r.response.status !== expected);
+  return {
+    status: wrong.length ? wrong[0].response.status : expected,
+    json: (wrong[0] ?? results[results.length - 1])?.response.json ?? null,
+    results,
+    problems: wrong.map(
+      (r) => `${r.call.label} answered ${r.response.status}, expected ${expected}`,
+    ),
+  };
+}
+
+{
+  const add = group("Pipelines: isolation (404) and permissions (403)");
+  const pipelineCalls = (cookie, id, repositoryId) => [
+    { label: "GET", run: () => w.api("GET", `/pipelines/${id}`, { cookie }) },
+    {
+      label: "PATCH",
+      run: () => w.api("PATCH", `/pipelines/${id}`, { cookie, body: { description: "x" } }),
+    },
+    { label: "PUT config", run: () => pipPublish(cookie, id, 1, pipCfg()) },
+    { label: "enable", run: () => w.api("POST", `/pipelines/${id}/enable`, { cookie }) },
+    { label: "disable", run: () => w.api("POST", `/pipelines/${id}/disable`, { cookie }) },
+    {
+      label: "DELETE",
+      run: () => w.api("DELETE", `/pipelines/${id}`, { cookie, body: { confirm: "x" } }),
+    },
+    { label: "run", run: () => pipRun(cookie, id) },
+    { label: "versions", run: () => w.api("GET", `/pipelines/${id}/versions`, { cookie }) },
+    { label: "version 1", run: () => w.api("GET", `/pipelines/${id}/versions/1`, { cookie }) },
+    { label: "executions", run: () => w.api("GET", `/pipelines/${id}/executions`, { cookie }) },
+    {
+      label: "trigger decisions",
+      run: () => w.api("GET", `/pipelines/${id}/trigger-decisions`, { cookie }),
+    },
+    ...(repositoryId
+      ? [
+          {
+            label: "dry-run",
+            run: () =>
+              w.api("POST", `/repositories/${repositoryId}/pipelines/test-triggers`, {
+                cookie,
+                body: { event: "push", branch: "main" },
+              }),
+          },
+        ]
+      : []),
+  ];
+  add(
+    "PIP-001",
+    "pipeline by id across tenants: tenant A administrator on tenant B's pipeline (get, edit, publish, enable, disable, delete, run, versions, executions, decisions) answers 404, and the other tenant's administrator the same on A's",
+    NOT_FOUND,
+    async () => {
+      const x = await pipWorld();
+      const out = await sweep(pipelineCalls(x.sessions.admin, x.pEdge.id), 404);
+      const back = await sweep(pipelineCalls(x.sessions.edge, x.pPay.id), 404);
+      const missing = await w.api("GET", `/pipelines/${missingId()}`, { cookie: x.sessions.admin });
+      out.problems.push(...back.problems);
+      const foreign = out.results[0].response;
+      if (strip(foreign.json) !== strip(missing.json))
+        out.problems.push("the foreign pipeline's 404 body differs from a missing id's");
+      return out;
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-002",
+    "a pipeline in a workspace the caller cannot see answers the same 404 as a missing id; a visible workspace without the key answers 403 (Developer, Viewer, Security Analyst, Lead on delete)",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const hidden = await sweep(pipelineCalls(x.sessions.manager, x.pId.id), 404);
+      problems.push(...hidden.problems);
+      const missing = await w.api("GET", `/pipelines/${missingId()}`, {
+        cookie: x.sessions.manager,
+      });
+      if (strip(hidden.results[0].response.json) !== strip(missing.json))
+        problems.push("a hidden pipeline's 404 body differs from a missing id's");
+      const manage = (cookie) => [
+        {
+          label: "PATCH",
+          run: () =>
+            w.api("PATCH", `/pipelines/${x.pPay.id}`, { cookie, body: { description: "x" } }),
+        },
+        { label: "PUT config", run: () => pipPublish(cookie, x.pPay.id, 1, pipCfg()) },
+        { label: "enable", run: () => w.api("POST", `/pipelines/${x.pPay.id}/enable`, { cookie }) },
+        {
+          label: "disable",
+          run: () => w.api("POST", `/pipelines/${x.pPay.id}/disable`, { cookie }),
+        },
+        { label: "run", run: () => pipRun(cookie, x.pPay.id) },
+        {
+          label: "DELETE",
+          run: () =>
+            w.api("DELETE", `/pipelines/${x.pPay.id}`, { cookie, body: { confirm: x.pPay.name } }),
+        },
+      ];
+      for (const who of ["developer", "viewer", "analyst"]) {
+        const r = await sweep(manage(x.sessions[who]), 403);
+        problems.push(...r.problems.map((p) => `${who}: ${p}`));
+        const reads = await w.api("GET", `/pipelines/${x.pPay.id}`, { cookie: x.sessions[who] });
+        if (reads.status !== 200)
+          problems.push(`${who} could not read a visible pipeline (${reads.status})`);
+      }
+      const lead = await w.api("DELETE", `/pipelines/${x.pPay.id}`, {
+        cookie: x.sessions.lead,
+        body: { confirm: x.pPay.name },
+      });
+      if (lead.status !== 403) problems.push(`lead delete answered ${lead.status}`);
+      const still = await w.api("GET", `/pipelines/${x.pPay.id}`, { cookie: x.sessions.admin });
+      if (still.status !== 200 || still.json.data.deletedAt)
+        problems.push("a refused delete changed the pipeline");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-003",
+    "creating under a repository of another tenant or of a hidden workspace answers 404; a body naming tenantId or workspaceId is rejected",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const cross = await pipCreate(x.sessions.admin, x.edgeRepo, { name: pipName("x") });
+      if (cross.status !== 404) problems.push(`other tenant's repository answered ${cross.status}`);
+      const hidden = await pipCreate(x.sessions.manager, x.idRepo, { name: pipName("x") });
+      if (hidden.status !== 404) problems.push(`hidden workspace answered ${hidden.status}`);
+      for (const smuggled of [{ tenantId: x.edgeTenantId }, { workspaceId: x.IDN }]) {
+        const r = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("x"), ...smuggled });
+        if (r.status !== 400)
+          problems.push(`${Object.keys(smuggled)[0]} in the body answered ${r.status}`);
+      }
+      const rows = await suiteDb().pipeline.count({ where: { name: { startsWith: "x " } } });
+      if (rows) problems.push("a refused create left a pipeline behind");
+      const control = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("ctl") });
+      if (control.status !== 201) problems.push(`control create answered ${control.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-004",
+    "the pipeline list shows only pipelines of workspaces the caller can see; a hidden or unknown ?workspaceId= gives the same empty result; nothing of another tenant appears",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const asManager = await w.api("GET", "/pipelines?pageSize=100", {
+        cookie: x.sessions.manager,
+      });
+      const asAdmin = await w.api("GET", "/pipelines?pageSize=100", { cookie: x.sessions.admin });
+      const ids = (r) => r.json.data.map((p) => p.id);
+      if (ids(asManager).includes(x.pId.id))
+        problems.push("the manager sees a pipeline of a hidden workspace");
+      if (!ids(asManager).includes(x.pPay.id))
+        problems.push("the manager does not see a visible pipeline");
+      if (!ids(asAdmin).includes(x.pId.id) || !ids(asAdmin).includes(x.pPay.id))
+        problems.push("the administrator misses pipelines");
+      if (ids(asAdmin).includes(x.pEdge.id) || ids(asManager).includes(x.pEdge.id))
+        problems.push("another tenant's pipeline is listed");
+      const hidden = await w.api("GET", `/pipelines?workspaceId=${x.IDN}`, {
+        cookie: x.sessions.manager,
+      });
+      const unknown = await w.api("GET", `/pipelines?workspaceId=${missingId()}`, {
+        cookie: x.sessions.manager,
+      });
+      if (hidden.status !== 200 || hidden.json.data.length !== 0)
+        problems.push("a hidden workspace filter returned data or an error");
+      if (
+        JSON.stringify(hidden.json.data) !== JSON.stringify(unknown.json.data) ||
+        hidden.json.meta.pagination.totalItems !== unknown.json.meta.pagination.totalItems
+      )
+        problems.push("a hidden workspace is distinguishable from an unknown one");
+      // filters and sorts stay inside the caller's workspaces
+      for (const query of [
+        "sort=lastRequestedAt:desc",
+        "sort=createdAt:asc",
+        "effectiveState=running_normally",
+        "triggerType=manual",
+        "enabled=true",
+        `q=${encodeURIComponent(x.pPay.name.slice(0, 3))}`,
+      ]) {
+        const filtered = await w.api("GET", `/pipelines?pageSize=100&${query}`, {
+          cookie: x.sessions.manager,
+        });
+        if (filtered.status !== 200) problems.push(`${query} answered ${filtered.status}`);
+        else if (filtered.json.data.some((p) => p.id === x.pId.id || p.id === x.pEdge.id))
+          problems.push(`${query} listed a pipeline outside the caller's workspaces`);
+        else if (
+          query.startsWith("sort=lastRequestedAt") &&
+          !filtered.json.data.some((p) => p.id === x.pPay.id)
+        )
+          problems.push("the lastRequestedAt sort lost a visible pipeline");
+      }
+      const repoList = await w.api("GET", `/repositories/${x.idRepo}/pipelines`, {
+        cookie: x.sessions.manager,
+      });
+      if (repoList.status !== 404)
+        problems.push(`repository-nested list of a hidden repository answered ${repoList.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipelines: configuration (R-8), versions and fork policy");
+  const FORBIDDEN_KEYS = [
+    "command",
+    "commands",
+    "script",
+    "scripts",
+    "run",
+    "install",
+    "build",
+    "postinstall",
+    "hooks",
+    "preScan",
+    "env",
+    "image",
+    "shell",
+  ];
+  const withKey = (path, key) => {
+    const cfg = pipCfg({ scans: { sca: { enabled: true } } });
+    if (path === "root") cfg[key] = "echo pwned";
+    else if (path === "scan") cfg.scans.sca[key] = "echo pwned";
+    else if (path === "engine") cfg.scans.sca.engine = { id: "default", [key]: "echo pwned" };
+    else if (path === "execution") cfg.execution = { [key]: "echo pwned" };
+    else if (path === "trigger") cfg.triggers[0][key] = "echo pwned";
+    else if (path === "exclusions") cfg.exclusions = { paths: [], [key]: "echo pwned" };
+    return cfg;
+  };
+  add(
+    "PIP-009",
+    "the configuration schema rejects run_with_credentials, dast, assetDiscovery and unknown keys with 400 (the router half of this check belongs to part D)",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const bad = {
+        "run_with_credentials fork policy": pipCfgFork("run_with_credentials"),
+        "dast scan": pipCfg({ scans: { sca: { enabled: true }, dast: { enabled: true } } }),
+        "assetDiscovery scan": pipCfg({ assetDiscovery: { enabled: true } }),
+        "unknown top-level key": pipCfg({ somethingElse: 1 }),
+        "unknown trigger type": pipCfg({ triggers: [{ key: "x", type: "webhook" }] }),
+        "engine not in the catalog": pipCfg({
+          scans: { sca: { enabled: true, engine: { id: "my-own-engine" } } },
+        }),
+        "schemaVersion 2": pipCfg({ schemaVersion: 2 }),
+      };
+      for (const [label, config] of Object.entries(bad)) {
+        const r = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("bad"), config });
+        if (r.status !== 400 || r.json?.error?.code !== "VALIDATION_FAILED")
+          problems.push(`${label} answered ${r.status}`);
+      }
+      const control = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("ok") });
+      if (control.status !== 201) problems.push(`control answered ${control.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-027",
+    "no code execution (R-8): any command-, script-, install-, build- or hook-like key at any level of the configuration answers 400 and the published OpenAPI schema of the configuration has no such property and additionalProperties false on every object",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      for (const path of ["root", "scan", "engine", "execution", "trigger", "exclusions"])
+        for (const key of FORBIDDEN_KEYS) {
+          const r = await pipPublish(
+            x.sessions.admin,
+            x.pPay.id,
+            x.pPay.currentVersion.version,
+            withKey(path, key),
+          );
+          if (r.status !== 400) problems.push(`${key} at ${path} answered ${r.status}`);
+        }
+      const doc = await w.api("GET", "/openapi.json");
+      const op = doc.json?.paths?.["/api/v1/pipelines/{pipelineId}/config"]?.put;
+      const root = op?.requestBody?.content?.["application/json"]?.schema?.properties?.config;
+      if (!root) problems.push("the OpenAPI document has no configuration schema for PUT config");
+      else {
+        const banned = new RegExp(
+          `^(${FORBIDDEN_KEYS.join("|")}|cmd|exec|entrypoint|args|plugins?|steps)$`,
+          "i",
+        );
+        const walk = (node, where) => {
+          if (!node || typeof node !== "object") return;
+          if (Array.isArray(node)) return node.forEach((n, i) => walk(n, `${where}[${i}]`));
+          if (node.type === "object" || node.properties) {
+            if (node.additionalProperties !== false)
+              problems.push(`${where}: additionalProperties is not false`);
+            for (const key of Object.keys(node.properties ?? {}))
+              if (banned.test(key)) problems.push(`${where}: property ${key}`);
+          }
+          for (const [k, v] of Object.entries(node)) walk(v, `${where}.${k}`);
+        };
+        walk(root, "config");
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-026",
+    "fork-policy permission: pipeline.manage alone (Manager, Dev Lead) cannot create or publish run_without_credentials (403 fork_policy_requires_permission, nothing written); Admin and Lead can; setting back to skip and leaving an existing value need only pipeline.manage; every change is audited with old and new value; a hidden workspace answers 404",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const deniedCreate = [];
+      for (const who of ["manager", "devlead"]) {
+        const r = await pipCreate(x.sessions[who], x.payRepo, {
+          name: pipName(`deny-${who}`),
+          config: pipCfgFork("run_without_credentials"),
+        });
+        deniedCreate.push(r);
+        if (
+          r.status !== 403 ||
+          r.json?.error?.details?.reason !== "fork_policy_requires_permission"
+        )
+          problems.push(
+            `${who} create answered ${r.status} ${JSON.stringify(r.json?.error?.details)}`,
+          );
+      }
+      if (await db.pipeline.count({ where: { name: { startsWith: "deny-" } } }))
+        problems.push("a refused create left a pipeline behind");
+      const target = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("fork") })).json
+        .data;
+      const versionsBefore = await db.pipelineConfigVersion.count({
+        where: { pipelineId: target.id },
+      });
+      for (const who of ["manager", "devlead"]) {
+        const r = await pipPublish(
+          x.sessions[who],
+          target.id,
+          1,
+          pipCfgFork("run_without_credentials"),
+        );
+        if (
+          r.status !== 403 ||
+          r.json?.error?.details?.reason !== "fork_policy_requires_permission"
+        )
+          problems.push(`${who} publish answered ${r.status}`);
+      }
+      if (
+        (await db.pipelineConfigVersion.count({ where: { pipelineId: target.id } })) !==
+        versionsBefore
+      )
+        problems.push("a refused publish wrote a version");
+      const lead = await pipPublish(
+        x.sessions.lead,
+        target.id,
+        1,
+        pipCfgFork("run_without_credentials"),
+      );
+      if (lead.status !== 200) problems.push(`lead publish answered ${lead.status}`);
+      // unchanged non-skip value: the manager may edit other configuration
+      const unchanged = pipCfgFork("run_without_credentials");
+      unchanged.scans.sast = { enabled: true };
+      const keep = await pipPublish(x.sessions.manager, target.id, 2, unchanged);
+      if (keep.status !== 200)
+        problems.push(`manager edit leaving the policy unchanged answered ${keep.status}`);
+      const back = await pipPublish(x.sessions.manager, target.id, 3, pipCfgFork("skip"));
+      if (back.status !== 200) problems.push(`manager setting skip answered ${back.status}`);
+      const admin = await pipPublish(
+        x.sessions.admin,
+        target.id,
+        4,
+        pipCfgFork("run_without_credentials"),
+      );
+      if (admin.status !== 200) problems.push(`admin publish answered ${admin.status}`);
+      const created = await pipCreate(x.sessions.admin, x.payRepo, {
+        name: pipName("adminfork"),
+        config: pipCfgFork("run_without_credentials"),
+      });
+      if (created.status !== 201) problems.push(`admin create answered ${created.status}`);
+      const hidden = await pipPublish(
+        x.sessions.manager,
+        x.pId.id,
+        1,
+        pipCfgFork("run_without_credentials"),
+      );
+      if (hidden.status !== 404) problems.push(`hidden workspace answered ${hidden.status}`);
+      const audits = await db.auditLog.findMany({
+        where: {
+          tenantId: x.tenantId,
+          action: "pipeline.fork_policy_changed",
+          targetId: target.id,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      const pairs = audits.map(
+        (a) => `${a.changes?.before?.forkPolicy}>${a.changes?.after?.forkPolicy}`,
+      );
+      if (
+        JSON.stringify(pairs) !==
+        JSON.stringify([
+          "skip>run_without_credentials",
+          "run_without_credentials>skip",
+          "skip>run_without_credentials",
+        ])
+      )
+        problems.push(`fork-policy audit entries: ${JSON.stringify(pairs)}`);
+      const foreign = await db.auditLog.count({
+        where: { tenantId: x.edgeTenantId, action: "pipeline.fork_policy_changed" },
+      });
+      if (foreign) problems.push("a fork-policy audit entry was written in another tenant");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-018",
+    "versions are immutable: there is no route to update or delete one, an edit creates a new version, and an earlier execution's snapshot (version, hash) is unchanged",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("snap") })).json.data;
+      const run = await pipRun(x.sessions.lead, p.id);
+      if (run.status !== 202) problems.push(`run answered ${run.status}`);
+      const execId = run.json.data.execution.id;
+      const before = await db.execution.findFirst({ where: { id: execId } });
+      const v1 = await w.api("GET", `/pipelines/${p.id}/versions/1`, { cookie: x.sessions.admin });
+      const next = pipCfg({ failOn: { severity: "critical" } });
+      const published = await pipPublish(x.sessions.admin, p.id, 1, next);
+      if (published.status !== 200 || published.json.data.version !== 2)
+        problems.push(`publish answered ${published.status}`);
+      const after = await db.execution.findFirst({ where: { id: execId } });
+      if (
+        after.configVersion !== 1 ||
+        after.configHash !== before.configHash ||
+        after.configVersionId !== before.configVersionId
+      )
+        problems.push("the execution's snapshot changed after a new version");
+      const v1again = await w.api("GET", `/pipelines/${p.id}/versions/1`, {
+        cookie: x.sessions.admin,
+      });
+      if (JSON.stringify(v1.json.data) !== JSON.stringify(v1again.json.data))
+        problems.push("version 1 changed");
+      for (const method of ["PUT", "PATCH", "DELETE", "POST"]) {
+        const r = await w.api(method, `/pipelines/${p.id}/versions/1`, {
+          cookie: x.sessions.admin,
+          body: {},
+        });
+        if (r.status !== 404) problems.push(`${method} on a version answered ${r.status}`);
+      }
+      const direct = await db.pipelineConfigVersion
+        .updateMany({ where: { pipelineId: p.id, version: 1 }, data: { changeNote: "tamper" } })
+        .then(
+          () => "accepted",
+          () => "rejected",
+        );
+      if (direct !== "rejected") problems.push("the database accepted an update of a version");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-019",
+    "concurrent configuration publishes with the same expectedVersion: exactly one succeeds, the other answers 409 version_conflict",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("race") })).json.data;
+      const results = await Promise.all(
+        [1, 2, 3, 4].map((n) =>
+          pipPublish(
+            x.sessions.admin,
+            p.id,
+            1,
+            pipCfg({ failOn: { severity: n % 2 ? "low" : "medium" } }),
+          ),
+        ),
+      );
+      const ok = results.filter((r) => r.status === 200).length;
+      const conflicts = results.filter(
+        (r) => r.status === 409 && r.json?.error?.details?.reason === "version_conflict",
+      ).length;
+      const versions = await suiteDb().pipelineConfigVersion.count({ where: { pipelineId: p.id } });
+      const problems = [];
+      if (ok !== 1 || conflicts !== 3) problems.push(`results ${results.map((r) => r.status)}`);
+      if (versions !== 2) problems.push(`${versions} versions stored`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+{
+  const add = group("Pipelines: manual run, quota, entitlement and audit");
+  const outboxFor = (executionId) =>
+    suiteDb().outboxMessage.findMany({
+      where: { messageId: `execution-requested-${executionId}` },
+    });
+  add(
+    "PIP-010",
+    "manual run: Viewer, Developer and Security Analyst get 403, a hidden workspace 404, Lead, Dev Lead, Manager and Admin get 202 with one queued execution and one message",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("manual") })).json
+        .data;
+      const before = await suiteDb().execution.count({ where: { pipelineId: p.id } });
+      for (const who of ["viewer", "developer", "analyst"]) {
+        const r = await pipRun(x.sessions[who], p.id);
+        if (r.status !== 403) problems.push(`${who} answered ${r.status}`);
+      }
+      const hidden = await pipRun(x.sessions.manager, x.pId.id);
+      if (hidden.status !== 404) problems.push(`hidden workspace answered ${hidden.status}`);
+      if ((await suiteDb().execution.count({ where: { pipelineId: p.id } })) !== before)
+        problems.push("a refused run created an execution");
+      for (const who of ["lead", "devlead", "manager", "admin"]) {
+        const r = await pipRun(x.sessions[who], p.id);
+        if (r.status !== 202 || r.json?.data?.execution?.status !== "queued")
+          problems.push(`${who} answered ${r.status}`);
+        else if ((await outboxFor(r.json.data.execution.id)).length !== 1)
+          problems.push(`${who}: no single outbox message`);
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-030",
+    "manual run is idempotent: the same Idempotency-Key creates one execution, one message and one quota unit; the key is required; a different key is a different run",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("idem") })).json.data;
+      const key = KEY("idem");
+      const first = await pipRun(
+        x.sessions.lead,
+        p.id,
+        { ref: { type: "branch", name: "main" } },
+        key,
+      );
+      const second = await pipRun(
+        x.sessions.lead,
+        p.id,
+        { ref: { type: "branch", name: "main" } },
+        key,
+      );
+      if (first.status !== 202 || second.status !== 202)
+        problems.push(`statuses ${first.status}, ${second.status}`);
+      else if (first.json.data.execution.id !== second.json.data.execution.id)
+        problems.push("the replay returned another execution");
+      const count = await db.execution.count({ where: { pipelineId: p.id } });
+      if (count !== 1) problems.push(`${count} executions for one key`);
+      const usage = await db.execution.findFirst({ where: { pipelineId: p.id } });
+      if (usage?.quotaConsumed !== 1)
+        problems.push("the run did not record exactly one quota unit");
+      const other = await pipRun(
+        x.sessions.lead,
+        p.id,
+        { ref: { type: "branch", name: "main" } },
+        KEY("other"),
+      );
+      if (other.status !== 202 || other.json.data.execution.id === first.json.data.execution.id)
+        problems.push("a different key did not create a different run");
+      const noKey = await w.api("POST", `/pipelines/${p.id}/runs`, {
+        cookie: x.sessions.lead,
+        body: {},
+      });
+      if (noKey.status !== 400)
+        problems.push(`a run without Idempotency-Key answered ${noKey.status}`);
+      // the database key also survives the HTTP replay window: the same key by the same user after the cache is gone
+      const direct = await db.execution.findFirst({
+        where: { pipelineId: p.id, idempotencyKey: { startsWith: "manual:" } },
+      });
+      if (!direct) problems.push("no stored idempotency key");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-011",
+    "manual run on a disabled pipeline, a disabled, unavailable or disconnected repository, or an archived workspace answers 409 with no row, no message and no quota used; the denials are audited",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo2, { name: pipName("gate") })).json
+        .data;
+      const state = async () => ({
+        executions: await db.execution.count({ where: { pipelineId: p.id } }),
+        outbox: await db.outboxMessage.count({
+          where: {
+            type: "pipeline.execution.requested",
+            payload: { path: ["pipelineId"], equals: p.id },
+          },
+        }),
+        usage: JSON.stringify(
+          await db.tenantQuotaUsage
+            .findMany({ where: { tenantId: x.tenantId } })
+            .then((rows) => rows.map((r) => [r.periodKey, String(r.used)])),
+        ),
+      });
+      const before = await state();
+      const expect409 = async (label, reason) => {
+        const r = await pipRun(x.sessions.admin, p.id);
+        if (r.status !== 409 || r.json?.error?.details?.reason !== reason)
+          problems.push(`${label} answered ${r.status} ${JSON.stringify(r.json?.error?.details)}`);
+      };
+      await w.api("POST", `/pipelines/${p.id}/disable`, { cookie: x.sessions.admin });
+      await expect409("disabled pipeline", "pipeline_disabled");
+      await w.api("POST", `/pipelines/${p.id}/enable`, { cookie: x.sessions.admin });
+      await w.api("POST", `/repositories/${x.payRepo2}/disable`, { cookie: x.sessions.admin });
+      await expect409("disabled repository", "repository_not_active");
+      await w.api("POST", `/repositories/${x.payRepo2}/enable`, { cookie: x.sessions.admin });
+      for (const status of ["unavailable", "disconnected"]) {
+        await db.repository.updateMany({
+          where: { id: x.payRepo2, tenantId: x.tenantId },
+          data: { status },
+        });
+        await expect409(`${status} repository`, "repository_not_active");
+      }
+      await db.repository.updateMany({
+        where: { id: x.payRepo2, tenantId: x.tenantId },
+        data: { status: "active" },
+      });
+      const edgePipe = (await pipCreate(x.sessions.edge, x.edgeRepo, { name: pipName("arch") }))
+        .json.data;
+      const archived = await w.api("POST", `/workspaces/${x.edgeWs}/archive`, {
+        cookie: x.sessions.edge,
+      });
+      if (archived.status !== 200) problems.push(`fixture: archive answered ${archived.status}`);
+      else {
+        const r = await pipRun(x.sessions.edge, edgePipe.id);
+        if (r.status !== 409 || r.json?.error?.details?.reason !== "workspace_archived")
+          problems.push(
+            `archived workspace answered ${r.status} ${JSON.stringify(r.json?.error?.details)}`,
+          );
+        const noCreate = await pipCreate(x.sessions.edge, x.edgeRepo, { name: pipName("arch2") });
+        if (noCreate.status !== 409)
+          problems.push(`create in an archived workspace answered ${noCreate.status}`);
+        await w.api("POST", `/workspaces/${x.edgeWs}/restore`, { cookie: x.sessions.edge });
+      }
+      const after = await state();
+      if (JSON.stringify(before) !== JSON.stringify(after))
+        problems.push(`state changed: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+      const denied = await db.auditLog.findMany({
+        where: { tenantId: x.tenantId, action: "execution.manual_denied", targetId: p.id },
+      });
+      const reasons = denied.map((d) => d.metadata?.reason).sort();
+      if (
+        JSON.stringify(reasons) !==
+        JSON.stringify([
+          "pipeline_disabled",
+          "repository_not_active",
+          "repository_not_active",
+          "repository_not_active",
+        ])
+      )
+        problems.push(`denial audit reasons ${JSON.stringify(reasons)}`);
+      const control = await pipRun(x.sessions.admin, p.id);
+      if (control.status !== 202) problems.push(`control run answered ${control.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+}
+
+/** A fresh tenant with one workspace, one connected repository and plan overrides, for the limit and suspension checks. */
+const capWorld = () =>
+  once("pip-cap", async () => {
+    const t = await w.provisionTenant("pipcap");
+    const ws = (
+      await w.api("POST", "/workspaces", { cookie: t.owner, body: { name: `Cap WS ${w.suffix}` } })
+    ).json.data.id;
+    const base = 6500000 + (Date.now() % 100000) * 10;
+    const flow = await linkFlow(t.owner, {
+      workspaceId: ws,
+      account: orgAccount("cap"),
+      user: ghUser(),
+      orgRole: "admin",
+      repos: [stubRepo(base + 1)],
+    });
+    const wl = flow.link.json.data.id;
+    await putAllowList(t.owner, ws, wl, [base + 1]);
+    const repo = (await connectRepo(t.owner, ws, wl, base + 1)).json.data.id;
+    const db = suiteDb();
+    const limit = await db.entitlementCatalog.findUnique({ where: { key: "pipelines.max" } });
+    await db.tenantEntitlement.create({
+      data: {
+        tenantId: t.id,
+        entitlementId: limit.id,
+        enabled: true,
+        limitValue: 2n,
+        source: "security-suite",
+      },
+    });
+    const quota = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+    await db.tenantQuota.create({
+      data: { tenantId: t.id, quotaDefinitionId: quota.id, limitValue: 1n },
+    });
+    return { t, ws, repo, quota };
+  });
+
+{
+  const add = group("Pipelines: limits, audit, messages and soft delete");
+  add(
+    "PIP-025",
+    "pipelines.max: the (max+1)th pipeline answers 403 QUOTA_EXCEEDED for that tenant only, and concurrent creates cannot exceed the limit",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const cap = await capWorld();
+      const problems = [];
+      const first = await pipCreate(cap.t.owner, cap.repo, { name: pipName("first") });
+      if (first.status !== 201) problems.push(`first create answered ${first.status}`);
+      const racers = await Promise.all(
+        Array.from({ length: 4 }, (_, i) =>
+          pipCreate(cap.t.owner, cap.repo, { name: pipName(`race${i}`) }),
+        ),
+      );
+      const created = racers.filter((r) => r.status === 201).length;
+      const blocked = racers.filter(
+        (r) => r.status === 403 && r.json?.error?.code === "QUOTA_EXCEEDED",
+      ).length;
+      if (created !== 1 || blocked !== 3)
+        problems.push(`concurrent creates: ${racers.map((r) => r.status)}`);
+      const stored = await suiteDb().pipeline.count({ where: { tenantId: cap.t.id } });
+      if (stored !== 2) problems.push(`${stored} pipelines stored, limit 2`);
+      const other = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("unaffected") });
+      if (other.status !== 201) problems.push(`another tenant's create answered ${other.status}`);
+      const options = await w.api("GET", `/workspaces/${cap.ws}/pipelines/options`, {
+        cookie: cap.t.owner,
+      });
+      if (options.json?.data?.pipelines?.limit !== 2 || options.json.data.pipelines.used !== 2)
+        problems.push(`options ${JSON.stringify(options.json?.data?.pipelines)}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-014",
+    "scans.monthly at its limit: a manual run answers 403 QUOTA_EXCEEDED and creates no row and no message, uses no unit and leaves a denial audit entry; a disabled scans entitlement answers 403 ENTITLEMENT_REQUIRED the same way; another tenant's runs are unaffected",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const cap = await capWorld();
+      const db = suiteDb();
+      const problems = [];
+      const pipe = await db.pipeline.findFirst({
+        where: { tenantId: cap.t.id, deletedAt: null },
+        orderBy: { createdAt: "asc" },
+      });
+      const first = await pipRun(cap.t.owner, pipe.id);
+      if (first.status !== 202) problems.push(`the run inside the limit answered ${first.status}`);
+      const usage = () =>
+        db.tenantQuotaUsage
+          .findFirst({ where: { tenantId: cap.t.id, quotaDefinitionId: cap.quota.id } })
+          .then((u) => u?.used);
+      const used = await usage();
+      // another ref, so the default `supersede` policy does not release the first request's unit
+      const blocked = await pipRun(cap.t.owner, pipe.id, { ref: { type: "tag", name: "q1" } });
+      if (blocked.status !== 403 || blocked.json?.error?.code !== "QUOTA_EXCEEDED")
+        problems.push(`quota block answered ${blocked.status} ${blocked.json?.error?.code}`);
+      if ((await db.execution.count({ where: { pipelineId: pipe.id } })) !== 1)
+        problems.push("a blocked run left an execution row");
+      if (
+        (await db.outboxMessage.count({
+          where: { tenantId: cap.t.id, type: "pipeline.execution.requested" },
+        })) !== 1
+      )
+        problems.push("a blocked run left a message");
+      if ((await usage()) !== used) problems.push("a blocked run consumed quota");
+      const entitlement = await db.entitlementCatalog.findUnique({
+        where: { key: "scans.monthly" },
+      });
+      await db.tenantEntitlement.create({
+        data: {
+          tenantId: cap.t.id,
+          entitlementId: entitlement.id,
+          enabled: false,
+          source: "security-suite",
+        },
+      });
+      const notIncluded = await pipRun(cap.t.owner, pipe.id, { ref: { type: "tag", name: "q2" } });
+      if (notIncluded.status !== 403 || notIncluded.json?.error?.code !== "ENTITLEMENT_REQUIRED")
+        problems.push(
+          `entitlement block answered ${notIncluded.status} ${notIncluded.json?.error?.code}`,
+        );
+      const audits = await db.auditLog.findMany({
+        where: { tenantId: cap.t.id, action: "execution.manual_denied", targetId: pipe.id },
+      });
+      if (
+        JSON.stringify(audits.map((a) => a.metadata?.reason).sort()) !==
+        JSON.stringify(["entitlement_required", "quota_exceeded"])
+      )
+        problems.push(`denial audit ${JSON.stringify(audits.map((a) => a.metadata))}`);
+      const pay = await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("quota-other") });
+      const run = await pipRun(x.sessions.admin, pay.json.data.id);
+      if (run.status !== 202) problems.push(`another tenant's run answered ${run.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-029",
+    "denied manual runs (disabled pipeline, 403 on a visible pipeline) leave an execution.manual_denied audit entry in the caller's tenant only, no execution row and no secret; a hidden or absent pipeline leaves no entry",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("deny") })).json.data;
+      const hiddenBefore = await db.auditLog.count({
+        where: { action: "execution.manual_denied", targetId: x.pId.id },
+      });
+      await pipRun(x.sessions.viewer, p.id);
+      await w.api("POST", `/pipelines/${p.id}/disable`, { cookie: x.sessions.admin });
+      await pipRun(x.sessions.lead, p.id);
+      await pipRun(x.sessions.manager, x.pId.id);
+      await pipRun(x.sessions.admin, missingId());
+      const audits = await db.auditLog.findMany({
+        where: { action: "execution.manual_denied", targetId: p.id },
+        orderBy: { createdAt: "asc" },
+      });
+      if (
+        JSON.stringify(audits.map((a) => a.metadata?.reason)) !==
+        JSON.stringify(["permission_denied", "pipeline_disabled"])
+      )
+        problems.push(`audit reasons ${JSON.stringify(audits.map((a) => a.metadata))}`);
+      if (audits.some((a) => a.tenantId !== x.tenantId || a.result === "x"))
+        problems.push("an audit entry is in the wrong tenant");
+      if (new Set(audits.map((a) => a.actorUserId)).size !== 2)
+        problems.push("the denial entries do not name the two different actors");
+      if (
+        (await db.auditLog.count({
+          where: { action: "execution.manual_denied", targetId: x.pId.id },
+        })) !== hiddenBefore
+      )
+        problems.push("a hidden pipeline was audited");
+      if (await db.execution.count({ where: { pipelineId: p.id } }))
+        problems.push("a denied run left an execution row");
+      if (TOKEN_MATERIAL.test(JSON.stringify(audits)))
+        problems.push("token material in the audit entries");
+      if (
+        await db.auditLog.count({
+          where: { tenantId: x.edgeTenantId, action: "execution.manual_denied", targetId: p.id },
+        })
+      )
+        problems.push("another tenant has denial entries");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-022",
+    "audit: create, publish (with version numbers and a diff summary), enable, disable, delete and a manual run each write an entry in the caller's tenant only, in the same transaction as the change, with paths and ids but no values, commit text or secret",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("audited") })).json
+        .data;
+      await pipPublish(x.sessions.admin, p.id, 1, pipCfg({ failOn: { severity: "critical" } }));
+      await w.api("POST", `/pipelines/${p.id}/disable`, { cookie: x.sessions.admin });
+      await w.api("POST", `/pipelines/${p.id}/enable`, { cookie: x.sessions.admin });
+      const run = await pipRun(x.sessions.admin, p.id);
+      await w.api("PATCH", `/pipelines/${p.id}`, {
+        cookie: x.sessions.admin,
+        body: { description: "renamed" },
+      });
+      const del = await w.api("DELETE", `/pipelines/${p.id}`, {
+        cookie: x.sessions.admin,
+        body: { confirm: p.name },
+      });
+      if (del.status !== 200)
+        problems.push(`delete answered ${del.status} ${JSON.stringify(del.json?.error)}`);
+      const rows = await db.auditLog.findMany({
+        where: { targetId: p.id },
+        orderBy: { createdAt: "asc" },
+      });
+      const actions = rows.map((r) => r.action);
+      const expected = [
+        "pipeline.created",
+        "pipeline.config_published",
+        "pipeline.disabled",
+        "pipeline.enabled",
+        "execution.manual_requested",
+        "pipeline.updated",
+        "pipeline.deleted",
+      ];
+      if (JSON.stringify(actions) !== JSON.stringify(expected))
+        problems.push(`actions ${JSON.stringify(actions)}`);
+      const published = rows.find((r) => r.action === "pipeline.config_published");
+      if (
+        published?.metadata?.fromVersion !== 1 ||
+        published?.metadata?.toVersion !== 2 ||
+        !published?.metadata?.configHash ||
+        !published?.metadata?.diff?.changed?.includes("failOn.severity")
+      )
+        problems.push(`publish entry ${JSON.stringify(published?.metadata)}`);
+      const manual = rows.find((r) => r.action === "execution.manual_requested");
+      if (manual?.metadata?.executionId !== run.json?.data?.execution?.id)
+        problems.push("the manual-run entry does not name the execution");
+      if (rows.some((r) => r.tenantId !== x.tenantId))
+        problems.push("an entry is in the wrong tenant");
+      if (rows.some((r) => !r.actorUserId)) problems.push("an entry has no actor");
+      const text = JSON.stringify(rows.map((r) => [r.metadata, r.changes]));
+      if (TOKEN_MATERIAL.test(text) || /commit|password|secret/i.test(text))
+        problems.push("secret-like or commit text in the entries");
+      if (await db.auditLog.count({ where: { tenantId: x.edgeTenantId, targetId: p.id } }))
+        problems.push("another tenant has entries about this pipeline");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-023",
+    "the pipeline.execution.requested message carries only the allowed ids, enums and short strings, the caller's tenant, and its ownership check rejects a pipeline or execution of another tenant",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("message") })).json
+        .data;
+      const run = await pipRun(x.sessions.lead, p.id, { ref: { type: "branch", name: "main" } });
+      const id = run.json.data.execution.id;
+      const row = await db.outboxMessage.findFirst({
+        where: { messageId: `execution-requested-${id}` },
+      });
+      const message = row?.payload;
+      const allowed = [
+        "executionId",
+        "pipelineId",
+        "repositoryId",
+        "workspaceId",
+        "configVersion",
+        "configHash",
+        "triggerType",
+        "triggerKey",
+        "refType",
+        "refName",
+        "commitSha",
+        "pullRequestNumber",
+        "scanKind",
+        "scanKindReason",
+        "trust",
+      ].sort();
+      if (JSON.stringify(Object.keys(message?.payload ?? {}).sort()) !== JSON.stringify(allowed))
+        problems.push(`payload keys ${Object.keys(message?.payload ?? {})}`);
+      if (
+        message?.tenantId !== x.tenantId ||
+        row?.tenantId !== x.tenantId ||
+        row?.queue !== "pipeline"
+      )
+        problems.push("wrong tenant or queue");
+      if (message?.subject?.id !== id || message?.initiator?.type !== "user")
+        problems.push("subject or initiator is wrong");
+      if (TOKEN_MATERIAL.test(JSON.stringify(message)) || JSON.stringify(message).includes(p.name))
+        problems.push("token material or free text in the message");
+      const { createOwnershipVerifier } = await import("../../../workers/src/ownership/index.js");
+      const verify = createOwnershipVerifier({ db });
+      const reject = async (msg, label) => {
+        try {
+          await verify(msg);
+          problems.push(`${label} was accepted`);
+        } catch (error) {
+          if (error?.reason !== "resource-not-in-tenant")
+            problems.push(`${label} rejected with ${error?.reason ?? error?.message}`);
+        }
+      };
+      await verify(message).catch((e) =>
+        problems.push(`the legitimate message was rejected: ${e.message}`),
+      );
+      await reject(
+        { ...message, tenantId: x.edgeTenantId, workspaceId: undefined },
+        "a message of another tenant naming this pipeline",
+      );
+      const edgeRun = await pipRun(x.sessions.edge, x.pEdge.id);
+      const edgeMessage = (
+        await db.outboxMessage.findFirst({
+          where: { messageId: `execution-requested-${edgeRun.json.data.execution.id}` },
+        })
+      )?.payload;
+      await reject(
+        { ...message, payload: { ...message.payload, pipelineId: x.pEdge.id } },
+        "a pipeline of another tenant",
+      );
+      await reject(
+        {
+          ...message,
+          payload: { ...message.payload, executionId: edgeMessage.payload.executionId },
+        },
+        "an execution of another tenant",
+      );
+      await reject(
+        { ...message, payload: { ...message.payload, repositoryId: x.idRepo } },
+        "a repository that is not the pipeline's",
+      );
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-024",
+    "dry-run: another tenant's or a hidden repository answers 404 (identical to a missing id), only the repository's own pipelines are described, a pipelineId of another repository is 404, no row of any kind is created, and fork, disabled and match outcomes are reported with stable reasons",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const dry = (cookie, repoId, body) =>
+        w.api("POST", `/repositories/${repoId}/pipelines/test-triggers`, { cookie, body });
+      const cross = await dry(x.sessions.admin, x.edgeRepo, { event: "push", branch: "main" });
+      const hidden = await dry(x.sessions.manager, x.idRepo, { event: "push", branch: "main" });
+      const missing = await dry(x.sessions.manager, missingId(), { event: "push", branch: "main" });
+      if (cross.status !== 404 || hidden.status !== 404)
+        problems.push(`statuses ${cross.status}, ${hidden.status}`);
+      if (strip(hidden.json) !== strip(missing.json) || strip(cross.json) !== strip(missing.json))
+        problems.push("404 bodies differ from a missing id");
+      const forkPipe = (
+        await pipCreate(x.sessions.admin, x.payRepo, {
+          name: pipName("dry"),
+          config: pipCfgFork("skip"),
+        })
+      ).json.data;
+      const offPipe = (
+        await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("dryoff"), enabled: false })
+      ).json.data;
+      const counts = async () =>
+        JSON.stringify([
+          await db.execution.count(),
+          await db.pipelineTriggerDecision.count(),
+          await db.auditLog.count(),
+          await db.outboxMessage.count(),
+        ]);
+      const before = await counts();
+      const push = await dry(x.sessions.manager, x.payRepo, { event: "push", branch: "main" });
+      const pr = await dry(x.sessions.manager, x.payRepo, {
+        event: "pull_request",
+        action: "opened",
+        baseRef: "main",
+        isFork: true,
+        draft: false,
+      });
+      const feature = await dry(x.sessions.manager, x.payRepo, {
+        event: "push",
+        branch: "feature/x",
+      });
+      const foreignPipeline = await dry(x.sessions.manager, x.payRepo, {
+        event: "push",
+        branch: "main",
+        pipelineId: x.pEdge.id,
+      });
+      const otherRepoPipeline = await dry(x.sessions.manager, x.payRepo, {
+        event: "push",
+        branch: "main",
+        pipelineId:
+          (
+            await db.pipeline.findFirst({
+              where: { tenantId: x.tenantId, repositoryId: x.payRepo2 },
+            })
+          )?.id ?? missingId(),
+      });
+      if ((await counts()) !== before) problems.push("a dry-run changed rows");
+      if (push.status !== 200) problems.push(`push dry-run answered ${push.status}`);
+      else {
+        const names = push.json.data.items.map((i) => i.pipelineId);
+        if (names.includes(x.pId.id) || names.includes(x.pEdge.id))
+          problems.push("the dry-run describes pipelines of another repository or tenant");
+        const mine = push.json.data.items.find((i) => i.pipelineId === forkPipe.id);
+        if (mine?.triggers.find((t) => t.triggerKey === "push")?.decision !== "would_run")
+          problems.push(`push to the default branch: ${JSON.stringify(mine)}`);
+        const off = push.json.data.items.find((i) => i.pipelineId === offPipe.id);
+        if (
+          off?.triggers.find((t) => t.triggerKey === "push")?.decision !== "not_effective" ||
+          off?.effectiveState !== "disabled"
+        )
+          problems.push(`disabled pipeline: ${JSON.stringify(off)}`);
+        if (push.json.data.quota !== "unknown")
+          problems.push("the dry-run claimed to know the quota");
+      }
+      const prItem = pr.json?.data?.items
+        ?.find((i) => i.pipelineId === forkPipe.id)
+        ?.triggers?.find((t) => t.triggerType === "pull_request");
+      if (prItem?.decision !== "blocked_by_policy" || !prItem.reasons.includes("fork_policy_skip"))
+        problems.push(`fork PR: ${JSON.stringify(prItem)}`);
+      const featureItem = feature.json?.data?.items
+        ?.find((i) => i.pipelineId === forkPipe.id)
+        ?.triggers?.find((t) => t.triggerKey === "push");
+      if (featureItem?.decision !== "no_match" || featureItem.reasons[0] !== "branch_not_included")
+        problems.push(`non-matching branch: ${JSON.stringify(featureItem)}`);
+      if (foreignPipeline.status !== 404 || otherRepoPipeline.status !== 404)
+        problems.push(
+          `pipelineId of another repository answered ${foreignPipeline.status}, ${otherRepoPipeline.status}`,
+        );
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-020",
+    "delete is soft: versions and executions remain readable, queued requests are cancelled with their quota returned, the name is released, a running execution refuses the delete (409), and a deleted pipeline is gone for mutations and for the default list",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const p = (await pipCreate(x.sessions.admin, x.payRepo, { name: pipName("soft") })).json.data;
+      await pipPublish(x.sessions.admin, p.id, 1, pipCfg({ failOn: { severity: "medium" } }));
+      const a = (await pipRun(x.sessions.admin, p.id, { ref: { type: "branch", name: "main" } }))
+        .json.data.execution.id;
+      const b = (await pipRun(x.sessions.admin, p.id, { ref: { type: "tag", name: "v1" } })).json
+        .data.execution.id;
+      const quota = await db.quotaDefinition.findUnique({ where: { key: "scans.monthly" } });
+      const used = () =>
+        db.tenantQuotaUsage
+          .findFirst({ where: { tenantId: x.tenantId, quotaDefinitionId: quota.id } })
+          .then((u) => Number(u?.used ?? 0));
+      await db.execution.updateMany({ where: { id: a }, data: { status: "running" } });
+      const usedBefore = await used();
+      const refused = await w.api("DELETE", `/pipelines/${p.id}`, {
+        cookie: x.sessions.admin,
+        body: { confirm: p.name },
+      });
+      if (
+        refused.status !== 409 ||
+        refused.json?.error?.details?.reason !== "has_active_executions"
+      )
+        problems.push(`delete with a running execution answered ${refused.status}`);
+      if ((await db.pipeline.findFirst({ where: { id: p.id } })).deletedAt)
+        problems.push("a refused delete changed the pipeline");
+      await db.execution.updateMany({ where: { id: a }, data: { status: "succeeded" } });
+      const wrong = await w.api("DELETE", `/pipelines/${p.id}`, {
+        cookie: x.sessions.admin,
+        body: { confirm: "nope" },
+      });
+      if (wrong.status !== 400) problems.push(`a wrong confirmation answered ${wrong.status}`);
+      const noRole = await w.api("DELETE", `/pipelines/${p.id}`, {
+        cookie: x.sessions.edge,
+        body: { confirm: p.name },
+      });
+      if (noRole.status !== 404) problems.push(`another tenant's delete answered ${noRole.status}`);
+      const del = await w.api("DELETE", `/pipelines/${p.id}`, {
+        cookie: x.sessions.manager,
+        body: { confirm: p.name },
+      });
+      if (del.status !== 200 || del.json?.data?.deleted !== true)
+        problems.push(`delete answered ${del.status}`);
+      const queued = await db.execution.findFirst({ where: { id: b } });
+      if (queued.status !== "cancelled" || queued.statusReason !== "pipeline_deleted")
+        problems.push(`the queued request is ${queued.status}/${queued.statusReason}`);
+      if ((await used()) !== usedBefore - 1)
+        problems.push("the queued request's quota unit was not returned");
+      if ((await db.pipelineConfigVersion.count({ where: { pipelineId: p.id } })) !== 2)
+        problems.push("versions were removed");
+      if ((await db.pipelineTrigger.count({ where: { pipelineId: p.id } })) !== 0)
+        problems.push("triggers stay in the projection");
+      const versions = await w.api("GET", `/pipelines/${p.id}/versions`, {
+        cookie: x.sessions.admin,
+      });
+      const executions = await w.api("GET", `/pipelines/${p.id}/executions`, {
+        cookie: x.sessions.admin,
+      });
+      if (versions.json?.data?.length !== 2 || executions.json?.data?.length !== 2)
+        problems.push("history is not readable after the delete");
+      const got = await w.api("GET", `/pipelines/${p.id}`, { cookie: x.sessions.admin });
+      if (got.json?.data?.deletedAt === null || got.json.data.effectiveState !== "deleted")
+        problems.push("a deleted pipeline is not marked");
+      const list = await w.api("GET", "/pipelines?pageSize=100", { cookie: x.sessions.admin });
+      const listAll = await w.api("GET", "/pipelines?pageSize=100&includeDeleted=true", {
+        cookie: x.sessions.admin,
+      });
+      if (
+        list.json.data.some((r) => r.id === p.id) ||
+        !listAll.json.data.some((r) => r.id === p.id)
+      )
+        problems.push("includeDeleted does not behave");
+      for (const [label, r] of [
+        [
+          "patch",
+          await w.api("PATCH", `/pipelines/${p.id}`, {
+            cookie: x.sessions.admin,
+            body: { description: "x" },
+          }),
+        ],
+        ["run", await pipRun(x.sessions.admin, p.id)],
+        ["enable", await w.api("POST", `/pipelines/${p.id}/enable`, { cookie: x.sessions.admin })],
+      ])
+        if (r.status !== 404) problems.push(`${label} on a deleted pipeline answered ${r.status}`);
+      const again = await pipCreate(x.sessions.admin, x.payRepo, { name: p.name });
+      if (again.status !== 201 || again.json.data.id === p.id)
+        problems.push(`re-creating the name answered ${again.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-021",
+    "platform session on any pipeline route answers 401, no pipeline route exists under /api/v1/platform, and a tenant session cannot reach one",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const sa = S("sa")(w);
+      const problems = [];
+      const id = x.pPay.id;
+      const calls = [
+        ["GET", "/pipelines"],
+        ["GET", `/pipelines/${id}`],
+        ["POST", `/pipelines/${id}/runs`],
+        ["PUT", `/pipelines/${id}/config`],
+        ["POST", `/repositories/${x.payRepo}/pipelines`],
+        ["POST", `/repositories/${x.payRepo}/pipelines/test-triggers`],
+        ["GET", `/pipelines/${id}/executions`],
+        ["GET", `/pipelines/${id}/trigger-decisions`],
+        ["GET", `/workspaces/${x.PAY}/pipelines/options`],
+      ];
+      for (const [method, path] of calls) {
+        const r = await w.api(method, path, {
+          cookie: sa,
+          body: method === "GET" ? undefined : {},
+        });
+        if (r.status !== 401)
+          problems.push(`platform session on ${method} ${path} answered ${r.status}`);
+      }
+      for (const path of [
+        "/platform/pipelines",
+        `/platform/pipelines/${id}`,
+        `/platform/tenants/${x.tenantId}/pipelines`,
+      ]) {
+        const asPlatform = await w.api("GET", path, { cookie: sa });
+        const asTenant = await w.api("GET", path, { cookie: x.sessions.admin });
+        if (asPlatform.status !== 404)
+          problems.push(
+            `platform route ${path} with a platform session answered ${asPlatform.status}`,
+          );
+        if (asTenant.status !== 404)
+          problems.push(`platform route ${path} with a tenant session answered ${asTenant.status}`);
+      }
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-033",
+    "the repository's pipelineCount is the real number of non-deleted pipelines of that repository, counted within the caller's tenant",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const db = suiteDb();
+      const problems = [];
+      const check = async (cookie, repoId, tenantId) => {
+        const expected = await db.pipeline.count({
+          where: { tenantId, repositoryId: repoId, deletedAt: null },
+        });
+        const one = await w.api("GET", `/repositories/${repoId}`, { cookie });
+        const list = await w.api("GET", "/repositories?pageSize=100", { cookie });
+        const inList = list.json?.data?.find((r) => r.id === repoId);
+        if (
+          one.json?.data?.pipelineCount !== expected ||
+          inList?.pipelineCount !== expected ||
+          expected < 1
+        )
+          problems.push(
+            `repository ${repoId}: ${one.json?.data?.pipelineCount}/${inList?.pipelineCount}, expected ${expected}`,
+          );
+      };
+      await check(x.sessions.admin, x.payRepo, x.tenantId);
+      await check(x.sessions.edge, x.edgeRepo, x.edgeTenantId);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-034",
+    "a suspended tenant cannot run a pipeline (TENANT_SUSPENDED) and nothing is created; another tenant is unaffected",
+    { status: 200 },
+    async () => {
+      const x = await pipWorld();
+      const cap = await capWorld();
+      const db = suiteDb();
+      const problems = [];
+      const pipe = await db.pipeline.findFirst({ where: { tenantId: cap.t.id, deletedAt: null } });
+      const before = await db.execution.count({ where: { tenantId: cap.t.id } });
+      const suspended = await w.api("POST", `/platform/tenants/${cap.t.id}/suspend`, {
+        cookie: S("sa")(w),
+        body: { reason: "security regression suite", confirm: cap.t.name },
+      });
+      if (suspended.status !== 200) problems.push(`fixture: suspend answered ${suspended.status}`);
+      const r = await pipRun(cap.t.owner, pipe.id);
+      if (r.status !== 403 || r.json?.error?.code !== "TENANT_SUSPENDED")
+        problems.push(`run answered ${r.status} ${r.json?.error?.code}`);
+      if ((await db.execution.count({ where: { tenantId: cap.t.id } })) !== before)
+        problems.push("a suspended tenant's run created an execution");
+      const other = await pipRun(x.sessions.admin, x.pPay.id);
+      if (other.status !== 202) problems.push(`another tenant's run answered ${other.status}`);
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

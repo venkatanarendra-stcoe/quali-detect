@@ -29,9 +29,18 @@ const MAX_LOOKUP_PAGES = 50;
  *   repository: ReturnType<typeof import("../repositories/index.js").createRepositoryRepository>,
  *   scm: ReturnType<typeof import("../../../runtime/scm.js").createScm>,
  *   audit: any, outbox: any, entitlements: any, infra: any,
+ *   pipelineCounts: { forRepositories: (input: { tenantId: string, repositoryIds: string[] }) => Promise<Map<string, number>> },
  * }} deps
  */
-export function createRepositoryService({ repository, scm, audit, outbox, entitlements, infra }) {
+export function createRepositoryService({
+  repository,
+  scm,
+  audit,
+  outbox,
+  entitlements,
+  infra,
+  pipelineCounts,
+}) {
   const github = scm?.github ?? null;
   const requireGitHub = () => {
     if (!github)
@@ -61,6 +70,15 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
     ipAddress: actor.ip,
     ...extra,
   });
+  /** Repository DTOs with the real `pipelineCount` (non-deleted pipelines, counted per tenant by the pipelines module). */
+  const toDtos = async (tenantId, rows) => {
+    const counts = await pipelineCounts.forRepositories({
+      tenantId,
+      repositoryIds: rows.map((r) => r.id),
+    });
+    return rows.map((r) => toRepositoryDto(r, counts.get(r.id) ?? 0));
+  };
+  const toDto = async (tenantId, row) => (await toDtos(tenantId, [row]))[0];
   const notify = (tx, actor, repo, type, payload) =>
     outbox.enqueue(tx, {
       queue: QUEUE_NAMES.NOTIFICATION,
@@ -156,7 +174,10 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
           can(actor.permissions, "repository.view", { type: "workspace", workspaceId }),
         );
       const page = await repository.list({ ...query, tenantId: actor.tenantId, workspaceIds });
-      return toPage({ items: page.items.map(toRepositoryDto), totalItems: page.totalItems }, query);
+      return toPage(
+        { items: await toDtos(actor.tenantId, page.items), totalItems: page.totalItems },
+        query,
+      );
     },
 
     /**
@@ -324,10 +345,10 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
         });
         return row;
       });
-      return toRepositoryDto(created);
+      return toDto(actor.tenantId, created);
     },
 
-    get: (_actor, repo) => toRepositoryDto(repo),
+    get: (actor, repo) => toDto(actor.tenantId, repo),
 
     async update(actor, repo, patch) {
       assertMutable(repo);
@@ -347,7 +368,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
         );
         return next;
       });
-      return toRepositoryDto(updated);
+      return toDto(actor.tenantId, updated);
     },
 
     /** Queues a sync job; the worker does the GitHub calls (SPEC §6.5c). */
@@ -374,7 +395,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
 
     async setEnabled(actor, repo, enabled) {
       assertMutable(repo);
-      if (repo.enabled === enabled) return toRepositoryDto(repo);
+      if (repo.enabled === enabled) return toDto(actor.tenantId, repo);
       const next = await repository.transaction(async (tx) => {
         await repository.update({ tenantId: actor.tenantId, id: repo.id, data: { enabled } }, tx);
         await audit.tenant.record(
@@ -387,7 +408,7 @@ export function createRepositoryService({ repository, scm, audit, outbox, entitl
         );
         return repository.findById({ tenantId: actor.tenantId, id: repo.id }, tx);
       });
-      return toRepositoryDto(next);
+      return toDto(actor.tenantId, next);
     },
 
     /** Soft disconnect: the row, its id and its history stay; reconnecting reactivates it (R-6). */

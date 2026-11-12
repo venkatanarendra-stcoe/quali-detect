@@ -14,6 +14,9 @@ import { createAuditLogRepository } from "../../../src/modules/audit-logs/reposi
 import { createIdentityRepository } from "../../../src/modules/identity/repositories/index.js";
 import { createIntegrationRepository } from "../../../src/modules/integrations/repositories/index.js";
 import { createPlatformTenantRepository } from "../../../src/modules/platform-tenants/repositories/index.js";
+import { createPipelineCounts } from "../../../src/modules/pipelines/index.js";
+import { createPipelineRepository } from "../../../src/modules/pipelines/repositories/index.js";
+import { pipelineScope } from "../../../src/authz/scopes.js";
 import { createRepositoryRepository } from "../../../src/modules/repositories/repositories/index.js";
 import { createRoleAssignmentRepository } from "../../../src/modules/role-assignments/repositories/index.js";
 import { createRoleRepository } from "../../../src/modules/roles/repositories/index.js";
@@ -299,6 +302,97 @@ export async function buildDalWorld(db) {
     },
   });
 
+  // Pipelines (SPEC pipelines-triggers §7): one pipeline of X on `repo` with its first version, a trigger, a queued and a running
+  // execution and a trigger decision, plus a second workspace of X for the "right tenant, wrong workspace" calls.
+  const wsB = await db.workspace.create({ data: { tenantId: X.id, name: `DAL WS2 ${sfx}` } });
+  const pl = await db.pipeline.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      name: `dal-pipeline-${sfx}`,
+      nameNormalized: `dal-pipeline-${sfx}`,
+      createdByUserId: uA.id,
+      enabled: true,
+    },
+  });
+  const plVersion = await db.pipelineConfigVersion.create({
+    data: {
+      tenantId: X.id,
+      pipelineId: pl.id,
+      version: 1,
+      schemaVersion: 1,
+      config: { schemaVersion: 1, triggers: [] },
+      configHash: "a".repeat(64),
+      createdByUserId: uA.id,
+    },
+  });
+  await db.pipeline.update({
+    where: { id: pl.id },
+    data: { currentVersion: 1, currentVersionId: plVersion.id },
+  });
+  const plTrigger = await db.pipelineTrigger.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      pipelineId: pl.id,
+      triggerKey: "manual",
+      type: "manual",
+      versionId: plVersion.id,
+    },
+  });
+  const executionData = (extra = {}) => ({
+    tenantId: X.id,
+    workspaceId: ws.id,
+    repositoryId: repo.id,
+    pipelineId: pl.id,
+    configVersionId: plVersion.id,
+    configVersion: 1,
+    configHash: "a".repeat(64),
+    triggerType: "manual",
+    triggerKey: "manual",
+    requestedByUserId: uA.id,
+    refType: "branch",
+    refName: "main",
+    scanKind: "full",
+    scanKindReason: "manual",
+    concurrencyGroup: "manual:main",
+    idempotencyKey: `dal-${rand(6)}`,
+    ...extra,
+  });
+  const plExecution = await db.execution.create({ data: executionData() });
+  const plRunning = await db.execution.create({
+    data: executionData({ status: "running", concurrencyGroup: "manual:running" }),
+  });
+  const plDecision = await db.pipelineTriggerDecision.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      pipelineId: pl.id,
+      triggerType: "pull_request",
+      triggerKey: "pr",
+      scmEventId: randomUUID(),
+      scmDeliveryId: `dal-${rand(6)}`,
+      scmEventKind: "pull_request",
+      reason: "fork_policy_skip",
+      refType: "pull_request",
+      refName: "pull/7",
+      pullRequestNumber: 7,
+    },
+  });
+  const pipelines = {
+    wsB: wsB.id,
+    pipeline: pl,
+    versionId: plVersion.id,
+    triggerId: plTrigger.id,
+    executionId: plExecution.id,
+    runningId: plRunning.id,
+    decisionId: plDecision.id,
+    executionData,
+  };
+
   // Tenant Z (a third tenant, never the "wrong tenant" of the entries above): holders of the integration keys and two
   // installations whose uninstall / suspension fan out over two workspace links each. uA is an ACTIVE member of X but only a
   // SUSPENDED member of Z (holding an Admin assignment there): a lost membership filter would bring them back as a recipient.
@@ -446,6 +540,8 @@ export async function buildDalWorld(db) {
       authzRepository: createAuthzRepository({ db }),
     }),
     repositories: createRepositoryRepository({ db }),
+    pipelines: createPipelineRepository({ db }),
+    pipelineCounts: createPipelineCounts({ db }),
     roleAssignments: createRoleAssignmentRepository({ db }),
     roles: createRoleRepository({ db }),
     webhooks: createWebhookRepository({ db }),
@@ -477,6 +573,7 @@ export async function buildDalWorld(db) {
     wl: wl.id,
     repo,
     repo2,
+    pl: pipelines,
     z,
     v,
     secret: secret.id,
@@ -522,6 +619,11 @@ async function snapshot(c) {
     db.tenantEntitlement.findMany({ where: tenant }),
     db.tenantQuota.findMany({ where: tenant }),
     db.tenantQuotaUsage.findMany({ where: tenant }),
+    db.pipeline.findMany({ where: tenant }),
+    db.pipelineConfigVersion.findMany({ where: tenant }),
+    db.pipelineTrigger.findMany({ where: tenant }),
+    db.execution.findMany({ where: tenant }),
+    db.pipelineTriggerDecision.findMany({ where: tenant }),
     db.repository.findMany({ where: { tenantId: c.v.id } }),
     db.scmWorkspaceLinkRepository.findMany({ where: { tenantId: c.v.id } }),
   ]);
@@ -2065,6 +2167,414 @@ export function buildDalEntries() {
       },
     },
   );
+
+  // ----- pipelines (SPEC pipelines-triggers §14.1, DAL-154..): every tenant-scoped repository function of the module. The
+  // wrong-tenant call must find or change nothing; the "right tenant, wrong workspace" calls prove the parent chain; the
+  // controls prove the same call with the owner finds the row (or, for writes, works on a scratch row that is removed).
+  const PL = (c) => c.repos.pipelines;
+  const pipe = (c) => c.pl.pipeline;
+  const ent = (rows) => [...rows.entries()];
+  E(
+    "pipelines.findRepository",
+    async (c) => [
+      await PL(c).findRepository({ tenantId: c.y, workspaceId: c.ws, id: c.repo.id }),
+      await PL(c).findRepository({ tenantId: c.x, workspaceId: c.pl.wsB, id: c.repo.id }),
+    ],
+    { control: (c) => PL(c).findRepository({ tenantId: c.x, workspaceId: c.ws, id: c.repo.id }) },
+  );
+  E("pipelines.findWorkspace", (c) => PL(c).findWorkspace({ tenantId: c.y, id: c.ws }), {
+    control: (c) => PL(c).findWorkspace({ tenantId: c.x, id: c.ws }),
+  });
+  E("pipelines.findRef", (c) => PL(c).findRef({ tenantId: c.y, id: pipe(c).id }), {
+    control: (c) => PL(c).findRef({ tenantId: c.x, id: pipe(c).id }),
+  });
+  E(
+    "pipelines.findPipeline",
+    async (c) => [
+      await PL(c).findPipeline({ tenantId: c.y, id: pipe(c).id }),
+      await PL(c).findPipeline({ tenantId: c.y, id: pipe(c).id, workspaceId: c.ws }),
+      await PL(c).findPipeline({ tenantId: c.x, id: pipe(c).id, workspaceId: c.pl.wsB }),
+    ],
+    { control: (c) => PL(c).findPipeline({ tenantId: c.x, id: pipe(c).id, workspaceId: c.ws }) },
+  );
+  E(
+    "pipelines.listForRepository",
+    async (c) => [
+      await PL(c).listForRepository({ tenantId: c.y, workspaceId: c.ws, repositoryId: c.repo.id }),
+      await PL(c).listForRepository({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+      }),
+      await PL(c).listForRepository({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+        id: pipe(c).id,
+      }),
+    ],
+    {
+      control: (c) =>
+        PL(c).listForRepository({ tenantId: c.x, workspaceId: c.ws, repositoryId: c.repo.id }),
+    },
+  );
+  const listInput = (c, tenantId, extra = {}) => ({
+    tenantId,
+    workspaceIds: [c.ws, c.pl.wsB],
+    includeDeleted: true,
+    sort: sort("name"),
+    ...PAGE,
+    ...extra,
+  });
+  E(
+    "pipelines.list",
+    async (c) => [
+      await PL(c).list(listInput(c, c.y)),
+      await PL(c).list(listInput(c, c.y, { sort: sort("lastRequestedAt", "desc") })),
+      await PL(c).list(listInput(c, c.x, { workspaceIds: [c.pl.wsB] })),
+    ],
+    { control: (c) => PL(c).list(listInput(c, c.x)) },
+  );
+  E(
+    "pipelines.lastRequested",
+    (c) => PL(c).lastRequested({ tenantId: c.y, pipelineIds: [pipe(c).id] }),
+    { control: (c) => PL(c).lastRequested({ tenantId: c.x, pipelineIds: [pipe(c).id] }) },
+  );
+  E("pipelines.countLive", (c) => PL(c).countLive({ tenantId: c.y }), {
+    control: (c) => PL(c).countLive({ tenantId: c.x }),
+  });
+  E(
+    "pipelines.countLiveInRepository",
+    (c) => PL(c).countLiveInRepository({ tenantId: c.y, repositoryId: c.repo.id }),
+    { control: (c) => PL(c).countLiveInRepository({ tenantId: c.x, repositoryId: c.repo.id }) },
+  );
+  E(
+    "pipelines.countByRepository",
+    async (c) => ent(await PL(c).countByRepository({ tenantId: c.y, repositoryIds: [c.repo.id] })),
+    {
+      control: async (c) =>
+        ent(await PL(c).countByRepository({ tenantId: c.x, repositoryIds: [c.repo.id] })),
+    },
+  );
+  E(
+    "pipelines.pipelineCounts.forRepositories (repository DTO provider)",
+    async (c) =>
+      ent(
+        await c.repos.pipelineCounts.forRepositories({ tenantId: c.y, repositoryIds: [c.repo.id] }),
+      ),
+    {
+      control: async (c) =>
+        ent(
+          await c.repos.pipelineCounts.forRepositories({
+            tenantId: c.x,
+            repositoryIds: [c.repo.id],
+          }),
+        ),
+    },
+  );
+  E(
+    "pipelines.findByNormalizedName",
+    (c) =>
+      PL(c).findByNormalizedName({
+        tenantId: c.y,
+        repositoryId: c.repo.id,
+        nameNormalized: pipe(c).nameNormalized,
+      }),
+    {
+      control: (c) =>
+        PL(c).findByNormalizedName({
+          tenantId: c.x,
+          repositoryId: c.repo.id,
+          nameNormalized: pipe(c).nameNormalized,
+        }),
+    },
+  );
+  const scratchPipeline = (c) => ({
+    tenantId: c.x,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    name: `scratch-${rand()}`,
+    nameNormalized: `scratch-${rand()}`,
+    createdByUserId: c.uA,
+  });
+  E("pipelines.create", (c) => PL(c).create({ ...scratchPipeline(c), tenantId: c.y }), {
+    // the composite foreign keys refuse a pipeline under another tenant's workspace and repository; if one were created it
+    // must at least carry the tenant it was given
+    mayThrow: true,
+    ...created("the pipeline", (c, row) => c.db.pipeline.deleteMany({ where: { id: row.id } })),
+    control: async (c) => {
+      const row = await PL(c).create(scratchPipeline(c));
+      await c.db.pipeline.delete({ where: { id: row.id } });
+      return row;
+    },
+  });
+  E(
+    "pipelines.update",
+    async (c) => [
+      await PL(c).update({ tenantId: c.y, id: pipe(c).id, data: { description: "pwn" } }),
+      await PL(c).update({ tenantId: c.y, id: pipe(c).id, data: { deletedAt: new Date() } }),
+    ],
+    {
+      control: (c) =>
+        PL(c).update({
+          tenantId: c.x,
+          id: pipe(c).id,
+          data: { description: pipe(c).description ?? null },
+        }),
+    },
+  );
+  const versionData = (c, tenantId, version) => ({
+    tenantId,
+    pipelineId: pipe(c).id,
+    version,
+    schemaVersion: 1,
+    config: { schemaVersion: 1, triggers: [] },
+    configHash: "b".repeat(64),
+    createdByUserId: c.uA,
+  });
+  E("pipelines.createVersion", (c) => PL(c).createVersion(versionData(c, c.y, 1)), {
+    mayThrow: true,
+    ...created("the version"),
+    // versions are immutable (no cleanup is possible): the control publishes the pipeline's real next version
+    control: async (c) => {
+      const next =
+        (await c.db.pipelineConfigVersion.count({ where: { pipelineId: pipe(c).id } })) + 1;
+      return PL(c).createVersion(versionData(c, c.x, next));
+    },
+  });
+  E(
+    "pipelines.findVersion",
+    (c) => PL(c).findVersion({ tenantId: c.y, pipelineId: pipe(c).id, version: 1 }),
+    { control: (c) => PL(c).findVersion({ tenantId: c.x, pipelineId: pipe(c).id, version: 1 }) },
+  );
+  E(
+    "pipelines.findVersionById",
+    (c) => PL(c).findVersionById({ tenantId: c.y, pipelineId: pipe(c).id, id: c.pl.versionId }),
+    {
+      control: (c) =>
+        PL(c).findVersionById({ tenantId: c.x, pipelineId: pipe(c).id, id: c.pl.versionId }),
+    },
+  );
+  E(
+    "pipelines.listVersions",
+    (c) => PL(c).listVersions({ tenantId: c.y, pipelineId: pipe(c).id, ...PAGE }),
+    { control: (c) => PL(c).listVersions({ tenantId: c.x, pipelineId: pipe(c).id, ...PAGE }) },
+  );
+  E(
+    "pipelines.findMemberNames",
+    async (c) => ent(await PL(c).findMemberNames({ tenantId: c.y, userIds: [c.uA] })),
+    { control: async (c) => ent(await PL(c).findMemberNames({ tenantId: c.x, userIds: [c.uA] })) },
+  );
+  E(
+    "pipelines.listTriggers",
+    (c) => PL(c).listTriggers({ tenantId: c.y, pipelineId: pipe(c).id }),
+    {
+      control: (c) => PL(c).listTriggers({ tenantId: c.x, pipelineId: pipe(c).id }),
+    },
+  );
+  const triggerData = (c, tenantId) => ({
+    tenantId,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    triggerKey: `t-${rand(3)}`,
+    type: "manual",
+    versionId: c.pl.versionId,
+  });
+  E("pipelines.createTrigger", (c) => PL(c).createTrigger(triggerData(c, c.y)), {
+    mayThrow: true,
+    ...created("the trigger", (c, row) =>
+      c.db.pipelineTrigger.deleteMany({ where: { id: row.id } }),
+    ),
+    control: async (c) => {
+      const row = await PL(c).createTrigger(triggerData(c, c.x));
+      await c.db.pipelineTrigger.delete({ where: { id: row.id } });
+      return row;
+    },
+  });
+  E(
+    "pipelines.updateTrigger",
+    (c) =>
+      PL(c).updateTrigger({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        id: c.pl.triggerId,
+        data: { enabled: false },
+      }),
+    {
+      control: (c) =>
+        PL(c).updateTrigger({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          id: c.pl.triggerId,
+          data: { enabled: true },
+        }),
+    },
+  );
+  E(
+    "pipelines.deleteTriggers",
+    async (c) => [
+      await PL(c).deleteTriggers({ tenantId: c.y, pipelineId: pipe(c).id }),
+      await PL(c).deleteTriggers({ tenantId: c.y, pipelineId: pipe(c).id, ids: [c.pl.triggerId] }),
+    ],
+    {
+      control: async (c) => {
+        const row = await c.db.pipelineTrigger.create({ data: triggerData(c, c.x) });
+        return PL(c).deleteTriggers({ tenantId: c.x, pipelineId: pipe(c).id, ids: [row.id] });
+      },
+    },
+  );
+  E(
+    "pipelines.listExecutions",
+    (c) => PL(c).listExecutions({ tenantId: c.y, pipelineId: pipe(c).id, ...PAGE }),
+    { control: (c) => PL(c).listExecutions({ tenantId: c.x, pipelineId: pipe(c).id, ...PAGE }) },
+  );
+  E(
+    "pipelines.findExecution",
+    (c) => PL(c).findExecution({ tenantId: c.y, pipelineId: pipe(c).id, id: c.pl.executionId }),
+    {
+      control: (c) =>
+        PL(c).findExecution({ tenantId: c.x, pipelineId: pipe(c).id, id: c.pl.executionId }),
+    },
+  );
+  E(
+    "pipelines.findExecutionByKey",
+    async (c) => {
+      const row = await c.db.execution.findFirst({ where: { id: c.pl.executionId } });
+      c.pl.key = row.idempotencyKey;
+      return PL(c).findExecutionByKey({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        idempotencyKey: row.idempotencyKey,
+      });
+    },
+    {
+      control: (c) =>
+        PL(c).findExecutionByKey({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          idempotencyKey: c.pl.key,
+        }),
+    },
+  );
+  E(
+    "pipelines.createExecution",
+    (c) => PL(c).createExecution(c.pl.executionData({ tenantId: c.y })),
+    {
+      mayThrow: true,
+      ...created("the execution", (c, row) => c.db.execution.deleteMany({ where: { id: row.id } })),
+      control: async (c) => {
+        const row = await PL(c).createExecution(
+          c.pl.executionData({ concurrencyGroup: "scratch" }),
+        );
+        await c.db.execution.delete({ where: { id: row.id } });
+        return row;
+      },
+    },
+  );
+  E(
+    "pipelines.hasActiveExecutions",
+    (c) => PL(c).hasActiveExecutions({ tenantId: c.y, pipelineId: pipe(c).id }),
+    { control: (c) => PL(c).hasActiveExecutions({ tenantId: c.x, pipelineId: pipe(c).id }) },
+  );
+  E(
+    "pipelines.countExecutions",
+    async (c) => [
+      await PL(c).countExecutions({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        statuses: ["queued", "running"],
+      }),
+      await PL(c).countExecutions({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        statuses: ["queued"],
+        concurrencyGroup: "manual:main",
+      }),
+    ],
+    {
+      control: (c) =>
+        PL(c).countExecutions({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          statuses: ["queued", "running"],
+        }),
+    },
+  );
+  E(
+    "pipelines.cancelQueued",
+    async (c) => [
+      await PL(c).cancelQueued({ tenantId: c.y, pipelineId: pipe(c).id, reason: "dal" }),
+      await PL(c).cancelQueued({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        concurrencyGroup: "manual:main",
+        reason: "dal",
+      }),
+    ],
+    {
+      control: async (c) => {
+        const row = await c.db.execution.create({
+          data: c.pl.executionData({ concurrencyGroup: "scratch-cancel" }),
+        });
+        const cancelled = await PL(c).cancelQueued({
+          tenantId: c.x,
+          pipelineId: pipe(c).id,
+          concurrencyGroup: "scratch-cancel",
+          reason: "superseded",
+        });
+        await c.db.execution.delete({ where: { id: row.id } });
+        return cancelled;
+      },
+    },
+  );
+  E(
+    "pipelines.listDecisions",
+    (c) => PL(c).listDecisions({ tenantId: c.y, pipelineId: pipe(c).id, ...PAGE }),
+    { control: (c) => PL(c).listDecisions({ tenantId: c.x, pipelineId: pipe(c).id, ...PAGE }) },
+  );
+  E(
+    "pipelines.countDecisionsSince",
+    (c) =>
+      PL(c).countDecisionsSince({
+        tenantId: c.y,
+        pipelineId: pipe(c).id,
+        since: new Date(0),
+      }),
+    {
+      control: (c) =>
+        PL(c).countDecisionsSince({ tenantId: c.x, pipelineId: pipe(c).id, since: new Date(0) }),
+    },
+  );
+  E(
+    "authz.pipelineScope.resolve",
+    (c) =>
+      pipelineScope().resolve({ params: { pipelineId: pipe(c).id } }, { tenantId: c.y, db: c.db }),
+    {
+      control: (c) =>
+        pipelineScope().resolve(
+          { params: { pipelineId: pipe(c).id } },
+          { tenantId: c.x, db: c.db },
+        ),
+    },
+  );
+  ownership("pipeline-execution", "pipeline.execution.requested", (c) => ({
+    executionId: c.pl.executionId,
+    pipelineId: pipe(c).id,
+    repositoryId: c.repo.id,
+    workspaceId: c.ws,
+    configVersion: 1,
+    configHash: "a".repeat(64),
+    triggerType: "manual",
+    triggerKey: "manual",
+    refType: "branch",
+    refName: "main",
+    commitSha: null,
+    pullRequestNumber: null,
+    scanKind: "full",
+    scanKindReason: "manual",
+    trust: "trusted",
+  }));
 
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,

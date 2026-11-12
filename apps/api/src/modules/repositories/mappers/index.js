@@ -5,8 +5,8 @@ export function healthOf(repository) {
   return repository.consecutiveSyncFailures > 0 ? "degraded" : "healthy";
 }
 
-/** Repository DTO. Never a Prisma model; carries no token and no installation numbers. @param {any} r */
-export const toRepositoryDto = (r) => ({
+/** Repository DTO. Never a Prisma model; carries no token and no installation numbers. @param {any} r @param {number} [pipelineCount] non-deleted pipelines (from the pipelines module) */
+export const toRepositoryDto = (r, pipelineCount = 0) => ({
   id: r.id,
   workspaceId: r.workspaceId,
   linkId: r.linkId,
@@ -33,5 +33,5 @@ export const toRepositoryDto = (r) => ({
   connectedAt: r.connectedAt,
   disconnectedAt: r.disconnectedAt,
   disconnectReason: r.disconnectReason,
-  pipelineCount: 0, // the pipelines module will provide the real count
+  pipelineCount,
 });

@@ -241,7 +241,16 @@ async function main() {
   const code = await new Promise((resolve) => {
     const tests = spawn(
       process.execPath,
-      ["--test", "--test-reporter=spec", "test/security/security.test.js"],
+      [
+        "--test",
+        "--test-reporter=spec",
+        // Development aid: SECURITY_SUITE_ONLY="PIP-0" runs only the checks whose name matches (controls always run). A
+        // filtered run never replaces the full `pnpm test:security`, which is the gate.
+        ...(process.env.SECURITY_SUITE_ONLY
+          ? [`--test-name-pattern=${process.env.SECURITY_SUITE_ONLY}`]
+          : []),
+        "test/security/security.test.js",
+      ],
       {
         cwd: apiDir,
         env: {

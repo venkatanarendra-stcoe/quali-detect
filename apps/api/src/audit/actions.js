@@ -63,6 +63,21 @@ export const AUDIT_ACTIONS = Object.freeze({
   REPOSITORY_UNAVAILABLE: "repository.unavailable",
   REPOSITORY_DISCONNECTED: "repository.disconnected",
   REPOSITORY_RESTORED: "repository.restored",
+  // Pipelines and executions (docs/modules/pipelines-triggers/SPEC.md §7.4). Metadata: ids, version numbers, hashes, diff
+  // summaries (paths only) and reason codes; never a secret and never commit text.
+  PIPELINE_CREATED: "pipeline.created",
+  PIPELINE_UPDATED: "pipeline.updated",
+  PIPELINE_CONFIG_PUBLISHED: "pipeline.config_published",
+  PIPELINE_ENABLED: "pipeline.enabled",
+  PIPELINE_DISABLED: "pipeline.disabled",
+  PIPELINE_DELETED: "pipeline.deleted",
+  PIPELINE_FORK_POLICY_CHANGED: "pipeline.fork_policy_changed",
+  PIPELINE_SCHEDULE_CHANGED: "pipeline.schedule_changed",
+  EXECUTION_MANUAL_REQUESTED: "execution.manual_requested",
+  EXECUTION_MANUAL_DENIED: "execution.manual_denied",
+  EXECUTION_BLOCKED: "execution.blocked",
+  EXECUTION_SKIPPED: "execution.skipped",
+  EXECUTION_CANCELLED_SUPERSEDED: "execution.cancelled_superseded",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

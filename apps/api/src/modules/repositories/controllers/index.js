@@ -22,7 +22,8 @@ export function createRepositoryController({ service }) {
         .success(
           await service.connect(actorFrom(request), request.params.workspaceId, request.body),
         ),
-    get: async (request, reply) => reply.success(service.get(actorFrom(request), repo(request))),
+    get: async (request, reply) =>
+      reply.success(await service.get(actorFrom(request), repo(request))),
     update: async (request, reply) =>
       reply.success(await service.update(actorFrom(request), repo(request), request.body)),
     sync: async (request, reply) =>

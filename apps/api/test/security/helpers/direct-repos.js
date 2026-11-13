@@ -3216,6 +3216,84 @@ export function buildDalEntries() {
     },
   );
 
+  // closed pull request housekeeping (fix-list 4, DAL-221): a queued request of PR 77 exists while the function runs with the
+  // wrong tenant, the right tenant with the wrong repository, and the right tenant with an unknown workspace: none may cancel it
+  const prFixture = async (c) => {
+    const event = await c.db.scmEvent.create({
+      data: {
+        tenantId: c.x,
+        repositoryId: c.repo.id,
+        deliveryId: `dal-pr-${rand(6)}`,
+        kind: "pull_request",
+        normalized: {},
+      },
+    });
+    const row = await c.db.execution.create({
+      data: c.pl.executionData({
+        triggerType: "pull_request",
+        triggerKey: "pr",
+        refType: "pull_request",
+        refName: "pull/77",
+        pullRequestNumber: 77,
+        scanKind: "incremental",
+        scanKindReason: "pull_request",
+        concurrencyGroup: "pr:77",
+        scmEventId: event.id,
+        scmDeliveryId: event.deliveryId,
+        scmEventKind: "pull_request",
+        idempotencyKey: `scm:${event.deliveryId}:pull_request`,
+        requestedByUserId: null,
+      }),
+    });
+    return {
+      row,
+      drop: async () => {
+        await c.db.execution.delete({ where: { id: row.id } });
+        await c.db.scmEvent.delete({ where: { id: event.id } });
+      },
+    };
+  };
+  const prScope = (c, over) => ({
+    tenantId: c.x,
+    workspaceId: c.ws,
+    repositoryId: c.repo.id,
+    pipelineId: pipe(c).id,
+    pullRequestNumber: 77,
+    receivedUntil: new Date(Date.now() + 60000),
+    reason: "cancelled_pr_closed",
+    ...over,
+  });
+  E(
+    "router.cancelQueuedForPullRequest",
+    async (c) => {
+      const { row, drop } = await prFixture(c);
+      try {
+        const out = [
+          await RT(c).cancelQueuedForPullRequest(prScope(c, { tenantId: c.y })),
+          await RT(c).cancelQueuedForPullRequest(prScope(c, { repositoryId: c.repo2.id })),
+          await RT(c).cancelQueuedForPullRequest(
+            prScope(c, { workspaceId: "00000000-0000-4000-8000-000000000077" }),
+          ),
+          await RT(c).cancelQueuedForPullRequest(prScope(c, { pullRequestNumber: 78 })),
+          await RT(c).cancelQueuedForPullRequest(prScope(c, { receivedUntil: new Date(0) })),
+        ];
+        const now = await c.db.execution.findUnique({ where: { id: row.id } });
+        if (now.status !== "queued") out.push(`the queued request became ${now.status}`);
+        return out;
+      } finally {
+        await drop();
+      }
+    },
+    {
+      control: async (c) => {
+        const { drop } = await prFixture(c);
+        const cancelled = await RT(c).cancelQueuedForPullRequest(prScope(c, {}));
+        await drop();
+        return cancelled;
+      },
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

@@ -50,6 +50,8 @@ export const TRIGGER_DECISION_REASONS = Object.freeze([
   "workspace_archived",
   "pipeline_disabled",
   "trigger_disabled",
+  // not a policy skip: the pull request was closed, so its still-queued executions were cancelled (SPEC §5.4, §5.9b)
+  "cancelled_pr_closed",
 ]);
 
 /** What a trigger decision row is keyed by (SPEC §7.8): an SCM delivery, a nominal schedule slot, or a manual run. */

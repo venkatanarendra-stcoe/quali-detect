@@ -262,6 +262,7 @@ export function createPipelineTriggerHandler({ db, config, logger, clock = () =>
       baseRef: described.baseRef,
       pullRequestNumber: described.pullRequestNumber,
       scmEventId: scmEvent.id,
+      scmEventReceivedAt: scmEvent.createdAt,
       deliveryId: payload.deliveryId,
       messageId: message.messageId,
       initiator: { type: "scm", id: "github-webhook" },
@@ -275,8 +276,35 @@ export function createPipelineTriggerHandler({ db, config, logger, clock = () =>
     };
     const poison = [];
     const failures = [];
+    // A closed pull request (merged or not) never creates an execution (SPEC §5.4); it only cancels that pull request's
+    // still-queued requests, per pipeline, in the pipeline's own transaction (housekeeping, not subject to the trigger match).
+    const closedPullRequest = described.kind === "pull_request" && payload.action === "closed";
     for (const pipeline of pipelines) {
       const pctx = { ...ctx, pipeline };
+      if (closedPullRequest) {
+        try {
+          const result = await withTransaction(db, async (tx) => {
+            await repo.lockPipeline({ tenantId, pipelineId: pipeline.id }, tx);
+            return writer.cancelClosedPullRequest(tx, pctx);
+          });
+          bump(result.outcome);
+          if (result.cancelled > 0)
+            log?.info?.(
+              {
+                metric: "pipeline_trigger_decisions_total",
+                type: ctx.kind,
+                decision: result.outcome,
+                reason: "cancelled_pr_closed",
+                pipelineId: pipeline.id,
+                cancelled: result.cancelled,
+              },
+              "Queued pull request executions cancelled",
+            );
+        } catch (error) {
+          failures.push({ pipelineId: pipeline.id, error });
+        }
+        continue;
+      }
       try {
         const version = pipeline.currentConfig;
         if (!version) {

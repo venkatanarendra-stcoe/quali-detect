@@ -391,7 +391,13 @@ export function createPipelineRepository({ db }) {
     },
     countDecisionsSince: ({ tenantId, pipelineId, since }, client = db) =>
       client.pipelineTriggerDecision.count({
-        where: { tenantId, pipelineId, decidedAt: { gte: since } },
+        // a `cancelled_pr_closed` row is housekeeping, not a skipped event: it does not count as "skipped by policy"
+        where: {
+          tenantId,
+          pipelineId,
+          decidedAt: { gte: since },
+          reason: { not: "cancelled_pr_closed" },
+        },
       }),
   });
 }

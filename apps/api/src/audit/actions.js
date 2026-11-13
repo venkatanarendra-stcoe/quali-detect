@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   EXECUTION_BLOCKED: "execution.blocked",
   EXECUTION_SKIPPED: "execution.skipped",
   EXECUTION_CANCELLED_SUPERSEDED: "execution.cancelled_superseded",
+  EXECUTION_CANCELLED_PR_CLOSED: "execution.cancelled_pr_closed",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

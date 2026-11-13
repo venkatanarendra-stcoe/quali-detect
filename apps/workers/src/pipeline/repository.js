@@ -29,7 +29,7 @@ export function createRouterRepository({ db }) {
     findScmEvent: ({ tenantId, deliveryId, kind }, client = db) =>
       client.scmEvent.findFirst({
         where: { tenantId, deliveryId, kind },
-        select: { id: true, repositoryId: true },
+        select: { id: true, repositoryId: true, createdAt: true },
       }),
 
     /**
@@ -111,6 +111,62 @@ export function createRouterRepository({ db }) {
       for (const row of rows) {
         const done = await client.execution.updateMany({
           where: { id: row.id, tenantId, pipelineId, status: "queued" },
+          data: { status: "cancelled", statusReason: reason },
+        });
+        if (done.count === 1) cancelled.push(row);
+      }
+      return cancelled;
+    },
+
+    /**
+     * Cancels the still-`queued` requests of ONE pull request of ONE pipeline (a pull request closed on the SCM side,
+     * SPEC §5.4). Scoped by tenant, workspace, repository and pipeline plus the pull request number; running, terminal and
+     * every other request (other numbers, push, schedule, manual) are never selected, and the conditional update per row
+     * keeps a row that started in the meantime. Only requests caused by an SCM event received at or before `receivedUntil`
+     * (the closed event's own receipt time) are cancelled, so a redelivery of an old closed message never cancels a run
+     * requested after a reopen. Returns exactly what was cancelled, with the quota to give back.
+     * @returns {Promise<Array<{ id: string, triggerKey: string, quotaPeriod: string | null, quotaConsumed: number }>>}
+     */
+    async cancelQueuedForPullRequest(
+      { tenantId, workspaceId, repositoryId, pipelineId, pullRequestNumber, receivedUntil, reason },
+      client = db,
+    ) {
+      const rows = await client.execution.findMany({
+        where: {
+          tenantId,
+          workspaceId,
+          repositoryId,
+          pipelineId,
+          triggerType: "pull_request",
+          pullRequestNumber,
+          status: "queued",
+        },
+        orderBy: [{ requestedAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          triggerKey: true,
+          scmEventId: true,
+          quotaPeriod: true,
+          quotaConsumed: true,
+        },
+      });
+      const events = rows.length
+        ? await client.scmEvent.findMany({
+            where: {
+              tenantId,
+              repositoryId,
+              id: { in: rows.map((row) => row.scmEventId).filter(Boolean) },
+              createdAt: { lte: receivedUntil },
+            },
+            select: { id: true },
+          })
+        : [];
+      const early = new Set(events.map((event) => event.id));
+      const cancelled = [];
+      for (const row of rows) {
+        if (!early.has(row.scmEventId)) continue;
+        const done = await client.execution.updateMany({
+          where: { id: row.id, tenantId, workspaceId, repositoryId, pipelineId, status: "queued" },
           data: { status: "cancelled", statusReason: reason },
         });
         if (done.count === 1) cancelled.push(row);

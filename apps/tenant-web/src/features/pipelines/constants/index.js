@@ -141,6 +141,7 @@ export const DECISION_REASONS = Object.freeze({
   workspace_archived: "Workspace archived",
   pipeline_disabled: "Pipeline disabled",
   trigger_disabled: "Trigger disabled",
+  cancelled_pr_closed: "Pull request closed, queued run cancelled",
 });
 export const SOURCE_LABELS = Object.freeze({
   scm_event: "Webhook event",

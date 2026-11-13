@@ -25,6 +25,7 @@ export const AUDIT = Object.freeze({
   BLOCKED: "execution.blocked",
   SKIPPED: "execution.skipped",
   CANCELLED_SUPERSEDED: "execution.cancelled_superseded",
+  CANCELLED_PR_CLOSED: "execution.cancelled_pr_closed",
 });
 
 /** Statuses that make a request "in flight" for the `skip` concurrency policy (SPEC §5.8). */
@@ -266,6 +267,78 @@ export function createExecutionRequestWriter({ db, clock = () => new Date() }) {
   }
 
   /**
+   * A pull request was closed (merged or not): cancels the pipeline's still-`queued` requests of THAT pull request (status
+   * `cancelled`, reason `cancelled_pr_closed`), gives their quota back exactly once, audits each one and leaves ONE trigger
+   * decision row (reason `cancelled_pr_closed`, keyed by the delivery, so a redelivery adds nothing). Nothing is written when
+   * nothing was queued, which also makes a replay a no-op. Runs inside the caller's transaction and per-pipeline lock; the
+   * running and the terminal requests are never touched. `ctx.pullRequestNumber` and `ctx.scmEventReceivedAt` come from the closed event.
+   * @param {any} tx @param {any} ctx
+   * @returns {Promise<{ outcome: "pr_closed_cancelled" | "pr_closed_nothing_queued", cancelled: number }>}
+   */
+  async function cancelClosedPullRequest(tx, ctx) {
+    const reason = "cancelled_pr_closed";
+    const cancelled = await repo.cancelQueuedForPullRequest(
+      {
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        repositoryId: ctx.repositoryId,
+        pipelineId: ctx.pipeline.id,
+        pullRequestNumber: ctx.pullRequestNumber,
+        receivedUntil: ctx.scmEventReceivedAt,
+        reason,
+      },
+      tx,
+    );
+    if (cancelled.length === 0) return { outcome: "pr_closed_nothing_queued", cancelled: 0 };
+    for (const row of cancelled) {
+      if (row.quotaConsumed > 0 && row.quotaPeriod)
+        await entitlements.releaseQuota(
+          {
+            tenantId: ctx.tenantId,
+            quotaKey: QUOTA_KEYS.SCANS_MONTHLY,
+            amount: row.quotaConsumed,
+            periodKey: row.quotaPeriod,
+          },
+          tx,
+        );
+      await auditSystem(tx, {
+        tenantId: ctx.tenantId,
+        action: AUDIT.CANCELLED_PR_CLOSED,
+        targetType: "pipeline",
+        targetId: ctx.pipeline.id,
+        workspaceId: ctx.workspaceId,
+        correlationId: ctx.auditCorrelationId,
+        metadata: {
+          executionId: row.id,
+          triggerType: "pull_request",
+          refName: `pull/${ctx.pullRequestNumber}`,
+        },
+      });
+    }
+    await repo.createDecision(
+      {
+        tenantId: ctx.tenantId,
+        workspaceId: ctx.workspaceId,
+        repositoryId: ctx.repositoryId,
+        pipelineId: ctx.pipeline.id,
+        triggerType: "pull_request",
+        triggerKey: cancelled[0].triggerKey,
+        sourceType: "scm_event",
+        scmEventId: ctx.scmEventId,
+        scmDeliveryId: ctx.deliveryId,
+        scmEventKind: "pull_request",
+        reason,
+        refType: "pull_request",
+        refName: `pull/${ctx.pullRequestNumber}`,
+        pullRequestNumber: ctx.pullRequestNumber,
+        correlationId: ctx.correlationId,
+      },
+      tx,
+    );
+    return { outcome: "pr_closed_cancelled", cancelled: cancelled.length };
+  }
+
+  /**
    * Quota or entitlement refused: the `blocked` row, and ONE audit entry per pipeline, reason and UTC day (SPEC §5.9b).
    * `findExisting` answers whether the request of this event or slot already has a row (a duplicate).
    * @param {any} tx @param {any} ctx @param {QuotaBlocked} blocked @param {(tx: any) => Promise<unknown>} findExisting
@@ -306,5 +379,11 @@ export function createExecutionRequestWriter({ db, clock = () => new Date() }) {
     return { outcome: "blocked", reason: blocked.reason, executionId: row.id };
   }
 
-  return Object.freeze({ skipped, scanHistory, createRequest, recordBlocked });
+  return Object.freeze({
+    skipped,
+    scanHistory,
+    createRequest,
+    recordBlocked,
+    cancelClosedPullRequest,
+  });
 }

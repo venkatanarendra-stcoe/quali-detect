@@ -43293,7 +43293,8 @@
                 "repository_disabled",
                 "workspace_archived",
                 "pipeline_disabled",
-                "trigger_disabled"
+                "trigger_disabled",
+                "cancelled_pr_closed"
               ]
             },
             "required": false,
@@ -43368,7 +43369,8 @@
                               "repository_disabled",
                               "workspace_archived",
                               "pipeline_disabled",
-                              "trigger_disabled"
+                              "trigger_disabled",
+                              "cancelled_pr_closed"
                             ]
                           },
                           "sourceType": {

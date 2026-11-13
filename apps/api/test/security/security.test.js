@@ -38,7 +38,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 477;
+const EXPECTED_CHECKS = 482;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -7190,6 +7190,7 @@ const rtPr = ({
   head = "feature",
   fork = false,
   draft = false,
+  merged = false,
   sha = rtSha("c"),
 }) => ({
   action,
@@ -7199,7 +7200,7 @@ const rtPr = ({
   pull_request: {
     number,
     draft,
-    merged: false,
+    merged,
     user: { login: "dev" },
     base: { ref: base, sha: rtSha("d") },
     head: {
@@ -7284,6 +7285,9 @@ const rtWorld = () =>
       wk: base + 8,
       oth: base + 9,
       q: base + 10,
+      prc: base + 11,
+      prd: base + 12,
+      prw: base + 13,
     };
     const mk = async (cookie, repositoryId, label, config, enabled = true) => {
       const r = await pipCreate(cookie, repositoryId, { name: pipName(label), enabled, config });
@@ -7320,13 +7324,24 @@ const rtWorld = () =>
     const ws2 = await workspace(R.owner, "Router two");
     const account = orgAccount("rt");
     const user = ghUser();
-    const inWs1 = [ext.fan, ext.common, ext.fork, ext.bt, ext.st, ext.conc, ext.lc, ext.wk];
+    const inWs1 = [
+      ext.fan,
+      ext.common,
+      ext.fork,
+      ext.bt,
+      ext.st,
+      ext.conc,
+      ext.lc,
+      ext.wk,
+      ext.prc,
+      ext.prd,
+    ];
     const flow1 = await linkFlow(R.owner, {
       workspaceId: ws1,
       account,
       user,
       orgRole: "admin",
-      repos: [...inWs1, ext.oth].map(stubRepo),
+      repos: [...inWs1, ext.oth, ext.prw].map(stubRepo),
     });
     assert.equal(flow1.link?.status, 201, "fixture: link R workspace 1");
     const flow2 = await linkFlow(R.owner, {
@@ -7338,7 +7353,7 @@ const rtWorld = () =>
     });
     assert.equal(flow2.link?.status, 201, "fixture: link R workspace 2");
     const repoIds = { ...(await connectAll(R.owner, ws1, flow1, inWs1)) };
-    Object.assign(repoIds, await connectAll(R.owner, ws2, flow2, [ext.oth]));
+    Object.assign(repoIds, await connectAll(R.owner, ws2, flow2, [ext.oth, ext.prw]));
     R.inst = flow1.installationId;
 
     // tenant X connects the SAME GitHub repository id (`common`) through its own installation
@@ -7349,10 +7364,11 @@ const rtWorld = () =>
       account: orgAccount("rtx"),
       user: ghUser(),
       orgRole: "admin",
-      repos: [stubRepo(ext.common)],
+      repos: [stubRepo(ext.common), stubRepo(ext.prc)],
     });
     assert.equal(flowX.link?.status, 201, "fixture: link X");
-    const repoX = (await connectAll(X.owner, wsX, flowX, [ext.common]))[ext.common];
+    const repoXs = await connectAll(X.owner, wsX, flowX, [ext.common, ext.prc]);
+    const repoX = repoXs[ext.common];
     X.inst = flowX.installationId;
 
     // tenant Q: one scan per month
@@ -7440,6 +7456,30 @@ const rtWorld = () =>
     const lc = await mk(own, repoIds[ext.lc], "lifecycle", pipCfg());
     const wk = await mk(own, repoIds[ext.wk], "webhook-states", pipCfg());
     const oth = await mk(own, repoIds[ext.oth], "workspace-two", pipCfg());
+    // closed pull request housekeeping (PIP-056..059): R has two pipelines with a pull_request trigger on `prc` (supersede and
+    // queue policy) and one without, a pipeline on another repository of the same workspace (`prd`) and one in the other
+    // workspace (`prw`); tenant X connects the same GitHub repository id as `prc`
+    const prTriggers = [
+      { key: "push", type: "push" },
+      { key: "pr", type: "pull_request" },
+      { key: "manual", type: "manual" },
+    ];
+    const pr = {
+      a: await mk(own, repoIds[ext.prc], "pr-supersede", pipCfg({ triggers: prTriggers })),
+      b: await mk(
+        own,
+        repoIds[ext.prc],
+        "pr-queue",
+        pipCfg({
+          triggers: prTriggers,
+          execution: { concurrency: { policy: "queue", maxQueued: 10 } },
+        }),
+      ),
+      c: await mk(own, repoIds[ext.prc], "pr-no-trigger", pipCfg()),
+      d: await mk(own, repoIds[ext.prd], "pr-other-repo", pipCfg({ triggers: prTriggers })),
+      w: await mk(own, repoIds[ext.prw], "pr-other-workspace", pipCfg({ triggers: prTriggers })),
+      x: await mk(X.owner, repoXs[ext.prc], "pr-other-tenant", pipCfg({ triggers: prTriggers })),
+    };
     const q = await mk(
       Q.owner,
       repoQ,
@@ -7470,6 +7510,7 @@ const rtWorld = () =>
       lc,
       wk,
       oth,
+      pr,
       q,
     };
   });
@@ -8257,6 +8298,296 @@ const rtId = (x, name) => x.repoIds[x.ext[name]];
         problems.push("a late event was not recorded as stale_event");
       if (late[1].status !== "queued") problems.push("a stale event cancelled the newer request");
       if ((await rtUsed(x.R.id)) !== used0 + 3) problems.push("a stale event consumed quota");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  // ---- closed pull request housekeeping (owner decision 2026-11-13, SPEC §5.4, §5.9, §5.9b, §7.8): a closed event never
+  //      creates a run; it cancels the still-queued runs of that pull request, per pipeline, and records cancelled_pr_closed
+  const prOpen = (x, repo, number, opts = {}) =>
+    rtEvent("pull_request", { inst: x.R.inst, repo: x.ext[repo], number, ...opts });
+  const prClose = (x, repo, number, opts = {}) =>
+    rtEvent(
+      "pull_request",
+      { inst: x.R.inst, repo: x.ext[repo], number, action: "closed", ...opts },
+      { route: opts.route },
+    );
+  const prRows = async (pipelines) =>
+    JSON.stringify(
+      await Promise.all(
+        pipelines.map(async (p) =>
+          (await rtExecs(p.id)).map((e) => [e.id, e.status, e.statusReason, e.quotaConsumed]),
+        ),
+      ),
+    );
+  const prCloseDecisions = (pipelineId, where = {}) =>
+    rtDecisions(pipelineId, { reason: "cancelled_pr_closed", ...where });
+  const prCloseAudits = (tenantId, where = {}) =>
+    suiteDb().auditLog.findMany({
+      where: { tenantId, action: "execution.cancelled_pr_closed", ...where },
+    });
+  /** Opens PR `n` twice on the `prc` pipelines, then makes one run of each pipeline running / succeeded. */
+  async function prSetup(x, n) {
+    const db = suiteDb();
+    await prOpen(x, "prc", n, { sha: rtSha("1") });
+    const first = {
+      a: (await rtExecs(x.pr.a.id, { pullRequestNumber: n }))[0],
+      b: (await rtExecs(x.pr.b.id, { pullRequestNumber: n }))[0],
+    };
+    await db.execution.updateMany({ where: { id: first.a.id }, data: { status: "running" } });
+    await db.execution.updateMany({ where: { id: first.b.id }, data: { status: "succeeded" } });
+    await prOpen(x, "prc", n, { action: "synchronize", sha: rtSha("2") });
+    await prOpen(x, "prc", n, { action: "synchronize", sha: rtSha("3") });
+    return first;
+  }
+  add(
+    "PIP-056",
+    "a closed pull request (merged or not) cancels exactly the still-queued runs of that pull request in each pipeline of that repository (reason cancelled_pr_closed, quota unit given back once, audited, one decision row per pipeline keyed by the delivery) and never a running or finished run, another pull request, a push run, a pipeline without the pull request, a run superseded earlier, or a new run; the closed event creates no execution",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const mine = [x.pr.a, x.pr.b, x.pr.c];
+      await prSetup(x, 51);
+      await prOpen(x, "prc", 52);
+      await rtEvent("push", { inst: x.R.inst, repo: x.ext.prc, after: rtSha("4") });
+      const before = await Promise.all(mine.map((p) => rtExecs(p.id)));
+      const queued51 = (list) =>
+        list.filter((e) => e.pullRequestNumber === 51 && e.status === "queued");
+      const expectCancelled = [...queued51(before[0]), ...queued51(before[1])];
+      if (queued51(before[0]).length !== 1 || queued51(before[1]).length !== 2)
+        problems.push("fixture: expected 1 + 2 queued runs of PR 51");
+      const superseded = before[0].filter((e) => e.statusReason === "superseded");
+      if (superseded.length !== 1)
+        problems.push("fixture: the supersede pipeline did not supersede");
+      const used0 = await rtUsed(x.R.id);
+      const auditsBefore = (await prCloseAudits(x.R.id)).length;
+      const closed = await prClose(x, "prc", 51);
+      if (!closed.consumed?.ok) problems.push(`not routed: ${closed.consumed?.reason}`);
+      const after = await Promise.all(mine.map((p) => rtExecs(p.id)));
+      if (after.map((l) => l.length).join() !== before.map((l) => l.length).join())
+        problems.push("the closed event created or removed execution rows");
+      const byId = new Map(after.flat().map((e) => [e.id, e]));
+      for (const e of expectCancelled) {
+        const now = byId.get(e.id);
+        if (now?.status !== "cancelled" || now.statusReason !== "cancelled_pr_closed")
+          problems.push(`queued run ${e.id} of PR 51 was not cancelled with cancelled_pr_closed`);
+      }
+      for (const e of before.flat()) {
+        if (expectCancelled.some((c) => c.id === e.id)) continue;
+        const now = byId.get(e.id);
+        if (now.status !== e.status || now.statusReason !== e.statusReason)
+          problems.push(
+            `${e.status} run of ${e.pullRequestNumber ?? e.triggerType} changed to ${now.status} (it must not)`,
+          );
+      }
+      if (!after[0].some((e) => e.status === "running")) problems.push("the running run vanished");
+      if (!after[1].some((e) => e.status === "succeeded"))
+        problems.push("the finished run vanished");
+      if (!after.flat().some((e) => e.pullRequestNumber === 52 && e.status === "queued"))
+        problems.push("control: PR 52 lost its queued run");
+      if (!after.flat().some((e) => e.triggerType === "push" && e.status === "queued"))
+        problems.push("control: the push run was cancelled");
+      if ((await rtUsed(x.R.id)) !== used0 - expectCancelled.length)
+        problems.push(`the quota was not given back exactly once per cancelled run`);
+      for (const e of expectCancelled) if (e.quotaConsumed !== 1) problems.push("fixture: quota");
+      const decA = await prCloseDecisions(x.pr.a.id, { scmDeliveryId: closed.deliveryId });
+      const decB = await prCloseDecisions(x.pr.b.id, { scmDeliveryId: closed.deliveryId });
+      for (const d of [...decA, ...decB])
+        if (
+          d.sourceType !== "scm_event" ||
+          d.triggerType !== "pull_request" ||
+          d.triggerKey !== "pr" ||
+          d.pullRequestNumber !== 51 ||
+          d.refName !== "pull/51" ||
+          d.decision !== "skipped_by_policy" ||
+          d.tenantId !== x.R.id
+        )
+          problems.push("a cancelled_pr_closed decision row has the wrong shape");
+      if (decA.length !== 1 || decB.length !== 1)
+        problems.push(`decision rows: ${decA.length} and ${decB.length}, expected one each`);
+      if ((await prCloseDecisions(x.pr.c.id)).length)
+        problems.push("a pipeline without a PR run got a decision row");
+      const audits = await prCloseAudits(x.R.id);
+      if (audits.length - auditsBefore !== expectCancelled.length)
+        problems.push("one audit entry per cancelled run was not written");
+      // a merged pull request cancels too, and a closed event for a number nobody queued writes nothing
+      await prOpen(x, "prc", 53);
+      const q53 = (await rtExecs(x.pr.a.id, { pullRequestNumber: 53, status: "queued" })).length;
+      const merged = await prClose(x, "prc", 53, { merged: true });
+      const left = await rtExecs(x.pr.a.id, { pullRequestNumber: 53, status: "queued" });
+      if (q53 !== 1 || !merged.consumed?.ok || left.length)
+        problems.push("a merged pull request did not cancel its queued run");
+      const nothing = await prClose(x, "prc", 9999);
+      if (
+        !nothing.consumed?.ok ||
+        (await rtDecisions(x.pr.a.id, { scmDeliveryId: nothing.deliveryId })).length
+      )
+        problems.push("a closed event with nothing queued wrote a decision row");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-057",
+    "closed pull request housekeeping is idempotent: handing the same closed message to the router again, or twice at the same time, changes nothing (no second decision row, audit entry, quota release or status change), and a run requested after the close for the same number is a new run that the old closed event does not cancel on replay",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const problems = [];
+      const mine = [x.pr.a, x.pr.b];
+      await prSetup(x, 61);
+      const closed = await prClose(x, "prc", 61);
+      if (!closed.consumed?.ok) problems.push(`not routed: ${closed.consumed?.reason}`);
+      const snap = async () =>
+        JSON.stringify([
+          await prRows(mine),
+          await rtUsed(x.R.id),
+          (await prCloseDecisions(x.pr.a.id, { pullRequestNumber: 61 })).length,
+          (await prCloseDecisions(x.pr.b.id, { pullRequestNumber: 61 })).length,
+          (await prCloseAudits(x.R.id)).length,
+        ]);
+      const once = await snap();
+      for (let i = 0; i < 2; i += 1) {
+        const again = await rtConsume(closed.envelope);
+        if (!again.ok) problems.push(`replay ${i} was refused: ${again.reason}`);
+      }
+      const race = await Promise.all([rtConsume(closed.envelope), rtConsume(closed.envelope)]);
+      if (race.some((r) => !r.ok)) problems.push("a concurrent replay failed");
+      if ((await snap()) !== once) problems.push("a replay of the closed message changed state");
+      // control: the first handling really did the work
+      if (JSON.parse(once)[2] !== 1 || JSON.parse(once)[3] !== 1)
+        problems.push("control: the first handling wrote no decision rows");
+      // a later run of the same pull request (reopened) is new work, the replay must not cancel it
+      await prOpen(x, "prc", 61, { action: "reopened", sha: rtSha("5") });
+      const reopened = (await rtExecs(x.pr.a.id, { pullRequestNumber: 61, status: "queued" }))
+        .length;
+      await rtConsume(closed.envelope);
+      const still = (await rtExecs(x.pr.a.id, { pullRequestNumber: 61, status: "queued" })).length;
+      if (reopened !== 1 || still !== 1)
+        problems.push("a replay of an old closed event cancelled a run requested after it");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-058",
+    "closed pull request housekeeping never crosses tenants, workspaces or repositories: the same pull request number queued on another repository of the same workspace, on a repository of another workspace and on the same GitHub repository id of another tenant is untouched (runs, quota, decision rows, audit) by a closed event, in both directions, and a message that names another tenant's repository is refused",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const n = 71;
+      await prOpen(x, "prc", n);
+      await prOpen(x, "prd", n);
+      await prOpen(x, "prw", n);
+      const opened = await rtEvent("pull_request", { inst: x.X.inst, repo: x.ext.prc, number: n });
+      const foreign = [x.pr.d, x.pr.w, x.pr.x];
+      const queuedOf = async (p) =>
+        (await rtExecs(p.id, { pullRequestNumber: n, status: "queued" })).length;
+      for (const p of [x.pr.a, x.pr.d, x.pr.w, x.pr.x])
+        if ((await queuedOf(p)) !== 1) problems.push("fixture: a queued run of the PR is missing");
+      const foreignBefore = await prRows(foreign);
+      const usedX = await rtUsed(x.X.id);
+      const auditX = (await prCloseAudits(x.X.id)).length;
+      // R closes PR n of prc
+      const usedR = await rtUsed(x.R.id);
+      const r1 = await prClose(x, "prc", n);
+      if (!r1.consumed?.ok) problems.push(`not routed: ${r1.consumed?.reason}`);
+      if ((await queuedOf(x.pr.a)) !== 0 || (await queuedOf(x.pr.b)) !== 0)
+        problems.push("control: the repository's own queued runs were not cancelled");
+      if ((await rtUsed(x.R.id)) >= usedR) problems.push("control: R's quota was not released");
+      if ((await prRows(foreign)) !== foreignBefore)
+        problems.push("a closed event touched a run of another repository, workspace or tenant");
+      if ((await rtUsed(x.X.id)) !== usedX) problems.push("another tenant's quota changed");
+      if ((await prCloseAudits(x.X.id)).length !== auditX)
+        problems.push("an audit entry appeared for another tenant");
+      for (const p of foreign)
+        if ((await prCloseDecisions(p.id)).length)
+          problems.push("a decision row appeared on a foreign pipeline");
+      // the other direction: tenant X closes the same number on the same GitHub repository id
+      await prOpen(x, "prc", n, { action: "reopened", sha: rtSha("6") });
+      const rBefore = await prRows([x.pr.a, x.pr.b, x.pr.d, x.pr.w]);
+      const closedX = await rtEvent("pull_request", {
+        inst: x.X.inst,
+        repo: x.ext.prc,
+        number: n,
+        action: "closed",
+      });
+      if (!closedX.consumed?.ok)
+        problems.push(`X's close was not routed: ${closedX.consumed?.reason}`);
+      if ((await queuedOf(x.pr.x)) !== 0) problems.push("control: X's own run was not cancelled");
+      if ((await prRows([x.pr.a, x.pr.b, x.pr.d, x.pr.w])) !== rBefore)
+        problems.push("X's closed event touched tenant R's runs");
+      if (opened.deliveryId === closedX.deliveryId) problems.push("fixture: same delivery");
+      // forged messages: a repository of another tenant, and a tenant id that does not own the repository
+      const forgedRepo = structuredClone(r1.envelope);
+      forgedRepo.payload.repositoryId = x.repoX;
+      const forgedTenant = structuredClone(r1.envelope);
+      forgedTenant.tenantId = x.X.id;
+      for (const [label, envelope] of [
+        ["another tenant's repository", forgedRepo],
+        ["another tenant's id", forgedTenant],
+      ]) {
+        const refused = await rtConsume(envelope);
+        if (refused.ok) problems.push(`a message with ${label} was accepted`);
+      }
+      if ((await prRows([x.pr.a, x.pr.b, x.pr.d, x.pr.w])) !== rBefore)
+        problems.push("a forged message changed tenant R's runs");
+      if (
+        (await db.pipelineTriggerDecision.count({
+          where: {
+            reason: "cancelled_pr_closed",
+            scmDeliveryId: closedX.deliveryId,
+            tenantId: x.R.id,
+          },
+        })) !== 0
+      )
+        problems.push("X's delivery left a decision row in tenant R");
+      return { status: 200, json: null, problems };
+    },
+    (r) => r.problems,
+  );
+  add(
+    "PIP-059",
+    "closed pull request housekeeping respects the lifecycle gates: a suspended tenant is refused (nothing cancelled, no row), a disabled pipeline's queued run of the closed pull request is still cancelled, the closed event itself never consumes quota or creates a run, and the legitimate path works once the tenant is active again",
+    { status: 200 },
+    async () => {
+      const x = await rtWorld();
+      const db = suiteDb();
+      const problems = [];
+      const n = 81;
+      await prOpen(x, "prc", n);
+      const closed = await prClose(x, "prc", n, { route: false });
+      const queued = () => rtExecs(x.pr.a.id, { pullRequestNumber: n, status: "queued" });
+      if ((await queued()).length !== 1) problems.push("fixture: no queued run");
+      const used0 = await rtUsed(x.R.id);
+      try {
+        await db.tenant.update({ where: { id: x.R.id }, data: { status: "suspended" } });
+        const refused = await rtConsume(closed.envelope);
+        if (refused.ok || refused.reason !== "tenant-not-usable")
+          problems.push(`suspended: the consumer answered ${refused.reason ?? "accepted"}`);
+        if ((await queued()).length !== 1) problems.push("suspended: the run was cancelled");
+        if ((await prCloseDecisions(x.pr.a.id, { scmDeliveryId: closed.deliveryId })).length)
+          problems.push("suspended: a decision row was written");
+      } finally {
+        await db.tenant.update({ where: { id: x.R.id }, data: { status: "active" } });
+      }
+      if ((await rtUsed(x.R.id)) !== used0) problems.push("suspended: quota changed");
+      await db.pipeline.update({ where: { id: x.pr.a.id }, data: { enabled: false } });
+      try {
+        const ok = await rtConsume(closed.envelope);
+        if (!ok.ok) problems.push(`control: the active tenant was refused (${ok.reason})`);
+        if ((await queued()).length !== 0)
+          problems.push("a disabled pipeline kept the run of a closed pull request queued");
+        if ((await rtUsed(x.R.id)) !== used0 - 2)
+          problems.push("the quota units of the two cancelled runs were not given back once each");
+        const created = await rtExecs(x.pr.a.id, { scmDeliveryId: closed.deliveryId });
+        if (created.length) problems.push("the closed event created an execution");
+      } finally {
+        await db.pipeline.update({ where: { id: x.pr.a.id }, data: { enabled: true } });
+      }
       return { status: 200, json: null, problems };
     },
     (r) => r.problems,

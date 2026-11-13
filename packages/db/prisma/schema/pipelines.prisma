@@ -81,6 +81,7 @@ enum TriggerDecisionReason {
   workspace_archived
   pipeline_disabled
   trigger_disabled
+  cancelled_pr_closed
 
   @@map("trigger_decision_reason")
 }

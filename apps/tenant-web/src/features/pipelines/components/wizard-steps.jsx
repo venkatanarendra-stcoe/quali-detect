@@ -1,5 +1,6 @@
 import { PIPELINE_SCAN_TYPES, PIPELINE_SEVERITIES } from "@qmentisai/shared";
 import { ShieldCheck } from "lucide-react";
+import { Controller } from "react-hook-form";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
@@ -18,7 +19,7 @@ export function BasicsStep({
   editing,
   nameError,
 }) {
-  const { register, formState, watch } = form;
+  const { register, formState, watch, control } = form;
   const e = formState.errors;
   const repositoryId = watch("repositoryId");
   return (
@@ -36,18 +37,28 @@ export function BasicsStep({
             {repositoryName ?? repositoryId}
           </div>
         ) : (
-          <Select
-            id="pl-repository"
-            {...register("repositoryId")}
-            aria-invalid={Boolean(e.repositoryId)}
-          >
-            <option value="">Choose a repository</option>
-            {repositories.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.fullName}
-              </option>
-            ))}
-          </Select>
+          <Controller
+            name="repositoryId"
+            control={control}
+            render={({ field }) => (
+              <Select
+                id="pl-repository"
+                name={field.name}
+                ref={field.ref}
+                value={field.value ?? ""}
+                onChange={(ev) => field.onChange(ev.target.value)}
+                onBlur={field.onBlur}
+                aria-invalid={Boolean(e.repositoryId)}
+              >
+                <option value="">Choose a repository</option>
+                {repositories.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.fullName}
+                  </option>
+                ))}
+              </Select>
+            )}
+          />
         )}
       </Field>
       {!repositoryLocked && repositories.length === 0 ? (

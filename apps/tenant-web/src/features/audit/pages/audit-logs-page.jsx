@@ -122,7 +122,7 @@ export function AuditLogsPage() {
             >
               <option value="">All actors</option>
               {(users.data ?? []).map((u) => (
-                <option key={u.id} value={u.id}>
+                <option key={u.userId} value={u.userId}>
                   {u.name}
                 </option>
               ))}

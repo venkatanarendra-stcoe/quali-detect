@@ -236,6 +236,22 @@ export function Combobox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeIndex]);
 
+  /* Escape must close only the listbox: enclosing Radix dialogs/sheets listen for Escape on `document` in the capture
+     phase, so claim the key earlier, on `window` in the capture phase, while this listbox is open. */
+  const closeRef = useRef(closePopup);
+  closeRef.current = closePopup;
+  useEffect(() => {
+    if (!open) return undefined;
+    const onEscape = (e) => {
+      if (e.key !== "Escape" || document.activeElement !== inputRef.current) return;
+      e.stopPropagation();
+      e.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener("keydown", onEscape, true);
+    return () => window.removeEventListener("keydown", onEscape, true);
+  }, [open]);
+
   const select = (option) => {
     if (!option || option.disabled || disabled) return;
     setSeen((s) => ({ ...s, [option.value]: option }));

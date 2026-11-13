@@ -224,6 +224,10 @@ Every tenant page renders inside `AppPageLayout` (`@qmentisai/ui`); the shell (`
 - **Wizards** (Create pipeline, Connect repository): `AppPageLayout scroll={false}` hosting `<WizardLayout fill>` without a `title` (the page header is the only header).
 - Menus, tooltips and dialogs opened from table rows are portaled, so the internal scroller never clips them. Clicks that bubble from portaled content to a row do not activate the row.
 
+### Audit-log terminal (`AuditTerminal`, 2026-11-13)
+
+`@qmentisai/ui` exports `AuditTerminal` (with `TerminalMessage` and `TerminalResult`) for audit logs only (owner exception recorded in `DESIGN_SYSTEM.md`: whole-row mono, always-dark panel in both themes, neutral tokens). It is a native `<table>` styled as a log (cells keep their column headers for screen readers), placed in `AppPageLayout scroll={false}` where it fills the space and scrolls rows internally with the sticky prompt line and column header and the thin fading scrollbar. Rows are a roving-tabindex set: Tab enters once, ArrowUp/ArrowDown move, Home/End jump, Enter or Space opens the detail; a click opens it after 220 ms unless text is being selected (drag, double or triple click). "Load more" is a real button styled as a `-- more --` line, moves focus to the first new row and announces "More rows loaded". Loading, empty, error and unauthorized states are slots rendered inside the panel. The detail opens in a normal-themed side sheet (`components/ui/sheet.jsx`) whose close returns focus to the row.
+
 ### Root Console page frames and tables (2026-11-13)
 
 The Root Console uses the same primitives as the tenant frame above: shell `h-dvh overflow-hidden`, every page in `AppPageLayout offset="7.5rem"` (1.5 rem environment strip + 3 rem top bar + 3 rem padding), list pages as `AppPageLayout scroll={false}` + `QueryTable` (`DataTable height="fill"`), the wizard as `<WizardLayout fill>`, and `scroll.css` imported by its entry so `.qm-scroll` (smooth, thin fading scrollbar, reduced-motion aware) covers `main`, the content region, the table scroller and the sidebar. Details: `ROOT_CONSOLE_DESIGN.md` §5.

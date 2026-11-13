@@ -9,11 +9,11 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 | T-08 | Create workspace | `/workspaces/new` | `workspace.create` | `POST /workspaces`, then `POST /workspaces/{id}/role-assignments` per grant |
 | T-40 | Members & groups | `/workspaces/{id}/members` | `workspace.view` | `GET …/members`, `GET …/role-assignments`, `POST/DELETE …` |
 | T-44 | Workspace settings | `/workspaces/{id}/settings` | `workspace.update` | `GET/PATCH /workspaces/{id}`, `POST …/archive`, `POST …/restore` |
-| T-19 | Audit logs | `/audit-logs` | `audit_log.view_all` | `GET /audit-logs` (actor, action, from, to, result, sort in the URL; "Load more" with `cursor`/`limit`, no total or page count shown, `INVALID_CURSOR` restarts from the first page with a toast) |
-| R-04 | Tenants list | `/tenants` | `platform.tenant.view` | `GET /platform/tenants` (`cursor`/`limit` available for "Load more"; offset paging unchanged) |
+| T-19 | Audit logs | `/audit-logs` | `audit_log.view_all` | `GET /audit-logs` (actor, action, from, to, result, sort in the URL; "Load more" with `cursor`/`limit`, no total or page count shown, `INVALID_CURSOR` restarts from the first page with a toast; rendered as the audit-log terminal, see "T-19 as built") |
+| R-04 | Tenants list | `/tenants` | `platform.tenant.view` | `GET /platform/tenants` (R-04 uses cursor "Load more": `limit` on the first request, `cursor` from `meta.pagination.nextCursor`; no total or pager is shown; search, status, plan and sort stay in the URL) |
 | R-05 | Provision tenant | `/tenants/new` | `platform.tenant.create` | `POST /platform/tenants`, `GET /platform/plans` |
 | R-06 | Tenant detail | `/tenants/{id}` | `platform.tenant.view` | `GET /platform/tenants/{id}`, `POST …/suspend|reactivate|deactivate` |
-| R-28 | Platform audit logs | `/audit-logs` | `platform.audit_log.view` | `GET /platform/audit-logs` (actor, action, tenantId, from, to, result, sort, page in the URL; `cursor`/`limit` available for "Load more", offset paging unchanged) |
+| R-28 | Platform audit logs | `/audit-logs` | `platform.audit_log.view` | `GET /platform/audit-logs` (actor, action, tenantId, from, to, result, sort in the URL; cursor "Load more", no total or pager, no `page` param) |
 
 ## Deviations from the design documents (what is not built, and why)
 - **Workspaces list columns:** Repositories, Pipelines, Open findings and Last activity need modules that do not exist yet. Shown: Name, Business unit, Owner, Members, Status, Created.
@@ -39,3 +39,15 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 ## T-19 and R-28 audit log screens (2026-11-11)
 
 No wireframe specs exist for these screens, so they follow `TENANT_APPLICATION_DESIGN.md` §3.16 ("time, actor, action, resource, outcome, correlation ID; filters") and the Root Console list conventions. Table: Time (sortable, newest first), Actor (name and e-mail), Action (sortable), Resource (type and id), Result, Correlation ID, and a Details disclosure (changes, metadata, IP address). R-28 adds a Tenant column. Filters: action, actor, result, date range (and tenant for R-28). Loading, empty (no entries / no matches), error and unauthorized states exist; export is not built (Planned). **Result is derived**: the audit tables record events, not outcomes, so entries whose action ends in `_failed`, `_denied` or `throttle_cap_reached` read as failures and all others as successes (Open: store an explicit result). The tenant API always uses the session's tenant and rejects any tenant parameter; the platform API never shows a tenant's own audit log.
+
+## R-04 and R-28 "Load more" (2026-11-13)
+
+R-04 Tenants and R-28 Platform audit logs show no total ("N tenants", "N entries") and no page-number pager. The first request carries `limit` (20 and 25) and no cursor; the footer button **Load more** requests the next page with `meta.pagination.nextCursor` and appends the rows (`apps/root-console/src/hooks/use-cursor-list.js`); it disappears when `nextCursor` is `null`. Filters and sort are part of the query key, so changing one starts a new list at the first page. `400 INVALID_CURSOR` restarts from the first page with a Sonner toast. Focus moves to the first new row and a polite status says "More rows loaded". Cursors are scoped to the platform principal by the API. Other Root Console lists are planned modules without data yet.
+
+## T-19 as built: audit-log terminal (2026-11-13)
+
+Owner decision (item 6, option 2): the tenant audit log is the `AuditTerminal` (`@qmentisai/ui`; exception recorded in `DESIGN_SYSTEM.md` "Audit-log terminal exception"). A dark, monospace panel in both app themes with the prompt line `<tenant-slug>@qmentisai:~$ tail -f audit.log` (slug from `GET /me` `tenant.slug` via `useSession`) and a sticky header. Columns: timestamp (local `YYYY-MM-DD HH:mm:ss`, sortable; tooltip with the long date), actor (name and e-mail), action (sortable), target (type and id), result (icon plus `success` or `failure`; the component also supports `denied`, unused because the API result is derived). The correlation ID column is no longer in the list: it is in the detail sheet. Filters (action, actor, result, from, to) and sort stay in the URL; the footer is a `-- more --` button for cursor Load more; states are loading, empty (no entries / no matches with `-- clear filters --`), error (with reference and `-- retry --`) and unauthorized (`Permission denied`).
+
+Activating a row (click, Enter or Space) opens a **detail side sheet** (new `components/ui/sheet.jsx`, normal app theme, focus trap, Escape and close button, focus returns to the row) with action, time, result, actor, resource, correlation ID, IP address and the changes and metadata JSON. The inline "Details" disclosure was removed.
+
+**Export is NOT built (still Planned).** There is no export button, client-side export or export endpoint; nothing was added for it.

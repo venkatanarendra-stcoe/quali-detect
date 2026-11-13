@@ -34,6 +34,43 @@ This document is the common design reference for Claude Code and other AI coding
 
 Rule of thumb: if more than ~5% of a screen's pixels are mint, remove some.
 
+### Audit-log terminal exception (owner-approved, 2026-11-13)
+
+**Decision (owner, 2026-11-13, Confirmed, item 6 option 2):** the audit log (T-19, later R-28) may render as a terminal. Inside the `AuditTerminal` component of `@qmentisai/ui` ONLY, (1) the whole row is set in the mono font and (2) the panel is **always dark in both the light and the dark app theme**. Every other rule is unchanged: mono stays limited to identifiers, code and terminal output everywhere else; the accent (mint by default) is **not** used for terminal text (no green-on-black palette) and keeps its three spots; severity and status tokens keep their meaning. The component has real selectable text (no ASCII art, no canvas), is a native table styled as a log, and shows a prompt line `<tenant-slug>@qmentisai:~$` plus a sticky column header.
+
+**Tokens** (scoped to `.qm-terminal` in `packages/ui/src/terminal.css`; identical in both themes; neutral, no accent hue):
+
+| Token | Value | Use |
+|---|---|---|
+| `--term-surface` | `#0b0d10` | Panel and row background |
+| `--term-header` | `#111418` | Prompt line, sticky column header, footer |
+| `--term-text` | `#e6ebee` | Row text |
+| `--term-muted` | `#a1abb2` | Column headers, secondary text, command |
+| `--term-prompt` | `#f4f7f8` | Prompt label (bold; neutral white, not the accent) |
+| `--term-border` | `#272d33` | Row and section separators (decorative) |
+| `--term-edge` | `#68737c` | Panel outline (UI boundary) |
+| `--term-row-hover` | `#171b20` | Row hover |
+| `--term-row-selected` | `#1e2429` | Selected row (plus a 2 px marker and `aria-selected`) |
+| `--term-focus` | `#f4f7f8` | Focus ring (2 px outline, neutral) |
+| `--term-success` / `--term-failure` / `--term-denied` | `#4ade80` / `#ff4d5a` / `#f5c451` | Result text and icon: the dark-theme `--status-success`, `--status-danger`, `--status-warning` values. They already pass on the panel, so no extra variants were needed |
+
+Results are always an icon plus a text label (check / x / alert-circle + `success` / `failure` / `denied`), never colour alone.
+
+**Measured contrast** (WCAG 2.x relative luminance, script `item6/contrast.mjs` in the working scratchpad; requirement: text >= 4.5:1, focus and UI boundaries >= 3:1):
+
+| Foreground | surface | header | row hover | row selected | Requirement |
+|---|---|---|---|---|---|
+| `--term-text` `#e6ebee` | 16.20 | 15.37 | 14.40 | 13.05 | 4.5 pass |
+| `--term-muted` `#a1abb2` | 8.32 | 7.90 | 7.40 | 6.71 | 4.5 pass |
+| `--term-prompt` `#f4f7f8` | 18.07 | 17.15 | 16.07 | 14.56 | 4.5 pass |
+| success `#4ade80` | 11.17 | 10.60 | 9.93 | 9.00 | 4.5 pass |
+| failure `#ff4d5a` | 5.99 | 5.68 | 5.32 | 4.82 | 4.5 pass (the first selected tone `#232a31` gave 4.47 and was darkened) |
+| denied `#f5c451` | 11.95 | 11.34 | 10.62 | 9.63 | 4.5 pass |
+| focus ring `#f4f7f8` | 18.07 | 17.15 | 16.07 | 14.56 | 3 pass |
+| panel outline `#68737c` | 4.01 (vs surface) | | | | 3 pass |
+
+The panel against the light page canvas (`#f5f7f7`) is 18.10:1 and against the dark canvas (`#080a0d`) is separated by the 1 px `--term-edge` outline. The thin scrollbar thumb inside the panel uses the muted token (`#a1abb2` at 60%). `prefers-reduced-motion` removes the loading pulse and smooth scrolling.
+
 ---
 
 ## 2. Color tokens

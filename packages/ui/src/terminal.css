@@ -1,0 +1,192 @@
+/*
+ * Audit-log terminal (owner-approved exception, 2026-11-13; DESIGN_SYSTEM.md "Audit-log terminal exception").
+ * An ALWAYS-DARK panel in both app themes with whole-row monospace, used ONLY by `AuditTerminal`. The tokens are
+ * neutral (the accent is never used for terminal text). Contrast values are recorded in DESIGN_SYSTEM.md.
+ */
+.qm-terminal {
+  --term-surface: #0b0d10;
+  --term-header: #111418;
+  --term-text: #e6ebee;
+  --term-muted: #a1abb2;
+  --term-prompt: #f4f7f8;
+  --term-border: #272d33;
+  --term-edge: #68737c;
+  --term-row-hover: #171b20;
+  --term-row-selected: #1e2429;
+  --term-focus: #f4f7f8;
+  --term-success: #4ade80;
+  --term-failure: #ff4d5a;
+  --term-denied: #f5c451;
+
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--term-edge);
+  border-radius: 6px;
+  background: var(--term-surface);
+  color: var(--term-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color-scheme: dark;
+}
+.qm-terminal-prompt {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--term-border);
+  background: var(--term-header);
+  padding: 0.5rem 0.75rem;
+  overflow-wrap: anywhere;
+}
+.qm-terminal-prompt-label {
+  color: var(--term-prompt);
+  font-weight: 600;
+}
+.qm-terminal-prompt-cmd {
+  color: var(--term-muted);
+}
+.qm-terminal-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  /* the shared .qm-scroll thumb colour reads --muted-foreground, which follows the app theme; pin it for the panel */
+  --muted-foreground: #a1abb2;
+}
+.qm-terminal table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.qm-terminal th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--term-border);
+  background: var(--term-header);
+  padding: 0.375rem 0.75rem;
+  text-align: left;
+  font-weight: 500;
+  color: var(--term-muted);
+  white-space: nowrap;
+}
+.qm-terminal th button {
+  all: unset;
+  display: inline-flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 2px;
+}
+.qm-terminal th button:hover {
+  color: var(--term-text);
+}
+.qm-terminal td {
+  border-bottom: 1px solid var(--term-border);
+  padding: 0.375rem 0.75rem;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.qm-terminal tbody tr {
+  outline: none;
+  cursor: pointer;
+}
+.qm-terminal tbody tr:hover {
+  background: var(--term-row-hover);
+}
+.qm-terminal tbody tr[aria-selected="true"] {
+  background: var(--term-row-selected);
+}
+.qm-terminal tbody tr[aria-selected="true"] td:first-child {
+  box-shadow: inset 2px 0 0 var(--term-focus);
+}
+.qm-terminal tbody tr:focus-visible,
+.qm-terminal th button:focus-visible,
+.qm-terminal-more:focus-visible,
+.qm-terminal-retry:focus-visible {
+  outline: 2px solid var(--term-focus);
+  outline-offset: -2px;
+}
+.qm-terminal-muted {
+  color: var(--term-muted);
+}
+.qm-terminal-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+.qm-terminal-result svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+.qm-terminal-result[data-tone="success"] {
+  color: var(--term-success);
+}
+.qm-terminal-result[data-tone="failure"] {
+  color: var(--term-failure);
+}
+.qm-terminal-result[data-tone="denied"] {
+  color: var(--term-denied);
+}
+.qm-terminal-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--term-border);
+  background: var(--term-header);
+  padding: 0.25rem 0.75rem;
+}
+.qm-terminal-more,
+.qm-terminal-retry {
+  all: unset;
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0.125rem 0.25rem;
+  color: var(--term-text);
+}
+.qm-terminal-more:hover,
+.qm-terminal-retry:hover {
+  background: var(--term-row-hover);
+}
+.qm-terminal-more[disabled] {
+  cursor: progress;
+  color: var(--term-muted);
+}
+.qm-terminal-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1.5rem 0.75rem;
+}
+.qm-terminal-message-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--term-text);
+  font-weight: 600;
+}
+.qm-terminal-message-title svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.qm-terminal-skeleton {
+  height: 0.75rem;
+  border-radius: 2px;
+  background: var(--term-row-selected);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .qm-terminal-skeleton {
+    animation: qm-term-pulse 1.4s ease-in-out infinite;
+  }
+}
+@keyframes qm-term-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

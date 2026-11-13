@@ -13,7 +13,8 @@
     "./preset.css": "./src/preset.css",
     "./accents.css": "./src/accents.css",
     "./root-theme.css": "./src/root-theme.css",
-    "./scroll.css": "./src/scroll.css"
+    "./scroll.css": "./src/scroll.css",
+    "./terminal.css": "./src/terminal.css"
   },
   "scripts": {
     "lint": "eslint ."

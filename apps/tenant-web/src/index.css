@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@qmentisai/ui/preset.css";
 @import "@qmentisai/ui/scroll.css";
+@import "@qmentisai/ui/terminal.css";
 
 /* Tailwind v4 scans this app automatically; shared packages that ship class names must be listed here. */
 @source "../../../packages/ui/src";

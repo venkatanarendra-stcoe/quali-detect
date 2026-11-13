@@ -98,6 +98,25 @@ export const NEXT_FIRES = Object.freeze([
     expected: ["2026-03-28T23:00:00.000Z", "2026-03-29T02:00:00.000Z", "2026-03-29T04:00:00.000Z"],
   },
   {
+    name: "New York fall back, 0-23/1 (full-range step 1) is a wildcard: the repeated 01:15 fires at both real occurrences",
+    expression: "15 0-23/1 * * *",
+    timeZone: "America/New_York",
+    after: "2026-11-01T03:30:00Z",
+    expected: [
+      "2026-11-01T04:15:00.000Z",
+      "2026-11-01T05:15:00.000Z",
+      "2026-11-01T06:15:00.000Z",
+      "2026-11-01T07:15:00.000Z",
+    ],
+  },
+  {
+    name: "New York fall back, 1-23/1 is NOT full range (named hours): the repeated 01:15 fires once, hour 00 is not listed",
+    expression: "15 1-23/1 * * *",
+    timeZone: "America/New_York",
+    after: "2026-11-01T03:30:00Z",
+    expected: ["2026-11-01T05:15:00.000Z", "2026-11-01T07:15:00.000Z", "2026-11-01T08:15:00.000Z"],
+  },
+  {
     name: "New York fall back, */1 is a wildcard: the repeated 01:15 fires at both real occurrences",
     expression: "15 */1 * * *",
     timeZone: "America/New_York",
@@ -208,6 +227,16 @@ export const DAY_FIRES = Object.freeze([
     first: "2026-10-24T22:00:00.000Z",
     last: "2026-10-25T21:00:00.000Z",
     never: ["2026-10-25T01:00:00.000Z"],
+  },
+  {
+    name: "New York fall-back day, 0-23/1 wildcard hour: 25 fires",
+    expression: "15 0-23/1 * * *",
+    timeZone: "America/New_York",
+    from: "2026-11-01T04:00:00Z",
+    to: "2026-11-02T05:00:00Z",
+    count: 25,
+    first: "2026-11-01T04:15:00.000Z",
+    last: "2026-11-02T04:15:00.000Z",
   },
   {
     name: "New York fall-back day, */1 wildcard hour: 25 fires",

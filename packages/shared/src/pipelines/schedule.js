@@ -94,9 +94,15 @@ const normalize = (expression) => expression.trim().split(/\s+/).join(" ");
 /** The entries of the hour field. @param {string} expression */
 const hourEntries = (expression) => normalize(expression).split(" ")[1].split(",");
 
-/** Wildcard hour: some entry is `*` or `*\/1` (every hour). Fires at EVERY real occurrence of a repeated hour (25 on a fall-back day). */
+/** Hour entries that cover the whole day with step 1: `*\/1`, `0-23\/1`. */
+const FULL_RANGE_STEP_1 = new Set(["*/1", "0-23/1"]);
+
+/**
+ * Wildcard hour: some entry is `*` or a full-range step of 1 (`*\/1`, `0-23\/1`), i.e. every hour. Fires at EVERY real
+ * occurrence of a repeated hour (25 on a fall-back day).
+ */
 const isWildcardHour = (expression) =>
-  hourEntries(expression).some((entry) => entry === "*" || entry === "*/1");
+  hourEntries(expression).some((entry) => entry === "*" || FULL_RANGE_STEP_1.has(entry));
 
 /** Step hour: some entry has a step N > 1 (`*\/2`, `0-23/3`). Skips gap times (spring forward) but fires ONCE in a repeated hour. */
 const isStepHour = (expression) =>

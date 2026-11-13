@@ -1,6 +1,7 @@
 /* Keyboard operation lives on the combobox input (aria-activedescendant); options, the portal and the field frame
-   only take pointer events, so these jsx-a11y rules do not apply to them. */
-/* eslint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus, jsx-a11y/no-static-element-interactions */
+   only take pointer events. ComboboxAddRow result rows are focusable list items that remove on Delete/Backspace, so
+   these jsx-a11y rules do not apply. */
+/* eslint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus, jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertIcon, CheckIcon, ChevronIcon, LoaderIcon, PlusIcon, XIcon } from "./icons.jsx";
@@ -595,13 +596,20 @@ export function MultiSelect(props) {
  * "Add row" picker for members and roles: `[type] · subject combobox · [role] · Add`, with a removable result list
  * below. The type and role selectors are optional (omit `typeOptions` / `roleOptions`). The subject options come from
  * `optionsByType[type]` or `loadOptions(query, { type, signal })`. Items are `{ key, type, value, label, role,
- * roleLabel }`; duplicates (same type and value) are ignored. Enter in the closed subject field adds. Controlled with
- * `items` + `onItemsChange`, or uncontrolled with `defaultItems`. After adding, focus returns to the subject field.
+ * roleLabel }`; duplicates (same type, value and role) are refused with a visible inline message. `validateAdd(item)` may
+ * return a message to refuse an item. With `roleOptions` an Add needs a chosen role (`defaultRole` or the selector).
+ * Enter in the closed subject field adds. Rows are focusable: Delete or Backspace on a focused row removes it, and the
+ * remove button works with Enter/Space. After Add focus returns to the subject field; after Remove it moves to the
+ * neighbouring row, or to the subject field when the list is empty. Adds and removals are announced in a live region.
+ * The list scrolls inside `listMaxHeight` (a CSS length) so long lists never push the page around. Controlled with
+ * `items` + `onItemsChange`, or uncontrolled with `defaultItems`.
  * @param {{
  *   typeOptions?: ComboboxOption[], defaultType?: string, optionsByType?: Record<string, ComboboxOption[]>,
  *   loadOptions?: (query: string, ctx: { type?: string, signal: AbortSignal }) => Promise<ComboboxOption[]>,
- *   roleOptions?: ComboboxOption[], defaultRole?: string, items?: Array<object>, defaultItems?: Array<object>,
+ *   roleOptions?: ComboboxOption[], defaultRole?: string, rolePlaceholder?: string, roleLoading?: boolean,
+ *   items?: Array<object>, defaultItems?: Array<object>,
  *   onItemsChange?: (items: Array<object>) => void, onAdd?: (item: object) => void, onRemove?: (item: object) => void,
+ *   validateAdd?: (item: object) => string | null | undefined, listMaxHeight?: string,
  *   subjectLabel?: string, subjectPlaceholder?: string, addLabel?: string, listLabel?: string,
  *   emptyListText?: string, disabled?: boolean, className?: string }} props
  */
@@ -612,11 +620,15 @@ export function ComboboxAddRow({
   loadOptions,
   roleOptions,
   defaultRole,
+  rolePlaceholder = "Choose a role",
+  roleLoading = false,
   items,
   defaultItems = [],
   onItemsChange,
   onAdd,
   onRemove,
+  validateAdd,
+  listMaxHeight = "18rem",
   subjectLabel = "Member",
   subjectPlaceholder = "Search…",
   addLabel = "Add",
@@ -625,26 +637,28 @@ export function ComboboxAddRow({
   disabled = false,
   className,
 }) {
-  const [type, setType] = useState(defaultType ?? typeOptions?.[0]?.value);
-  const [role, setRole] = useState(defaultRole ?? roleOptions?.[0]?.value);
+  const [type, setType] = useState(
+    defaultType ?? (typeOptions?.find((t) => !t.disabled) ?? typeOptions?.[0])?.value,
+  );
+  const [role, setRole] = useState(defaultRole);
   const [subject, setSubject] = useState(null);
   const [message, setMessage] = useState("");
+  const [problem, setProblem] = useState("");
   const [list, setList] = useControllable(items, defaultItems, onItemsChange);
   const subjectRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const problemId = useId();
 
   const subjectOptions = loadOptions ? undefined : (optionsByType?.[type] ?? []);
   const boundLoad = useMemo(
     () => (loadOptions ? (query, ctx) => loadOptions(query, { ...ctx, type }) : undefined),
     [loadOptions, type],
   );
+  const needsRole = Boolean(roleOptions) && !role;
 
   const add = () => {
-    if (!subject || disabled) return;
-    const key = `${type ?? ""}:${subject.value}`;
-    if (list.some((i) => i.key === key)) {
-      setMessage(`${subject.label} is already in the list.`);
-      return;
-    }
+    if (!subject || needsRole || disabled) return;
+    const key = `${type ?? ""}:${subject.value}:${role ?? ""}`;
     const item = {
       key,
       type,
@@ -653,6 +667,15 @@ export function ComboboxAddRow({
       role,
       roleLabel: roleOptions?.find((r) => r.value === role)?.label,
     };
+    const refusal = list.some((i) => i.key === key)
+      ? "This access is already in the list."
+      : validateAdd?.(item);
+    if (refusal) {
+      setProblem(refusal);
+      setMessage(refusal);
+      return;
+    }
+    setProblem("");
     setList([...list, item]);
     onAdd?.(item);
     setMessage(`${subject.label} added.`);
@@ -660,23 +683,32 @@ export function ComboboxAddRow({
     subjectRef.current?.focus();
   };
   const removeItem = (item) => {
-    setList(list.filter((i) => i.key !== item.key));
+    const index = list.findIndex((i) => i.key === item.key);
+    const rest = list.filter((i) => i.key !== item.key);
+    setList(rest);
     onRemove?.(item);
+    setProblem("");
     setMessage(`${item.label} removed.`);
+    const neighbour = rest[Math.min(index, rest.length - 1)];
+    // Wait for the list to re-render before moving focus.
+    requestAnimationFrame(() => {
+      (neighbour ? rowRefs.current.get(neighbour.key) : subjectRef.current)?.focus();
+    });
   };
 
   return (
     <div className={join("min-w-0", className)}>
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {typeOptions ? (
           <Combobox
-            className="w-36"
+            className="w-28 shrink-0"
             aria-label={`${subjectLabel} type`}
             options={typeOptions}
             value={type ?? null}
             onChange={(v) => {
               setType(v);
               setSubject(null);
+              setProblem("");
             }}
             searchable={false}
             disabled={disabled}
@@ -684,14 +716,19 @@ export function ComboboxAddRow({
         ) : null}
         <Combobox
           ref={subjectRef}
-          className="min-w-48 flex-1"
+          className="min-w-52 flex-1"
           aria-label={subjectLabel}
+          aria-describedby={problem ? problemId : undefined}
+          invalid={Boolean(problem)}
           placeholder={subjectPlaceholder}
           key={type}
           options={subjectOptions}
           loadOptions={boundLoad}
           value={subject?.value ?? null}
-          onChange={(_v, option) => setSubject(option ?? null)}
+          onChange={(_v, option) => {
+            setSubject(option ?? null);
+            setProblem("");
+          }}
           searchable
           disabled={disabled}
           onKeyDown={(e) => {
@@ -703,54 +740,79 @@ export function ComboboxAddRow({
         />
         {roleOptions ? (
           <Combobox
-            className="w-40"
+            className="w-40 shrink-0"
             aria-label="Role"
+            placeholder={roleLoading ? "Loading roles…" : rolePlaceholder}
             options={roleOptions}
             value={role ?? null}
-            onChange={setRole}
+            onChange={(v) => setRole(v || undefined)}
             searchable={false}
-            disabled={disabled}
+            disabled={disabled || roleLoading}
           />
         ) : null}
         <button
           type="button"
           onClick={add}
-          disabled={!subject || disabled}
-          className="inline-flex h-9 items-center gap-1.5 rounded-sm border border-border-strong bg-secondary px-3 text-sm font-medium text-secondary-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!subject || needsRole || disabled}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-sm border border-border-strong bg-secondary px-3 text-sm font-medium text-secondary-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
         >
           <PlusIcon className="size-4" />
           {addLabel}
         </button>
       </div>
+      {problem ? (
+        <p id={problemId} className="mt-1.5 text-xs text-status-danger">
+          {problem}
+        </p>
+      ) : null}
       <p role="status" aria-live="polite" className="sr-only">
         {message}
       </p>
       <ul
         aria-label={listLabel}
-        className="mt-3 divide-y divide-border rounded-md border border-border"
+        style={{ maxHeight: listMaxHeight }}
+        className="qm-scroll mt-3 divide-y divide-border overflow-y-auto rounded-md border border-border"
       >
         {list.length === 0 ? (
           <li className="px-3 py-2 text-sm text-muted-foreground">{emptyListText}</li>
         ) : (
           list.map((item) => (
-            <li key={item.key} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            <li
+              key={item.key}
+              ref={(node) => {
+                if (node) rowRefs.current.set(item.key, node);
+                else rowRefs.current.delete(item.key);
+              }}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (disabled || (e.key !== "Delete" && e.key !== "Backspace")) return;
+                e.preventDefault();
+                removeItem(item);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm outline-none focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <span className="min-w-0 flex-1 truncate" title={item.label}>
+                {item.label}
+              </span>
               {item.type && typeOptions ? (
-                <span className="text-xs text-muted-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {typeOptions.find((t) => t.value === item.type)?.label ?? item.type}
                 </span>
               ) : null}
               {item.roleLabel ? (
-                <span className="rounded-sm border border-border px-1.5 py-0.5 text-xs">
+                <span
+                  className="max-w-40 shrink-0 truncate rounded-sm border border-border px-1.5 py-0.5 text-xs"
+                  title={item.roleLabel}
+                >
                   {item.roleLabel}
                 </span>
               ) : null}
               <button
                 type="button"
-                aria-label={`Remove ${item.label}`}
+                aria-label={`Remove ${item.label}${item.roleLabel ? ` (${item.roleLabel})` : ""}`}
                 disabled={disabled}
                 onClick={() => removeItem(item)}
-                className="rounded-sm p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="shrink-0 rounded-sm p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <XIcon className="size-4" />
               </button>

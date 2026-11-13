@@ -211,3 +211,5 @@ Tenant Application primitives; the Root Console is unaffected unless it imports 
 ### Tenant-web `Select` is a Combobox wrapper (2026-11-13)
 
 `apps/tenant-web/src/components/ui/select.jsx` keeps the `<option>`-children API (`value`, `onChange(e)` with `e.target.value`) but renders the shared `Combobox`. An empty option acts as the placeholder and enables Clear; selects without one have no Clear. With React Hook Form use `Controller` (pass `ref`, `onBlur`, `name`, `aria-invalid`), not `register`. Date and time inputs stay native until an accessible picker exists.
+
+`ComboboxAddRow` (2026-11-13): Add stays disabled until a role is chosen; a duplicate (same type, value and role) or a `validateAdd` refusal shows an inline message tied to the subject field and is announced; list rows are focusable, Delete/Backspace removes and focus moves to the neighbour (or the subject field when empty); the list scrolls inside `listMaxHeight`.

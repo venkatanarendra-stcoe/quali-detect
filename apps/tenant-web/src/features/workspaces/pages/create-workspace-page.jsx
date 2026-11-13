@@ -1,7 +1,7 @@
-import { Stepper } from "@qmentisai/ui";
+import { ComboboxAddRow, Stepper } from "@qmentisai/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleAlert, CircleCheck, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { CircleAlert, CircleCheck } from "lucide-react";
+import { useCallback, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -18,15 +18,11 @@ import {
 } from "@/components/ui/card.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
-import { Select } from "@/components/ui/select.jsx";
 import { Textarea } from "@/components/ui/textarea.jsx";
 import { useSession } from "@/features/auth/hooks/use-session.js";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
-import {
-  useAssignableRoles,
-  useGroupSearch,
-  useUserSearch,
-} from "@/features/directory/hooks/use-directory.js";
+import { useAssignableRoles, useUserSearch } from "@/features/directory/hooks/use-directory.js";
+import { directoryService } from "@/features/directory/services/directory-service.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { describeError, isApiError } from "@/lib/api/index.js";
 import { useCreateWorkspace, useRefreshWorkspaces } from "../hooks/use-workspaces.js";
@@ -40,50 +36,53 @@ const detailsSchema = z.object({
 });
 const blankToUndefined = (value) => (value === "" ? undefined : value);
 
+const TO_ITEM = (r) => ({
+  key: r.key,
+  type: r.kind,
+  value: r.id,
+  label: r.label,
+  role: r.roleId,
+  roleLabel: r.roleName,
+});
+const TO_ROW = (i) => ({
+  key: i.key,
+  kind: i.type,
+  id: i.value,
+  label: i.label,
+  roleId: i.role,
+  roleName: i.roleLabel,
+});
+
 /** People/group + role rows the creator wants to grant right after the workspace exists. */
 function AccessStep({ rows, setRows, ownerId, canPeople, canGroups }) {
-  const [kind, setKind] = useState("person");
-  const [query, setQuery] = useState("");
-  const [subject, setSubject] = useState(null);
-  const [roleId, setRoleId] = useState("");
-  const [problem, setProblem] = useState(null);
-  const debounced = useDebouncedValue(query);
   const roles = useAssignableRoles();
-  const people = useUserSearch(debounced, { enabled: kind === "person" && canPeople });
-  const groups = useGroupSearch(debounced, { enabled: kind === "group" && canGroups });
-  const source = kind === "person" ? people : groups;
-  const options = (source.data ?? []).map((item) =>
-    kind === "person"
-      ? { id: item.userId, label: item.name ?? item.email, hint: item.email }
-      : {
-          id: item.id,
-          label: item.name,
-          hint: `${item.memberCount} ${item.memberCount === 1 ? "member" : "members"}`,
-        },
-  );
-
-  const add = () => {
-    const role = roles.data?.find((r) => r.id === roleId);
-    if (!subject || !role) return;
-    if (kind === "person" && subject.id === ownerId)
-      return setProblem("The owner already has Admin access to the new workspace.");
-    if (rows.some((r) => r.kind === kind && r.id === subject.id && r.roleId === roleId))
-      return setProblem("This access is already in the list.");
-    setProblem(null);
-    setRows([
-      ...rows,
-      {
-        key: `${kind}:${subject.id}:${roleId}`,
-        kind,
-        id: subject.id,
-        label: subject.label,
-        roleId,
-        roleName: role.name,
-      },
-    ]);
-    setSubject(null);
-    setQuery("");
-  };
+  const typeOptions = [
+    { value: "person", label: "Person", disabled: !canPeople },
+    { value: "group", label: "Group", disabled: !canGroups },
+  ];
+  const roleOptions = (roles.data ?? []).map((r) => ({ value: r.id, label: r.name }));
+  const loadOptions = useCallback(async (query, { type, signal }) => {
+    if (type === "person") {
+      const page = await directoryService.users(
+        { q: query || undefined, status: "active", pageSize: 20, sort: "name:asc" },
+        { signal },
+      );
+      return page.items.map((u) => ({
+        value: u.userId,
+        label: u.name ?? u.email,
+        description: u.email,
+      }));
+    }
+    const page = await directoryService.groups(
+      { q: query || undefined, pageSize: 20, sort: "name:asc" },
+      { signal },
+    );
+    return page.items.map((g) => ({
+      value: g.id,
+      label: g.name,
+      description: `${g.memberCount} ${g.memberCount === 1 ? "member" : "members"}`,
+    }));
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -91,117 +90,29 @@ function AccessStep({ rows, setRows, ownerId, canPeople, canGroups }) {
         The owner is added as Admin automatically. Group membership alone grants no access; the role
         assigned to the group does. You can also do this later from Members &amp; groups.
       </p>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[10rem_minmax(0,1fr)_14rem_auto] xl:items-end">
-        <div className="space-y-1.5">
-          <Label htmlFor="access-kind">Add</Label>
-          <Select
-            id="access-kind"
-            value={kind}
-            onChange={(e) => {
-              setKind(e.target.value);
-              setSubject(null);
-              setQuery("");
-            }}
-          >
-            <option value="person" disabled={!canPeople}>
-              Person
-            </option>
-            <option value="group" disabled={!canGroups}>
-              Group
-            </option>
-          </Select>
-        </div>
-        <SearchPicker
-          id="access-subject"
-          label={kind === "person" ? "Person" : "Group"}
-          placeholder={kind === "person" ? "Search by name or email" : "Search groups"}
-          query={query}
-          onQueryChange={setQuery}
-          options={options}
-          isLoading={source.isFetching}
-          error={source.error}
-          selected={subject}
-          onSelect={setSubject}
-          onClear={() => setSubject(null)}
-        />
-        <div className="space-y-1.5">
-          <Label htmlFor="access-role">Workspace role</Label>
-          <Select
-            id="access-role"
-            value={roleId}
-            onChange={(e) => setRoleId(e.target.value)}
-            disabled={roles.isPending}
-          >
-            <option value="">{roles.isPending ? "Loading roles…" : "Choose a role"}</option>
-            {(roles.data ?? []).map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Button type="button" variant="secondary" onClick={add} disabled={!subject || !roleId}>
-          Add
-        </Button>
-      </div>
+      <ComboboxAddRow
+        typeOptions={typeOptions}
+        defaultType={canPeople ? "person" : "group"}
+        loadOptions={loadOptions}
+        roleOptions={roleOptions}
+        roleLoading={roles.isPending}
+        subjectLabel="Person or group"
+        subjectPlaceholder="Search people or groups"
+        listLabel="Access to grant"
+        emptyListText="No one added yet."
+        items={rows.map(TO_ITEM)}
+        onItemsChange={(items) => setRows(items.map(TO_ROW))}
+        validateAdd={(item) =>
+          item.type === "person" && item.value === ownerId
+            ? "The owner already has Admin access to the new workspace."
+            : null
+        }
+      />
       {roles.isError ? (
         <p role="alert" className="text-sm text-status-danger">
           {describeError(roles.error)}
         </p>
       ) : null}
-      {problem ? (
-        <p role="alert" className="text-sm text-status-danger">
-          {problem}
-        </p>
-      ) : null}
-      {rows.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
-          No one added yet.
-        </p>
-      ) : (
-        <div className="relative overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-left text-[13px]">
-            <caption className="sr-only">Access to grant</caption>
-            <thead className="border-b border-border text-muted-foreground">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Name
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Type
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Role
-                </th>
-                <th scope="col" className="w-12 px-3 py-2">
-                  <span className="sr-only">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} className="h-9 border-b border-border last:border-0">
-                  <td className="px-3">{row.label}</td>
-                  <td className="px-3 text-muted-foreground">
-                    {row.kind === "person" ? "Person" : "Group"}
-                  </td>
-                  <td className="px-3">{row.roleName}</td>
-                  <td className="px-3">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove ${row.label} (${row.roleName})`}
-                      onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
-                    >
-                      <Trash2 aria-hidden="true" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

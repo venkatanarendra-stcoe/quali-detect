@@ -260,7 +260,7 @@ export function createIntegrationService({ repository, scm, stateStore, audit, o
             actor,
             await repository.listTenantLinks({ tenantId: actor.tenantId }),
           )
-        ).filter((l) => l.status === "linked");
+        ).filter((l) => l.status !== "unlinked"); // revoked and suspended links still count (as degraded)
         if (links.length > 0)
           githubStatus = links.every((l) => l.health === "healthy") ? "connected" : "degraded";
       }

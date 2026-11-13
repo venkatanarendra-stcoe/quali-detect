@@ -32,7 +32,7 @@ export function WorkspaceIntegrationsPage() {
   const discover = useDiscoverInstallations();
   const [choosing, setChoosing] = useState(false);
   const data = overview.data;
-  const links = data?.items.filter((l) => l.status === "linked") ?? [];
+  const links = data?.items.filter((l) => l.status !== "unlinked") ?? [];
   const previous = data?.items.filter((l) => l.status === "unlinked") ?? [];
   let linkReason = null;
   if (!canManage)

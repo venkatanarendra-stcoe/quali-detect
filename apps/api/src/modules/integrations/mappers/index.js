@@ -7,6 +7,26 @@ function healthOf(status, installationStatus, unavailableRepositoryCount) {
 }
 
 /**
+ * Displayed link status (SPEC §16.2): `revoked` / `suspended` take precedence over `linked`, so no endpoint reports `linked`
+ * for a link whose installation is gone or suspended. `unlinked` stays `unlinked`. Date and reason come from the installation.
+ */
+function statusOf(status, installation) {
+  if (status !== "linked") return status;
+  return installation.status === "revoked" || installation.status === "suspended"
+    ? installation.status
+    : "linked";
+}
+
+/** `statusChangedAt` / `statusReason` of the installation, shown only while the link reads revoked or suspended. */
+function statusDetail(derived, installation) {
+  const shown = derived === "revoked" || derived === "suspended";
+  return {
+    statusChangedAt: shown ? (installation.statusChangedAt ?? null) : null,
+    statusReason: shown ? (installation.statusReason ?? null) : null,
+  };
+}
+
+/**
  * Tenant-level installation row (T-13/T-14, read-only). It contains no token and no secret. `workspaces` lists ONLY the
  * workspaces the caller can see (id and name); the others are only counted (`hiddenWorkspaceCount`).
  * @param {any} link tenant link with installation and its linked workspace links
@@ -24,7 +44,8 @@ export function toInstallationDto(link, counts, visibleWorkspaceIds) {
   return {
     id: link.id,
     provider: link.installation.provider,
-    status: link.status,
+    status: statusOf(link.status, link.installation),
+    ...statusDetail(statusOf(link.status, link.installation), link.installation),
     health: healthOf(link.status, link.installation.status, counts.unavailableRepositoryCount),
     account: { login: link.installation.accountLogin, type: link.installation.accountType },
     externalInstallationId: link.installation.externalInstallationId,
@@ -60,7 +81,8 @@ export const toWorkspaceLinkDto = (wl, stats) => ({
   workspaceId: wl.workspaceId,
   installationLinkId: wl.linkId,
   provider: wl.link.installation.provider,
-  status: wl.status,
+  status: statusOf(wl.status, wl.link.installation),
+  ...statusDetail(statusOf(wl.status, wl.link.installation), wl.link.installation),
   health: healthOf(wl.status, wl.link.installation.status, stats.unavailableRepositoryCount),
   account: { login: wl.link.installation.accountLogin, type: wl.link.installation.accountType },
   repositorySelection: wl.link.installation.repositorySelection,

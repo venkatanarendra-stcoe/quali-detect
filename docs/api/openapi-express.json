@@ -24247,7 +24247,22 @@
                                 "type": "string",
                                 "enum": [
                                   "linked",
-                                  "unlinked"
+                                  "unlinked",
+                                  "revoked",
+                                  "suspended"
+                                ]
+                              },
+                              "statusChangedAt": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "statusReason": {
+                                "type": "string",
+                                "nullable": true,
+                                "enum": [
+                                  "uninstalled",
+                                  "suspended",
+                                  "not_found_on_github"
                                 ]
                               },
                               "health": {
@@ -24336,6 +24351,8 @@
                               "id",
                               "provider",
                               "status",
+                              "statusChangedAt",
+                              "statusReason",
                               "health",
                               "account",
                               "externalInstallationId",
@@ -25101,7 +25118,22 @@
                           "type": "string",
                           "enum": [
                             "linked",
-                            "unlinked"
+                            "unlinked",
+                            "revoked",
+                            "suspended"
+                          ]
+                        },
+                        "statusChangedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "statusReason": {
+                          "type": "string",
+                          "nullable": true,
+                          "enum": [
+                            "uninstalled",
+                            "suspended",
+                            "not_found_on_github"
                           ]
                         },
                         "health": {
@@ -25166,6 +25198,8 @@
                         "installationLinkId",
                         "provider",
                         "status",
+                        "statusChangedAt",
+                        "statusReason",
                         "health",
                         "account",
                         "repositorySelection",
@@ -25545,7 +25579,22 @@
                                 "type": "string",
                                 "enum": [
                                   "linked",
-                                  "unlinked"
+                                  "unlinked",
+                                  "revoked",
+                                  "suspended"
+                                ]
+                              },
+                              "statusChangedAt": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "statusReason": {
+                                "type": "string",
+                                "nullable": true,
+                                "enum": [
+                                  "uninstalled",
+                                  "suspended",
+                                  "not_found_on_github"
                                 ]
                               },
                               "health": {
@@ -25610,6 +25659,8 @@
                               "installationLinkId",
                               "provider",
                               "status",
+                              "statusChangedAt",
+                              "statusReason",
                               "health",
                               "account",
                               "repositorySelection",
@@ -26998,7 +27049,22 @@
                           "type": "string",
                           "enum": [
                             "linked",
-                            "unlinked"
+                            "unlinked",
+                            "revoked",
+                            "suspended"
+                          ]
+                        },
+                        "statusChangedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "statusReason": {
+                          "type": "string",
+                          "nullable": true,
+                          "enum": [
+                            "uninstalled",
+                            "suspended",
+                            "not_found_on_github"
                           ]
                         },
                         "health": {
@@ -27063,6 +27129,8 @@
                         "installationLinkId",
                         "provider",
                         "status",
+                        "statusChangedAt",
+                        "statusReason",
                         "health",
                         "account",
                         "repositorySelection",

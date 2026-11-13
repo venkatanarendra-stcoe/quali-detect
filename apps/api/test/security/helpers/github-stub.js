@@ -95,6 +95,11 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
         if (body.repos) state.repos.set(String(body.id), body.repos);
         return send(res, 200, { ok: true });
       }
+      if (path === "/__control/remove-installation") {
+        // The App was uninstalled behind our back: every call about this installation answers 404 from now on.
+        state.installations.delete(String(body.id));
+        return send(res, 200, { ok: true });
+      }
       if (path === "/__control/repos") {
         state.repos.set(String(body.installationId), body.repos);
         return send(res, 200, { ok: true });

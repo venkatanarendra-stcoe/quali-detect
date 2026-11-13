@@ -42,12 +42,17 @@ export const allowListBodySchema = z
     { message: "Send either externalRepoIds (replace) or add/remove (patch)." },
   );
 
+const linkStatus = z.enum(["linked", "unlinked", "revoked", "suspended"]);
+/** Why a link reads revoked or suspended (SPEC §16.2); null while linked or unlinked. */
+const statusReason = z.enum(["uninstalled", "suspended", "not_found_on_github"]).nullable();
 const health = z.enum(["healthy", "degraded", "suspended", "revoked", "unlinked"]);
 const account = z.object({ login: z.string(), type: z.enum(["organization", "user"]) });
 const installationDto = z.object({
   id: z.string(),
   provider: z.literal("github"),
-  status: z.enum(["linked", "unlinked"]),
+  status: linkStatus,
+  statusChangedAt: z.string().nullable(),
+  statusReason,
   health,
   account,
   externalInstallationId: z.string(),
@@ -66,7 +71,9 @@ const workspaceLinkDto = z.object({
   workspaceId: z.string(),
   installationLinkId: z.string(),
   provider: z.literal("github"),
-  status: z.enum(["linked", "unlinked"]),
+  status: linkStatus,
+  statusChangedAt: z.string().nullable(),
+  statusReason,
   health,
   account,
   repositorySelection: z.enum(["all", "selected"]),

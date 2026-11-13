@@ -72,7 +72,7 @@ export function useWorkspaceIntegrations(workspaceId, options = {}) {
 /** Linked accounts of the workspace (what the Connect repository wizard offers). */
 export const useWorkspaceLinks = (workspaceId) =>
   useWorkspaceIntegrations(workspaceId, {
-    select: (data) => data.items.filter((l) => l.status === "linked"),
+    select: (data) => data.items.filter((l) => l.status !== "unlinked"),
   });
 export function useDeliveries(installationId, params) {
   const tenantId = useTenantId();

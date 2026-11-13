@@ -12,7 +12,12 @@ import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { useWorkspaceLinks } from "@/features/integrations/hooks/use-integrations.js";
-import { LinkHealth } from "@/features/integrations/components/link-health.jsx";
+import {
+  LinkStatus,
+  LinkStatusNotice,
+  isLinkBroken,
+  statusSummary,
+} from "@/features/integrations/components/link-status.jsx";
 import { describeError } from "@/lib/api/index.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { useAvailableRepositories, useConnectRepository } from "../hooks/use-repositories.js";
@@ -44,7 +49,15 @@ export function ConnectRepositoryPage() {
   const keys = useRef(new Map());
 
   const links = useMemo(() => installations.data ?? [], [installations.data]);
-  const selected = linkId || (links.length === 1 ? links[0].id : "");
+  // Revoked and suspended links are listed but never selectable (SPEC §16.2); a lone usable link is preselected.
+  const usable = useMemo(() => links.filter((l) => !isLinkBroken(l)), [links]);
+  const brokenLinks = links.filter(isLinkBroken);
+  const selected =
+    linkId && usable.some((l) => l.id === linkId)
+      ? linkId
+      : usable.length === 1
+        ? usable[0].id
+        : "";
   const available = useAvailableRepositories(
     workspaceId,
     { workspaceLinkId: selected, q: q.trim() || undefined, page, pageSize: 30 },
@@ -236,14 +249,27 @@ export function ConnectRepositoryPage() {
               <Select id="link" value={selected} onChange={(e) => setLinkId(e.target.value)}>
                 <option value="">Select an account</option>
                 {links.map((l) => (
-                  <option key={l.id} value={l.id}>
+                  <option key={l.id} value={l.id} disabled={isLinkBroken(l)}>
                     {l.account.login}
+                    {isLinkBroken(l) ? ` (${statusSummary(l)})` : ""}
                   </option>
                 ))}
               </Select>
-              {selected ? (
-                <LinkHealth status={links.find((l) => l.id === selected)?.health ?? "healthy"} />
-              ) : null}
+              {selected ? <LinkStatus link={links.find((l) => l.id === selected)} /> : null}
+            </div>
+          ) : null}
+          {brokenLinks.length > 0 ? (
+            <div className="max-w-xl space-y-2">
+              {brokenLinks.map((l) => (
+                <div key={l.id} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-mono">{l.account.login}</span>
+                    <LinkStatus link={l} />
+                    <span className="text-muted-foreground">Not selectable</span>
+                  </div>
+                  <LinkStatusNotice link={l} />
+                </div>
+              ))}
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">

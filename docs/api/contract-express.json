@@ -5948,7 +5948,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, installationLinkId, provider, status, health, account, repositorySelection, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, allowListCount, lastEventAt }",
+        "dataShape": "{ id, workspaceId, installationLinkId, provider, status, statusChangedAt, statusReason, health, account, repositorySelection, linkedAt, linkedByUserId, repositoryCount, unavailableRepositoryCount, allowListCount, lastEventAt }",
         "metaKeys": [
           "correlationId"
         ]

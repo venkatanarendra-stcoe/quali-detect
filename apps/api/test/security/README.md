@@ -2,7 +2,7 @@
 
 Run: `pnpm test:security` (from the repo root). Decision and scope: `docs/decisions/ADR-008-SECURITY-REGRESSION-SUITE.md`.
 
-It covers **only** tenant isolation, the 404/403 authorization rule, platform/tenant session separation, segregation of duties and the sign-in/MFA throttling of ADR-010: 457 checks, 17 controls and 1 integrity test. It is a black box over HTTP, so it works against any implementation of the API (Fastify today, Express after ADR-007).
+It covers **only** tenant isolation, the 404/403 authorization rule, platform/tenant session separation, segregation of duties and the sign-in/MFA throttling of ADR-010: 461 checks, 17 controls and 1 integrity test. It is a black box over HTTP, so it works against any implementation of the API (Fastify today, Express after ADR-007).
 
 ## What it needs
 
@@ -31,5 +31,5 @@ Exit codes of the runner (`node apps/api/scripts/security-suite.js`): `0` passed
 ## Rules
 
 - A new tenant-owned route family adds checks here in the same work item (cross-tenant 404, hidden-workspace 404 vs 403 where relevant, and a control that the legitimate request works).
-- The number of checks is asserted (457: the original 68, 9 `THR` throttling checks of ADR-010, 6 `RST` tenant-restore checks, 9 `SEC` secret-storage checks of ADR-009, 21 HTTP-edge checks `AUD`, `IDM`, `ENT`, `COR`, `RATE`, 58 `SCM` checks for the workspace-level GitHub integration and repositories (SPEC §18.3: linking permissions, second workspace, state binding and expiry, tenant setting, workspace isolation, allow-list, unlink, uninstall fan-out and notification, restore on link, the "use an existing installation" discovery and restore on gaining access), run against a local GitHub stub, 218 `DAL` data-access isolation checks, 15 `PIPDB` database-integrity checks of the pipeline tables, 22 `PIP` Pipeline API checks, 13 router checks (part D), 13 schedule checks (part E) and 5 consolidation checks of part G, `PIP-051..055`). Changing it means updating ADR-008.
+- The number of checks is asserted (461: the original 68, 9 `THR` throttling checks of ADR-010, 6 `RST` tenant-restore checks, 9 `SEC` secret-storage checks of ADR-009, 21 HTTP-edge checks `AUD`, `IDM`, `ENT`, `COR`, `RATE`, 62 `SCM` checks for the workspace-level GitHub integration and repositories (SPEC §18.3: linking permissions, second workspace, state binding and expiry, tenant setting, workspace isolation, allow-list, unlink, uninstall fan-out and notification, restore on link, the "use an existing installation" discovery and restore on gaining access, the revoked/suspended status with date and reason), run against a local GitHub stub, 218 `DAL` data-access isolation checks, 15 `PIPDB` database-integrity checks of the pipeline tables, 22 `PIP` Pipeline API checks, 13 router checks (part D), 13 schedule checks (part E) and 5 consolidation checks of part G, `PIP-051..055`). Changing it means updating ADR-008.
 - Never weaken a check to make it pass; never point the suite at a real database.

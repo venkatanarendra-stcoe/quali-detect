@@ -5,7 +5,7 @@ import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.jsx";
-import { LinkHealth } from "../components/link-health.jsx";
+import { LinkStatus, LinkStatusNotice } from "../components/link-status.jsx";
 import { WebhookDeliveries } from "../components/webhook-deliveries.jsx";
 import { WorkspaceUsage } from "../components/workspace-usage.jsx";
 import { useInstallations } from "../hooks/use-integrations.js";
@@ -26,9 +26,10 @@ function Installation({ installation: i }) {
         <h2 id={`inst-${i.id}`} className="text-base font-semibold">
           <span className="font-mono">{i.account.login}</span>
         </h2>
-        <LinkHealth status={i.health} />
+        <LinkStatus link={i} />
         <Badge>{i.account.type === "organization" ? "Organization" : "Personal account"}</Badge>
       </div>
+      <LinkStatusNotice link={i} />
       <Card>
         <CardHeader>
           <CardTitle>Installation</CardTitle>
@@ -93,7 +94,7 @@ function Installation({ installation: i }) {
  */
 export function IntegrationDetailPage() {
   const installations = useInstallations();
-  const items = (installations.data ?? []).filter((i) => i.status === "linked");
+  const items = (installations.data ?? []).filter((i) => i.status !== "unlinked");
   return (
     <>
       <PageHeader

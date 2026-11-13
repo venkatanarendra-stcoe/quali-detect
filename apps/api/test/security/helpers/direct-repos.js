@@ -1842,6 +1842,12 @@ export function buildDalEntries() {
     const problems = [];
     if (rows.installation.status !== status)
       problems.push(`installation is ${rows.installation.status}`);
+    // SPEC §16.2: the installation records when it left `active` and why
+    if (
+      !rows.installation.statusChangedAt ||
+      rows.installation.statusReason !== (status === "revoked" ? "uninstalled" : "suspended")
+    )
+      problems.push(`installation status fields: ${rows.installation.statusReason}`);
     for (const repo of rows.repos)
       if (repo.status !== (status === "revoked" ? "disconnected" : "unavailable"))
         problems.push(`a repository is ${repo.status}`);

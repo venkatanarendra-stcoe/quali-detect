@@ -9,7 +9,7 @@ import { DisabledWithReason } from "@/features/authorization/components/permissi
 import { describeError } from "@/lib/api/index.js";
 import { useRefreshLink, useUnlinkWorkspaceLink } from "../hooks/use-integrations.js";
 import { AllowListEditor } from "./allow-list-editor.jsx";
-import { LinkHealth } from "./link-health.jsx";
+import { LinkStatus, LinkStatusNotice, isLinkBroken, isLinkRevoked } from "./link-status.jsx";
 
 const MANAGE_REASON = "You need the workspace_integration.manage permission in this workspace.";
 const when = (value) =>
@@ -24,6 +24,16 @@ export function WorkspaceLinkCard({ workspaceId, link, canManage }) {
   const [unlinking, setUnlinking] = useState(false);
   const [editing, setEditing] = useState(false);
   const reason = canManage ? null : MANAGE_REASON;
+  const revoked = isLinkRevoked(link);
+  // A revoked link cannot be tested or edited (the App is gone); Unlink stays available. A suspended one cannot reach GitHub either.
+  const brokenReason = isLinkBroken(link)
+    ? `${link.status === "revoked" ? "Revoked" : "Suspended"} installation: ${
+        link.status === "revoked"
+          ? "install the App again from this page."
+          : "unsuspend it on GitHub first."
+      }`
+    : null;
+  const actionReason = reason ?? brokenReason;
   return (
     <Card>
       <CardContent className="space-y-4 pt-4">
@@ -32,16 +42,16 @@ export function WorkspaceLinkCard({ workspaceId, link, canManage }) {
             <h2 className="text-base font-semibold">
               <span className="font-mono">{link.account.login}</span>
             </h2>
-            <LinkHealth status={link.health} />
+            <LinkStatus link={link} />
             <Badge>
               {link.account.type === "organization" ? "Organization" : "Personal account"}
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
-            <DisabledWithReason reason={reason}>
+            <DisabledWithReason reason={actionReason}>
               <Button
                 variant="secondary"
-                disabled={refresh.isPending}
+                disabled={refresh.isPending || isLinkBroken(link)}
                 onClick={() =>
                   refresh.mutate(link.id, { onSuccess: () => toast.success("Connection checked") })
                 }
@@ -71,16 +81,7 @@ export function WorkspaceLinkCard({ workspaceId, link, canManage }) {
             page and sync them, or check the access on GitHub.
           </p>
         ) : null}
-        {link.health === "suspended" || link.health === "revoked" ? (
-          <p
-            role="status"
-            className="rounded-md border border-border-strong bg-secondary p-3 text-sm"
-          >
-            {link.health === "suspended"
-              ? "GitHub reports this installation as suspended. Repositories are paused until it is unsuspended."
-              : "The App was uninstalled from this GitHub account. Install it again on GitHub and link it to restore the repositories."}
-          </p>
-        ) : null}
+        <LinkStatusNotice link={link} />
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm lg:grid-cols-4">
           <div>
             <dt className="text-muted-foreground">Repository access</dt>
@@ -107,17 +108,20 @@ export function WorkspaceLinkCard({ workspaceId, link, canManage }) {
           </div>
         </dl>
         <div>
-          <Button
-            variant="secondary"
-            aria-expanded={editing}
-            aria-controls={`allow-list-${link.id}`}
-            onClick={() => setEditing((v) => !v)}
-          >
-            {editing ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-            {canManage ? "Edit allowed repositories" : "View allowed repositories"}
-          </Button>
+          <DisabledWithReason reason={brokenReason}>
+            <Button
+              variant="secondary"
+              disabled={isLinkBroken(link)}
+              aria-expanded={editing}
+              aria-controls={`allow-list-${link.id}`}
+              onClick={() => setEditing((v) => !v)}
+            >
+              {editing ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+              {canManage ? "Edit allowed repositories" : "View allowed repositories"}
+            </Button>
+          </DisabledWithReason>
         </div>
-        {editing ? (
+        {editing && !revoked && !isLinkBroken(link) ? (
           <section
             id={`allow-list-${link.id}`}
             aria-label={`Allowed repositories of ${link.account.login}`}

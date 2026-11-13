@@ -5,7 +5,7 @@ import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { usePermissions } from "@/features/authorization/hooks/use-permissions.js";
 import { useInstallations } from "../hooks/use-integrations.js";
-import { LinkHealth } from "./link-health.jsx";
+import { LinkStatus, statusSummary } from "./link-status.jsx";
 import { WorkspaceUsage } from "./workspace-usage.jsx";
 import { can } from "@qmentisai/shared";
 
@@ -16,7 +16,7 @@ export function SourceControlSection() {
   const mine = permissions.workspaces.filter((w) =>
     can(permissions, "workspace_integration.view", { type: "workspace", workspaceId: w.id }),
   );
-  const items = (installations.data ?? []).filter((i) => i.status === "linked");
+  const items = (installations.data ?? []).filter((i) => i.status !== "unlinked");
   return (
     <div className="space-y-3">
       {installations.isPending ? (
@@ -65,7 +65,10 @@ export function SourceControlSection() {
                     {i.repositorySelection === "all" ? "All repositories" : "Selected repositories"}
                   </td>
                   <td className="px-3 py-2">
-                    <LinkHealth status={i.health} />
+                    <LinkStatus link={i} />
+                    {statusSummary(i) ? (
+                      <div className="mt-1 text-xs text-muted-foreground">{statusSummary(i)}</div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2">{i.repositoryCount}</td>
                   <td className="px-3 py-2">

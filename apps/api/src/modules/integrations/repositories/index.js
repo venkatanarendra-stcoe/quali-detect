@@ -26,22 +26,50 @@ export function createIntegrationRepository({ db }) {
       client.scmInstallation.findUnique({
         where: { provider_externalInstallationId: { provider: "github", externalInstallationId } },
       }),
-    upsertInstallation: (data, client = db) =>
-      client.scmInstallation.upsert({
-        where: {
-          provider_externalInstallationId: {
-            provider: "github",
-            externalInstallationId: data.externalInstallationId,
-          },
+    /**
+     * Create or refresh an installation from what GitHub reports. `data.status` is `active` or `suspended`; the status
+     * date and reason (SPEC §16.2) follow it: cleared when active, set to now with reason `suspended` when the
+     * installation newly becomes suspended (a repeat keeps the first date).
+     */
+    async upsertInstallation(data, client = db) {
+      const where = {
+        provider_externalInstallationId: {
+          provider: "github",
+          externalInstallationId: data.externalInstallationId,
         },
-        create: { provider: "github", ...data, lastCheckedAt: new Date() },
-        update: { ...data, lastCheckedAt: new Date() },
-      }),
+      };
+      const existing = await client.scmInstallation.findUnique({
+        where,
+        select: { status: true, statusChangedAt: true },
+      });
+      const suspended = data.status === "suspended";
+      const stamp = {
+        statusChangedAt: suspended
+          ? existing?.status === "suspended"
+            ? existing.statusChangedAt
+            : new Date()
+          : null,
+        statusReason: suspended ? "suspended" : null,
+      };
+      return client.scmInstallation.upsert({
+        where,
+        create: { provider: "github", ...data, ...stamp, lastCheckedAt: new Date() },
+        update: { ...data, ...stamp, lastCheckedAt: new Date() },
+      });
+    },
+    /** A call to GitHub found the installation gone: revoked, reason `not_found_on_github` (keeps an earlier revoke date). */
     markInstallationRevoked: (installationId, client = db) =>
-      client.scmInstallation.update({
-        where: { id: installationId },
-        data: { status: "revoked", lastCheckedAt: new Date() },
-      }),
+      client.scmInstallation
+        .updateMany({
+          where: { id: installationId, status: { not: "revoked" } },
+          data: {
+            status: "revoked",
+            statusChangedAt: new Date(),
+            statusReason: "not_found_on_github",
+            lastCheckedAt: new Date(),
+          },
+        })
+        .then(() => undefined),
 
     // ---- Tenant installation links (exclusivity across tenants is the partial unique index; this read is the only
     // deliberately tenant-less lookup: "who holds this installation")

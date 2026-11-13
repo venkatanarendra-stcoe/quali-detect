@@ -198,7 +198,7 @@ function Detail({ repository }) {
           {repository.disconnectReason === "workspace_unlinked"
             ? "The GitHub account was unlinked from this workspace. Link it again on the workspace's Integrations page to restore the repository."
             : repository.disconnectReason === "installation_revoked"
-              ? "The GitHub App was removed from the GitHub account. Install and link it again on the workspace's Integrations page to restore the repository."
+              ? "The installation is revoked (uninstalled on GitHub). Install the App again from this workspace's Integrations page to restore the repository."
               : "Its history is kept. Connect it again from the Connect repository page to restore it."}{" "}
           Its pipelines are stopped and resume automatically when the repository is active again.
           {repository.disconnectReason === "workspace_unlinked" ||

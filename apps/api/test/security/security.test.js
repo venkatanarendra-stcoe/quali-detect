@@ -36,7 +36,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 457;
+const EXPECTED_CHECKS = 461;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -3937,6 +3937,21 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
           config: { scm: { syncFailuresBeforeDisconnect: 3 } },
           logger: quietLog,
         })(message, { log: quietLog });
+      // SPEC §16.2: what every endpoint reports for the link, before and after the uninstall
+      const statusViews = async () => ({
+        tenantList: await w.api("GET", "/integrations/github/installations", { cookie: admin }),
+        payAdmin: await w.api("GET", ghPath(PAY()), { cookie: admin }),
+        payManager: await w.api("GET", ghPath(PAY()), { cookie: manager }),
+        idnAdmin: await w.api("GET", ghPath(IDN()), { cookie: admin }),
+        available: await w.api(
+          "GET",
+          `/workspaces/${PAY()}/repositories/available?workspaceLinkId=${wlP}`,
+          { cookie: manager },
+        ),
+        connect: await connectRepo(admin, IDN(), wlI, base + 3),
+        edgeList: await w.api("GET", "/integrations/github/installations", { cookie: edge.owner }),
+      });
+      const apiBefore = await statusViews();
       let deleted;
       let envelope;
       const fetchAudits = () =>
@@ -4016,7 +4031,11 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       const installation = await db.scmInstallation.findFirst({
         where: { externalInstallationId: String(flowP.installationId) },
       });
+      const apiAfter = await statusViews();
       return {
+        apiBefore,
+        apiAfter,
+        flowP,
         account,
         people,
         deleted,
@@ -4122,6 +4141,251 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         if (get(name)) problems.push(`${name} was notified`);
       if (warnings.length === 0) problems.push("nobody was notified");
       if (wlP === undefined) problems.push("no world");
+      return problems;
+    },
+  );
+  // ---- SPEC §16.2: revoked and suspended installations read revoked / suspended everywhere (SCM-059..062)
+  const itemsOf = (res) => res.json?.data?.items ?? [];
+  const mineIn = (res, id) => itemsOf(res).find((i) => i.id === id);
+  add(
+    "SCM-059",
+    "after a signed installation.deleted, the tenant installation list and the workspace link of every workspace report revoked with statusChangedAt set and statusReason uninstalled (health revoked too), no endpoint reports linked for it, and the wizard's available list and connect refuse with 409 installation_revoked",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await world() }),
+    (r) => {
+      const x = r.x;
+      const linkId = x.flowP.link.json.data.installationLinkId;
+      const wlP = x.flowP.link.json.data.id;
+      const wlI = x.wlI;
+      const problems = [];
+      // control: before the uninstall everything reads linked with the fields empty
+      for (const [name, res, id] of [
+        ["tenant list", x.apiBefore.tenantList, linkId],
+        ["payments link", x.apiBefore.payAdmin, wlP],
+        ["identity link", x.apiBefore.idnAdmin, wlI],
+      ]) {
+        const row = mineIn(res, id);
+        if (row?.status !== "linked" || row.statusChangedAt !== null || row.statusReason !== null)
+          problems.push(`control: ${name} before is ${row?.status}/${row?.statusReason}`);
+      }
+      if (x.apiBefore.available.status !== 200)
+        problems.push("control: available before is not 200");
+      const expect = (name, res, id) => {
+        const row = mineIn(res, id);
+        if (res.status !== 200 || !row) return problems.push(`${name}: ${res.status}, no row`);
+        if (row.status !== "revoked") problems.push(`${name} status is ${row.status}`);
+        if (row.health !== "revoked") problems.push(`${name} health is ${row.health}`);
+        if (row.statusReason !== "uninstalled") problems.push(`${name} reason ${row.statusReason}`);
+        if (!row.statusChangedAt || Number.isNaN(Date.parse(row.statusChangedAt)))
+          problems.push(`${name} has no date`);
+      };
+      expect("tenant list", x.apiAfter.tenantList, linkId);
+      expect("payments link (admin)", x.apiAfter.payAdmin, wlP);
+      expect("payments link (manager)", x.apiAfter.payManager, wlP);
+      expect("identity link (admin)", x.apiAfter.idnAdmin, wlI);
+      for (const [name, res] of Object.entries(x.apiAfter))
+        if (itemsOf(res).some((i) => i.account?.login === x.account.login && i.status === "linked"))
+          problems.push(`${name} still reports it as linked`);
+      for (const name of ["available", "connect"])
+        if (
+          x.apiAfter[name].status !== 409 ||
+          x.apiAfter[name].json?.error?.details?.reason !== "installation_revoked"
+        )
+          problems.push(`${name} answered ${x.apiAfter[name].status}`);
+      const dates = new Set(
+        [x.apiAfter.tenantList, x.apiAfter.payAdmin, x.apiAfter.idnAdmin].map(
+          (res) => itemsOf(res).find((i) => i.statusReason)?.statusChangedAt,
+        ),
+      );
+      if (dates.size !== 1) problems.push("the date differs between endpoints");
+      if (x.installation?.statusReason !== "uninstalled" || !x.installation?.statusChangedAt)
+        problems.push("the installation row has no date or reason");
+      return problems;
+    },
+  );
+  add(
+    "SCM-060",
+    "tenant isolation of the status fields: another tenant's installations keep reading linked with empty statusChangedAt and statusReason across the uninstall, its answer is identical before and after, and the revoked account never appears in it",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await world() }),
+    (r) => {
+      const x = r.x;
+      const problems = [];
+      const before = itemsOf(x.apiBefore.edgeList);
+      const after = itemsOf(x.apiAfter.edgeList);
+      if (JSON.stringify(before) !== JSON.stringify(after))
+        problems.push("another tenant's installations changed");
+      for (const i of after)
+        if (i.status !== "linked" || i.statusChangedAt !== null || i.statusReason !== null)
+          problems.push(`another tenant's installation reads ${i.status}/${i.statusReason}`);
+      if (JSON.stringify(x.apiAfter.edgeList.json).includes(x.account.login))
+        problems.push("the revoked account leaks to another tenant");
+      // control: tenant A's own list does carry the revoked row with the fields
+      if (!itemsOf(x.apiAfter.tenantList).some((i) => i.status === "revoked" && i.statusReason))
+        problems.push("control: tenant A's list has no revoked row");
+      return problems;
+    },
+  );
+  const suspendWorld = () =>
+    once("scm-status-roundtrip", async () => {
+      const db = suiteDb();
+      const admin = S("admin")(w);
+      const account = orgAccount("sp");
+      const flow = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user: ghUser(),
+        orgRole: "admin",
+        repos: [stubRepo(base + 21)],
+      });
+      const wl = flow.link.json.data.id;
+      const linkId = flow.link.json.data.installationLinkId;
+      const handle = (message) =>
+        createScmEventHandler({
+          db,
+          config: { scm: { syncFailuresBeforeDisconnect: 3 } },
+          logger: quietLog,
+        })(message, { log: quietLog });
+      const send = async (action) => {
+        const deliveryId = randomUUID();
+        const res = await deliver({
+          payload: {
+            action,
+            installation: { id: Number(flow.installationId), account: { login: account.login } },
+          },
+          deliveryId,
+        });
+        const rows = await rowsFor(deliveryId);
+        if (rows.outbox[0]) await handle(rows.outbox[0].payload);
+        return res;
+      };
+      const view = async () => ({
+        list: mineIn(
+          await w.api("GET", "/integrations/github/installations", { cookie: admin }),
+          linkId,
+        ),
+        link: mineIn(await w.api("GET", ghPath(PAY()), { cookie: admin }), wl),
+        row: await db.scmInstallation.findFirst({
+          where: { externalInstallationId: String(flow.installationId) },
+        }),
+      });
+      const initial = await view();
+      const suspendRes = await send("suspend");
+      const suspended = await view();
+      const suspendAgain = await send("suspend");
+      const stillSuspended = await view();
+      const unsuspendRes = await send("unsuspend");
+      const active = await view();
+      return { initial, suspendRes, suspended, suspendAgain, stillSuspended, unsuspendRes, active };
+    });
+  add(
+    "SCM-061",
+    "a suspension reports suspended (with statusChangedAt and statusReason suspended) in the tenant list and the workspace link, repeating it keeps the first date, and unsuspending returns both to linked with the fields cleared in the API and the row",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await suspendWorld() }),
+    (r) => {
+      const x = r.x;
+      const problems = [];
+      const clear = (v) => v?.statusChangedAt === null && v?.statusReason === null;
+      if (x.initial.list?.status !== "linked" || !clear(x.initial.list) || !clear(x.initial.link))
+        problems.push("control: the fresh link does not read linked with empty fields");
+      if (x.suspendRes.status !== 202 || x.unsuspendRes.status !== 202)
+        problems.push("a signed event was not accepted");
+      for (const [name, v] of [
+        ["list", x.suspended.list],
+        ["link", x.suspended.link],
+      ]) {
+        if (v?.status !== "suspended" || v.health !== "suspended")
+          problems.push(`${name} while suspended: ${v?.status}/${v?.health}`);
+        if (v?.statusReason !== "suspended" || !v.statusChangedAt)
+          problems.push(`${name} while suspended has ${v?.statusReason}/${v?.statusChangedAt}`);
+      }
+      if (
+        x.stillSuspended.row?.statusChangedAt?.getTime() !==
+        x.suspended.row?.statusChangedAt?.getTime()
+      )
+        problems.push("a repeated suspension moved the date");
+      for (const [name, v] of [
+        ["list", x.active.list],
+        ["link", x.active.link],
+      ]) {
+        if (v?.status !== "linked" || !clear(v))
+          problems.push(`${name} after unsuspend: ${v?.status}`);
+      }
+      if (
+        x.active.row?.status !== "active" ||
+        x.active.row.statusChangedAt ||
+        x.active.row.statusReason
+      )
+        problems.push("the row kept the suspension fields");
+      return problems;
+    },
+  );
+  const goneWorld = () =>
+    once("scm-status-gone", async () => {
+      const db = suiteDb();
+      const admin = S("admin")(w);
+      const account = orgAccount("gn");
+      const flow = await linkFlow(admin, {
+        workspaceId: PAY(),
+        account,
+        user: ghUser(),
+        orgRole: "admin",
+      });
+      const wl = flow.link.json.data.id;
+      const linkId = flow.link.json.data.installationLinkId;
+      const before = mineIn(await w.api("GET", ghPath(PAY()), { cookie: admin }), wl);
+      await stubCtl("/__control/remove-installation", { id: flow.installationId });
+      const refresh = await w.api("POST", `${ghPath(PAY())}/links/${wl}/refresh`, {
+        cookie: admin,
+      });
+      const list = await w.api("GET", "/integrations/github/installations", { cookie: admin });
+      const links = await w.api("GET", ghPath(PAY()), { cookie: admin });
+      const row = await db.scmInstallation.findFirst({
+        where: { externalInstallationId: String(flow.installationId) },
+      });
+      const edge = await edgeTenant();
+      const edgeList = await w.api("GET", "/integrations/github/installations", {
+        cookie: edge.owner,
+      });
+      return {
+        before,
+        refresh,
+        list: mineIn(list, linkId),
+        link: mineIn(links, wl),
+        row,
+        edgeList,
+      };
+    });
+  add(
+    "SCM-062",
+    "a refresh that finds the installation gone on GitHub marks it revoked with statusReason not_found_on_github and a date, in the refresh answer, the tenant list, the workspace link and the row, and no other tenant sees it",
+    { status: 200 },
+    async () => ({ status: 200, json: null, x: await goneWorld() }),
+    (r) => {
+      const x = r.x;
+      const problems = [];
+      if (x.before?.status !== "linked")
+        problems.push("control: the link did not read linked first");
+      if (x.refresh.status !== 200) problems.push(`refresh answered ${x.refresh.status}`);
+      for (const [name, v] of [
+        ["refresh answer", x.refresh.json?.data],
+        ["tenant list", x.list],
+        ["workspace link", x.link],
+      ]) {
+        if (v?.status !== "revoked" || v.health !== "revoked")
+          problems.push(`${name} reads ${v?.status}/${v?.health}`);
+        if (v?.statusReason !== "not_found_on_github" || !v.statusChangedAt)
+          problems.push(`${name} has ${v?.statusReason}/${v?.statusChangedAt}`);
+      }
+      if (
+        x.row?.status !== "revoked" ||
+        x.row.statusReason !== "not_found_on_github" ||
+        !x.row.statusChangedAt
+      )
+        problems.push("the row has no reason or date");
+      if (itemsOf(x.edgeList).some((i) => i.status !== "linked" || i.statusReason !== null))
+        problems.push("another tenant sees a status");
       return problems;
     },
   );

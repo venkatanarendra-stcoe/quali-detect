@@ -52,7 +52,7 @@ export function createScmJobHandler({ db, config, logger, github }) {
     } catch (error) {
       if (error instanceof GitHubApiError && (error.notFound || error.accessDenied)) {
         // The installation itself is gone: its repositories are disconnected (SPEC §6.4). Not a repository-level failure.
-        await states.revokeInstallation(link.installationId);
+        await states.revokeInstallation(link.installationId, "not_found_on_github");
         return log.warn("Installation is no longer accessible; marked revoked");
       }
       throw toRetryable(error); // rate limit, outage: retried by the queue, never counted against the repository

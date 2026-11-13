@@ -77,6 +77,9 @@ model ScmInstallation {
   repositorySelection    ScmRepositorySelection @map("repository_selection")
   permissions            Json                   @default("{}")
   status                 ScmInstallationStatus  @default(active)
+  /// When the installation left `active` and why (`uninstalled` | `suspended` | `not_found_on_github`); both NULL while active.
+  statusChangedAt        DateTime?              @map("status_changed_at") @db.Timestamptz(6)
+  statusReason           String?                @map("status_reason")
   lastCheckedAt          DateTime?              @map("last_checked_at") @db.Timestamptz(6)
   createdAt              DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)

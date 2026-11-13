@@ -36,9 +36,10 @@ import {
   runJitterFixtures,
   runPlanFixtures,
 } from "./helpers/schedule-fixtures.js";
+import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 482;
+const EXPECTED_CHECKS = 497;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10254,6 +10255,22 @@ const schWorld = () =>
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// 17. User preferences (docs/modules/user-preferences/SPEC.md §14, PREF-001..013): GET and PUT /me/preferences. The route
+//     names no user and no tenant, so isolation is proven by forged identifiers, two users of one tenant, two tenants, the
+//     platform session and the suspended tenant, reading the rows back from the disposable database. Fixtures: tenants
+//     "prefp" and "prefq" created through the public API (helpers/user-preferences.js).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("User preferences: own data only");
+  for (const { id, name, expected, run, verify } of buildPreferenceChecks({
+    S,
+    once,
+    db: suiteDb,
+  }))
+    add(id, name, expected, run, verify);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 const allChecks = groups.flatMap((g) => g.checks);
 
 /** @param {{ status: number, json: any }} response @param {Expected} expected @param {string} where */
@@ -10354,6 +10371,18 @@ describe("security regression suite", () => {
       "A viewer lists workspaces",
       (x) => x.api("GET", "/workspaces", { cookie: S("viewer")(x) }),
       (r) => assert.ok(r.json.data.length >= 1),
+    );
+    ok(
+      "A viewer reads and sets their own accent (no special permission)",
+      async (x) => {
+        const put = await x.api("PUT", "/me/preferences", {
+          cookie: S("viewer")(x),
+          body: { accent: "blue" },
+        });
+        assert.equal(put.status, 200);
+        return x.api("GET", "/me/preferences", { cookie: S("viewer")(x) });
+      },
+      (r) => assert.equal(r.json.data.accent, "blue"),
     );
     ok(
       "A admin /me shows tenant A",

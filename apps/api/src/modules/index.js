@@ -11,6 +11,7 @@ import { platformTenantsModule } from "./platform-tenants/index.js";
 import { roleAssignmentsModule } from "./role-assignments/index.js";
 import { rolesModule } from "./roles/index.js";
 import { systemModule } from "./system/index.js";
+import { userPreferencesModule } from "./user-preferences/index.js";
 import { usersModule } from "./users/index.js";
 import { workspaceMembersModule } from "./workspace-members/index.js";
 import { workspacesModule } from "./workspaces/index.js";
@@ -33,4 +34,5 @@ export const modules = [
   scmWebhooksModule,
   repositoriesModule,
   pipelinesModule,
+  userPreferencesModule,
 ];

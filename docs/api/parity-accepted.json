@@ -48,6 +48,10 @@
     {
       "pattern": "(OpenAPI: extra |extra operation: )(GET|PUT|POST|DELETE) /api/v1/workspaces/\\{workspaceId\\}/integrations",
       "reason": "New operations (2026-11-12, SPEC §18 / ADR-012, AUTHORIZATION Q26): workspace-level GitHub linking (start, authorize, test connection, workspace unlink, repository allow-list); permissions workspace_integration.view / workspace_integration.manage (workspace scope). Replaces the 2026-11-11 routing operations GET/PUT /workspaces/{ws}/integrations[/{linkId}] and the tenant-level link operations (start, authorize, link, refresh, scope, unlink under /integrations/github/installations), which no longer exist; none of them was in the Fastify baseline."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )(GET|PUT) /api/v1/me/preferences",
+      "reason": "New operations of the user-preferences module (docs/modules/user-preferences/SPEC.md §8, 2026-11-13, owner decision): the signed-in user's own interface preferences (accent colour) in the active tenant. Tenant audience, no permission, no id in path/body/query, PUT rate-limited (write profile)."
     }
   ]
 }

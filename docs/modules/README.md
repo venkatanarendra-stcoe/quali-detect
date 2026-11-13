@@ -21,4 +21,6 @@ Suggested module specification order:
 15. Dashboards and reporting.
 16. Root Console administration.
 
+Specifications written so far (folders in this directory): `access-management`, `repositories-github`, `pipelines-triggers`, `user-preferences` (per-user interface preferences such as the accent colour; not part of the order above).
+
 Do not create empty specifications for every module in advance. Complete each specification before implementing that module.

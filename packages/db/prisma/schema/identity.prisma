@@ -93,6 +93,7 @@ model TenantMembership {
   userAssignments  UserRoleAssignment[]
   workspaceMembers WorkspaceMember[]
   ownedWorkspaces  Workspace[]          @relation("WorkspaceOwner")
+  preference       UserPreference?
 
   @@unique([tenantId, userId])
   @@index([userId, status])
@@ -296,4 +297,22 @@ model AuditLog {
   @@index([tenantId, actorUserId, createdAt])
   @@index([tenantId, action])
   @@map("audit_logs")
+}
+
+/// Interface preferences of one user inside one tenant (module user-preferences). One row per membership; no row means all
+/// defaults. One typed nullable column per preference (null = the default applies), so a partial update is atomic and each
+/// new preference is a reviewed migration. The composite key to the membership ties the row to a user of THIS tenant.
+model UserPreference {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  /// Key from ACCENT_KEYS in @qmentisai/shared; validated by the API, unknown stored values read as the default.
+  accent    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  membership TenantMembership @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@map("user_preferences")
 }

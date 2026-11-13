@@ -23,6 +23,7 @@ import { createRoleRepository } from "../../../src/modules/roles/repositories/in
 import { createRouterRepository } from "../../../../workers/src/pipeline/repository.js";
 import { createScheduleRepository } from "../../../../workers/src/scheduler/schedule-repository.js";
 import { createWebhookRepository } from "../../../src/modules/scm-webhooks/repositories/index.js";
+import { createUserPreferenceRepository } from "../../../src/modules/user-preferences/repositories/index.js";
 import { createUserRepository } from "../../../src/modules/users/repositories/index.js";
 import { createWorkspaceMemberRepository } from "../../../src/modules/workspace-members/repositories/index.js";
 import { createWorkspaceRepository } from "../../../src/modules/workspaces/repositories/index.js";
@@ -82,6 +83,7 @@ export async function buildDalWorld(db) {
   await membership(uA, "active");
   await membership(uB, "active");
   await membership(uC, "invited");
+  await db.userPreference.create({ data: { tenantId: X.id, userId: uA.id, accent: "violet" } });
   const ws = await db.workspace.create({ data: { tenantId: X.id, name: `DAL WS ${sfx}` } });
   await db.workspaceMember.create({
     data: { tenantId: X.id, workspaceId: ws.id, userId: uB.id, status: "suspended" },
@@ -639,6 +641,7 @@ export async function buildDalWorld(db) {
     roles: createRoleRepository({ db }),
     webhooks: createWebhookRepository({ db }),
     users: createUserRepository({ db }),
+    preferences: createUserPreferenceRepository({ db }),
     workspaceMembers: createWorkspaceMemberRepository({ db }),
     workspaces: createWorkspaceRepository({ db }),
     baseWorkspace: createTenantRepository({ model: "workspace", getClient: () => db }),
@@ -685,6 +688,7 @@ async function snapshot(c) {
   const tables = await Promise.all([
     db.tenant.findMany({ where: { id: x } }),
     db.tenantMembership.findMany({ where: tenant }),
+    db.userPreference.findMany({ where: { userId: { in: [c.uA, c.uB, c.uC] } } }),
     db.group.findMany({ where: tenant }),
     db.groupMember.findMany({ where: tenant }),
     db.role.findMany({ where: tenant }),
@@ -3291,6 +3295,22 @@ export function buildDalEntries() {
         await drop();
         return cancelled;
       },
+    },
+  );
+
+  // ----- user-preferences (docs/modules/user-preferences/SPEC.md §7, §14): the unique key is (tenant, user), never the user alone.
+  // X's user uA has a saved preference; the calls below present that user id with tenant Y.
+  const UP = (c) => c.repos.preferences;
+  E("user-preferences.find", (c) => UP(c).find({ tenantId: c.y, userId: c.uA }), {
+    control: (c) => UP(c).find({ tenantId: c.x, userId: c.uA }),
+  });
+  E(
+    "user-preferences.upsert",
+    (c) => UP(c).upsert({ tenantId: c.y, userId: c.uA, data: { accent: "rose" } }),
+    {
+      // the composite key to the membership refuses a user that is not a member of tenant Y; X's row stays unchanged
+      mayThrow: true,
+      control: (c) => UP(c).upsert({ tenantId: c.x, userId: c.uA, data: { accent: "violet" } }),
     },
   );
 

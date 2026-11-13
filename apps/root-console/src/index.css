@@ -4,6 +4,8 @@
 @import "@qmentisai/ui/root-theme.css";
 /* Smooth scrolling and the thin fading overlay scrollbar (`.qm-scroll`); no accent picker or ThemeProvider here. */
 @import "@qmentisai/ui/scroll.css";
+/* Always-dark audit-log terminal panel (neutral tokens, no accent); used only by the platform audit log. */
+@import "@qmentisai/ui/terminal.css";
 
 @source "../../../packages/ui/src";
 

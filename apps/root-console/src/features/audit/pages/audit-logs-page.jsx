@@ -1,14 +1,12 @@
-import { CircleCheck, CircleX, ScrollText, SearchX } from "lucide-react";
-import { AppPageLayout } from "@qmentisai/ui";
-import { useMemo } from "react";
+import { AppPageLayout, AuditTerminal, TerminalMessage, TerminalResult } from "@qmentisai/ui";
+import { useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { QueryTable } from "@/components/common/query-table.jsx";
-import { EmptyState } from "@/components/states/empty-state.jsx";
-import { Badge } from "@/components/ui/badge.jsx";
+import { describeError, isApiError } from "@/lib/api/index.js";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { PLATFORM_AUDIT_ACTIONS } from "../constants/index.js";
+import { AuditEntrySheet } from "../components/audit-entry-sheet.jsx";
 import { useAuditLogs } from "../hooks/use-audit-logs.js";
 
 const PAGE_SIZE = 25; // rows per "Load more" request
@@ -17,37 +15,78 @@ const when = (value) =>
 const startOfDay = (day) => new Date(`${day}T00:00:00`).toISOString();
 const endOfDay = (day) => new Date(`${day}T23:59:59.999`).toISOString();
 
-function Outcome({ result }) {
-  return result === "failure" ? (
-    <Badge tone="danger">
-      <CircleX aria-hidden="true" />
-      Failure
-    </Badge>
-  ) : (
-    <Badge tone="success">
-      <CircleCheck aria-hidden="true" />
-      Success
-    </Badge>
-  );
-}
+const pad = (n) => String(n).padStart(2, "0");
+/** Local `YYYY-MM-DD HH:mm:ss`: fixed width and good for copying into tickets. */
+const stamp = (value) => {
+  const d = new Date(value);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+const actorName = (entry) => entry.actor?.name ?? entry.actor?.type ?? "System";
 
-function Details({ entry }) {
-  const detail = { metadata: entry.metadata, ipAddress: entry.ipAddress };
-  return (
-    <details>
-      <summary className="cursor-pointer text-muted-foreground">Details</summary>
-      <pre className="qm-scroll mt-2 max-w-md overflow-x-auto rounded-sm bg-secondary p-2 font-mono text-xs">
-        {JSON.stringify(detail, null, 2)}
-      </pre>
-    </details>
-  );
-}
+const COLUMNS = [
+  {
+    id: "createdAt",
+    header: "timestamp",
+    width: "17%",
+    sortKey: "createdAt",
+    cell: (entry) => stamp(entry.createdAt),
+    title: (entry) => when(entry.createdAt),
+  },
+  {
+    id: "actor",
+    header: "actor",
+    width: "25%",
+    cell: (entry) => (
+      <>
+        {actorName(entry)}
+        {entry.actor?.email ? (
+          <span className="qm-terminal-muted block">{entry.actor.email}</span>
+        ) : null}
+      </>
+    ),
+    title: (entry) => entry.actor?.email ?? actorName(entry),
+  },
+  {
+    id: "action",
+    header: "action",
+    width: "22%",
+    sortKey: "action",
+    cell: (entry) => entry.action,
+    title: (entry) => entry.action,
+  },
+  {
+    id: "target",
+    header: "target",
+    width: "22%",
+    cell: (entry) => (
+      <>
+        {entry.target.type ?? "—"}
+        {entry.target.id ? (
+          <span className="qm-terminal-muted block">{entry.target.id}</span>
+        ) : null}
+        {entry.tenantId ? (
+          <span className="qm-terminal-muted block">tenant {entry.tenantId}</span>
+        ) : null}
+      </>
+    ),
+    title: (entry) =>
+      [entry.target.type, entry.target.id, entry.tenantId].filter(Boolean).join(" "),
+  },
+  {
+    id: "result",
+    header: "result",
+    width: "14%",
+    cell: (entry) => <TerminalResult tone={entry.result === "failure" ? "failure" : "success"} />,
+  },
+];
 
 /**
  * R-28 Platform audit logs: platform actions such as tenant lifecycle and platform sign-in (needs `platform.audit_log.view`).
- * It never shows a tenant's own audit log. Filters (actor, action, tenant, date range, result), and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown.
+ * It never shows a tenant's own audit log. Filters (actor, action, tenant, date range, result), and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown. Rendered as the audit-log terminal (same exception as the tenant app); a row opens the detail sheet.
  */
 export function PlatformAuditLogsPage() {
+  const [openId, setOpenId] = useState(null);
+  const originRef = useRef(null); // the row that opened the sheet; focus returns to it on close
   const [params, setParams] = useSearchParams();
   const action = params.get("action") ?? "";
   const result = params.get("result") ?? "";
@@ -79,89 +118,9 @@ export function PlatformAuditLogsPage() {
     limit: PAGE_SIZE,
   });
   const clear = () => setParams({}, { replace: true });
-  const columns = useMemo(
-    () => [
-      {
-        id: "createdAt",
-        accessorKey: "createdAt",
-        header: "Time",
-        sortDescFirst: false,
-        meta: { className: "align-top min-w-32" },
-        cell: ({ row: { original: e } }) => when(e.createdAt),
-      },
-      {
-        id: "actor",
-        header: "Actor",
-        enableSorting: false,
-        meta: { className: "align-top" },
-        cell: ({ row: { original: e } }) => (
-          <>
-            {e.actor?.name ?? e.actor?.type ?? "System"}
-            {e.actor?.email ? (
-              <span className="block text-xs text-muted-foreground">{e.actor.email}</span>
-            ) : null}
-          </>
-        ),
-      },
-      {
-        id: "action",
-        accessorKey: "action",
-        header: "Action",
-        sortDescFirst: false,
-        meta: { className: "align-top min-w-44 font-mono text-xs [overflow-wrap:anywhere]" },
-        cell: ({ row: { original: e } }) => e.action,
-      },
-      {
-        id: "resource",
-        header: "Resource",
-        enableSorting: false,
-        meta: { className: "align-top" },
-        cell: ({ row: { original: e } }) => (
-          <>
-            {e.target.type ?? "—"}
-            {e.target.id ? (
-              <span className="block font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                {e.target.id}
-              </span>
-            ) : null}
-          </>
-        ),
-      },
-      {
-        id: "tenant",
-        header: "Tenant",
-        enableSorting: false,
-        meta: {
-          className: "align-top font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]",
-        },
-        cell: ({ row: { original: e } }) => e.tenantId ?? "—",
-      },
-      {
-        id: "result",
-        header: "Result",
-        enableSorting: false,
-        meta: { className: "align-top" },
-        cell: ({ row: { original: e } }) => <Outcome result={e.result} />,
-      },
-      {
-        id: "correlationId",
-        header: "Correlation ID",
-        enableSorting: false,
-        meta: {
-          className: "align-top font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]",
-        },
-        cell: ({ row: { original: e } }) => e.correlationId ?? "—",
-      },
-      {
-        id: "details",
-        header: () => <span className="sr-only">Details</span>,
-        enableSorting: false,
-        meta: { className: "align-top" },
-        cell: ({ row: { original: e } }) => <Details entry={e} />,
-      },
-    ],
-    [],
-  );
+  const entries = list.data?.items ?? [];
+  const opened = entries.find((e) => e.id === openId) ?? null;
+  const forbidden = list.isError && isApiError(list.error) && list.error.status === 403;
 
   return (
     <AppPageLayout
@@ -255,37 +214,63 @@ export function PlatformAuditLogsPage() {
         ) : null}
       </div>
 
-      <QueryTable
-        query={list}
-        columns={columns}
-        caption="Platform audit log"
-        getRowId={(e) => e.id}
+      <AuditTerminal
+        ariaLabel="Platform audit log"
+        promptLabel="platform@qmentisai-root:~$"
+        rows={entries}
+        columns={COLUMNS}
+        getRowId={(entry) => entry.id}
+        rowLabel={(entry) =>
+          `${entry.action}, ${actorName(entry)}, ${entry.result}. Press Enter for details.`
+        }
+        onRowActivate={(entry, element) => {
+          originRef.current = element;
+          setOpenId(entry.id);
+        }}
+        selectedId={openId}
         sort={sort}
         onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s })}
+        loading={list.isPending}
+        unauthorized={
+          forbidden ? (
+            <TerminalMessage title="Permission denied" icon="lock">
+              You do not have permission to view platform audit logs. Ask a platform administrator
+              for access.
+            </TerminalMessage>
+          ) : undefined
+        }
+        error={
+          list.isError && !forbidden ? (
+            <TerminalMessage title="Could not load the audit log" icon="alert" role="alert">
+              <p>{describeError(list.error)}</p>
+              {isApiError(list.error) && list.error.correlationId ? (
+                <p>Reference {list.error.correlationId}</p>
+              ) : null}
+              <button type="button" className="qm-terminal-retry" onClick={() => list.refetch()}>
+                -- retry --
+              </button>
+            </TerminalMessage>
+          ) : undefined
+        }
+        empty={
+          filtered ? (
+            <TerminalMessage title="No matching entries">
+              Try different filters or a wider date range.{" "}
+              <button type="button" className="qm-terminal-retry" onClick={clear}>
+                -- clear filters --
+              </button>
+            </TerminalMessage>
+          ) : (
+            <TerminalMessage title="No audit entries yet">
+              Tenant lifecycle changes and platform sign-ins are recorded here.
+            </TerminalMessage>
+          )
+        }
         hasMore={list.hasMore}
         loadingMore={list.loadingMore}
         onLoadMore={list.loadMore}
-        emptyState={
-          filtered ? (
-            <EmptyState
-              icon={SearchX}
-              title="No matching entries"
-              description="Try different filters or a wider date range."
-              actions={
-                <Button variant="secondary" onClick={clear}>
-                  Clear filters
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              icon={ScrollText}
-              title="No audit entries yet"
-              description="Tenant lifecycle changes and platform sign-ins are recorded here."
-            />
-          )
-        }
       />
+      <AuditEntrySheet entry={opened} onClose={() => setOpenId(null)} returnFocusTo={originRef} />
     </AppPageLayout>
   );
 }

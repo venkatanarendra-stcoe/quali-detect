@@ -1,3 +1,4 @@
+import { DataTable } from "@qmentisai/ui";
 import { Plug } from "lucide-react";
 import { Link } from "react-router";
 import { EmptyState } from "@/components/states/empty-state.jsx";
@@ -8,6 +9,54 @@ import { useInstallations } from "../hooks/use-integrations.js";
 import { LinkStatus, statusSummary } from "./link-status.jsx";
 import { WorkspaceUsage } from "./workspace-usage.jsx";
 import { can } from "@qmentisai/shared";
+
+const COLUMNS = [
+  {
+    id: "account",
+    header: "GitHub account",
+    cell: ({ row: { original: i } }) => (
+      <>
+        <Link
+          to="/integrations/github"
+          className="font-mono text-xs underline-offset-2 hover:underline"
+        >
+          {i.account.login}
+        </Link>
+        <div className="text-xs text-muted-foreground">
+          {i.account.type === "organization" ? "Organization" : "Personal account"}
+        </div>
+      </>
+    ),
+  },
+  {
+    id: "access",
+    header: "Access",
+    cell: ({ row: { original: i } }) =>
+      i.repositorySelection === "all" ? "All repositories" : "Selected repositories",
+  },
+  {
+    id: "health",
+    header: "Health",
+    cell: ({ row: { original: i } }) => (
+      <>
+        <LinkStatus link={i} />
+        {statusSummary(i) ? (
+          <div className="mt-1 text-xs text-muted-foreground">{statusSummary(i)}</div>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "repositories",
+    header: "Repositories",
+    cell: ({ row: { original: i } }) => i.repositoryCount,
+  },
+  {
+    id: "usedBy",
+    header: "Used by",
+    cell: ({ row: { original: i } }) => <WorkspaceUsage installation={i} />,
+  },
+];
 
 /** Read-only list of GitHub installations of the organization and the workspaces using them (T-13). */
 export function SourceControlSection() {
@@ -33,52 +82,14 @@ export function SourceControlSection() {
         />
       ) : null}
       {items.length > 0 ? (
-        <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-          <table className="w-full text-left text-[13px] leading-5">
-            <caption className="sr-only">
-              GitHub installations and the workspaces using them
-            </caption>
-            <thead className="border-b border-border text-muted-foreground">
-              <tr>
-                {["GitHub account", "Access", "Health", "Repositories", "Used by"].map((h) => (
-                  <th key={h} scope="col" className="px-3 py-2 font-medium">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((i) => (
-                <tr key={i.id} className="border-b border-border last:border-0">
-                  <td className="px-3 py-2">
-                    <Link
-                      to="/integrations/github"
-                      className="font-mono text-xs underline-offset-2 hover:underline"
-                    >
-                      {i.account.login}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">
-                      {i.account.type === "organization" ? "Organization" : "Personal account"}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    {i.repositorySelection === "all" ? "All repositories" : "Selected repositories"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <LinkStatus link={i} />
-                    {statusSummary(i) ? (
-                      <div className="mt-1 text-xs text-muted-foreground">{statusSummary(i)}</div>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2">{i.repositoryCount}</td>
-                  <td className="px-3 py-2">
-                    <WorkspaceUsage installation={i} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          caption="GitHub installations and the workspaces using them"
+          columns={COLUMNS}
+          data={items}
+          getRowId={(i) => i.id}
+          height="auto"
+          maxHeight="24rem"
+        />
       ) : null}
       <p className="text-sm text-muted-foreground">
         Source control is connected from a workspace&apos;s Integrations page.

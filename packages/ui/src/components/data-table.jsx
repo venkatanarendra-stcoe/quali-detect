@@ -4,7 +4,8 @@ import { ArrowDownIcon, ArrowUpIcon, AlertIcon, LockIcon, LoaderIcon } from "./i
 import { useScrollActivity } from "./use-scroll-activity.js";
 
 const join = (...parts) => parts.filter(Boolean).join(" ");
-const INTERACTIVE = "a[href],button,input,select,textarea,label,[role='button'],[role='checkbox']";
+const INTERACTIVE =
+  "a[href],button,input,select,textarea,label,[role='button'],[role='checkbox'],[role='switch'],[role='menuitem']";
 
 function StateBox({ icon, title, children }) {
   return (
@@ -236,7 +237,12 @@ export function DataTable({
                     onClick={
                       onRowClick
                         ? (e) => {
-                            if (!e.target.closest(INTERACTIVE)) activate(row);
+                            // portaled children (dialogs, menus) bubble through the React tree: only clicks inside the row count
+                            if (
+                              e.currentTarget.contains(e.target) &&
+                              !e.target.closest(INTERACTIVE)
+                            )
+                              activate(row);
                           }
                         : undefined
                     }

@@ -1,8 +1,8 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { Copy, FlaskConical, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { LinkButton } from "@/components/common/link-button.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { NotFoundState } from "@/components/states/not-found-state.jsx";
@@ -15,7 +15,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.jsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
+import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
+import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { ConfigurationTab } from "../components/configuration-tab.jsx";
@@ -157,62 +158,62 @@ function Detail({ pipeline }) {
     </DisabledWithReason>
   ) : null;
   return (
-    <>
-      <PageHeader
-        title={pipeline.name}
-        description={
-          pipeline.repository.name ? (
-            <span className="font-mono text-xs">{pipeline.repository.name}</span>
-          ) : undefined
-        }
-        actions={
-          <>
-            <EffectiveStateChip state={pipeline.effectiveState} />
-            <PipelineEnabledSwitch pipeline={pipeline} />
-            {run}
-            {access.canManage ? (
-              <LinkButton to={`${base}/${pipeline.id}/edit`}>
-                <Pencil aria-hidden="true" />
-                Edit
-              </LinkButton>
-            ) : null}
-            {!access.deleted ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="More actions">
-                    <MoreHorizontal aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  {access.canManage ? (
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        navigate(
-                          `${base}/new?repository=${pipeline.repositoryId}&copy=${pipeline.id}`,
-                        )
-                      }
-                    >
-                      <Copy aria-hidden="true" /> Duplicate
-                    </DropdownMenuItem>
-                  ) : null}
-                  <DropdownMenuItem onSelect={() => setTesting(true)}>
-                    <FlaskConical aria-hidden="true" /> Test triggers
+    <AppPageLayout
+      scroll={false}
+      title={pipeline.name}
+      description={
+        pipeline.repository.name ? (
+          <span className="font-mono text-xs">{pipeline.repository.name}</span>
+        ) : undefined
+      }
+      actions={
+        <>
+          <EffectiveStateChip state={pipeline.effectiveState} />
+          <PipelineEnabledSwitch pipeline={pipeline} />
+          {run}
+          {access.canManage ? (
+            <LinkButton to={`${base}/${pipeline.id}/edit`}>
+              <Pencil aria-hidden="true" />
+              Edit
+            </LinkButton>
+          ) : null}
+          {!access.deleted ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions">
+                  <MoreHorizontal aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {access.canManage ? (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      navigate(
+                        `${base}/new?repository=${pipeline.repositoryId}&copy=${pipeline.id}`,
+                      )
+                    }
+                  >
+                    <Copy aria-hidden="true" /> Duplicate
                   </DropdownMenuItem>
-                  {access.canDelete ? (
-                    <DropdownMenuItem onSelect={() => setDeleting(true)}>
-                      <Trash2 aria-hidden="true" /> Delete…
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </>
-        }
-      />
+                ) : null}
+                <DropdownMenuItem onSelect={() => setTesting(true)}>
+                  <FlaskConical aria-hidden="true" /> Test triggers
+                </DropdownMenuItem>
+                {access.canDelete ? (
+                  <DropdownMenuItem onSelect={() => setDeleting(true)}>
+                    <Trash2 aria-hidden="true" /> Delete…
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </>
+      }
+    >
       {access.deleted ? (
         <p
           role="status"
-          className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+          className="mb-4 shrink-0 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           Deleted on {absoluteTime(pipeline.deletedAt)}. History and findings are kept; this view is
           read only.
@@ -220,41 +221,41 @@ function Detail({ pipeline }) {
       ) : state.reason ? (
         <p
           role="status"
-          className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+          className="mb-4 shrink-0 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           {state.reason}
         </p>
       ) : null}
-      <p className="mb-4 text-sm text-muted-foreground">
+      <p className="mb-4 shrink-0 text-sm text-muted-foreground">
         Findings in this pipeline have their own identity and lifecycle, independent of other
         pipelines.
       </p>
-      <Tabs
+      <ScrollTabs
         value={tab}
         onValueChange={(value) =>
           setParams(value === "overview" ? {} : { tab: value }, { replace: true })
         }
       >
-        <TabsList className="max-w-full overflow-x-auto">
+        <TabsList className="max-w-full shrink-0 overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="executions">Executions</TabsTrigger>
           <TabsTrigger value="configuration">Configuration</TabsTrigger>
           <TabsTrigger value="triggers">Triggers</TabsTrigger>
         </TabsList>
-        <TabsContent value="overview">
+        <ScrollTabsContent value="overview">
           <Overview pipeline={pipeline} />
-        </TabsContent>
-        <TabsContent value="executions">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="executions">
           {access.canViewExecutions ? (
             <ExecutionsTab pipelineId={pipeline.id} />
           ) : (
             <UnauthorizedState />
           )}
-        </TabsContent>
-        <TabsContent value="configuration">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="configuration">
           <ConfigurationTab pipeline={pipeline} />
-        </TabsContent>
-        <TabsContent value="triggers">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="triggers">
           {access.deleted ? (
             <p className="text-sm text-muted-foreground">
               A deleted pipeline has no active triggers.
@@ -262,8 +263,8 @@ function Detail({ pipeline }) {
           ) : (
             <TriggersTab pipeline={pipeline} />
           )}
-        </TabsContent>
-      </Tabs>
+        </ScrollTabsContent>
+      </ScrollTabs>
       <RunDialog pipeline={pipeline} open={running} onOpenChange={setRunning} />
       <DryRunDialog pipeline={pipeline} open={testing} onOpenChange={setTesting} />
       <DeletePipelineDialog
@@ -272,7 +273,7 @@ function Detail({ pipeline }) {
         onOpenChange={setDeleting}
         onDone={() => navigate(base)}
       />
-    </>
+    </AppPageLayout>
   );
 }
 

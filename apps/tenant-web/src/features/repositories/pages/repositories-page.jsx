@@ -1,13 +1,10 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { GitBranch, SearchX } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { LinkButton } from "@/components/common/link-button.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
-import { SortHeader } from "@/components/common/sort-header.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
@@ -30,6 +27,7 @@ const when = (value) =>
  */
 export function RepositoriesPage() {
   const { workspaceId } = useParams();
+  const navigate = useNavigate();
   const can = useCan();
   const [params, setParams] = useSearchParams();
   const qParam = params.get("q") ?? "";
@@ -83,14 +81,72 @@ export function RepositoriesPage() {
     </PermissionGate>
   );
 
+  const columns = [
+    {
+      id: "fullName",
+      header: "Repository",
+      sortDescFirst: false,
+      accessorFn: () => null,
+      cell: ({ row: { original: r } }) => (
+        <>
+          <Link
+            className="font-mono text-xs underline-offset-2 hover:underline focus-visible:underline"
+            to={`/workspaces/${r.workspaceId}/repositories/${r.id}`}
+          >
+            {r.fullName}
+          </Link>
+          <div className="text-xs text-muted-foreground">
+            {r.visibility}
+            {r.archived ? " · archived on GitHub" : ""}
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "defaultBranch",
+      header: "Default branch",
+      enableSorting: false,
+      cell: ({ row: { original: r } }) => (
+        <span className="font-mono text-xs">{r.defaultBranch ?? "—"}</span>
+      ),
+    },
+    {
+      id: "health",
+      header: "Health",
+      enableSorting: false,
+      cell: ({ row: { original: r } }) => <RepositoryHealth repository={r} />,
+    },
+    {
+      id: "lastSyncedAt",
+      header: "Last synced",
+      sortDescFirst: false,
+      accessorFn: () => null,
+      meta: { className: "whitespace-nowrap" },
+      cell: ({ row: { original: r } }) => when(r.lastSyncedAt),
+    },
+    {
+      id: "pipelines",
+      header: "Pipelines",
+      enableSorting: false,
+      cell: ({ row: { original: r } }) => (canSeePipelines ? r.pipelineCount : "—"),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      meta: { className: "text-right" },
+      cell: ({ row: { original: r } }) => <RepositoryRowActions repository={r} />,
+    },
+  ];
+
   return (
-    <>
-      <PageHeader
-        title="Repositories"
-        description="Repositories connected to this workspace."
-        actions={connect}
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Repositories"
+      description="Repositories connected to this workspace."
+      actions={connect}
+      scroll={false}
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-full max-w-xs">
           <label htmlFor="repo-search" className="sr-only">
             Search repositories
@@ -146,111 +202,52 @@ export function RepositoriesPage() {
           </p>
         ) : null}
       </div>
-
-      {list.isPending ? <LoadingState label="Loading repositories" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching repositories"
-            description="Try different filters."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={GitBranch}
-            title="No repositories connected"
-            description={
-              canConnect
-                ? "Connect a repository from a GitHub account linked to this workspace. If no account is linked yet, link one on the workspace's Integrations page."
-                : "Ask someone with repository.connect to connect repositories to this workspace."
-            }
-            actions={
-              <div className="flex gap-2">
-                {connect}
-                {can("workspace_integration.view") ? (
-                  <LinkButton to={`/workspaces/${workspaceId}/integrations`} variant="secondary">
-                    Workspace integrations
-                  </LinkButton>
-                ) : null}
-              </div>
-            }
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Repositories</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <SortHeader
-                    label="Repository"
-                    field="fullName"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s === "fullName:asc" ? "" : s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Default branch
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Health
-                  </th>
-                  <SortHeader
-                    label="Last synced"
-                    field="lastSyncedAt"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Pipelines
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((r) => (
-                  <tr key={r.id} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2">
-                      <Link
-                        className="font-mono text-xs underline-offset-2 hover:underline focus-visible:underline"
-                        to={`/workspaces/${r.workspaceId}/repositories/${r.id}`}
-                      >
-                        {r.fullName}
-                      </Link>
-                      <div className="text-xs text-muted-foreground">
-                        {r.visibility}
-                        {r.archived ? " · archived on GitHub" : ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{r.defaultBranch ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <RepositoryHealth repository={r} />
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{when(r.lastSyncedAt)}</td>
-                    <td className="px-3 py-2">{canSeePipelines ? r.pipelineCount : "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <RepositoryRowActions repository={r} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager
-            pagination={list.data.pagination}
-            onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
-          />
-        </>
-      ) : null}
-    </>
+      <QueryTable
+        caption="Repositories"
+        query={list}
+        columns={columns}
+        getRowId={(r) => r.id}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "fullName:asc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onRowClick={(r) => navigate(`/workspaces/${r.workspaceId}/repositories/${r.id}`)}
+        rowLabel={(r) => `Open ${r.fullName}`}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching repositories"
+              description="Try different filters."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={GitBranch}
+              title="No repositories connected"
+              description={
+                canConnect
+                  ? "Connect a repository from a GitHub account linked to this workspace. If no account is linked yet, link one on the workspace's Integrations page."
+                  : "Ask someone with repository.connect to connect repositories to this workspace."
+              }
+              actions={
+                <div className="flex gap-2">
+                  {connect}
+                  {can("workspace_integration.view") ? (
+                    <LinkButton to={`/workspaces/${workspaceId}/integrations`} variant="secondary">
+                      Workspace integrations
+                    </LinkButton>
+                  ) : null}
+                </div>
+              }
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

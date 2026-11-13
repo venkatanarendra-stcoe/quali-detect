@@ -1,11 +1,8 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { CircleCheck, CircleX, ScrollText, SearchX } from "lucide-react";
 import { useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
-import { SortHeader } from "@/components/common/sort-header.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
@@ -47,6 +44,72 @@ function Details({ entry }) {
   );
 }
 
+const COLUMNS = [
+  {
+    id: "createdAt",
+    header: "Time",
+    sortDescFirst: false,
+    accessorFn: () => null,
+    meta: { className: "whitespace-nowrap" },
+    cell: ({ row: { original: entry } }) => when(entry.createdAt),
+  },
+  {
+    id: "actor",
+    header: "Actor",
+    enableSorting: false,
+    cell: ({ row: { original: entry } }) => (
+      <>
+        {entry.actor?.name ?? entry.actor?.type ?? "System"}
+        {entry.actor?.email ? (
+          <span className="block text-xs text-muted-foreground">{entry.actor.email}</span>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "action",
+    header: "Action",
+    sortDescFirst: false,
+    accessorFn: () => null,
+    cell: ({ row: { original: entry } }) => (
+      <span className="font-mono text-xs">{entry.action}</span>
+    ),
+  },
+  {
+    id: "resource",
+    header: "Resource",
+    enableSorting: false,
+    cell: ({ row: { original: entry } }) => (
+      <>
+        {entry.target.type ?? "—"}
+        {entry.target.id ? (
+          <span className="block font-mono text-xs text-muted-foreground">{entry.target.id}</span>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "result",
+    header: "Result",
+    enableSorting: false,
+    cell: ({ row: { original: entry } }) => <Outcome result={entry.result} />,
+  },
+  {
+    id: "correlationId",
+    header: "Correlation ID",
+    enableSorting: false,
+    cell: ({ row: { original: entry } }) => (
+      <span className="font-mono text-xs text-muted-foreground">{entry.correlationId ?? "—"}</span>
+    ),
+  },
+  {
+    id: "details",
+    header: () => <span className="sr-only">Details</span>,
+    enableSorting: false,
+    cell: ({ row: { original: entry } }) => <Details entry={entry} />,
+  },
+];
+
 /**
  * T-19 Audit logs: the organization's audit log (needs `audit_log.view_all`; the API scopes it to the session's tenant).
  * Filters (actor, action, date range, result), sorting and the page live in the URL.
@@ -87,12 +150,12 @@ export function AuditLogsPage() {
   const clear = () => setParams({}, { replace: true });
 
   return (
-    <>
-      <PageHeader
-        title="Audit logs"
-        description="Who did what in this organization. Entries cannot be changed or deleted."
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Audit logs"
+      description="Who did what in this organization. Entries cannot be changed or deleted."
+      scroll={false}
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-52">
           <label htmlFor="audit-action" className="sr-only">
             Action
@@ -179,103 +242,36 @@ export function AuditLogsPage() {
           </p>
         ) : null}
       </div>
-
-      {list.isPending ? <LoadingState label="Loading audit log" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching entries"
-            description="Try different filters or a wider date range."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={ScrollText}
-            title="No audit entries yet"
-            description="Changes to users, roles, groups and workspaces are recorded here."
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Audit log</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <SortHeader
-                    label="Time"
-                    field="createdAt"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Actor
-                  </th>
-                  <SortHeader
-                    label="Action"
-                    field="action"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Resource
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Result
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Correlation ID
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    <span className="sr-only">Details</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border last:border-0 align-top">
-                    <td className="px-3 py-2 whitespace-nowrap">{when(entry.createdAt)}</td>
-                    <td className="px-3 py-2">
-                      {entry.actor?.name ?? entry.actor?.type ?? "System"}
-                      {entry.actor?.email ? (
-                        <span className="block text-xs text-muted-foreground">
-                          {entry.actor.email}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{entry.action}</td>
-                    <td className="px-3 py-2">
-                      {entry.target.type ?? "—"}
-                      {entry.target.id ? (
-                        <span className="block font-mono text-xs text-muted-foreground">
-                          {entry.target.id}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Outcome result={entry.result} />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {entry.correlationId ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Details entry={entry} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager pagination={list.data.pagination} onPage={(p) => update({ page: String(p) })} />
-        </>
-      ) : null}
-    </>
+      <QueryTable
+        caption="Audit log"
+        query={list}
+        columns={COLUMNS}
+        getRowId={(entry) => entry.id}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: String(p) })}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching entries"
+              description="Try different filters or a wider date range."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={ScrollText}
+              title="No audit entries yet"
+              description="Changes to users, roles, groups and workspaces are recorded here."
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

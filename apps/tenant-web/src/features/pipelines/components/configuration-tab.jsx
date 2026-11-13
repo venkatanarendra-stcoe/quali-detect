@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router";
-import { Pager } from "@/components/common/pager.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Label } from "@/components/ui/label.jsx";
@@ -15,6 +15,54 @@ function summaryText(s) {
   if (s?.changed?.length) parts.push(`${s.changed.length} changed`);
   if (s?.removed?.length) parts.push(`${s.removed.length} removed`);
   return parts.length ? parts.join(", ") : "—";
+}
+
+/** Columns of the versions table; clicking a version number selects it (`update({ version })`). */
+function versionColumns(currentVersion, update) {
+  return [
+    {
+      id: "version",
+      header: "Version",
+      cell: ({ row: { original: v } }) => (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              update({ version: v.version === currentVersion ? "" : String(v.version) })
+            }
+            className="rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {v.version}
+          </button>
+          {v.version === currentVersion ? (
+            <span className="ml-1 text-xs text-muted-foreground">current</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: "published",
+      header: "Published",
+      cell: ({ row: { original: v } }) => <TimeAgo value={v.createdAt} />,
+    },
+    { id: "by", header: "By", cell: ({ row: { original: v } }) => v.createdBy?.name ?? "—" },
+    {
+      id: "note",
+      header: "Note",
+      meta: { className: "max-w-56 break-words" },
+      cell: ({ row: { original: v } }) => v.changeNote ?? "—",
+    },
+    {
+      id: "changes",
+      header: "Changes",
+      cell: ({ row: { original: v } }) => summaryText(v.changeSummary),
+    },
+    {
+      id: "hash",
+      header: "Hash",
+      cell: ({ row: { original: v } }) => <Identifier value={v.configHash} max={6} />,
+    },
+  ];
 }
 
 function VersionDetail({ pipelineId, version }) {
@@ -116,76 +164,16 @@ export function ConfigurationTab({ pipeline }) {
           Versions are immutable. Editing the configuration publishes a new version; requests
           already made keep the version they were made with.
         </p>
-        {versions.isPending ? <LoadingState rows={3} label="Loading versions" /> : null}
-        {versions.isError ? (
-          <QueryErrorState error={versions.error} onRetry={versions.refetch} />
-        ) : null}
-        {versions.data ? (
-          <>
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
-              <table className="w-full text-left text-[13px] leading-5">
-                <caption className="sr-only">Configuration versions</caption>
-                <thead className="border-b border-border text-muted-foreground">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Version
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Published
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      By
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Note
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Changes
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Hash
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.data.items.map((v) => (
-                    <tr key={v.version} className="border-b border-border last:border-0">
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            update({
-                              version: v.version === currentVersion ? "" : String(v.version),
-                            })
-                          }
-                          className="rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {v.version}
-                        </button>
-                        {v.version === currentVersion ? (
-                          <span className="ml-1 text-xs text-muted-foreground">current</span>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <TimeAgo value={v.createdAt} />
-                      </td>
-                      <td className="px-3 py-2">{v.createdBy?.name ?? "—"}</td>
-                      <td className="max-w-56 px-3 py-2 break-words">{v.changeNote ?? "—"}</td>
-                      <td className="px-3 py-2">{summaryText(v.changeSummary)}</td>
-                      <td className="px-3 py-2">
-                        <Identifier value={v.configHash} max={6} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager
-              pagination={versions.data.pagination}
-              onPage={(p) => update({ vpage: p > 1 ? String(p) : "" })}
-            />
-          </>
-        ) : null}
+        <QueryTable
+          caption="Configuration versions"
+          query={versions}
+          columns={versionColumns(currentVersion, update)}
+          getRowId={(v) => String(v.version)}
+          height="auto"
+          maxHeight="22rem"
+          pagination={versions.data?.pagination}
+          onPage={(p) => update({ vpage: p > 1 ? String(p) : "" })}
+        />
       </section>
     </div>
   );

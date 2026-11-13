@@ -1,17 +1,16 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { Users } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { StatusChip } from "@/components/common/status-chip.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
+import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
+import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useActiveWorkspace, useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { AddAccessDialog } from "../components/add-access-dialog.jsx";
@@ -88,28 +87,132 @@ export function WorkspaceMembersPage() {
     all.filter((a) => a.subjectType === "user" && a.subject.id === userId);
   const groupAssignments = all.filter((a) => a.subjectType === "group");
 
+  const peopleColumns = [
+    {
+      id: "name",
+      header: "Member",
+      enableSorting: false,
+      meta: { className: "font-medium" },
+      cell: ({ row: { original: m } }) => m.name,
+    },
+    {
+      id: "email",
+      header: "Email",
+      enableSorting: false,
+      meta: { className: "text-muted-foreground" },
+      cell: ({ row: { original: m } }) => m.email,
+    },
+    {
+      id: "role",
+      header: "Workspace role",
+      enableSorting: false,
+      cell: ({ row: { original: m } }) =>
+        canViewRoles ? (
+          assignments.isPending ? (
+            <span className="text-muted-foreground">Loading…</span>
+          ) : (
+            <RoleBadges assignments={userAssignments(m.userId)} />
+          )
+        ) : (
+          <span className="text-muted-foreground">Hidden (needs workspace.view_roles)</span>
+        ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      enableSorting: false,
+      cell: ({ row: { original: m } }) => <StatusChip status={m.status} />,
+    },
+    {
+      id: "added",
+      header: "Added",
+      enableSorting: false,
+      meta: { className: "text-muted-foreground" },
+      cell: ({ row: { original: m } }) => date(m.addedAt),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      meta: { className: "text-right" },
+      cell: ({ row: { original: m } }) => (
+        <DisabledWithReason reason={manageReason}>
+          <Button size="sm" variant="ghost" onClick={() => setRemoving(m)}>
+            Remove
+          </Button>
+        </DisabledWithReason>
+      ),
+    },
+  ];
+  const groupColumns = [
+    {
+      id: "group",
+      header: "Group",
+      enableSorting: false,
+      meta: { className: "font-medium" },
+      cell: ({ row: { original: a } }) => a.subject.name,
+    },
+    {
+      id: "role",
+      header: "Workspace role",
+      enableSorting: false,
+      cell: ({ row: { original: a } }) => <RoleBadges assignments={[a]} />,
+    },
+    {
+      id: "expires",
+      header: "Expires",
+      enableSorting: false,
+      meta: { className: "text-muted-foreground" },
+      cell: ({ row: { original: a } }) => (a.expiresAt ? date(a.expiresAt) : "Never"),
+    },
+    {
+      id: "added",
+      header: "Added",
+      enableSorting: false,
+      meta: { className: "text-muted-foreground" },
+      cell: ({ row: { original: a } }) => date(a.createdAt),
+    },
+    {
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      meta: { className: "text-right" },
+      cell: ({ row: { original: a } }) => (
+        <DisabledWithReason reason={manageReason}>
+          <Button size="sm" variant="ghost" onClick={() => setRevoking(a)}>
+            Revoke
+          </Button>
+        </DisabledWithReason>
+      ),
+    },
+  ];
+
+  // The Groups table reads the assignments query; without workspace.view_roles it shows the "Roles are hidden" state.
+  const groupsQuery = canViewRoles
+    ? assignments
+    : { isPending: false, isError: false, error: null, refetch: () => {} };
   return (
-    <>
-      <PageHeader
-        title="Members & groups"
-        description="People and groups in this workspace. Access comes from role assignments, not from being listed."
-        actions={
-          <DisabledWithReason reason={addReason}>
-            <Button onClick={() => setAdding(true)}>Add access</Button>
-          </DisabledWithReason>
-        }
-      />
+    <AppPageLayout
+      title="Members & groups"
+      description="People and groups in this workspace. Access comes from role assignments, not from being listed."
+      actions={
+        <DisabledWithReason reason={addReason}>
+          <Button onClick={() => setAdding(true)}>Add access</Button>
+        </DisabledWithReason>
+      }
+      scroll={false}
+    >
       {archived ? (
         <p
           role="status"
-          className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+          className="mb-4 shrink-0 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           This workspace is archived: membership is read-only until it is restored.
         </p>
       ) : null}
 
-      <Tabs defaultValue="people">
-        <TabsList aria-label="Members and groups">
+      <ScrollTabs defaultValue="people">
+        <TabsList aria-label="Members and groups" className="shrink-0">
           <TabsTrigger value="people">
             People{members.data?.pagination ? ` (${members.data.pagination.totalItems})` : ""}
           </TabsTrigger>
@@ -118,160 +221,48 @@ export function WorkspaceMembersPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="people">
-          {members.isPending ? <LoadingState label="Loading members" /> : null}
-          {members.isError ? (
-            <QueryErrorState error={members.error} onRetry={members.refetch} />
-          ) : null}
-          {members.data && members.data.items.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No members yet"
-              description="People added to this workspace appear here."
-            />
-          ) : null}
-          {members.data && members.data.items.length > 0 ? (
-            <>
-              <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-                <table className="w-full text-left text-[13px] leading-5">
-                  <caption className="sr-only">Workspace members</caption>
-                  <thead className="border-b border-border text-muted-foreground">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Member
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Email
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Workspace role
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Status
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Added
-                      </th>
-                      <th scope="col" className="px-3 py-2">
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {members.data.items.map((m) => (
-                      <tr
-                        key={m.userId}
-                        className="min-h-9 border-b border-border align-top last:border-0 hover:bg-secondary"
-                      >
-                        <td className="px-3 py-2 font-medium">{m.name}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{m.email}</td>
-                        <td className="px-3 py-2">
-                          {canViewRoles ? (
-                            assignments.isPending ? (
-                              <span className="text-muted-foreground">Loading…</span>
-                            ) : (
-                              <RoleBadges assignments={userAssignments(m.userId)} />
-                            )
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Hidden (needs workspace.view_roles)
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <StatusChip status={m.status} />
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{date(m.addedAt)}</td>
-                        <td className="px-3 py-1.5 text-right">
-                          <DisabledWithReason reason={manageReason}>
-                            <Button size="sm" variant="ghost" onClick={() => setRemoving(m)}>
-                              Remove
-                            </Button>
-                          </DisabledWithReason>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Pager
-                pagination={members.data.pagination}
-                onPage={(p) => setParams(p > 1 ? { page: String(p) } : {}, { replace: true })}
+        <ScrollTabsContent value="people" className="flex flex-col overflow-hidden pb-0">
+          <QueryTable
+            caption="Workspace members"
+            query={members}
+            columns={peopleColumns}
+            getRowId={(m) => m.userId}
+            pagination={members.data?.pagination}
+            onPage={(p) => setParams(p > 1 ? { page: String(p) } : {}, { replace: true })}
+            emptyState={
+              <EmptyState
+                icon={Users}
+                title="No members yet"
+                description="People added to this workspace appear here."
               />
-            </>
-          ) : null}
-        </TabsContent>
+            }
+          />
+        </ScrollTabsContent>
 
-        <TabsContent value="groups">
-          {!canViewRoles ? (
-            <EmptyState
-              title="Roles are hidden"
-              description="Seeing which groups hold roles needs the workspace.view_roles permission."
-            />
-          ) : null}
-          {canViewRoles && assignments.isPending ? <LoadingState label="Loading groups" /> : null}
-          {canViewRoles && assignments.isError ? (
-            <QueryErrorState error={assignments.error} onRetry={assignments.refetch} />
-          ) : null}
-          {canViewRoles && assignments.data && groupAssignments.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No groups yet"
-              description="Groups given a role in this workspace appear here."
-            />
-          ) : null}
-          {canViewRoles && groupAssignments.length > 0 ? (
-            <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-              <table className="w-full text-left text-[13px] leading-5">
-                <caption className="sr-only">Groups with a workspace role</caption>
-                <thead className="border-b border-border text-muted-foreground">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Group
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Workspace role
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Expires
-                    </th>
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      Added
-                    </th>
-                    <th scope="col" className="px-3 py-2">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupAssignments.map((a) => (
-                    <tr
-                      key={a.id}
-                      className="h-9 border-b border-border last:border-0 hover:bg-secondary"
-                    >
-                      <td className="px-3 font-medium">{a.subject.name}</td>
-                      <td className="px-3">
-                        <RoleBadges assignments={[a]} />
-                      </td>
-                      <td className="px-3 text-muted-foreground">
-                        {a.expiresAt ? date(a.expiresAt) : "Never"}
-                      </td>
-                      <td className="px-3 text-muted-foreground">{date(a.createdAt)}</td>
-                      <td className="px-3 text-right">
-                        <DisabledWithReason reason={manageReason}>
-                          <Button size="sm" variant="ghost" onClick={() => setRevoking(a)}>
-                            Revoke
-                          </Button>
-                        </DisabledWithReason>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </TabsContent>
-      </Tabs>
+        <ScrollTabsContent value="groups" className="flex flex-col overflow-hidden pb-0">
+          <QueryTable
+            caption="Groups with a workspace role"
+            query={groupsQuery}
+            items={groupAssignments}
+            columns={groupColumns}
+            getRowId={(a) => a.id}
+            emptyState={
+              canViewRoles ? (
+                <EmptyState
+                  icon={Users}
+                  title="No groups yet"
+                  description="Groups given a role in this workspace appear here."
+                />
+              ) : (
+                <EmptyState
+                  title="Roles are hidden"
+                  description="Seeing which groups hold roles needs the workspace.view_roles permission."
+                />
+              )
+            }
+          />
+        </ScrollTabsContent>
+      </ScrollTabs>
 
       <AddAccessDialog workspace={active} open={adding} onOpenChange={setAdding} />
       <ConfirmDialog
@@ -310,6 +301,6 @@ export function WorkspaceMembersPage() {
           })
         }
       />
-    </>
+    </AppPageLayout>
   );
 }

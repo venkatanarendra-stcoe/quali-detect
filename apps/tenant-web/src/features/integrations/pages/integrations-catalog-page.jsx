@@ -1,6 +1,6 @@
 import { Cable } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
@@ -38,15 +38,14 @@ export function IntegrationsCatalogPage() {
   );
   const showSourceControl = category === "all" || category === "source_control";
   return (
-    <>
-      <PageHeader
-        title="Integrations"
-        description="Tools connected to this organization. Source control is connected from a workspace's Integrations page."
-      />
+    <AppPageLayout
+      title="Integrations"
+      description="Tools connected to this organization. Source control is connected from a workspace's Integrations page."
+    >
       <div
         role="tablist"
         aria-label="Categories"
-        className="mb-4 flex max-w-full flex-wrap gap-1 border-b border-border"
+        className="sticky top-0 z-10 mb-4 flex max-w-full flex-wrap gap-1 border-b border-border bg-background"
       >
         {CATEGORIES.map(([id, label]) => (
           <button
@@ -133,6 +132,6 @@ export function IntegrationsCatalogPage() {
           </div>
         </section>
       ) : null}
-    </>
+    </AppPageLayout>
   );
 }

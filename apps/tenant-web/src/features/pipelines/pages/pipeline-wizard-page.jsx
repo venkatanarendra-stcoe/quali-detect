@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { WizardLayout } from "@qmentisai/ui";
+import { AppPageLayout, WizardLayout } from "@qmentisai/ui";
 import { canonicalJson, checkEnableable } from "@qmentisai/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -7,7 +7,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { NotFoundState } from "@/components/states/not-found-state.jsx";
@@ -315,14 +314,17 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
   });
   const blocked = blockingCount > 0;
   return (
-    <>
+    <AppPageLayout
+      title={title}
+      description={
+        editing
+          ? "Saving publishes a new configuration version."
+          : "A pipeline decides what is scanned and when."
+      }
+      scroll={false}
+    >
       <WizardLayout
-        title={title}
-        description={
-          editing
-            ? "Saving publishes a new configuration version."
-            : "A pipeline decides what is scanned and when."
-        }
+        fill
         banner={
           banner ? (
             <Banner
@@ -457,7 +459,7 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
           navigate(editing ? `${listPath}/${snapshot.id}` : listPath);
         }}
       />
-    </>
+    </AppPageLayout>
   );
 }
 
@@ -526,8 +528,7 @@ export function PipelineWizardPage({ mode }) {
   if (repository && repository.workspaceId !== workspaceId) return <NotFoundState />;
   if (!editing && repository && (repository.status !== "active" || !repository.enabled))
     return (
-      <>
-        <PageHeader title="Create pipeline" />
+      <AppPageLayout title="Create pipeline">
         <p role="alert" className="rounded-md border border-border-strong bg-secondary p-3 text-sm">
           Pipelines can be created once the repository is active.{" "}
           <Link
@@ -537,7 +538,7 @@ export function PipelineWizardPage({ mode }) {
             Back to the repository
           </Link>
         </p>
-      </>
+      </AppPageLayout>
     );
   const snapshot = sourceId
     ? {

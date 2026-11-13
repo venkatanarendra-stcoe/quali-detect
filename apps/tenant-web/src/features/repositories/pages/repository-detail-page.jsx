@@ -1,8 +1,8 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { NotFoundState } from "@/components/states/not-found-state.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
@@ -10,7 +10,8 @@ import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.jsx";
 import { Input } from "@/components/ui/input.jsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
+import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
+import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { Textarea } from "@/components/ui/textarea.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
@@ -150,37 +151,37 @@ function Detail({ repository }) {
   const setTab = (value) =>
     setParams(value === "overview" ? {} : { tab: value }, { replace: true });
   return (
-    <>
-      <PageHeader
-        title={<span className="font-mono text-lg">{repository.fullName}</span>}
-        description={repository.description ?? undefined}
-        actions={
-          <>
-            <RepositoryHealth repository={repository} />
-            <AddPipelineButton repository={repository} />
-            {actions.canSync ? (
-              <Button variant="secondary" disabled={actions.syncing} onClick={actions.sync}>
-                <RefreshCw aria-hidden="true" />
-                Sync now
-              </Button>
-            ) : null}
-            {actions.canToggle ? (
-              <Button variant="secondary" onClick={actions.toggle}>
-                {repository.enabled ? "Disable" : "Enable"}
-              </Button>
-            ) : null}
-            {actions.canDisconnect ? (
-              <Button variant="outline" onClick={() => setConfirming(true)}>
-                Disconnect
-              </Button>
-            ) : null}
-          </>
-        }
-      />
+    <AppPageLayout
+      scroll={false}
+      title={<span className="font-mono text-lg">{repository.fullName}</span>}
+      description={repository.description ?? undefined}
+      actions={
+        <>
+          <RepositoryHealth repository={repository} />
+          <AddPipelineButton repository={repository} />
+          {actions.canSync ? (
+            <Button variant="secondary" disabled={actions.syncing} onClick={actions.sync}>
+              <RefreshCw aria-hidden="true" />
+              Sync now
+            </Button>
+          ) : null}
+          {actions.canToggle ? (
+            <Button variant="secondary" onClick={actions.toggle}>
+              {repository.enabled ? "Disable" : "Enable"}
+            </Button>
+          ) : null}
+          {actions.canDisconnect ? (
+            <Button variant="outline" onClick={() => setConfirming(true)}>
+              Disconnect
+            </Button>
+          ) : null}
+        </>
+      }
+    >
       {repository.status === "unavailable" ? (
         <p
           role="status"
-          className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+          className="mb-4 shrink-0 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           GitHub no longer reports this repository to the App ({repository.consecutiveSyncFailures}{" "}
           failed checks in a row). Check the repository&apos;s access on GitHub, then sync again. It
@@ -191,7 +192,7 @@ function Detail({ repository }) {
       {repository.status === "disconnected" ? (
         <p
           role="status"
-          className="mb-4 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+          className="mb-4 shrink-0 rounded-md border border-border-strong bg-secondary p-3 text-sm"
         >
           This repository is disconnected
           {repository.disconnectedAt ? ` since ${when(repository.disconnectedAt)}` : ""}.{" "}
@@ -215,8 +216,8 @@ function Detail({ repository }) {
           ) : null}
         </p>
       ) : null}
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="max-w-full overflow-x-auto">
+      <ScrollTabs value={tab} onValueChange={setTab}>
+        <TabsList className="max-w-full shrink-0 overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {seesPipelines ? <TabsTrigger value="pipelines">Pipelines</TabsTrigger> : null}
           <TabsTrigger value="branches" disabled={!live}>
@@ -228,7 +229,7 @@ function Detail({ repository }) {
           <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
-        <TabsContent value="overview">
+        <ScrollTabsContent value="overview">
           <Card>
             <CardHeader>
               <CardTitle>Overview</CardTitle>
@@ -317,19 +318,19 @@ function Detail({ repository }) {
               </dl>
             </CardContent>
           </Card>
-        </TabsContent>
+        </ScrollTabsContent>
         {seesPipelines ? (
-          <TabsContent value="pipelines">
+          <ScrollTabsContent value="pipelines" className="flex flex-col overflow-hidden pb-0">
             <RepositoryPipelinesTab repository={repository} />
-          </TabsContent>
+          </ScrollTabsContent>
         ) : null}
-        <TabsContent value="branches">
+        <ScrollTabsContent value="branches">
           <Branches id={repository.id} />
-        </TabsContent>
-        <TabsContent value="pulls">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="pulls">
           <PullRequests id={repository.id} />
-        </TabsContent>
-        <TabsContent value="webhooks">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="webhooks">
           <Card>
             <CardHeader>
               <CardTitle>Webhooks</CardTitle>
@@ -349,11 +350,11 @@ function Detail({ repository }) {
               ) : null}
             </CardContent>
           </Card>
-        </TabsContent>
-        <TabsContent value="settings">
+        </ScrollTabsContent>
+        <ScrollTabsContent value="settings">
           <Settings repository={repository} canUpdate={actions.canUpdate} />
-        </TabsContent>
-      </Tabs>
+        </ScrollTabsContent>
+      </ScrollTabs>
       <DisconnectDialog
         repository={repository}
         open={confirming}
@@ -361,7 +362,7 @@ function Detail({ repository }) {
         disconnect={actions.disconnect}
         onDone={() => navigate(`/workspaces/${repository.workspaceId}/repositories`)}
       />
-    </>
+    </AppPageLayout>
   );
 }
 

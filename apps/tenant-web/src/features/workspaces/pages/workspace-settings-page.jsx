@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { ConfirmDialog } from "@/components/common/confirm-dialog.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { SearchPicker } from "@/components/common/search-picker.jsx";
 import { StatusChip } from "@/components/common/status-chip.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
@@ -236,12 +236,11 @@ export function WorkspaceSettingsPage() {
     : null;
 
   return (
-    <>
-      <PageHeader
-        title="Workspace settings"
-        description={ws.name}
-        actions={<StatusChip status={ws.status} />}
-      />
+    <AppPageLayout
+      title="Workspace settings"
+      description={ws.name}
+      actions={<StatusChip status={ws.status} />}
+    >
       {archived ? (
         <p
           role="status"
@@ -368,6 +367,6 @@ export function WorkspaceSettingsPage() {
           })
         }
       />
-    </>
+    </AppPageLayout>
   );
 }

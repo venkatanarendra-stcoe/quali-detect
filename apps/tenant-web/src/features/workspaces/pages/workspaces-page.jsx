@@ -1,13 +1,10 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { Boxes, MoreHorizontal, SearchX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
-import { SortHeader } from "@/components/common/sort-header.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { StatusChip } from "@/components/common/status-chip.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { LinkButton } from "@/components/common/link-button.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -59,11 +56,77 @@ function RowActions({ workspace }) {
   );
 }
 
+const COLUMNS = [
+  {
+    id: "name",
+    header: "Name",
+    sortDescFirst: false,
+    accessorFn: () => null,
+    cell: ({ row: { original: ws } }) => (
+      <>
+        <Link
+          className="font-medium text-primary-text underline-offset-4 hover:underline"
+          to={`/workspaces/${ws.id}/dashboard`}
+        >
+          {ws.name}
+        </Link>
+        {ws.description ? (
+          <p className="max-w-md truncate text-xs text-muted-foreground">{ws.description}</p>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "businessUnit",
+    header: "Business unit",
+    enableSorting: false,
+    meta: { className: "text-muted-foreground" },
+    cell: ({ row: { original: ws } }) => ws.businessUnit ?? "—",
+  },
+  {
+    id: "owner",
+    header: "Owner",
+    enableSorting: false,
+    meta: { className: "text-muted-foreground" },
+    cell: ({ row: { original: ws } }) => ws.ownerName ?? "—",
+  },
+  {
+    id: "members",
+    header: "Members",
+    enableSorting: false,
+    meta: { className: "text-right tabular-nums" },
+    cell: ({ row: { original: ws } }) => ws.memberCount,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortDescFirst: false,
+    accessorFn: () => null,
+    cell: ({ row: { original: ws } }) => <StatusChip status={ws.status} />,
+  },
+  {
+    id: "createdAt",
+    header: "Created",
+    sortDescFirst: false,
+    accessorFn: () => null,
+    meta: { className: "text-muted-foreground" },
+    cell: ({ row: { original: ws } }) => date(ws.createdAt),
+  },
+  {
+    id: "actions",
+    header: () => <span className="sr-only">Actions</span>,
+    enableSorting: false,
+    meta: { className: "w-12" },
+    cell: ({ row: { original: ws } }) => <RowActions workspace={ws} />,
+  },
+];
+
 /**
  * T-07 Workspaces: the workspaces the caller can see, with search, status filter, sorting and pagination in the URL.
  * Columns follow what exists today (repositories, pipelines and findings columns arrive with their modules).
  */
 export function WorkspacesPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const qParam = params.get("q") ?? "";
   const status = params.get("status") ?? "";
@@ -102,21 +165,21 @@ export function WorkspacesPage() {
   };
 
   return (
-    <>
-      <PageHeader
-        title="Workspaces"
-        description="Workspaces you can access in this organization."
-        actions={
-          <PermissionGate
-            permission="workspace.create"
-            mode="disable"
-            reason="You need the workspace.create permission to create workspaces."
-          >
-            <LinkButton to="/workspaces/new">New workspace</LinkButton>
-          </PermissionGate>
-        }
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Workspaces"
+      description="Workspaces you can access in this organization."
+      actions={
+        <PermissionGate
+          permission="workspace.create"
+          mode="disable"
+          reason="You need the workspace.create permission to create workspaces."
+        >
+          <LinkButton to="/workspaces/new">New workspace</LinkButton>
+        </PermissionGate>
+      }
+      scroll={false}
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-full max-w-xs">
           <label htmlFor="workspace-search" className="sr-only">
             Search workspaces
@@ -155,108 +218,38 @@ export function WorkspacesPage() {
           </p>
         ) : null}
       </div>
-
-      {list.isPending ? <LoadingState label="Loading workspaces" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching workspaces"
-            description="Try different filters."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={Boxes}
-            title="No workspaces yet"
-            description="You don't have access to any workspace in this organization."
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <div className="relative overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Workspaces</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <SortHeader
-                    label="Name"
-                    field="name"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Business unit
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Owner
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Members
-                  </th>
-                  <SortHeader
-                    label="Status"
-                    field="status"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <SortHeader
-                    label="Created"
-                    field="createdAt"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <th scope="col" className="w-12 px-3 py-2">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((ws) => (
-                  <tr
-                    key={ws.id}
-                    className="h-9 border-b border-border last:border-0 hover:bg-secondary"
-                  >
-                    <td className="px-3 py-1.5">
-                      <Link
-                        className="font-medium text-primary-text underline-offset-4 hover:underline"
-                        to={`/workspaces/${ws.id}/dashboard`}
-                      >
-                        {ws.name}
-                      </Link>
-                      {ws.description ? (
-                        <p className="max-w-md truncate text-xs text-muted-foreground">
-                          {ws.description}
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="px-3 text-muted-foreground">{ws.businessUnit ?? "—"}</td>
-                    <td className="px-3 text-muted-foreground">{ws.ownerName ?? "—"}</td>
-                    <td className="px-3 text-right tabular-nums">{ws.memberCount}</td>
-                    <td className="px-3">
-                      <StatusChip status={ws.status} />
-                    </td>
-                    <td className="px-3 text-muted-foreground">{date(ws.createdAt)}</td>
-                    <td className="px-3">
-                      <RowActions workspace={ws} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager
-            pagination={list.data.pagination}
-            onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
-          />
-        </>
-      ) : null}
-    </>
+      <QueryTable
+        caption="Workspaces"
+        query={list}
+        columns={COLUMNS}
+        getRowId={(ws) => ws.id}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onRowClick={(ws) => navigate(`/workspaces/${ws.id}/dashboard`)}
+        rowLabel={(ws) => `Open ${ws.name}`}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching workspaces"
+              description="Try different filters."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Boxes}
+              title="No workspaces yet"
+              description="You don't have access to any workspace in this organization."
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

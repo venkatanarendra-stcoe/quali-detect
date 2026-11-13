@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Select } from "@/components/ui/select.jsx";
@@ -64,8 +64,7 @@ export function GitHubSetupPage() {
   const choiceError = discover.error ?? start.error;
   const needsPick = valid && !hinted && !authorize.isPending && !authorize.isError;
   return (
-    <>
-      <PageHeader title="Connecting GitHub" description="Confirming your access with GitHub." />
+    <AppPageLayout title="Connecting GitHub" description="Confirming your access with GitHub.">
       {none ? (
         manageable.length === 0 ? (
           <p role="alert" className="text-sm text-status-danger">
@@ -165,6 +164,6 @@ export function GitHubSetupPage() {
       ) : (
         <LoadingState label="Redirecting to GitHub to confirm your access" />
       )}
-    </>
+    </AppPageLayout>
   );
 }

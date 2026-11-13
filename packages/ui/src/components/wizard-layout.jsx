@@ -150,12 +150,13 @@ export function Stepper({
  * above the page; at least 32rem tall): header on top, stepper and summary stay put, ONLY the form column scrolls, and
  * the action bar sits under it, so the page itself never scrolls. From 1280 px: stepper left, summary right. Below
  * 1280 px the summary is a disclosure above the form; below 1024 px the stepper is a horizontal indicator.
- * @param {{ title: string, description?: string, banner?: import("react").ReactNode,
+ * @param {{ title?: string, description?: string, banner?: import("react").ReactNode,
  *   steps: Array<string | { id: string, label: string }>, current: string | number,
  *   onStepChange?: (id: string) => void, stepStatus?: Record<string, "complete" | "error">,
  *   stepDisabled?: Record<string, boolean>, stepperLabel?: string, summary?: import("react").ReactNode,
  *   summaryTitle?: string, actions: import("react").ReactNode, offset?: string, fill?: boolean,
  *   children: import("react").ReactNode }} props
+ *   Omit `title` when a surrounding `AppPageLayout` already shows the header (no second header is rendered).
  *   `actions` is the content of the bar: put the cancel control first and the Back/Next/Create group last.
  *   `offset` is a CSS length (default 6rem = 3rem top bar + 3rem page padding). `fill` (default false) makes the
  *   wizard fill its parent instead of the viewport, for use inside `AppPageLayout scroll={false}`.
@@ -188,10 +189,12 @@ export function WizardLayout({
       )}
       style={{ "--wizard-offset": offset }}
     >
-      <header data-wizard="header" className="mb-4 shrink-0">
-        <h1 className="text-xl leading-7 font-semibold">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-      </header>
+      {title ? (
+        <header data-wizard="header" className="mb-4 shrink-0">
+          <h1 className="text-xl leading-7 font-semibold">{title}</h1>
+          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+        </header>
+      ) : null}
       {banner ? <div className="shrink-0">{banner}</div> : null}
       {summary ? (
         <div className="mb-4 shrink-0 rounded-md border border-border bg-card xl:hidden">

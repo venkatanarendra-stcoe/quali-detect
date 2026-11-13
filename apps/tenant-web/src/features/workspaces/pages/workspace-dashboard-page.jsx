@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { StatusChip } from "@/components/common/status-chip.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
@@ -21,12 +21,11 @@ export function WorkspaceDashboardPage() {
   if (detail.isError) return <QueryErrorState error={detail.error} onRetry={detail.refetch} />;
   const ws = detail.data;
   return (
-    <>
-      <PageHeader
-        title={ws.name}
-        description={ws.description ?? undefined}
-        actions={<StatusChip status={ws.status} />}
-      />
+    <AppPageLayout
+      title={ws.name}
+      description={ws.description ?? undefined}
+      actions={<StatusChip status={ws.status} />}
+    >
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -68,6 +67,6 @@ export function WorkspaceDashboardPage() {
           All workspaces
         </Link>
       </p>
-    </>
+    </AppPageLayout>
   );
 }

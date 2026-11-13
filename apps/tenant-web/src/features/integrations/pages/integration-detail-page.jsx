@@ -1,5 +1,5 @@
 import { Plug } from "lucide-react";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
@@ -96,11 +96,10 @@ export function IntegrationDetailPage() {
   const installations = useInstallations();
   const items = (installations.data ?? []).filter((i) => i.status !== "unlinked");
   return (
-    <>
-      <PageHeader
-        title="GitHub"
-        description="Installations of the QmentisAI GitHub App and the workspaces using them. Linking is done from a workspace's Integrations page."
-      />
+    <AppPageLayout
+      title="GitHub"
+      description="Installations of the QmentisAI GitHub App and the workspaces using them. Linking is done from a workspace's Integrations page."
+    >
       {installations.isPending ? <LoadingState label="Loading GitHub installations" /> : null}
       {installations.isError ? (
         <QueryErrorState error={installations.error} onRetry={installations.refetch} />
@@ -115,6 +114,6 @@ export function IntegrationDetailPage() {
       {items.map((i) => (
         <Installation key={i.id} installation={i} />
       ))}
-    </>
+    </AppPageLayout>
   );
 }

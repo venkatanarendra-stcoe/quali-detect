@@ -1,6 +1,6 @@
 import { Boxes, Building2 } from "lucide-react";
 import { Link } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { StatusChip } from "@/components/common/status-chip.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
@@ -82,20 +82,19 @@ export function OverviewPage() {
   };
 
   return (
-    <>
-      <PageHeader
-        title="Organization overview"
-        description={me.tenant.name}
-        actions={
-          <PermissionGate
-            permission="workspace.create"
-            mode="disable"
-            reason="You need the workspace.create permission to create workspaces."
-          >
-            <LinkButton to="/workspaces/new">New workspace</LinkButton>
-          </PermissionGate>
-        }
-      />
+    <AppPageLayout
+      title="Organization overview"
+      description={me.tenant.name}
+      actions={
+        <PermissionGate
+          permission="workspace.create"
+          mode="disable"
+          reason="You need the workspace.create permission to create workspaces."
+        >
+          <LinkButton to="/workspaces/new">New workspace</LinkButton>
+        </PermissionGate>
+      }
+    >
       <section
         aria-label="Organization totals"
         className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
@@ -190,6 +189,6 @@ export function OverviewPage() {
           Security metrics appear here once repositories, pipelines and findings are available.
         </CardContent>
       </Card>
-    </>
+    </AppPageLayout>
   );
 }

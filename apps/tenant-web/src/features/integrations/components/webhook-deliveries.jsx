@@ -1,3 +1,4 @@
+import { DataTable } from "@qmentisai/ui";
 import { CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { Pager } from "@/components/common/pager.jsx";
@@ -15,6 +16,36 @@ import { useDeliveries } from "../hooks/use-integrations.js";
 
 const when = (value) =>
   new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+const COLUMNS = [
+  {
+    id: "time",
+    header: "Time",
+    meta: { className: "whitespace-nowrap" },
+    cell: ({ row: { original: d } }) => when(d.receivedAt),
+  },
+  {
+    id: "event",
+    header: "Event",
+    cell: ({ row: { original: d } }) => (
+      <span className="font-mono text-xs">
+        {d.event}
+        {d.action ? `.${d.action}` : ""}
+      </span>
+    ),
+  },
+  { id: "outcome", header: "Outcome", cell: ({ row: { original: d } }) => d.outcome },
+  {
+    id: "signature",
+    header: "Signature",
+    cell: () => (
+      <span className="inline-flex items-center gap-1">
+        <CheckCircle2 className="size-3 text-status-success" aria-hidden="true" />
+        Verified
+      </span>
+    ),
+  },
+];
 
 /** Installation-level webhook health: recent deliveries (only signature-verified deliveries are recorded). */
 export function WebhookDeliveries({ installationId, login }) {
@@ -58,39 +89,23 @@ export function WebhookDeliveries({ installationId, login }) {
                 <option value="duplicate">Duplicate</option>
               </Select>
             </div>
-            <div className="relative overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-left text-[13px] leading-5">
-                <caption className="sr-only">Recent webhook deliveries for {login}</caption>
-                <thead className="border-b border-border text-muted-foreground">
-                  <tr>
-                    {["Time", "Event", "Outcome", "Signature"].map((h) => (
-                      <th key={h} scope="col" className="px-3 py-2 font-medium">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((d) => (
-                    <tr key={d.id} className="border-b border-border last:border-0">
-                      <td className="px-3 py-2 whitespace-nowrap">{when(d.receivedAt)}</td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {d.event}
-                        {d.action ? `.${d.action}` : ""}
-                      </td>
-                      <td className="px-3 py-2">{d.outcome}</td>
-                      <td className="px-3 py-2">
-                        <span className="inline-flex items-center gap-1">
-                          <CheckCircle2 className="size-3 text-status-success" aria-hidden="true" />
-                          Verified
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager pagination={deliveries.data.pagination} onPage={setPage} />
+            <DataTable
+              caption={`Recent webhook deliveries for ${login}`}
+              columns={COLUMNS}
+              data={items}
+              getRowId={(d) => d.id}
+              height="auto"
+              maxHeight="22rem"
+              footer={
+                deliveries.data.pagination.totalPages > 1 ? (
+                  <Pager
+                    pagination={deliveries.data.pagination}
+                    onPage={setPage}
+                    className="w-full"
+                  />
+                ) : undefined
+              }
+            />
           </>
         ) : null}
       </CardContent>

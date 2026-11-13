@@ -1,17 +1,13 @@
 import { History, ListX } from "lucide-react";
 import { useSearchParams } from "react-router";
-import { Pager } from "@/components/common/pager.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Label } from "@/components/ui/label.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { SOURCE_LABELS, TRIGGER_ICONS, TRIGGER_LABELS, reasonText } from "../constants/index.js";
 import { usePipelineExecutions, useTriggerDecisions } from "../hooks/use-pipelines.js";
 import { ExecutionStatusChip, Identifier, TimeAgo, absoluteTime } from "./pipeline-bits.jsx";
-
-const TH = "px-3 py-2 font-medium";
 
 function triggerSummary(e) {
   if (e.triggerType === "pull_request")
@@ -20,6 +16,68 @@ function triggerSummary(e) {
   if (e.triggerType === "schedule") return "schedule";
   return "manual run";
 }
+
+const requestColumns = [
+  {
+    id: "status",
+    header: "Status",
+    cell: ({ row: { original: e } }) => {
+      const why = reasonText(e.statusReason);
+      return (
+        <>
+          <ExecutionStatusChip status={e.status} />
+          {why ? <div className="mt-1 text-xs text-muted-foreground">{why}</div> : null}
+        </>
+      );
+    },
+  },
+  {
+    id: "trigger",
+    header: "Trigger",
+    cell: ({ row: { original: e } }) => {
+      const Icon = TRIGGER_ICONS[e.triggerType];
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          {Icon ? <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" /> : null}
+          {triggerSummary(e)}
+        </span>
+      );
+    },
+  },
+  {
+    id: "ref",
+    header: "Ref",
+    cell: ({ row: { original: e } }) => (
+      <span className="font-mono text-xs break-all">{e.refName}</span>
+    ),
+  },
+  {
+    id: "commit",
+    header: "Commit",
+    cell: ({ row: { original: e } }) => (
+      <Identifier value={e.commitSha} max={7} copy label="commit SHA" />
+    ),
+  },
+  {
+    id: "scan",
+    header: "Scan",
+    cell: ({ row: { original: e } }) => (
+      <>
+        {e.scanKind === "full" ? "Full" : "Incremental"}
+        {e.trust === "untrusted_fork" ? (
+          <Badge tone="warning" className="ml-1">
+            Untrusted fork
+          </Badge>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "requested",
+    header: "Requested",
+    cell: ({ row: { original: e } }) => <TimeAgo value={e.requestedAt} />,
+  },
+];
 
 /** Requests: the minimal list of execution requests (queued rows; later statuses render neutrally). */
 function Requests({ pipelineId }) {
@@ -40,86 +98,23 @@ function Requests({ pipelineId }) {
       <h3 id="requests-h" className="mb-2 text-sm font-semibold">
         Requests
       </h3>
-      {query.isPending ? <LoadingState rows={4} label="Loading requests" /> : null}
-      {query.isError ? <QueryErrorState error={query.error} onRetry={query.refetch} /> : null}
-      {query.data && query.data.items.length === 0 ? (
-        <EmptyState
-          icon={History}
-          title="No requests yet"
-          description="Requests appear when a trigger fires or someone runs the pipeline."
-        />
-      ) : null}
-      {query.data && query.data.items.length > 0 ? (
-        <>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Execution requests</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <th scope="col" className={TH}>
-                    Status
-                  </th>
-                  <th scope="col" className={TH}>
-                    Trigger
-                  </th>
-                  <th scope="col" className={TH}>
-                    Ref
-                  </th>
-                  <th scope="col" className={TH}>
-                    Commit
-                  </th>
-                  <th scope="col" className={TH}>
-                    Scan
-                  </th>
-                  <th scope="col" className={TH}>
-                    Requested
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {query.data.items.map((e) => {
-                  const Icon = TRIGGER_ICONS[e.triggerType];
-                  const why = reasonText(e.statusReason);
-                  return (
-                    <tr key={e.id} className="border-b border-border align-top last:border-0">
-                      <td className="px-3 py-2">
-                        <ExecutionStatusChip status={e.status} />
-                        {why ? (
-                          <div className="mt-1 text-xs text-muted-foreground">{why}</div>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className="inline-flex items-center gap-1.5">
-                          {Icon ? (
-                            <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
-                          ) : null}
-                          {triggerSummary(e)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs break-all">{e.refName}</td>
-                      <td className="px-3 py-2">
-                        <Identifier value={e.commitSha} max={7} copy label="commit SHA" />
-                      </td>
-                      <td className="px-3 py-2">
-                        {e.scanKind === "full" ? "Full" : "Incremental"}
-                        {e.trust === "untrusted_fork" ? (
-                          <Badge tone="warning" className="ml-1">
-                            Untrusted fork
-                          </Badge>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <TimeAgo value={e.requestedAt} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <Pager pagination={query.data.pagination} onPage={setPage} />
-        </>
-      ) : null}
+      <QueryTable
+        caption="Execution requests"
+        query={query}
+        columns={requestColumns}
+        getRowId={(e) => e.id}
+        height="auto"
+        maxHeight="22rem"
+        pagination={query.data?.pagination}
+        onPage={setPage}
+        emptyState={
+          <EmptyState
+            icon={History}
+            title="No requests yet"
+            description="Requests appear when a trigger fires or someone runs the pipeline."
+          />
+        }
+      />
     </section>
   );
 }
@@ -149,6 +144,52 @@ function refText(d) {
     return d.pullRequestNumber ? `PR #${d.pullRequestNumber}` : "Pull request";
   return d.refName;
 }
+
+const skippedColumns = [
+  {
+    id: "time",
+    header: "Time",
+    cell: ({ row: { original: d } }) => <TimeAgo value={d.decidedAt} />,
+  },
+  {
+    id: "source",
+    header: "Source",
+    cell: ({ row: { original: d } }) => (
+      <Badge tone="neutral" data-source={d.sourceType}>
+        {SOURCE_LABELS[d.sourceType] ?? d.sourceType}
+      </Badge>
+    ),
+  },
+  {
+    id: "key",
+    header: "Delivery, slot or key",
+    cell: ({ row: { original: d } }) => sourceKey(d),
+  },
+  {
+    id: "trigger",
+    header: "Trigger",
+    cell: ({ row: { original: d } }) => {
+      const Icon = TRIGGER_ICONS[d.triggerType];
+      return (
+        <>
+          <span className="inline-flex items-center gap-1.5">
+            {Icon ? <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" /> : null}
+            <span className="font-mono text-xs">{d.triggerKey}</span>
+          </span>
+          <div className="text-xs text-muted-foreground">{TRIGGER_LABELS[d.triggerType]}</div>
+        </>
+      );
+    },
+  },
+  {
+    id: "ref",
+    header: "Ref",
+    cell: ({ row: { original: d } }) => (
+      <span className="font-mono text-xs break-all">{refText(d)}</span>
+    ),
+  },
+  { id: "reason", header: "Reason", cell: ({ row: { original: d } }) => reasonText(d.reason) },
+];
 
 /** Skipped events: trigger decision rows of the three sources (SPEC §7.8). Non-matching events are never listed. */
 function SkippedEvents({ pipelineId }) {
@@ -199,83 +240,25 @@ function SkippedEvents({ pipelineId }) {
           </Select>
         </div>
       </div>
-      {query.isPending ? <LoadingState rows={3} label="Loading skipped events" /> : null}
-      {query.isError ? <QueryErrorState error={query.error} onRetry={query.refetch} /> : null}
-      {query.data && query.data.items.length === 0 ? (
-        <EmptyState
-          icon={ListX}
-          title="No skipped events"
-          description={
-            source ? "No skipped events from this source." : "Nothing was skipped by policy."
-          }
-        />
-      ) : null}
-      {query.data && query.data.items.length > 0 ? (
-        <>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Skipped events</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <th scope="col" className={TH}>
-                    Time
-                  </th>
-                  <th scope="col" className={TH}>
-                    Source
-                  </th>
-                  <th scope="col" className={TH}>
-                    Delivery, slot or key
-                  </th>
-                  <th scope="col" className={TH}>
-                    Trigger
-                  </th>
-                  <th scope="col" className={TH}>
-                    Ref
-                  </th>
-                  <th scope="col" className={TH}>
-                    Reason
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {query.data.items.map((d) => {
-                  const Icon = TRIGGER_ICONS[d.triggerType];
-                  return (
-                    <tr key={d.id} className="border-b border-border align-top last:border-0">
-                      <td className="px-3 py-2">
-                        <TimeAgo value={d.decidedAt} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge tone="neutral" data-source={d.sourceType}>
-                          {SOURCE_LABELS[d.sourceType] ?? d.sourceType}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2">{sourceKey(d)}</td>
-                      <td className="px-3 py-2">
-                        <span className="inline-flex items-center gap-1.5">
-                          {Icon ? (
-                            <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
-                          ) : null}
-                          <span className="font-mono text-xs">{d.triggerKey}</span>
-                        </span>
-                        <div className="text-xs text-muted-foreground">
-                          {TRIGGER_LABELS[d.triggerType]}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs break-all">{refText(d)}</td>
-                      <td className="px-3 py-2">{reasonText(d.reason)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <Pager
-            pagination={query.data.pagination}
-            onPage={(p) => update({ spage: p > 1 ? String(p) : "" })}
+      <QueryTable
+        caption="Skipped events"
+        query={query}
+        columns={skippedColumns}
+        getRowId={(d) => d.id}
+        height="auto"
+        maxHeight="22rem"
+        pagination={query.data?.pagination}
+        onPage={(p) => update({ spage: p > 1 ? String(p) : "" })}
+        emptyState={
+          <EmptyState
+            icon={ListX}
+            title="No skipped events"
+            description={
+              source ? "No skipped events from this source." : "Nothing was skipped by policy."
+            }
           />
-        </>
-      ) : null}
+        }
+      />
     </section>
   );
 }

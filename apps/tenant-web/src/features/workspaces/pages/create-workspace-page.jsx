@@ -1,4 +1,4 @@
-import { ComboboxAddRow, Stepper } from "@qmentisai/ui";
+import { AppPageLayout, ComboboxAddRow, Stepper } from "@qmentisai/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -6,7 +6,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { SearchPicker } from "@/components/common/search-picker.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -230,11 +229,10 @@ export function CreateWorkspacePage() {
   if (created) {
     const failed = created.results.filter((r) => r.state === "failed");
     return (
-      <>
-        <PageHeader
-          title="Workspace created"
-          description={`"${created.workspace.name}" exists. ${failed.length} of ${created.results.length} access grants did not apply.`}
-        />
+      <AppPageLayout
+        title="Workspace created"
+        description={`"${created.workspace.name}" exists. ${failed.length} of ${created.results.length} access grants did not apply.`}
+      >
         <Card className="max-w-2xl">
           <CardContent className="space-y-3 pt-4">
             <ul className="divide-y divide-border">
@@ -274,17 +272,15 @@ export function CreateWorkspacePage() {
             </div>
           </CardContent>
         </Card>
-      </>
+      </AppPageLayout>
     );
   }
 
   return (
-    <>
-      <PageHeader
-        title="Create workspace"
-        description="Set up a workspace for a team or product."
-      />
-      <Stepper steps={STEPS} current={step} orientation="horizontal" className="mb-6" />
+    <AppPageLayout title="Create workspace" description="Set up a workspace for a team or product.">
+      <div className="sticky top-0 z-10 -mt-1 mb-6 bg-background pt-1">
+        <Stepper steps={STEPS} current={step} orientation="horizontal" />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card>
           <CardContent className="pt-4">
@@ -475,6 +471,6 @@ export function CreateWorkspacePage() {
           </CardContent>
         </Card>
       </div>
-    </>
+    </AppPageLayout>
   );
 }

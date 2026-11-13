@@ -1,5 +1,5 @@
 import { Hammer } from "lucide-react";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 
 /**
@@ -12,9 +12,8 @@ export function PlannedModulePage({
   description = "This area is planned and not available yet.",
 }) {
   return (
-    <>
-      <PageHeader title={title} />
+    <AppPageLayout title={title}>
       <EmptyState icon={Hammer} title="Coming soon" description={description} />
-    </>
+    </AppPageLayout>
   );
 }

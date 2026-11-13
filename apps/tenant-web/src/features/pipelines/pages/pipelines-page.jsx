@@ -1,12 +1,9 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { SearchX, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { LinkButton } from "@/components/common/link-button.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
@@ -85,13 +82,13 @@ export function PipelinesPage() {
   );
 
   return (
-    <>
-      <PageHeader
-        title="Pipelines"
-        description="What is scanned and when, for the repositories of this workspace."
-        actions={create}
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Pipelines"
+      description="What is scanned and when, for the repositories of this workspace."
+      actions={create}
+      scroll={false}
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-full max-w-xs">
           <label htmlFor="pl-search" className="sr-only">
             Search pipelines
@@ -176,65 +173,56 @@ export function PipelinesPage() {
           </p>
         ) : null}
       </div>
-
-      {list.isPending ? <LoadingState rows={8} label="Loading pipelines" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching pipelines"
-            description="Try different filters."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : noRepositories ? (
-          <EmptyState
-            icon={Workflow}
-            title="No pipelines yet"
-            description={
-              can("repository.connect")
-                ? "A pipeline belongs to a repository. Connect a repository first."
-                : "A pipeline belongs to a repository. Ask someone who can connect repositories to this workspace."
-            }
-            actions={
-              <PermissionGate permission="repository.connect">
-                <LinkButton to={`/workspaces/${workspaceId}/repositories/connect`}>
-                  Connect a repository
-                </LinkButton>
-              </PermissionGate>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={Workflow}
-            title="No pipelines yet"
-            description={
-              can("pipeline.manage")
-                ? "Create the first pipeline to start scanning a repository."
-                : "Pipelines decide what is scanned and when. None have been created in this workspace."
-            }
-            actions={create}
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <PipelineTable
-            caption="Pipelines"
-            items={list.data.items}
-            sort={sort}
-            onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
-          />
-          <Pager
-            pagination={list.data.pagination}
-            onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
-          />
-        </>
-      ) : null}
-    </>
+      <PipelineTable
+        caption="Pipelines"
+        query={list}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching pipelines"
+              description="Try different filters."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : noRepositories ? (
+            <EmptyState
+              icon={Workflow}
+              title="No pipelines yet"
+              description={
+                can("repository.connect")
+                  ? "A pipeline belongs to a repository. Connect a repository first."
+                  : "A pipeline belongs to a repository. Ask someone who can connect repositories to this workspace."
+              }
+              actions={
+                <PermissionGate permission="repository.connect">
+                  <LinkButton to={`/workspaces/${workspaceId}/repositories/connect`}>
+                    Connect a repository
+                  </LinkButton>
+                </PermissionGate>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Workflow}
+              title="No pipelines yet"
+              description={
+                can("pipeline.manage")
+                  ? "Create the first pipeline to start scanning a repository."
+                  : "Pipelines decide what is scanned and when. None have been created in this workspace."
+              }
+              actions={create}
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

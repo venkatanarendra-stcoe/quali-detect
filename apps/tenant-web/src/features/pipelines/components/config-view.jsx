@@ -1,4 +1,5 @@
 import { DEFAULT_BRANCH_TOKEN, PIPELINE_SCAN_TYPES } from "@qmentisai/shared";
+import { DataTable } from "@qmentisai/ui";
 import { Badge } from "@/components/ui/badge.jsx";
 import {
   FORK_POLICY_LABELS,
@@ -249,6 +250,31 @@ export function diffConfigs(previous, next) {
 
 const KIND = { added: "Added", changed: "Changed", removed: "Removed" };
 
+const DIFF_COLUMNS = [
+  {
+    id: "setting",
+    header: "Setting",
+    cell: ({ row: { original: r } }) => (
+      <span className="font-mono text-xs break-all">{r.path}</span>
+    ),
+  },
+  { id: "change", header: "Change", cell: ({ row: { original: r } }) => KIND[r.kind] },
+  {
+    id: "before",
+    header: "Before",
+    cell: ({ row: { original: r } }) => (
+      <span className="font-mono text-xs break-all">{r.before ?? "—"}</span>
+    ),
+  },
+  {
+    id: "after",
+    header: "After",
+    cell: ({ row: { original: r } }) => (
+      <span className="font-mono text-xs break-all">{r.after ?? "—"}</span>
+    ),
+  },
+];
+
 /** Diff table of two configurations; `previous` null means the first version. */
 export function ConfigDiff({ previous, next, title }) {
   const rows = diffConfigs(previous, next);
@@ -258,37 +284,14 @@ export function ConfigDiff({ previous, next, title }) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No differences.</p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-left text-[13px] leading-5">
-            <caption className="sr-only">{title}</caption>
-            <thead className="border-b border-border text-muted-foreground">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Setting
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Change
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Before
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  After
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.path} className="border-b border-border last:border-0">
-                  <td className="px-3 py-1.5 font-mono text-xs break-all">{r.path}</td>
-                  <td className="px-3 py-1.5">{KIND[r.kind]}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs break-all">{r.before ?? "—"}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs break-all">{r.after ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          caption={title}
+          columns={DIFF_COLUMNS}
+          data={rows}
+          getRowId={(r) => r.path}
+          height="auto"
+          maxHeight="22rem"
+        />
       )}
     </section>
   );

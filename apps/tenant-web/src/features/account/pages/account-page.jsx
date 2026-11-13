@@ -1,6 +1,6 @@
 import { DEFAULT_ACCENT } from "@qmentisai/shared";
+import { AppPageLayout } from "@qmentisai/ui";
 import { useState } from "react";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -11,7 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card.jsx";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
+import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
+import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { AccentPicker } from "../components/accent-picker.jsx";
 import { AccentPreview } from "../components/accent-preview.jsx";
 import { ACCENT_LABELS } from "../constants/accents.js";
@@ -92,16 +93,15 @@ function PreferencesTab() {
 /** Account (T-03). Any signed-in user may open it: preferences are the user's own and need no permission. */
 export function AccountPage() {
   return (
-    <div>
-      <PageHeader title="Account" description="Settings that apply only to you." />
-      <Tabs defaultValue="preferences">
-        <TabsList>
+    <AppPageLayout title="Account" description="Settings that apply only to you." scroll={false}>
+      <ScrollTabs defaultValue="preferences">
+        <TabsList className="shrink-0">
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
         </TabsList>
-        <TabsContent value="preferences">
+        <ScrollTabsContent value="preferences">
           <PreferencesTab />
-        </TabsContent>
-      </Tabs>
-    </div>
+        </ScrollTabsContent>
+      </ScrollTabs>
+    </AppPageLayout>
   );
 }

@@ -22,7 +22,7 @@ export function AppLayout() {
   }, [pathname, setOpen]);
 
   return (
-    <div className="flex min-h-screen bg-background" data-layout={layout}>
+    <div className="relative flex h-dvh overflow-hidden bg-background" data-layout={layout}>
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:bg-primary focus:px-3 focus:py-1.5 focus:text-primary-foreground"
@@ -46,7 +46,7 @@ export function AppLayout() {
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main id="main" className="flex-1 p-6">
+        <main id="main" className="qm-scroll min-h-0 flex-1 overflow-y-auto p-6">
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>

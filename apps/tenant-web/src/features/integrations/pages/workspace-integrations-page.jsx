@@ -1,7 +1,7 @@
 import { Plug } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
@@ -53,24 +53,23 @@ export function WorkspaceIntegrationsPage() {
   };
   const linkError = start.error ?? discover.error;
   return (
-    <>
-      <PageHeader
-        title="Integrations"
-        description="GitHub accounts linked to this workspace and the repositories it may connect."
-        actions={
-          data && data.configured ? (
-            <DisabledWithReason reason={linkReason}>
-              <Button
-                onClick={() => setChoosing(true)}
-                disabled={start.isPending || discover.isPending}
-              >
-                <Plug aria-hidden="true" />
-                Link a GitHub account
-              </Button>
-            </DisabledWithReason>
-          ) : null
-        }
-      />
+    <AppPageLayout
+      title="Integrations"
+      description="GitHub accounts linked to this workspace and the repositories it may connect."
+      actions={
+        data && data.configured ? (
+          <DisabledWithReason reason={linkReason}>
+            <Button
+              onClick={() => setChoosing(true)}
+              disabled={start.isPending || discover.isPending}
+            >
+              <Plug aria-hidden="true" />
+              Link a GitHub account
+            </Button>
+          </DisabledWithReason>
+        ) : null
+      }
+    >
       <LinkChoiceDialog
         open={choosing}
         onOpenChange={setChoosing}
@@ -139,6 +138,6 @@ export function WorkspaceIntegrationsPage() {
           accounts again restores its repositories.
         </p>
       ) : null}
-    </>
+    </AppPageLayout>
   );
 }

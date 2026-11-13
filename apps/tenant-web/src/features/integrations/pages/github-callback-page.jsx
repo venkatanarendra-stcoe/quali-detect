@@ -2,7 +2,7 @@ import { Plug } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -53,15 +53,14 @@ export function GitHubCallbackPage() {
   const retry = hint ? `/workspaces/${hint}/integrations` : "/workspaces";
   const discovery = link.data?.mode === "discover" ? link.data : null;
   return (
-    <>
-      <PageHeader
-        title={discovery ? "Use an existing installation" : "Linking GitHub"}
-        description={
-          discovery
-            ? "Installations of the App on the GitHub accounts you can access."
-            : "Verifying your access to the GitHub account."
-        }
-      />
+    <AppPageLayout
+      title={discovery ? "Use an existing installation" : "Linking GitHub"}
+      description={
+        discovery
+          ? "Installations of the App on the GitHub accounts you can access."
+          : "Verifying your access to the GitHub account."
+      }
+    >
       {link.isError || missing ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-status-danger">
@@ -78,7 +77,7 @@ export function GitHubCallbackPage() {
       ) : (
         <LoadingState label="Verifying with GitHub" />
       )}
-    </>
+    </AppPageLayout>
   );
 }
 

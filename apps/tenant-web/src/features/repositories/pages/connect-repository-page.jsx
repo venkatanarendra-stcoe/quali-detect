@@ -1,4 +1,4 @@
-import { WizardLayout } from "@qmentisai/ui";
+import { AppPageLayout, WizardLayout } from "@qmentisai/ui";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -159,246 +159,251 @@ export function ConnectRepositoryPage() {
     );
 
   return (
-    <WizardLayout
+    <AppPageLayout
       title="Connect repository"
       description="Choose repositories from a linked GitHub account."
-      steps={STEPS}
-      current={STEPS[step].id}
-      stepperLabel="Connect steps"
-      onStepChange={(id) => setStep(STEPS.findIndex((x) => x.id === id))}
-      stepDisabled={Object.fromEntries(STEPS.map((x, i) => [x.id, i > step || running]))}
-      stepStatus={Object.fromEntries(
-        STEPS.map((x, i) => [x.id, i < step || (allDone && i === 2) ? "complete" : undefined]),
-      )}
-      summaryTitle="Connection summary"
-      summary={
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-sm">Connection summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Provider</dt>
-                <dd>GitHub</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Account</dt>
-                <dd className="break-words">{account ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Repositories</dt>
-                <dd>
-                  {picked.size === 0 ? (
-                    "—"
-                  ) : (
-                    <ul className="space-y-1">
-                      {[...picked.values()].map((r) => (
-                        <li
-                          key={r.externalRepoId}
-                          className="font-mono text-xs [overflow-wrap:anywhere]"
-                        >
-                          {r.fullName}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
-      }
-      actions={actions}
+      scroll={false}
     >
-      {step === 0 ? (
-        <section aria-labelledby="provider-heading" className="space-y-4">
-          <h2 id="provider-heading" className="text-base font-semibold">
-            GitHub
-          </h2>
-          {installations.isPending ? (
-            <LoadingState label="Loading linked accounts" rows={2} />
-          ) : null}
-          {installations.isError ? (
-            <QueryErrorState error={installations.error} onRetry={installations.refetch} />
-          ) : null}
-          {installations.data && links.length === 0 ? (
-            <EmptyState
-              title="No GitHub account available"
-              description={
-                can("workspace_integration.manage")
-                  ? "Link a GitHub account to this workspace first."
-                  : "No GitHub account is linked to this workspace. Ask a workspace administrator."
-              }
-              actions={
-                can("workspace_integration.manage") ? (
-                  <Button asChild variant="secondary">
-                    <Link to={`/workspaces/${workspaceId}/integrations`}>
-                      Workspace integrations
-                    </Link>
-                  </Button>
-                ) : null
-              }
-            />
-          ) : null}
-          {links.length > 0 ? (
-            <div className="max-w-sm space-y-2">
-              <label htmlFor="link" className="text-sm font-medium">
-                GitHub account
-              </label>
-              <Select id="link" value={selected} onChange={(e) => setLinkId(e.target.value)}>
-                <option value="">Select an account</option>
-                {links.map((l) => (
-                  <option key={l.id} value={l.id} disabled={isLinkBroken(l)}>
-                    {l.account.login}
-                    {isLinkBroken(l) ? ` (${statusSummary(l)})` : ""}
-                  </option>
-                ))}
-              </Select>
-              {selected ? <LinkStatus link={links.find((l) => l.id === selected)} /> : null}
-            </div>
-          ) : null}
-          {brokenLinks.length > 0 ? (
-            <div className="max-w-xl space-y-2">
-              {brokenLinks.map((l) => (
-                <div key={l.id} className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-mono">{l.account.login}</span>
-                    <LinkStatus link={l} />
-                    <span className="text-muted-foreground">Not selectable</span>
-                  </div>
-                  <LinkStatusNotice link={l} />
+      <WizardLayout
+        fill
+        steps={STEPS}
+        current={STEPS[step].id}
+        stepperLabel="Connect steps"
+        onStepChange={(id) => setStep(STEPS.findIndex((x) => x.id === id))}
+        stepDisabled={Object.fromEntries(STEPS.map((x, i) => [x.id, i > step || running]))}
+        stepStatus={Object.fromEntries(
+          STEPS.map((x, i) => [x.id, i < step || (allDone && i === 2) ? "complete" : undefined]),
+        )}
+        summaryTitle="Connection summary"
+        summary={
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle className="text-sm">Connection summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="space-y-2 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">Provider</dt>
+                  <dd>GitHub</dd>
                 </div>
-              ))}
-            </div>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            Events arrive through the GitHub App. Signatures are verified on every delivery.
-          </p>
-        </section>
-      ) : null}
-
-      {step === 1 ? (
-        <section aria-labelledby="select-heading" className="space-y-4">
-          <h2 id="select-heading" className="text-base font-semibold">
-            Select repositories
-          </h2>
-          <div className="max-w-xs">
-            <label htmlFor="available-search" className="sr-only">
-              Search repositories
-            </label>
-            <Input
-              id="available-search"
-              type="search"
-              placeholder="Search repositories"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          {available.isPending ? <LoadingState label="Loading allowed repositories" /> : null}
-          {available.isError ? (
-            <QueryErrorState error={available.error} onRetry={available.refetch} />
-          ) : null}
-          {available.data && available.data.items.length === 0 ? (
-            q.trim() ? (
+                <div>
+                  <dt className="text-muted-foreground">Account</dt>
+                  <dd className="break-words">{account ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Repositories</dt>
+                  <dd>
+                    {picked.size === 0 ? (
+                      "—"
+                    ) : (
+                      <ul className="space-y-1">
+                        {[...picked.values()].map((r) => (
+                          <li
+                            key={r.externalRepoId}
+                            className="font-mono text-xs [overflow-wrap:anywhere]"
+                          >
+                            {r.fullName}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+        }
+        actions={actions}
+      >
+        {step === 0 ? (
+          <section aria-labelledby="provider-heading" className="space-y-4">
+            <h2 id="provider-heading" className="text-base font-semibold">
+              GitHub
+            </h2>
+            {installations.isPending ? (
+              <LoadingState label="Loading linked accounts" rows={2} />
+            ) : null}
+            {installations.isError ? (
+              <QueryErrorState error={installations.error} onRetry={installations.refetch} />
+            ) : null}
+            {installations.data && links.length === 0 ? (
               <EmptyState
-                title="No matching repositories"
-                description="Only repositories allowed for this workspace are listed. Try a different search."
-              />
-            ) : (
-              <EmptyState
-                title="No repositories are allowed yet"
+                title="No GitHub account available"
                 description={
                   can("workspace_integration.manage")
-                    ? "Choose which repositories of this account the workspace may connect in the allow-list on the Integrations page."
-                    : "A workspace administrator must allow repositories of this account before they can be connected."
+                    ? "Link a GitHub account to this workspace first."
+                    : "No GitHub account is linked to this workspace. Ask a workspace administrator."
                 }
                 actions={
                   can("workspace_integration.manage") ? (
                     <Button asChild variant="secondary">
                       <Link to={`/workspaces/${workspaceId}/integrations`}>
-                        Edit allowed repositories
+                        Workspace integrations
                       </Link>
                     </Button>
                   ) : null
                 }
               />
-            )
-          ) : null}
-          {available.data && available.data.items.length > 0 ? (
-            <>
-              <ul className="divide-y divide-border rounded-md border border-border bg-card">
-                {available.data.items.map((repo) => (
+            ) : null}
+            {links.length > 0 ? (
+              <div className="max-w-sm space-y-2">
+                <label htmlFor="link" className="text-sm font-medium">
+                  GitHub account
+                </label>
+                <Select id="link" value={selected} onChange={(e) => setLinkId(e.target.value)}>
+                  <option value="">Select an account</option>
+                  {links.map((l) => (
+                    <option key={l.id} value={l.id} disabled={isLinkBroken(l)}>
+                      {l.account.login}
+                      {isLinkBroken(l) ? ` (${statusSummary(l)})` : ""}
+                    </option>
+                  ))}
+                </Select>
+                {selected ? <LinkStatus link={links.find((l) => l.id === selected)} /> : null}
+              </div>
+            ) : null}
+            {brokenLinks.length > 0 ? (
+              <div className="max-w-xl space-y-2">
+                {brokenLinks.map((l) => (
+                  <div key={l.id} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-mono">{l.account.login}</span>
+                      <LinkStatus link={l} />
+                      <span className="text-muted-foreground">Not selectable</span>
+                    </div>
+                    <LinkStatusNotice link={l} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Events arrive through the GitHub App. Signatures are verified on every delivery.
+            </p>
+          </section>
+        ) : null}
+
+        {step === 1 ? (
+          <section aria-labelledby="select-heading" className="space-y-4">
+            <h2 id="select-heading" className="text-base font-semibold">
+              Select repositories
+            </h2>
+            <div className="max-w-xs">
+              <label htmlFor="available-search" className="sr-only">
+                Search repositories
+              </label>
+              <Input
+                id="available-search"
+                type="search"
+                placeholder="Search repositories"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            {available.isPending ? <LoadingState label="Loading allowed repositories" /> : null}
+            {available.isError ? (
+              <QueryErrorState error={available.error} onRetry={available.refetch} />
+            ) : null}
+            {available.data && available.data.items.length === 0 ? (
+              q.trim() ? (
+                <EmptyState
+                  title="No matching repositories"
+                  description="Only repositories allowed for this workspace are listed. Try a different search."
+                />
+              ) : (
+                <EmptyState
+                  title="No repositories are allowed yet"
+                  description={
+                    can("workspace_integration.manage")
+                      ? "Choose which repositories of this account the workspace may connect in the allow-list on the Integrations page."
+                      : "A workspace administrator must allow repositories of this account before they can be connected."
+                  }
+                  actions={
+                    can("workspace_integration.manage") ? (
+                      <Button asChild variant="secondary">
+                        <Link to={`/workspaces/${workspaceId}/integrations`}>
+                          Edit allowed repositories
+                        </Link>
+                      </Button>
+                    ) : null
+                  }
+                />
+              )
+            ) : null}
+            {available.data && available.data.items.length > 0 ? (
+              <>
+                <ul className="divide-y divide-border rounded-md border border-border bg-card">
+                  {available.data.items.map((repo) => (
+                    <li
+                      key={repo.externalRepoId}
+                      className="flex items-center gap-3 px-3 py-2 text-sm"
+                    >
+                      <input
+                        id={`repo-${repo.externalRepoId}`}
+                        type="checkbox"
+                        checked={picked.has(repo.externalRepoId) || repo.alreadyConnected}
+                        disabled={repo.alreadyConnected}
+                        onChange={() => toggle(repo)}
+                      />
+                      <label
+                        htmlFor={`repo-${repo.externalRepoId}`}
+                        className="flex flex-1 flex-wrap items-center gap-2"
+                      >
+                        <span className="font-mono text-xs">{repo.fullName}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {repo.visibility}
+                          {repo.archived ? " · archived" : ""}
+                        </span>
+                      </label>
+                      {repo.alreadyConnected ? (
+                        <span className="text-xs text-muted-foreground">Already connected</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <Pager pagination={available.data.pagination} onPage={setPage} />
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
+        {step === 2 ? (
+          <section aria-labelledby="review-heading" className="space-y-4">
+            <h2 id="review-heading" className="text-base font-semibold">
+              Review
+            </h2>
+            <ul className="divide-y divide-border rounded-md border border-border bg-card">
+              {[...picked.values()].map((repo) => {
+                const result = results[repo.externalRepoId];
+                return (
                   <li
                     key={repo.externalRepoId}
-                    className="flex items-center gap-3 px-3 py-2 text-sm"
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
                   >
-                    <input
-                      id={`repo-${repo.externalRepoId}`}
-                      type="checkbox"
-                      checked={picked.has(repo.externalRepoId) || repo.alreadyConnected}
-                      disabled={repo.alreadyConnected}
-                      onChange={() => toggle(repo)}
-                    />
-                    <label
-                      htmlFor={`repo-${repo.externalRepoId}`}
-                      className="flex flex-1 flex-wrap items-center gap-2"
-                    >
-                      <span className="font-mono text-xs">{repo.fullName}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {repo.visibility}
-                        {repo.archived ? " · archived" : ""}
-                      </span>
-                    </label>
-                    {repo.alreadyConnected ? (
-                      <span className="text-xs text-muted-foreground">Already connected</span>
-                    ) : null}
+                    <span className="font-mono text-xs">{repo.fullName}</span>
+                    <span role="status" className="text-xs">
+                      {result === "pending" ? (
+                        "Connecting…"
+                      ) : result === "done" ? (
+                        "Connected"
+                      ) : result ? (
+                        <span className="text-status-danger">{result}</span>
+                      ) : (
+                        "Ready"
+                      )}
+                    </span>
                   </li>
-                ))}
-              </ul>
-              <Pager pagination={available.data.pagination} onPage={setPage} />
-            </>
-          ) : null}
-        </section>
-      ) : null}
-
-      {step === 2 ? (
-        <section aria-labelledby="review-heading" className="space-y-4">
-          <h2 id="review-heading" className="text-base font-semibold">
-            Review
-          </h2>
-          <ul className="divide-y divide-border rounded-md border border-border bg-card">
-            {[...picked.values()].map((repo) => {
-              const result = results[repo.externalRepoId];
-              return (
-                <li
-                  key={repo.externalRepoId}
-                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                >
-                  <span className="font-mono text-xs">{repo.fullName}</span>
-                  <span role="status" className="text-xs">
-                    {result === "pending" ? (
-                      "Connecting…"
-                    ) : result === "done" ? (
-                      "Connected"
-                    ) : result ? (
-                      <span className="text-status-danger">{result}</span>
-                    ) : (
-                      "Ready"
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-xs text-muted-foreground">
-            Connecting saves the repository to this workspace. Pipelines are added separately.
-          </p>
-        </section>
-      ) : null}
-    </WizardLayout>
+                );
+              })}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              Connecting saves the repository to this workspace. Pipelines are added separately.
+            </p>
+          </section>
+        ) : null}
+      </WizardLayout>
+    </AppPageLayout>
   );
 }

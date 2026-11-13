@@ -1,6 +1,8 @@
 import { QUEUE_NAMES, createEventEnvelope } from "@qmentisai/contracts";
 import { auditSystem } from "./audit.js";
 
+const LIVE_STATUSES = ["active", "unavailable"];
+
 /**
  * Repository and installation state transitions, shared by the sync job and the SCM event consumer (SPEC R-6, §6.4).
  * Nothing is ever deleted. A transition that changes visible state is audited in the same transaction, and a disconnect
@@ -30,12 +32,19 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
     });
   }
 
-  /** active/unavailable -> disconnected (audited, announced). */
+  /**
+   * active/unavailable -> disconnected, as a compare-and-set: the WHERE carries tenant + id + the expected live status, so
+   * `count === 1` proves THIS call made the transition. The audit entry and the outbox message are written only then, in
+   * the caller's transaction; a call that finds the row already disconnected (replay, race, another path) writes nothing.
+   * The first transition's reason is the one stored (SPEC §16.3 item 7).
+   * @returns {Promise<boolean>} whether this call changed the row
+   */
   async function disconnect(tx, repo, reason, metadata = {}) {
-    await tx.repository.updateMany({
-      where: { id: repo.id, tenantId: repo.tenantId, status: { not: "disconnected" } },
+    const { count } = await tx.repository.updateMany({
+      where: { id: repo.id, tenantId: repo.tenantId, status: { in: LIVE_STATUSES } },
       data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: reason },
     });
+    if (count !== 1) return false;
     await auditSystem(tx, {
       tenantId: repo.tenantId,
       action: "repository.disconnected",
@@ -46,29 +55,44 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
     });
     await disconnectedEvent(tx, repo, reason);
     logger.warn({ repositoryId: repo.id, reason }, "Repository disconnected");
+    return true;
   }
 
   return Object.freeze({
     /**
-     * The repository could not be reached or is no longer listed. First failure: `unavailable`; after `maxFailures`
-     * consecutive failures: `disconnected`. Both transitions are audited.
+     * The repository could not be reached or is no longer listed. Every call is one observed failure: the counter is
+     * incremented ATOMICALLY (`increment`, which also takes the row lock for the rest of the transaction) and the decision
+     * uses the value that update returned, never the caller's possibly stale snapshot. First failure of an `active`
+     * repository: compare-and-set `active -> unavailable` and one `repository.unavailable` audit entry; failure number
+     * `maxFailures`: compare-and-set to `disconnected` (one audit entry, one `repository.disconnected` message). A
+     * repository that is already disconnected, or that does not belong to `repo.tenantId`, is left untouched
+     * (`"unchanged"`). When two different causes race, the first transition's cause is the one audited and stored as the
+     * disconnect reason; `lastSyncError` always holds the latest cause.
+     * @returns {Promise<"unavailable" | "disconnected" | "unchanged">}
      */
     async recordFailure(repo, reason) {
       return db.$transaction(async (tx) => {
-        const failures = repo.consecutiveSyncFailures + 1;
-        if (failures >= maxFailures) {
-          await tx.repository.updateMany({
-            where: { id: repo.id, tenantId: repo.tenantId },
-            data: { consecutiveSyncFailures: failures, lastSyncError: reason },
+        let counted;
+        try {
+          counted = await tx.repository.update({
+            where: { id: repo.id, tenantId: repo.tenantId, status: { in: LIVE_STATUSES } },
+            data: { consecutiveSyncFailures: { increment: 1 }, lastSyncError: reason },
+            select: { consecutiveSyncFailures: true, status: true },
           });
-          await disconnect(tx, repo, "repo_inaccessible", { failures, cause: reason });
-          return "disconnected";
+        } catch (error) {
+          if (error?.code === "P2025") return "unchanged"; // disconnected meanwhile, or not this tenant's row
+          throw error;
         }
-        await tx.repository.updateMany({
-          where: { id: repo.id, tenantId: repo.tenantId },
-          data: { status: "unavailable", consecutiveSyncFailures: failures, lastSyncError: reason },
+        const failures = counted.consecutiveSyncFailures;
+        if (failures >= maxFailures) {
+          const done = await disconnect(tx, repo, "repo_inaccessible", { failures, cause: reason });
+          return done ? "disconnected" : "unchanged";
+        }
+        const { count } = await tx.repository.updateMany({
+          where: { id: repo.id, tenantId: repo.tenantId, status: "active" },
+          data: { status: "unavailable" },
         });
-        if (repo.status !== "unavailable")
+        if (count === 1)
           await auditSystem(tx, {
             tenantId: repo.tenantId,
             action: "repository.unavailable",
@@ -81,13 +105,22 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
       });
     },
 
-    /** A successful sync: refresh metadata, reset the counter, return to `active`. */
+    /**
+     * A successful sync: refresh metadata, reset the counter, and return `unavailable -> active` by compare-and-set (one
+     * "recovered" audit entry only for the call that made the transition). A disconnected repository is never revived by a
+     * sync (the metadata update requires a live status), and an identity change (`matchedBy: node_id`) is audited once
+     * because the update requires the external id the caller saw.
+     */
     async recordSuccess(repo, remote, { matchedBy }) {
       return db.$transaction(async (tx) => {
-        await tx.repository.updateMany({
-          where: { id: repo.id, tenantId: repo.tenantId },
+        const scope = { id: repo.id, tenantId: repo.tenantId };
+        const recovered = await tx.repository.updateMany({
+          where: { ...scope, status: "unavailable" },
+          data: { status: "active" },
+        });
+        const refreshed = await tx.repository.updateMany({
+          where: { ...scope, status: { in: LIVE_STATUSES } },
           data: {
-            ...(matchedBy === "node_id" ? { externalRepoId: remote.externalRepoId } : {}),
             nodeId: remote.nodeId ?? repo.nodeId,
             fullName: remote.fullName,
             name: remote.name,
@@ -97,27 +130,33 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
             defaultBranch: remote.defaultBranch,
             description: repo.description ?? remote.description,
             archived: remote.archived,
-            status: "active",
             consecutiveSyncFailures: 0,
             lastSyncError: null,
             lastSyncedAt: new Date(),
           },
         });
-        if (matchedBy === "node_id")
-          await auditSystem(tx, {
-            tenantId: repo.tenantId,
-            action: "repository.updated",
-            targetType: "repository",
-            targetId: repo.id,
-            workspaceId: repo.workspaceId,
-            metadata: {
-              identityMismatch: true,
-              matchedBy,
-              previousExternalRepoId: repo.externalRepoId,
-              externalRepoId: remote.externalRepoId,
-            },
+        if (refreshed.count !== 1) return;
+        if (matchedBy === "node_id") {
+          const moved = await tx.repository.updateMany({
+            where: { ...scope, externalRepoId: repo.externalRepoId },
+            data: { externalRepoId: remote.externalRepoId },
           });
-        if (repo.status === "unavailable")
+          if (moved.count === 1)
+            await auditSystem(tx, {
+              tenantId: repo.tenantId,
+              action: "repository.updated",
+              targetType: "repository",
+              targetId: repo.id,
+              workspaceId: repo.workspaceId,
+              metadata: {
+                identityMismatch: true,
+                matchedBy,
+                previousExternalRepoId: repo.externalRepoId,
+                externalRepoId: remote.externalRepoId,
+              },
+            });
+        }
+        if (recovered.count === 1)
           await auditSystem(tx, {
             tenantId: repo.tenantId,
             action: "repository.updated",
@@ -153,9 +192,11 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
                 status: { not: "disconnected" },
               },
             });
-            for (const repo of repos) await disconnect(tx, repo, "installation_revoked");
-            total += repos.length;
-            summary.push({ workspaceLink: wl, repositoryCount: repos.length });
+            let done = 0;
+            for (const repo of repos)
+              if (await disconnect(tx, repo, "installation_revoked")) done += 1;
+            total += done;
+            summary.push({ workspaceLink: wl, repositoryCount: done });
           }
           return { total, summary };
         },
@@ -200,38 +241,51 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
   });
 
   /**
-   * Shared shape of an installation status change. In one transaction: set the installation status (a no-op when it already
-   * has it), then per tenant link write the tenant-level audit entry, run `apply` for the link's workspace links, write one
-   * audit entry per affected workspace, and for `revoked` / `suspended` queue the notification event.
+   * Shared shape of an installation status change, idempotent. In ONE transaction the installation row is changed by a
+   * compare-and-set (its WHERE carries the status it must still differ from; `revoked` is terminal for every other status),
+   * so `count === 1` proves this call made the change. Per tenant link the audit entries and the notification event are
+   * written only for a real change: the installation status changed, or `apply` really changed repositories (each of those
+   * is itself a compare-and-set). A repeated or concurrent delivery changes nothing and writes nothing.
    */
   async function changeInstallation(installationId, status, reason, apply) {
-    const installation = await db.scmInstallation.findUnique({
-      where: { id: installationId },
-      select: { id: true, status: true },
-    });
-    if (!installation) return;
-    if (installation.status === "revoked" && status !== "revoked") return; // revoked is terminal: later events are ignored
-    const changed = installation.status !== status;
-    const links = await db.scmInstallationLink.findMany({
-      where: { installationId, status: "linked" },
-      select: { id: true, tenantId: true },
-    });
     await db.$transaction(async (tx) => {
-      await tx.scmInstallation.update({
-        where: { id: installationId },
+      const cas = await tx.scmInstallation.updateMany({
+        where: {
+          id: installationId,
+          status: { notIn: status === "revoked" ? ["revoked"] : [status, "revoked"] },
+        },
         data: {
           status,
           lastCheckedAt: new Date(),
-          // SPEC §16.2: when the installation left `active` and why. Repeating the same status keeps the first date.
-          ...(changed
-            ? {
-                statusChangedAt: status === "active" ? null : new Date(),
-                statusReason: reason,
-              }
-            : {}),
+          // SPEC §16.2: when the installation left `active` and why. A repeat never rewrites the first date or reason.
+          statusChangedAt: status === "active" ? null : new Date(),
+          statusReason: reason,
         },
       });
+      const changed = cas.count === 1;
+      if (!changed) {
+        const current = await tx.scmInstallation.findUnique({
+          where: { id: installationId },
+          select: { status: true },
+        });
+        if (!current) return;
+        if (current.status === "revoked" && status !== "revoked") return; // revoked is terminal: later events are ignored
+        await tx.scmInstallation.updateMany({
+          where: { id: installationId },
+          data: { lastCheckedAt: new Date() },
+        });
+      }
+      const links = await tx.scmInstallationLink.findMany({
+        where: { installationId, status: "linked" },
+        select: { id: true, tenantId: true },
+      });
       for (const link of links) {
+        const workspaceLinks = await tx.scmWorkspaceLink.findMany({
+          where: { tenantId: link.tenantId, linkId: link.id, status: "linked" },
+          select: { id: true, workspaceId: true },
+        });
+        const { total, summary } = await apply(tx, link, workspaceLinks);
+        if (!changed && total === 0) continue; // a repeat that changed nothing audits and announces nothing
         await auditSystem(tx, {
           tenantId: link.tenantId,
           action: "scm_installation.status_changed",
@@ -239,11 +293,6 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
           targetId: link.id,
           metadata: { status },
         });
-        const workspaceLinks = await tx.scmWorkspaceLink.findMany({
-          where: { tenantId: link.tenantId, linkId: link.id, status: "linked" },
-          select: { id: true, workspaceId: true },
-        });
-        const { total, summary } = await apply(tx, link, workspaceLinks);
         for (const { workspaceLink, repositoryCount } of summary)
           await auditSystem(tx, {
             tenantId: link.tenantId,
@@ -257,8 +306,7 @@ export function createRepositoryStates({ db, outbox, maxFailures, logger }) {
               repositoriesAffected: repositoryCount,
             },
           });
-        // Repeating a transition that changed nothing must not notify again.
-        if ((status === "revoked" || status === "suspended") && (changed || total > 0))
+        if (status === "revoked" || status === "suspended")
           await outbox.enqueue(tx, {
             queue: QUEUE_NAMES.NOTIFICATION,
             message: createEventEnvelope({

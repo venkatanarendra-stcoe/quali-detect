@@ -225,12 +225,22 @@ export function createIntegrationRepository({ db }) {
           externalRepoId: true,
         },
       });
-      if (rows.length > 0)
-        await client.repository.updateMany({
-          where: { tenantId, workspaceId, workspaceLinkId, id: { in: rows.map((r) => r.id) } },
+      // Compare-and-set per row: only the rows THIS call disconnected are returned (and so audited and announced).
+      const changed = [];
+      for (const row of rows) {
+        const { count } = await client.repository.updateMany({
+          where: {
+            tenantId,
+            workspaceId,
+            workspaceLinkId,
+            id: row.id,
+            status: { in: ["active", "unavailable"] },
+          },
           data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: reason },
         });
-      return rows;
+        if (count === 1) changed.push(row);
+      }
+      return changed;
     },
     /** External ids among `externalRepoIds` that are connected (live) in this workspace link. */
     async findLiveExternalIds(

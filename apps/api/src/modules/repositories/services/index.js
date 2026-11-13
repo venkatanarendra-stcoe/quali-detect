@@ -321,7 +321,14 @@ export function createRepositoryService({
         };
         let row;
         if (existing) {
-          await repository.update({ tenantId: actor.tenantId, id: existing.id, data: fields }, tx);
+          const reactivated = await repository.reactivate(
+            { tenantId: actor.tenantId, id: existing.id, data: fields },
+            tx,
+          );
+          if (reactivated.count !== 1)
+            throw new ConflictError("This repository is already connected.", {
+              details: { reason: "repository_already_connected" },
+            });
           row = await repository.findById({ tenantId: actor.tenantId, id: existing.id }, tx);
         } else {
           row = await repository.create(
@@ -433,14 +440,11 @@ export function createRepositoryService({
         );
       assertMutable(repo);
       await repository.transaction(async (tx) => {
-        await repository.update(
-          {
-            tenantId: actor.tenantId,
-            id: repo.id,
-            data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: "user" },
-          },
+        const done = await repository.disconnectLive(
+          { tenantId: actor.tenantId, id: repo.id, reason: "user" },
           tx,
         );
+        if (done.count !== 1) return; // already disconnected by another request or worker: nothing to audit or announce
         await audit.tenant.record(
           entry(actor, AUDIT_ACTIONS.REPOSITORY_DISCONNECTED, repo, {
             metadata: { reason: "user", fullName: repo.fullName },

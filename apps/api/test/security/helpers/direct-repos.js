@@ -3183,6 +3183,39 @@ export function buildDalEntries() {
       },
     );
 
+  // ----- idempotent state transitions (SPEC repositories-github §16.3 item 7): compare-and-set functions, another tenant's id
+  // The controls make their own disposable row (a copy of X's repository with a new external id), so the shared fixtures stay as they are.
+  const spare = (c, status) => {
+    const { id: _id, createdAt: _c, updatedAt: _u, ...fields } = c.repo;
+    return c.db.repository.create({
+      data: { ...fields, externalRepoId: `dal-spare-${rand()}`, status },
+    });
+  };
+  E(
+    "repositories.disconnectLive",
+    (c) => R(c).disconnectLive({ tenantId: c.y, id: c.repo.id, reason: "dal" }),
+    {
+      control: async (c) =>
+        R(c).disconnectLive({
+          tenantId: c.x,
+          id: (await spare(c, "unavailable")).id,
+          reason: "dal",
+        }),
+    },
+  );
+  E(
+    "repositories.reactivate",
+    (c) => R(c).reactivate({ tenantId: c.y, id: c.repo2.id, data: { status: "active" } }),
+    {
+      control: async (c) =>
+        R(c).reactivate({
+          tenantId: c.x,
+          id: (await spare(c, "disconnected")).id,
+          data: { status: "active" },
+        }),
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

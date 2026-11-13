@@ -50,7 +50,7 @@ Each queue has the derived topology above (`qmentis.<q>`, `qmentis.<q>.retry.<n>
 | Queue | Worker | Bindings on `qmentis.scm.events` | Handler |
 |---|---|---|---|
 | `scm`, `analysis`, `scan`, `notification`, `usage`, `scheduler`, `pipeline` | their worker | none (direct queue) | as built; `pipeline` is a no-op until the execution module |
-| `scm-events` | `scm` (additional consumer) | `scm.github.#` | repository and installation state (push and pull-request events are acknowledged) |
+| `scm-events` | `scm` (additional consumer) | `scm.github.#` | repository and installation state (push and pull-request events are acknowledged); every status transition is a compare-and-set on the status and audits/announces only a real change, so a replay or a race with the sync job writes one entry (SPEC repositories-github §16.3 item 7) |
 | `pipeline-triggers` | `pipeline` (additional consumer) | `scm.github.push`, `scm.github.pull_request` | the trigger router (`apps/workers/src/pipeline/router.js`, docs/modules/pipelines-triggers/SPEC.md §6.2): ownership-verified, one transaction per matching pipeline, idempotent by `(scm event, pipeline)` |
 
 The `pipeline` worker needs `DATABASE_URL` (ownership verification and the router); a queue only receives events published after its binding exists.

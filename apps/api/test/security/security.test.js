@@ -25,6 +25,7 @@ import { createScmJobHandler } from "../../../workers/src/scm/jobs.js";
 import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
+import { STATE_CHECKS, buildStateWorld } from "./helpers/repo-state.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import {
   DAY_FIRES,
@@ -36,7 +37,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 461;
+const EXPECTED_CHECKS = 469;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5577,6 +5578,24 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       return problems;
     },
   );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12e. Idempotent repository and installation state transitions (SPEC repositories-github §16.3 item 7, SCM-063..068): the scm
+//      worker's event consumer, sync job and state functions race each other in process against the disposable database;
+//      the world is built directly in the database (helpers/repo-state.js).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("GitHub integration: idempotent state transitions");
+  const stateWorld = () => once("repo-state", () => buildStateWorld(suiteDb()));
+  for (const { id, name, run } of STATE_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await stateWorld()) }),
+      (r) => r.problems,
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

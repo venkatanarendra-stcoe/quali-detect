@@ -167,19 +167,26 @@ export async function restoreWorkspaceRepositories(
   });
   const restorable = eligible.filter((r) => !elsewhere.has(r.externalRepoId));
   if (restorable.length === 0) return [];
-  const externalRepoIds = restorable.map((r) => r.externalRepoId);
-  await restoreRepositories(client, {
-    ...scope,
-    linkId: tenantLinkId,
-    workspaceLinkId,
-    ids: restorable.map((r) => r.id),
-  });
+  // Compare-and-set per row (the WHERE requires `disconnected`): only rows THIS call restored are returned, so a concurrent
+  // or repeated restore audits and announces nothing twice.
+  const restored = [];
+  for (const r of restorable) {
+    const { count } = await restoreRepositories(client, {
+      ...scope,
+      linkId: tenantLinkId,
+      workspaceLinkId,
+      ids: [r.id],
+    });
+    if (count === 1) restored.push(r);
+  }
+  if (restored.length === 0) return [];
+  const externalRepoIds = restored.map((r) => r.externalRepoId);
   await removeStaleAllowListEntries(client, { ...scope, workspaceLinkId, externalRepoIds });
   await client.scmWorkspaceLinkRepository.deleteMany({
     where: { tenantId, workspaceLinkId, externalRepoId: { in: externalRepoIds } },
   });
   await client.scmWorkspaceLinkRepository.createMany({
-    data: restorable.map((r) => ({
+    data: restored.map((r) => ({
       tenantId,
       workspaceLinkId,
       provider: "github",
@@ -189,7 +196,7 @@ export async function restoreWorkspaceRepositories(
       addedByUserId: userId,
     })),
   });
-  return restorable;
+  return restored;
 }
 
 /**

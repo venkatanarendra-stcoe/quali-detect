@@ -109,5 +109,17 @@ export function createRepositoryRepository({ db }) {
     create: (data, client = db) => client.repository.create({ data }),
     update: ({ tenantId, id, data }, client = db) =>
       client.repository.updateMany({ where: { id, tenantId }, data }),
+    /**
+     * Compare-and-set `active|unavailable -> disconnected` (SPEC §16.3 item 7). `count === 1` proves this call made the
+     * transition; the caller audits and announces only then.
+     */
+    disconnectLive: ({ tenantId, id, reason }, client = db) =>
+      client.repository.updateMany({
+        where: { id, tenantId, status: { in: ["active", "unavailable"] } },
+        data: { status: "disconnected", disconnectedAt: new Date(), disconnectReason: reason },
+      }),
+    /** Compare-and-set `disconnected -> active` (reconnect); `count === 1` proves this call made the transition. */
+    reactivate: ({ tenantId, id, data }, client = db) =>
+      client.repository.updateMany({ where: { id, tenantId, status: "disconnected" }, data }),
   });
 }

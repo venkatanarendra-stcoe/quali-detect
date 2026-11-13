@@ -1,11 +1,9 @@
 import { CircleCheck, CircleX, ScrollText, SearchX } from "lucide-react";
+import { AppPageLayout } from "@qmentisai/ui";
+import { useMemo } from "react";
 import { useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
-import { SortHeader } from "@/components/common/sort-header.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
@@ -38,7 +36,7 @@ function Details({ entry }) {
   return (
     <details>
       <summary className="cursor-pointer text-muted-foreground">Details</summary>
-      <pre className="mt-2 max-w-md overflow-x-auto rounded-sm bg-secondary p-2 font-mono text-xs">
+      <pre className="qm-scroll mt-2 max-w-md overflow-x-auto rounded-sm bg-secondary p-2 font-mono text-xs">
         {JSON.stringify(detail, null, 2)}
       </pre>
     </details>
@@ -83,14 +81,98 @@ export function PlatformAuditLogsPage() {
     pageSize: PAGE_SIZE,
   });
   const clear = () => setParams({}, { replace: true });
+  const columns = useMemo(
+    () => [
+      {
+        id: "createdAt",
+        accessorKey: "createdAt",
+        header: "Time",
+        sortDescFirst: false,
+        meta: { className: "align-top min-w-32" },
+        cell: ({ row: { original: e } }) => when(e.createdAt),
+      },
+      {
+        id: "actor",
+        header: "Actor",
+        enableSorting: false,
+        meta: { className: "align-top" },
+        cell: ({ row: { original: e } }) => (
+          <>
+            {e.actor?.name ?? e.actor?.type ?? "System"}
+            {e.actor?.email ? (
+              <span className="block text-xs text-muted-foreground">{e.actor.email}</span>
+            ) : null}
+          </>
+        ),
+      },
+      {
+        id: "action",
+        accessorKey: "action",
+        header: "Action",
+        sortDescFirst: false,
+        meta: { className: "align-top min-w-44 font-mono text-xs [overflow-wrap:anywhere]" },
+        cell: ({ row: { original: e } }) => e.action,
+      },
+      {
+        id: "resource",
+        header: "Resource",
+        enableSorting: false,
+        meta: { className: "align-top" },
+        cell: ({ row: { original: e } }) => (
+          <>
+            {e.target.type ?? "—"}
+            {e.target.id ? (
+              <span className="block font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {e.target.id}
+              </span>
+            ) : null}
+          </>
+        ),
+      },
+      {
+        id: "tenant",
+        header: "Tenant",
+        enableSorting: false,
+        meta: {
+          className: "align-top font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]",
+        },
+        cell: ({ row: { original: e } }) => e.tenantId ?? "—",
+      },
+      {
+        id: "result",
+        header: "Result",
+        enableSorting: false,
+        meta: { className: "align-top" },
+        cell: ({ row: { original: e } }) => <Outcome result={e.result} />,
+      },
+      {
+        id: "correlationId",
+        header: "Correlation ID",
+        enableSorting: false,
+        meta: {
+          className: "align-top font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]",
+        },
+        cell: ({ row: { original: e } }) => e.correlationId ?? "—",
+      },
+      {
+        id: "details",
+        header: () => <span className="sr-only">Details</span>,
+        enableSorting: false,
+        meta: { className: "align-top" },
+        cell: ({ row: { original: e } }) => <Details entry={e} />,
+      },
+    ],
+    [],
+  );
 
   return (
-    <>
-      <PageHeader
-        title="Platform audit logs"
-        description="Platform actions: tenant lifecycle, platform sign-in and administration. Entries cannot be changed or deleted."
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Platform audit logs"
+      description="Platform actions: tenant lifecycle, platform sign-in and administration. Entries cannot be changed or deleted."
+      scroll={false}
+      offset="7.5rem"
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-52">
           <label htmlFor="audit-action" className="sr-only">
             Action
@@ -181,108 +263,36 @@ export function PlatformAuditLogsPage() {
         ) : null}
       </div>
 
-      {list.isPending ? <LoadingState label="Loading audit log" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching entries"
-            description="Try different filters or a wider date range."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={ScrollText}
-            title="No audit entries yet"
-            description="Tenant lifecycle changes and platform sign-ins are recorded here."
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Platform audit log</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <SortHeader
-                    label="Time"
-                    field="createdAt"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Actor
-                  </th>
-                  <SortHeader
-                    label="Action"
-                    field="action"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Resource
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Tenant
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Result
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Correlation ID
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    <span className="sr-only">Details</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border last:border-0 align-top">
-                    <td className="px-3 py-2 whitespace-nowrap">{when(entry.createdAt)}</td>
-                    <td className="px-3 py-2">
-                      {entry.actor?.name ?? entry.actor?.type ?? "System"}
-                      {entry.actor?.email ? (
-                        <span className="block text-xs text-muted-foreground">
-                          {entry.actor.email}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{entry.action}</td>
-                    <td className="px-3 py-2">
-                      {entry.target.type ?? "—"}
-                      {entry.target.id ? (
-                        <span className="block font-mono text-xs text-muted-foreground">
-                          {entry.target.id}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {entry.tenantId ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Outcome result={entry.result} />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {entry.correlationId ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Details entry={entry} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager pagination={list.data.pagination} onPage={(p) => update({ page: String(p) })} />
-        </>
-      ) : null}
-    </>
+      <QueryTable
+        query={list}
+        columns={columns}
+        caption="Platform audit log"
+        getRowId={(e) => e.id}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: String(p) })}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching entries"
+              description="Try different filters or a wider date range."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={ScrollText}
+              title="No audit entries yet"
+              description="Tenant lifecycle changes and platform sign-ins are recorded here."
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

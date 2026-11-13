@@ -13,7 +13,7 @@ export function Topbar() {
     (i) => pathname === i.to || pathname.startsWith(`${i.to}/`),
   );
   return (
-    <header className="sticky top-6 z-20 flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4">
+    <header className="relative z-20 flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4">
       <div className="flex min-w-0 items-center gap-3">
         <Button
           variant="ghost"

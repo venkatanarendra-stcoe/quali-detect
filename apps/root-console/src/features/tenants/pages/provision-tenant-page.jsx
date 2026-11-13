@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { WizardLayout } from "@qmentisai/ui";
+import { AppPageLayout, WizardLayout } from "@qmentisai/ui";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
@@ -190,228 +190,233 @@ export function ProvisionTenantPage() {
   );
 
   return (
-    <WizardLayout
-      offset="7.5rem"
+    <AppPageLayout
       title="Provision tenant"
       description="Create a customer organization and invite its first administrator."
-      steps={STEPS}
-      current={STEPS[step].id}
-      stepperLabel="Provisioning steps"
-      onStepChange={(id) => setStep(STEPS.findIndex((x) => x.id === id))}
-      stepDisabled={Object.fromEntries(STEPS.map((x, i) => [x.id, i > reached]))}
-      stepStatus={stepStatus}
-      summaryTitle="Summary"
-      summary={
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle>Summary</CardTitle>
-            <CardDescription>Entered so far</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <dl className="space-y-2 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Name</dt>
-                <dd className="break-words">{values.name || "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Slug</dt>
-                <dd>
-                  {values.slug ? (
-                    <span className="font-mono [overflow-wrap:anywhere]">{values.slug}</span>
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Status</dt>
-                <dd>{values.status === "active" ? "Active" : "Trial"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Plan</dt>
-                <dd>{planLabel ? `${planLabel.planName} (v${planLabel.version})` : "No plan"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">First administrator</dt>
-                <dd className="break-words">
-                  {values.adminName || "—"}
-                  <br />
-                  <span className="text-muted-foreground">{values.adminEmail || "—"}</span>
-                </dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
-      }
-      actions={
-        <>
-          {cancel}
-          <div className="flex gap-2">
-            {step > 0 ? (
-              <Button type="button" variant="secondary" onClick={() => setStep(step - 1)}>
-                Back
-              </Button>
-            ) : null}
-            {step < 2 ? (
-              <Button type="button" onClick={next}>
-                Next
-              </Button>
-            ) : (
-              <Button type="button" onClick={onSubmit} disabled={provision.isPending}>
-                {provision.isPending ? "Provisioning…" : "Provision tenant"}
-              </Button>
-            )}
-          </div>
-        </>
-      }
+      scroll={false}
+      offset="7.5rem"
     >
-      <form onSubmit={onSubmit} noValidate className="space-y-6">
-        {step === 0 ? (
+      <WizardLayout
+        fill
+        steps={STEPS}
+        current={STEPS[step].id}
+        stepperLabel="Provisioning steps"
+        onStepChange={(id) => setStep(STEPS.findIndex((x) => x.id === id))}
+        stepDisabled={Object.fromEntries(STEPS.map((x, i) => [x.id, i > reached]))}
+        stepStatus={stepStatus}
+        summaryTitle="Summary"
+        summary={
+          <Card className="h-fit">
+            <CardHeader>
+              <CardTitle>Summary</CardTitle>
+              <CardDescription>Entered so far</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="space-y-2 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">Name</dt>
+                  <dd className="break-words">{values.name || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Slug</dt>
+                  <dd>
+                    {values.slug ? (
+                      <span className="font-mono [overflow-wrap:anywhere]">{values.slug}</span>
+                    ) : (
+                      "—"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd>{values.status === "active" ? "Active" : "Trial"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Plan</dt>
+                  <dd>{planLabel ? `${planLabel.planName} (v${planLabel.version})` : "No plan"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">First administrator</dt>
+                  <dd className="break-words">
+                    {values.adminName || "—"}
+                    <br />
+                    <span className="text-muted-foreground">{values.adminEmail || "—"}</span>
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+        }
+        actions={
           <>
-            <Card>
-              <CardHeader>
-                <CardTitle>Tenant</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="t-name">Name</Label>
-                  <Input
-                    id="t-name"
-                    aria-invalid={Boolean(errors.name)}
-                    aria-describedby={errors.name ? "t-name-error" : undefined}
-                    {...nameField}
-                    onChange={(e) => {
-                      nameField.onChange(e);
-                      if (!slugEdited)
-                        setValue("slug", slugify(e.target.value), { shouldValidate: false });
-                    }}
-                  />
-                  {errors.name ? (
-                    <p id="t-name-error" role="alert" className="text-xs text-status-danger">
-                      {errors.name.message}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="t-slug">Slug</Label>
-                  <Input
-                    id="t-slug"
-                    className="font-mono"
-                    spellCheck={false}
-                    aria-invalid={Boolean(errors.slug)}
-                    aria-describedby="t-slug-hint"
-                    {...register("slug", { onChange: () => setSlugEdited(true) })}
-                  />
-                  {errors.slug ? (
-                    <p role="alert" className="text-xs text-status-danger">
-                      {errors.slug.message}
-                    </p>
-                  ) : (
-                    <p id="t-slug-hint" className="text-xs text-subtle-foreground">
-                      Unique, lowercase, used in identifiers. It cannot be changed later.
-                    </p>
-                  )}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+            {cancel}
+            <div className="flex gap-2">
+              {step > 0 ? (
+                <Button type="button" variant="secondary" onClick={() => setStep(step - 1)}>
+                  Back
+                </Button>
+              ) : null}
+              {step < 2 ? (
+                <Button type="button" onClick={next}>
+                  Next
+                </Button>
+              ) : (
+                <Button type="button" onClick={onSubmit} disabled={provision.isPending}>
+                  {provision.isPending ? "Provisioning…" : "Provision tenant"}
+                </Button>
+              )}
+            </div>
+          </>
+        }
+      >
+        <form onSubmit={onSubmit} noValidate className="space-y-6">
+          {step === 0 ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Tenant</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="t-status">Initial status</Label>
-                    <Select id="t-status" {...register("status")}>
-                      <option value="trial">Trial</option>
-                      <option value="active">Active</option>
-                    </Select>
+                    <Label htmlFor="t-name">Name</Label>
+                    <Input
+                      id="t-name"
+                      aria-invalid={Boolean(errors.name)}
+                      aria-describedby={errors.name ? "t-name-error" : undefined}
+                      {...nameField}
+                      onChange={(e) => {
+                        nameField.onChange(e);
+                        if (!slugEdited)
+                          setValue("slug", slugify(e.target.value), { shouldValidate: false });
+                      }}
+                    />
+                    {errors.name ? (
+                      <p id="t-name-error" role="alert" className="text-xs text-status-danger">
+                        {errors.name.message}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="t-plan">
-                      Plan <span className="font-normal text-muted-foreground">(optional)</span>
-                    </Label>
-                    <Select
-                      id="t-plan"
-                      disabled={plans.isPending && can("platform.plan.view")}
-                      {...register("planVersionId")}
-                    >
-                      <option value="">No plan</option>
-                      {(plans.data ?? []).map((p) => (
-                        <option key={p.planVersionId} value={p.planVersionId}>
-                          {p.planName} (v{p.version})
-                        </option>
-                      ))}
-                    </Select>
-                    {errors.planVersionId ? (
+                    <Label htmlFor="t-slug">Slug</Label>
+                    <Input
+                      id="t-slug"
+                      className="font-mono"
+                      spellCheck={false}
+                      aria-invalid={Boolean(errors.slug)}
+                      aria-describedby="t-slug-hint"
+                      {...register("slug", { onChange: () => setSlugEdited(true) })}
+                    />
+                    {errors.slug ? (
                       <p role="alert" className="text-xs text-status-danger">
-                        {errors.planVersionId.message}
+                        {errors.slug.message}
                       </p>
-                    ) : null}
-                    {plans.isError ? (
+                    ) : (
+                      <p id="t-slug-hint" className="text-xs text-subtle-foreground">
+                        Unique, lowercase, used in identifiers. It cannot be changed later.
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="t-status">Initial status</Label>
+                      <Select id="t-status" {...register("status")}>
+                        <option value="trial">Trial</option>
+                        <option value="active">Active</option>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="t-plan">
+                        Plan <span className="font-normal text-muted-foreground">(optional)</span>
+                      </Label>
+                      <Select
+                        id="t-plan"
+                        disabled={plans.isPending && can("platform.plan.view")}
+                        {...register("planVersionId")}
+                      >
+                        <option value="">No plan</option>
+                        {(plans.data ?? []).map((p) => (
+                          <option key={p.planVersionId} value={p.planVersionId}>
+                            {p.planName} (v{p.version})
+                          </option>
+                        ))}
+                      </Select>
+                      {errors.planVersionId ? (
+                        <p role="alert" className="text-xs text-status-danger">
+                          {errors.planVersionId.message}
+                        </p>
+                      ) : null}
+                      {plans.isError ? (
+                        <p role="alert" className="text-xs text-status-danger">
+                          {describeError(plans.error)}
+                        </p>
+                      ) : null}
+                      {plans.isSuccess && plans.data.length === 0 ? (
+                        <p className="text-xs text-subtle-foreground">
+                          No published plans exist yet; the tenant can be given one later.
+                        </p>
+                      ) : null}
+                      {!can("platform.plan.view") ? (
+                        <p className="text-xs text-subtle-foreground">
+                          Plans are hidden: your role lacks platform.plan.view.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+          {step === 1 ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>First administrator</CardTitle>
+                  <CardDescription>
+                    They are invited and get access only after they accept the invitation.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="a-name">Name</Label>
+                    <Input
+                      id="a-name"
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.adminName)}
+                      {...register("adminName")}
+                    />
+                    {errors.adminName ? (
                       <p role="alert" className="text-xs text-status-danger">
-                        {describeError(plans.error)}
-                      </p>
-                    ) : null}
-                    {plans.isSuccess && plans.data.length === 0 ? (
-                      <p className="text-xs text-subtle-foreground">
-                        No published plans exist yet; the tenant can be given one later.
-                      </p>
-                    ) : null}
-                    {!can("platform.plan.view") ? (
-                      <p className="text-xs text-subtle-foreground">
-                        Plans are hidden: your role lacks platform.plan.view.
+                        {errors.adminName.message}
                       </p>
                     ) : null}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        ) : null}
-        {step === 1 ? (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle>First administrator</CardTitle>
-                <CardDescription>
-                  They are invited and get access only after they accept the invitation.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="a-name">Name</Label>
-                  <Input
-                    id="a-name"
-                    autoComplete="off"
-                    aria-invalid={Boolean(errors.adminName)}
-                    {...register("adminName")}
-                  />
-                  {errors.adminName ? (
-                    <p role="alert" className="text-xs text-status-danger">
-                      {errors.adminName.message}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="a-email">Email</Label>
-                  <Input
-                    id="a-email"
-                    type="email"
-                    autoComplete="off"
-                    aria-invalid={Boolean(errors.adminEmail)}
-                    {...register("adminEmail")}
-                  />
-                  {errors.adminEmail ? (
-                    <p role="alert" className="text-xs text-status-danger">
-                      {errors.adminEmail.message}
-                    </p>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        ) : null}
-        {step === 2 ? <ReviewPanel values={values} planLabel={planLabel} /> : null}
-        {formError ? (
-          <p role="alert" className="text-sm text-status-danger">
-            {describeError(formError)}
-          </p>
-        ) : null}
-      </form>
-    </WizardLayout>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="a-email">Email</Label>
+                    <Input
+                      id="a-email"
+                      type="email"
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.adminEmail)}
+                      {...register("adminEmail")}
+                    />
+                    {errors.adminEmail ? (
+                      <p role="alert" className="text-xs text-status-danger">
+                        {errors.adminEmail.message}
+                      </p>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+          {step === 2 ? <ReviewPanel values={values} planLabel={planLabel} /> : null}
+          {formError ? (
+            <p role="alert" className="text-sm text-status-danger">
+              {describeError(formError)}
+            </p>
+          ) : null}
+        </form>
+      </WizardLayout>
+    </AppPageLayout>
   );
 }

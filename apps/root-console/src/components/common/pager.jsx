@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button.jsx";
+import { cn } from "@/lib/cn.js";
 
-/** Previous/next controls with the item range. @param {{ pagination: object | null, onPage: (page: number) => void }} props */
-export function Pager({ pagination, onPage }) {
+/** Previous/next controls with the item range (sits in the `DataTable` footer slot). @param {{ pagination: object | null, onPage: (page: number) => void, className?: string }} props */
+export function Pager({ pagination, onPage, className }) {
   if (!pagination || pagination.totalPages <= 1) return null;
   const { page, totalPages, totalItems } = pagination;
   return (
     <nav
       aria-label="Pagination"
-      className="mt-3 flex items-center justify-between text-sm text-muted-foreground"
+      className={cn("flex items-center justify-between text-sm text-muted-foreground", className)}
     >
       <span>
         {totalItems} items · page {page} of {totalPages}

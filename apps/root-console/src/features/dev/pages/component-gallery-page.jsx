@@ -1,5 +1,5 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { useState } from "react";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { SupportAccessBanner } from "@/components/common/support-access-banner.jsx";
 import { EnvironmentStrip } from "@/components/layout/environment-strip.jsx";
 import { Button } from "@/components/ui/button.jsx";
@@ -11,11 +11,11 @@ const minutes = (n) => new Date(Date.now() + n * 60_000);
 export function ComponentGalleryPage() {
   const [ended, setEnded] = useState(false);
   return (
-    <>
-      <PageHeader
-        title="Component gallery"
-        description="Development only. Static examples; no real grants exist yet."
-      />
+    <AppPageLayout
+      title="Component gallery"
+      description="Development only. Static examples; no real grants exist yet."
+      offset="7.5rem"
+    >
       <section aria-labelledby="g-env" className="mb-6 space-y-2">
         <h2 id="g-env" className="text-base font-semibold">
           Environment strip
@@ -59,6 +59,6 @@ export function ComponentGalleryPage() {
           </p>
         ) : null}
       </section>
-    </>
+    </AppPageLayout>
   );
 }

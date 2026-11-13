@@ -1,5 +1,6 @@
 import { Shield } from "lucide-react";
-import { useMemo } from "react";
+import { useScrollActivity } from "@qmentisai/ui";
+import { useMemo, useRef } from "react";
 import { Link, useLocation } from "react-router";
 import { evaluatePlatformNavigation } from "@qmentisai/shared/platform";
 import { isRouteAvailable } from "@/app/routes.jsx";
@@ -16,6 +17,8 @@ const isActive = (pathname, to) => pathname === to || pathname.startsWith(`${to}
 export function Sidebar({ onNavigate }) {
   const permissions = usePlatformPermissions();
   const { pathname } = useLocation();
+  const scrollRef = useRef(null);
+  useScrollActivity(scrollRef);
   const groups = useMemo(
     () => evaluatePlatformNavigation({ permissions, isRouteAvailable }),
     [permissions],
@@ -31,7 +34,10 @@ export function Sidebar({ onNavigate }) {
           QmentisAI Platform
         </Link>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div
+        ref={scrollRef}
+        className="qm-scroll qm-scroll-dark min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      >
         {groups.length === 0 ? (
           <p className="px-1 text-xs text-sidebar-muted">No pages are available to your role.</p>
         ) : (

@@ -2,5 +2,39 @@
 @import "@qmentisai/ui/preset.css";
 /* Root Console theme (violet accent, always-dark sidebar); active only under <html data-app="root">. */
 @import "@qmentisai/ui/root-theme.css";
+/* Smooth scrolling and the thin fading overlay scrollbar (`.qm-scroll`); no accent picker or ThemeProvider here. */
+@import "@qmentisai/ui/scroll.css";
 
 @source "../../../packages/ui/src";
+
+/* Scrollbar thumb on the always-dark sidebar (the default thumb colour is tuned for the page surface). */
+.qm-scroll.qm-scroll-dark:hover,
+.qm-scroll.qm-scroll-dark:focus-within,
+.qm-scroll.qm-scroll-dark[data-scrolling] {
+  --qm-scroll-thumb: color-mix(in oklab, var(--sidebar-muted) 70%, transparent);
+}
+
+/* WizardLayout (packages/ui) regions scroll inside the page; give them the same thin fading scrollbar as `.qm-scroll`. */
+[data-wizard="form"],
+[data-wizard="stepper"],
+[data-wizard="summary"] {
+  --qm-scroll-thumb: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--qm-scroll-thumb) transparent;
+  scroll-behavior: smooth;
+  transition: --qm-scroll-thumb 300ms ease;
+}
+[data-wizard="form"]:hover,
+[data-wizard="form"]:focus-within,
+[data-wizard="stepper"]:hover,
+[data-wizard="summary"]:hover {
+  --qm-scroll-thumb: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-wizard="form"],
+  [data-wizard="stepper"],
+  [data-wizard="summary"] {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}

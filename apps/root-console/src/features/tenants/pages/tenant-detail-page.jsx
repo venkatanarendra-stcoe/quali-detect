@@ -1,8 +1,8 @@
+import { AppPageLayout } from "@qmentisai/ui";
 import { useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/confirm-dialog.jsx";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { TenantStatusChip } from "@/components/common/tenant-status-chip.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
@@ -99,7 +99,12 @@ export function TenantDetailPage() {
   const lifecycle = useTenantLifecycle(tenantId);
   const [pending, setPending] = useState(null);
 
-  if (detail.isPending) return <LoadingState rows={4} label="Loading tenant" />;
+  if (detail.isPending)
+    return (
+      <AppPageLayout title="Tenant" offset="7.5rem">
+        <LoadingState rows={4} label="Loading tenant" />
+      </AppPageLayout>
+    );
   if (detail.isError) return <QueryErrorState error={detail.error} onRetry={detail.refetch} />;
   const {
     tenant,
@@ -113,35 +118,35 @@ export function TenantDetailPage() {
   const rule = pending ? ACTIONS[pending] : null;
 
   return (
-    <>
-      <PageHeader
-        title={tenant.name}
-        description={<span className="font-mono text-xs">{tenant.slug}</span>}
-        actions={
-          <>
-            <TenantStatusChip status={tenant.status} />
-            {STATUS_ACTIONS[tenant.status]
-              .filter((action) => action !== "restore" || tenant.restorableUntil)
-              .map((action) => (
-                <DisabledWithReason
-                  key={action}
-                  reason={
-                    allowedActions.includes(action)
-                      ? null
-                      : `You need the ${ACTIONS[action].permission} permission.`
-                  }
+    <AppPageLayout
+      title={tenant.name}
+      description={<span className="font-mono text-xs">{tenant.slug}</span>}
+      offset="7.5rem"
+      actions={
+        <>
+          <TenantStatusChip status={tenant.status} />
+          {STATUS_ACTIONS[tenant.status]
+            .filter((action) => action !== "restore" || tenant.restorableUntil)
+            .map((action) => (
+              <DisabledWithReason
+                key={action}
+                reason={
+                  allowedActions.includes(action)
+                    ? null
+                    : `You need the ${ACTIONS[action].permission} permission.`
+                }
+              >
+                <Button
+                  variant={ACTIONS[action].destructive ? "outline" : "secondary"}
+                  onClick={() => setPending(action)}
                 >
-                  <Button
-                    variant={ACTIONS[action].destructive ? "outline" : "secondary"}
-                    onClick={() => setPending(action)}
-                  >
-                    {ACTIONS[action].label}
-                  </Button>
-                </DisabledWithReason>
-              ))}
-          </>
-        }
-      />
+                  {ACTIONS[action].label}
+                </Button>
+              </DisabledWithReason>
+            ))}
+        </>
+      }
+    >
       {tenant.status === "suspended" ? (
         <p
           role="status"
@@ -309,6 +314,6 @@ export function TenantDetailPage() {
           )
         }
       />
-    </>
+    </AppPageLayout>
   );
 }

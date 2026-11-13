@@ -1,4 +1,4 @@
-import { PageHeader } from "@/components/common/page-header.jsx";
+import { AppPageLayout } from "@qmentisai/ui";
 import {
   Card,
   CardContent,
@@ -15,11 +15,11 @@ import { usePlatformSession } from "@/features/auth/hooks/use-platform-session.j
 export function DashboardPage() {
   const { me } = usePlatformSession();
   return (
-    <>
-      <PageHeader
-        title="Platform dashboard"
-        description={`Signed in as ${me.platformUser.name} · ${me.role.name}`}
-      />
+    <AppPageLayout
+      title="Platform dashboard"
+      description={`Signed in as ${me.platformUser.name} · ${me.role.name}`}
+      offset="7.5rem"
+    >
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -56,6 +56,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-    </>
+    </AppPageLayout>
   );
 }

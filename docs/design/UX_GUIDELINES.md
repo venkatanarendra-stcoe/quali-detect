@@ -223,3 +223,7 @@ Every tenant page renders inside `AppPageLayout` (`@qmentisai/ui`); the shell (`
 - **Forms, dashboards, planned pages**: `AppPageLayout` with the default scrolling content region. A stepper or tab bar that must stay visible is `sticky top-0` inside that region (Create workspace, Integrations catalog).
 - **Wizards** (Create pipeline, Connect repository): `AppPageLayout scroll={false}` hosting `<WizardLayout fill>` without a `title` (the page header is the only header).
 - Menus, tooltips and dialogs opened from table rows are portaled, so the internal scroller never clips them. Clicks that bubble from portaled content to a row do not activate the row.
+
+### Root Console page frames and tables (2026-11-13)
+
+The Root Console uses the same primitives as the tenant frame above: shell `h-dvh overflow-hidden`, every page in `AppPageLayout offset="7.5rem"` (1.5 rem environment strip + 3 rem top bar + 3 rem padding), list pages as `AppPageLayout scroll={false}` + `QueryTable` (`DataTable height="fill"`), the wizard as `<WizardLayout fill>`, and `scroll.css` imported by its entry so `.qm-scroll` (smooth, thin fading scrollbar, reduced-motion aware) covers `main`, the content region, the table scroller and the sidebar. Details: `ROOT_CONSOLE_DESIGN.md` §5.

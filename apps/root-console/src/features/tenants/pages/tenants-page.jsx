@@ -1,14 +1,11 @@
 import { Building2, SearchX } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import { PageHeader } from "@/components/common/page-header.jsx";
-import { Pager } from "@/components/common/pager.jsx";
-import { SortHeader } from "@/components/common/sort-header.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { AppPageLayout } from "@qmentisai/ui";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { LinkButton } from "@/components/common/link-button.jsx";
+import { QueryTable } from "@/components/common/query-table.jsx";
 import { TenantStatusChip } from "@/components/common/tenant-status-chip.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
-import { QueryErrorState } from "@/components/states/error-state.jsx";
-import { LoadingState } from "@/components/states/loading-state.jsx";
-import { LinkButton } from "@/components/common/link-button.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
@@ -30,6 +27,7 @@ const date = (value) =>
  */
 export function TenantsPage() {
   const can = useCanPlatform();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const qParam = params.get("q") ?? "";
   const status = params.get("status") ?? "";
@@ -71,23 +69,83 @@ export function TenantsPage() {
     setSearch("");
     setParams({}, { replace: true });
   };
+  const columns = useMemo(
+    () => [
+      {
+        id: "name",
+        accessorKey: "name",
+        header: "Tenant",
+        sortDescFirst: false,
+        cell: ({ row: { original: t } }) => (
+          <>
+            <Link
+              className="font-medium text-primary-text underline-offset-4 hover:underline"
+              to={`/tenants/${t.id}`}
+            >
+              {t.name}
+            </Link>
+            <p className="font-mono text-xs text-subtle-foreground">{t.slug}</p>
+          </>
+        ),
+      },
+      {
+        id: "status",
+        accessorKey: "status",
+        header: "Status",
+        sortDescFirst: false,
+        cell: ({ row: { original: t } }) => <TenantStatusChip status={t.status} />,
+      },
+      {
+        id: "plan",
+        header: "Plan",
+        enableSorting: false,
+        meta: { className: "text-muted-foreground" },
+        cell: ({ row: { original: t } }) =>
+          t.plan ? `${t.plan.name} v${t.plan.version}` : "No plan",
+      },
+      {
+        id: "users",
+        header: () => <span className="block text-right">Users</span>,
+        enableSorting: false,
+        meta: { className: "text-right tabular-nums" },
+        cell: ({ row: { original: t } }) => t.userCount,
+      },
+      {
+        id: "workspaces",
+        header: () => <span className="block text-right">Workspaces</span>,
+        enableSorting: false,
+        meta: { className: "text-right tabular-nums" },
+        cell: ({ row: { original: t } }) => t.workspaceCount,
+      },
+      {
+        id: "createdAt",
+        accessorKey: "createdAt",
+        header: "Created",
+        sortDescFirst: false,
+        meta: { className: "text-muted-foreground" },
+        cell: ({ row: { original: t } }) => date(t.createdAt),
+      },
+    ],
+    [],
+  );
 
   return (
-    <>
-      <PageHeader
-        title="Tenant management"
-        description="Customer organizations on the platform."
-        actions={
-          <PlatformPermissionGate
-            permission="platform.tenant.create"
-            mode="disable"
-            reason="You need the platform.tenant.create permission to provision tenants."
-          >
-            <LinkButton to="/tenants/new">Provision tenant</LinkButton>
-          </PlatformPermissionGate>
-        }
-      />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+    <AppPageLayout
+      title="Tenant management"
+      description="Customer organizations on the platform."
+      scroll={false}
+      offset="7.5rem"
+      actions={
+        <PlatformPermissionGate
+          permission="platform.tenant.create"
+          mode="disable"
+          reason="You need the platform.tenant.create permission to provision tenants."
+        >
+          <LinkButton to="/tenants/new">Provision tenant</LinkButton>
+        </PlatformPermissionGate>
+      }
+    >
+      <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-full max-w-xs">
           <label htmlFor="tenant-search" className="sr-only">
             Search tenants
@@ -148,106 +206,45 @@ export function TenantsPage() {
         ) : null}
       </div>
 
-      {list.isPending ? <LoadingState label="Loading tenants" /> : null}
-      {list.isError ? <QueryErrorState error={list.error} onRetry={list.refetch} /> : null}
-      {list.data && list.data.items.length === 0 ? (
-        filtered ? (
-          <EmptyState
-            icon={SearchX}
-            title="No matching tenants"
-            description="Try different filters."
-            actions={
-              <Button variant="secondary" onClick={clear}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={Building2}
-            title="No tenants yet"
-            description="Provision the first tenant to onboard a customer."
-            actions={
-              can("platform.tenant.create") ? (
-                <Button asChild>
-                  <Link to="/tenants/new">Provision tenant</Link>
+      <QueryTable
+        query={list}
+        columns={columns}
+        caption="Tenants"
+        getRowId={(t) => t.id}
+        sort={sort}
+        onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
+        pagination={list.data?.pagination}
+        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onRowClick={(t) => navigate(`/tenants/${t.id}`)}
+        rowLabel={(t) => `Open ${t.name}`}
+        emptyState={
+          filtered ? (
+            <EmptyState
+              icon={SearchX}
+              title="No matching tenants"
+              description="Try different filters."
+              actions={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
                 </Button>
-              ) : null
-            }
-          />
-        )
-      ) : null}
-      {list.data && list.data.items.length > 0 ? (
-        <>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
-            <table className="w-full text-left text-[13px] leading-5">
-              <caption className="sr-only">Tenants</caption>
-              <thead className="border-b border-border text-muted-foreground">
-                <tr>
-                  <SortHeader
-                    label="Tenant"
-                    field="name"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
-                  />
-                  <SortHeader
-                    label="Status"
-                    field="status"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Plan
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Users
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Workspaces
-                  </th>
-                  <SortHeader
-                    label="Created"
-                    field="createdAt"
-                    sort={sort}
-                    onSort={(s) => update({ sort: s, page: "" })}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((t) => (
-                  <tr
-                    key={t.id}
-                    className="h-9 border-b border-border last:border-0 hover:bg-secondary"
-                  >
-                    <td className="px-3 py-1.5">
-                      <Link
-                        className="font-medium text-primary-text underline-offset-4 hover:underline"
-                        to={`/tenants/${t.id}`}
-                      >
-                        {t.name}
-                      </Link>
-                      <p className="font-mono text-xs text-subtle-foreground">{t.slug}</p>
-                    </td>
-                    <td className="px-3">
-                      <TenantStatusChip status={t.status} />
-                    </td>
-                    <td className="px-3 text-muted-foreground">
-                      {t.plan ? `${t.plan.name} v${t.plan.version}` : "No plan"}
-                    </td>
-                    <td className="px-3 text-right tabular-nums">{t.userCount}</td>
-                    <td className="px-3 text-right tabular-nums">{t.workspaceCount}</td>
-                    <td className="px-3 text-muted-foreground">{date(t.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pager
-            pagination={list.data.pagination}
-            onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
-          />
-        </>
-      ) : null}
-    </>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Building2}
+              title="No tenants yet"
+              description="Provision the first tenant to onboard a customer."
+              actions={
+                can("platform.tenant.create") ? (
+                  <Button asChild>
+                    <Link to="/tenants/new">Provision tenant</Link>
+                  </Button>
+                ) : null
+              }
+            />
+          )
+        }
+      />
+    </AppPageLayout>
   );
 }

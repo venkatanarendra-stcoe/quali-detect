@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
+import { createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import { createOutboxRepository, restoreWorkspaceRepositories } from "@qmentisai/db";
-import { createOutbox } from "@qmentisai/infra";
+import { GitHubApiError, createOutbox } from "@qmentisai/infra";
+import { createOwnershipVerifier } from "../../../../workers/src/ownership/index.js";
 import { createScmEventHandler } from "../../../../workers/src/scm/events.js";
 import { createScmJobHandler } from "../../../../workers/src/scm/jobs.js";
 import { createIntegrationRepository } from "../../../src/modules/integrations/repositories/index.js";
@@ -41,9 +43,20 @@ export async function buildStateWorld(db) {
   const T = await tenant("t");
   const U = await tenant("u");
   let listing = [];
+  let selection = "all";
+  let truncated = false;
+  let gone = false;
   const github = {
-    listAllInstallationRepositories: async () => ({ repositories: listing, truncated: false }),
+    listAllInstallationRepositories: async () => {
+      if (gone) throw new GitHubApiError("Not Found", { status: 404 });
+      return { repositories: listing, truncated };
+    },
+    getInstallation: async (externalInstallationId) => {
+      if (gone) throw new GitHubApiError("Not Found", { status: 404 });
+      return { externalInstallationId, repositorySelection: selection };
+    },
   };
+  const verify = createOwnershipVerifier({ db });
   const outbox = createOutbox({ repository: createOutboxRepository({ db }) });
   const states = (max = MAX) =>
     createRepositoryStates({ db, outbox, maxFailures: max, logger: quiet });
@@ -61,12 +74,24 @@ export async function buildStateWorld(db) {
   let seq = 0;
 
   /** A fresh installation, tenant link, workspace and workspace link for a tenant. */
-  async function setup(owner) {
+  async function setup(owner, { numericExternalId = false, installationId } = {}) {
     const n = (seq += 1);
+    if (installationId) {
+      const link = await db.scmInstallationLink.create({
+        data: { tenantId: owner.id, installationId, linkedByUserId: user.id },
+      });
+      const ws = await db.workspace.create({ data: { tenantId: owner.id, name: `ST WS ${n}` } });
+      const wl = await db.scmWorkspaceLink.create({
+        data: { tenantId: owner.id, workspaceId: ws.id, linkId: link.id, linkedByUserId: user.id },
+      });
+      return { tenantId: owner.id, installationId, linkId: link.id, userId: user.id, ws, wl };
+    }
     const installation = await db.scmInstallation.create({
       data: {
         provider: "github",
-        externalInstallationId: `st-${sfx}-${n}`,
+        externalInstallationId: numericExternalId
+          ? String(7_000_000_000 + Math.floor(Math.random() * 1_000_000_000))
+          : `st-${sfx}-${n}`,
         accountExternalId: `st-acct-${sfx}-${n}`,
         accountLogin: `st-org-${n}`,
         accountType: "organization",
@@ -158,6 +183,31 @@ export async function buildStateWorld(db) {
       },
       { log: quiet },
     );
+  /** The installation-wide reconcile job as the webhook producer builds it (SPEC §16.3 item 1c); `tenantId` may be forged. */
+  const reconcileMessage = (s, { tenantId = s.tenantId, linkId = s.linkId } = {}) =>
+    parseMessage(
+      createJobEnvelope({
+        type: "scm.installation.reconcile_requested",
+        schemaVersion: 1,
+        tenantId,
+        initiator: { type: "system", id: "github-webhook" },
+        payload: { linkId, deliveryId: `d-${rand(4)}`, action: "removed" },
+      }),
+    );
+  /** Runs the job the way the worker does: ownership verification first, then the handler. */
+  const reconcile = async (s, forged) => {
+    const message = reconcileMessage(s, forged);
+    await verify(message);
+    return jobs(message, { log: quiet });
+  };
+  const selectionAudits = (s) =>
+    db.auditLog.count({
+      where: {
+        tenantId: s.tenantId,
+        targetId: s.linkId,
+        action: "scm_installation.selection_changed",
+      },
+    });
   const remoteOf = (r) => ({
     externalRepoId: r.externalRepoId,
     nodeId: r.nodeId,
@@ -185,8 +235,23 @@ export async function buildStateWorld(db) {
     syncJob,
     remoteOf,
     states,
+    reconcile,
+    reconcileMessage,
+    jobs,
+    selectionAudits,
+    verify,
+    suite: sfx,
     setListing: (list) => {
       listing = list;
+    },
+    setSelection: (value) => {
+      selection = value;
+    },
+    setTruncated: (value) => {
+      truncated = value;
+    },
+    setGone: (value) => {
+      gone = value;
     },
   };
 }
@@ -619,6 +684,302 @@ export const STATE_CHECKS = [
       const ur = await w.repo(u);
       if ((await w.fresh(ur)).status !== "active")
         problems.push("control: tenant U's repository changed");
+      return problems;
+    },
+  },
+  {
+    id: "SCM-069",
+    name: "an installation switched from all to selected repositories (installation-wide reconcile): every connected repository of every workspace link that GitHub no longer lists becomes unavailable ONCE (one audit entry, counter 1), listed repositories, disconnected ones and an unrelated installation are untouched, the stored repository_selection is updated with one audit entry, and repeating or racing the job changes nothing more; a repository listed again recovers once",
+    async run(w) {
+      const problems = [];
+      const s = await w.setup(w.T);
+      // a second workspace link of the SAME tenant link
+      const ws2 = await w.db.workspace.create({
+        data: { tenantId: w.T.id, name: `ST WS2 ${s.linkId}` },
+      });
+      const wl2 = await w.db.scmWorkspaceLink.create({
+        data: { tenantId: w.T.id, workspaceId: ws2.id, linkId: s.linkId, linkedByUserId: s.userId },
+      });
+      const s2 = { ...s, ws: ws2, wl: wl2 };
+      const kept = await w.repo(s);
+      const gone1 = await w.repo(s);
+      const gone2 = await w.repo(s2);
+      const dead = await w.repo(s2, { status: "disconnected", disconnectReason: "user" });
+      const other = await w.setup(w.T);
+      const otherRepo = await w.repo(other);
+      w.setSelection("selected");
+      w.setListing([w.remoteOf(kept)]);
+      const stamp = (await w.fresh(kept)).lastSyncedAt;
+      await w.reconcile(s);
+      for (const [label, r] of [
+        ["first workspace", gone1],
+        ["second workspace", gone2],
+      ]) {
+        const row = await w.fresh(r);
+        if (
+          row.status !== "unavailable" ||
+          row.consecutiveSyncFailures !== 1 ||
+          row.lastSyncError !== "not_listed"
+        )
+          problems.push(`${label}: ${JSON.stringify(view(row))}`);
+        if ((await w.audits(r, "repository.unavailable")) !== 1)
+          problems.push(
+            `${label}: ${await w.audits(r, "repository.unavailable")} unavailable entries`,
+          );
+      }
+      const keptRow = await w.fresh(kept);
+      if (
+        keptRow.status !== "active" ||
+        keptRow.consecutiveSyncFailures !== 0 ||
+        String(keptRow.lastSyncedAt) !== String(stamp)
+      )
+        problems.push(`control: a listed repository changed: ${JSON.stringify(view(keptRow))}`);
+      if (
+        (await w.fresh(dead)).status !== "disconnected" ||
+        (await w.audits(dead, "repository.unavailable")) !== 0
+      )
+        problems.push("a disconnected repository was touched");
+      if ((await w.fresh(otherRepo)).status !== "active")
+        problems.push("a repository of another installation changed");
+      const inst = await w.db.scmInstallation.findUnique({ where: { id: s.installationId } });
+      if (inst.repositorySelection !== "selected")
+        problems.push("the stored selection was not updated");
+      if ((await w.selectionAudits(s)) !== 1)
+        problems.push(`${await w.selectionAudits(s)} selection entries`);
+      // repeat and race: nothing more changes
+      await w.reconcile(s);
+      await Promise.all([w.reconcile(s), w.reconcile(s), w.reconcile(s)]);
+      for (const r of [gone1, gone2]) {
+        const row = await w.fresh(r);
+        if (row.status !== "unavailable" || row.consecutiveSyncFailures !== 1)
+          problems.push(`repeat: ${JSON.stringify(view(row))}`);
+        if ((await w.audits(r, "repository.unavailable")) !== 1)
+          problems.push("repeat: a second unavailable entry");
+      }
+      if ((await w.selectionAudits(s)) !== 1) problems.push("repeat: a second selection entry");
+      // the removal event for the same repository afterwards adds no second audit entry
+      await w.removedEvent(gone1, s);
+      if ((await w.audits(gone1, "repository.unavailable")) !== 1)
+        problems.push("event after reconcile: second entry");
+      // listed again: one recovery
+      w.setListing([w.remoteOf(kept), w.remoteOf(gone1)]);
+      await Promise.all([w.reconcile(s), w.reconcile(s)]);
+      const back = await w.fresh(gone1);
+      if (back.status !== "active" || back.consecutiveSyncFailures !== 0)
+        problems.push(`recovery: ${JSON.stringify(view(back))}`);
+      if ((await w.fresh(gone2)).status !== "unavailable")
+        problems.push("recovery: an unlisted repository recovered");
+      const recovered = await w.db.auditLog.count({
+        where: { targetId: gone1.id, action: "repository.updated", actorType: "system" },
+      });
+      if (recovered !== 1) problems.push(`recovery: ${recovered} recovered entries`);
+      return problems;
+    },
+  },
+  {
+    id: "SCM-070",
+    name: "a signed installation_repositories webhook enqueues exactly one validated installation-wide reconcile job per link per minute (a second delivery and a replay of the same delivery add none), another link gets its own job, a different installation event enqueues none, and the job holds only ids and short strings",
+    async run(w, ctx) {
+      const problems = [];
+      const ms = Date.now() % 60000;
+      if (ms > 40000) await new Promise((r) => setTimeout(r, 60000 - ms + 100)); // stay inside one minute bucket
+      const a = await w.setup(w.T, { numericExternalId: true });
+      const b = await w.setup(w.T, { numericExternalId: true });
+      const jobsOf = (s) =>
+        w.db.outboxMessage.findMany({
+          where: {
+            type: "scm.installation.reconcile_requested",
+            tenantId: s.tenantId,
+            payload: { path: ["payload", "linkId"], equals: s.linkId },
+          },
+        });
+      const send = async (s, event, action, deliveryId = `st-${rand(6)}`) => {
+        const inst = await w.db.scmInstallation.findUnique({ where: { id: s.installationId } });
+        return ctx.deliver({
+          event,
+          deliveryId,
+          payload: {
+            action,
+            installation: { id: Number(inst.externalInstallationId) },
+            repository_selection: "selected",
+            repositories_added: [],
+            repositories_removed: [{ id: 4242 }],
+          },
+        });
+      };
+      const res = await send(a, "installation_repositories", "removed");
+      if (res.status !== 202 && res.status !== 200)
+        problems.push(`delivery answered ${res.status}`);
+      let jobs = await jobsOf(a);
+      if (jobs.length !== 1) problems.push(`control: ${jobs.length} jobs after the first delivery`);
+      else {
+        const message = jobs[0].payload;
+        try {
+          parseMessage(message);
+        } catch {
+          problems.push("the stored job does not validate");
+        }
+        if (
+          message.tenantId !== a.tenantId ||
+          message.payload.linkId !== a.linkId ||
+          jobs[0].queue !== "scm"
+        )
+          problems.push("the job names the wrong tenant, link or queue");
+        if (Object.keys(message.payload).sort().join() !== "action,deliveryId,linkId")
+          problems.push(`unexpected payload fields ${Object.keys(message.payload)}`);
+      }
+      const sameId = `st-same-${rand(4)}`;
+      await send(a, "installation_repositories", "added", sameId);
+      await send(a, "installation_repositories", "added", sameId); // replay of the delivery
+      await send(a, "installation_repositories", "removed");
+      jobs = await jobsOf(a);
+      if (jobs.length !== 1)
+        problems.push(`${jobs.length} jobs after repeated deliveries in one minute`);
+      await send(b, "installation_repositories", "removed");
+      if ((await jobsOf(b)).length !== 1) problems.push("another link did not get its own job");
+      const c = await w.setup(w.T, { numericExternalId: true });
+      await send(c, "installation", "suspend");
+      await send(c, "repository", "edited");
+      if ((await jobsOf(c)).length !== 0)
+        problems.push("an installation event enqueued a reconcile job");
+      const d = await w.setup(w.T, { numericExternalId: true });
+      await ctx.deliver({
+        event: "installation_repositories",
+        deliveryId: `st-bad-${rand(4)}`,
+        payload: {
+          action: "removed",
+          installation: {
+            id: Number(
+              (await w.db.scmInstallation.findUnique({ where: { id: d.installationId } }))
+                .externalInstallationId,
+            ),
+          },
+        },
+        signature: `sha256=${"0".repeat(64)}`,
+      });
+      if ((await jobsOf(d)).length !== 0)
+        problems.push("an unsigned/badly signed delivery enqueued a job");
+      return problems;
+    },
+  },
+  {
+    id: "SCM-071",
+    name: "tenant isolation of the installation-wide reconcile: a job naming another tenant's link is refused by the ownership check and, even handed to the handler, changes nothing; a forged tenant id never selects data; the same GitHub repository id connected by two tenants only changes the owner's row, and an unrelated tenant's installation is untouched (with a control for the legitimate job)",
+    async run(w) {
+      const problems = [];
+      const s = await w.setup(w.T);
+      const r = await w.repo(s);
+      const stranger = await w.setup(w.U);
+      const strangerRepo = await w.repo(stranger);
+      w.setSelection("all");
+      w.setListing([]);
+      // forged: tenant U with T's link
+      const forged = w.reconcileMessage(s, { tenantId: w.U.id });
+      let refused = false;
+      try {
+        await w.verify(forged);
+      } catch {
+        refused = true;
+      }
+      if (!refused) problems.push("the ownership check accepted a link of another tenant");
+      await w.jobs(forged, { log: { info() {}, warn() {}, error() {}, debug() {} } });
+      if ((await w.fresh(r)).status !== "active")
+        problems.push("a forged tenant id reached the repository");
+      // and the reverse: T with U's link
+      await w.jobs(w.reconcileMessage(stranger, { tenantId: w.T.id }), {
+        log: { info() {}, warn() {}, error() {}, debug() {} },
+      });
+      if ((await w.fresh(strangerRepo)).status !== "active")
+        problems.push("the reverse forgery changed a repository");
+      // control: the legitimate job works
+      await w.reconcile(s);
+      if ((await w.fresh(r)).status !== "unavailable")
+        problems.push("control: the legitimate job did nothing");
+      if ((await w.fresh(strangerRepo)).status !== "active")
+        problems.push("another tenant's installation was touched");
+      // the same GitHub repository id connected by two tenants through their own installations: only the owner's row changes
+      const twinT = await w.setup(w.T);
+      const twinU = await w.setup(w.U);
+      const rt = await w.repo(twinT);
+      const ru = await w.repo(twinU, { externalRepoId: rt.externalRepoId, nodeId: rt.nodeId });
+      await w.reconcile(twinT);
+      if ((await w.fresh(rt)).status !== "unavailable")
+        problems.push("control: the owner's twin row did not change");
+      if (
+        (await w.fresh(ru)).status !== "active" ||
+        (await w.audits(ru, "repository.unavailable")) !== 0
+      )
+        problems.push("the other tenant's row for the same GitHub repository id changed");
+      const own = await w.db.auditLog.findMany({
+        where: { targetId: rt.id, action: "repository.unavailable" },
+      });
+      if (own.length !== 1 || own[0].tenantId !== w.T.id)
+        problems.push("the audit entry is missing or under another tenant");
+      return problems;
+    },
+  },
+  {
+    id: "SCM-072",
+    name: "the installation-wide reconcile is safe on partial knowledge: a truncated listing marks nothing unavailable, a suspended installation keeps its suspension state (only the selection refreshes), an installation GitHub no longer knows is marked revoked once, and a revoked or unlinked link is skipped",
+    async run(w) {
+      const problems = [];
+      w.setSelection("all");
+      w.setListing([]);
+      // truncated listing
+      const t = await w.setup(w.T);
+      const tr = await w.repo(t);
+      w.setTruncated(true);
+      await w.reconcile(t);
+      w.setTruncated(false);
+      if ((await w.fresh(tr)).status !== "active")
+        problems.push("a truncated listing made a repository unavailable");
+      // suspended installation
+      const sp = await w.setup(w.T);
+      const spr = await w.repo(sp);
+      await w.states().suspendInstallation(sp.installationId, true);
+      const before = await w.fresh(spr);
+      w.setSelection("selected");
+      w.setListing([w.remoteOf(spr)]); // listed again, yet the suspension (not the listing) owns its state
+      await w.reconcile(sp);
+      w.setListing([]);
+      w.setSelection("all");
+      const after = await w.fresh(spr);
+      const inst = await w.db.scmInstallation.findUnique({ where: { id: sp.installationId } });
+      if (
+        inst.status !== "suspended" ||
+        after.status !== before.status ||
+        after.consecutiveSyncFailures !== before.consecutiveSyncFailures ||
+        after.lastSyncError !== "installation_suspended"
+      )
+        problems.push(`suspended: ${inst.status}/${JSON.stringify(view(after))}`);
+      if (inst.repositorySelection !== "selected")
+        problems.push("suspended: the selection was not refreshed");
+      // gone on GitHub
+      const g = await w.setup(w.T);
+      const gr = await w.repo(g);
+      w.setGone(true);
+      await w.reconcile(g);
+      await w.reconcile(g); // second: skipped, revoked is terminal
+      w.setGone(false);
+      const gi = await w.db.scmInstallation.findUnique({ where: { id: g.installationId } });
+      if (gi.status !== "revoked" || (await w.fresh(gr)).status !== "disconnected")
+        problems.push("a vanished installation was not revoked");
+      if ((await w.revokedMessages(g)) !== 1)
+        problems.push(`${await w.revokedMessages(g)} revoke notifications`);
+      // unlinked link: skipped
+      const u = await w.setup(w.T);
+      const ur = await w.repo(u);
+      await w.db.scmInstallationLink.update({
+        where: { id: u.linkId },
+        data: { status: "unlinked" },
+      });
+      await w.reconcile(u);
+      if ((await w.fresh(ur)).status !== "active") problems.push("an unlinked link was reconciled");
+      // control: a linked, unlisted repository is made unavailable
+      const c = await w.setup(w.T);
+      const cr = await w.repo(c);
+      await w.reconcile(c);
+      if ((await w.fresh(cr)).status !== "unavailable") problems.push("control: no effect");
       return problems;
     },
   },

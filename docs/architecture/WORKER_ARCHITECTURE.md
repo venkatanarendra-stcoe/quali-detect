@@ -49,7 +49,7 @@ Each queue has the derived topology above (`qmentis.<q>`, `qmentis.<q>.retry.<n>
 
 | Queue | Worker | Bindings on `qmentis.scm.events` | Handler |
 |---|---|---|---|
-| `scm`, `analysis`, `scan`, `notification`, `usage`, `scheduler`, `pipeline` | their worker | none (direct queue) | as built; `pipeline` is a no-op until the execution module |
+| `scm`, `analysis`, `scan`, `notification`, `usage`, `scheduler`, `pipeline` | their worker | none (direct queue) | as built; `pipeline` is a no-op until the execution module; the `scm` queue also carries `scm.installation.reconcile_requested`, the installation-wide reconcile enqueued by the webhook transaction for an `installation_repositories` event (outbox, `messageId` per link per minute; the worker re-validates the link against the tenant, re-lists the installation on GitHub, updates the stored selection and reconciles every connected repository of the installation by compare-and-set, auditing only real changes; SPEC repositories-github §16.3 item 1c) |
 | `scm-events` | `scm` (additional consumer) | `scm.github.#` | repository and installation state (push and pull-request events are acknowledged); every status transition is a compare-and-set on the status and audits/announces only a real change, so a replay or a race with the sync job writes one entry (SPEC repositories-github §16.3 item 7) |
 | `pipeline-triggers` | `pipeline` (additional consumer) | `scm.github.push`, `scm.github.pull_request` | the trigger router (`apps/workers/src/pipeline/router.js`, docs/modules/pipelines-triggers/SPEC.md §6.2): ownership-verified, one transaction per matching pipeline, idempotent by `(scm event, pipeline)` |
 

@@ -7,6 +7,7 @@ import {
   createOutbox,
   toRetryable,
 } from "@qmentisai/infra";
+import { auditSystem } from "./audit.js";
 import { createRepositoryStates } from "./state.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,6 +72,97 @@ export function createScmJobHandler({ db, config, logger, github }) {
     }
     await states.recordSuccess(repo, remote, { matchedBy: byId ? "id" : "node_id" });
     log.info({ repositoryId: repo.id, matchedBy: byId ? "id" : "node_id" }, "Repository synced");
+  }
+
+  /**
+   * SPEC §16.3 item 1c: installation-wide reconciliation after an `installation_repositories` webhook. The message's tenant and
+   * link were verified by the worker's ownership check; here the link is loaded again with that tenant, and the installation
+   * is taken from the LINK (never from the message). GitHub is the source of truth: the installation's `repository_selection`
+   * and its accessible repositories are re-read, the stored selection is updated by a compare-and-set (audited once per link
+   * only when it really changed), and every live repository of every linked tenant link of the installation is reconciled
+   * with every query scoped by that link's own tenant:
+   * - `active` and no longer listed: `recordFailure(..., "not_listed")` (compare-and-set to `unavailable`, one audit entry);
+   * - `unavailable` and listed again: `recordSuccess` (compare-and-set back to `active`, one "recovered" entry);
+   * - anything else is left untouched, so a repeat or duplicate job changes and audits nothing (it never advances the
+   *   failure counter of an already `unavailable` repository; the periodic sync owns the path to `disconnected`).
+   * A suspended installation keeps its suspension state (only the selection is refreshed).
+   */
+  async function reconcileInstallation({ tenantId, linkId }, log) {
+    const origin = await db.scmInstallationLink.findFirst({
+      where: { id: linkId, tenantId, status: "linked" },
+      include: { installation: true },
+    });
+    if (!origin || origin.installation.status === "revoked")
+      return log.info("Installation reconcile skipped (link not linked or installation revoked)");
+    const installation = origin.installation;
+    let facts;
+    let listing;
+    try {
+      facts = await github.getInstallation(installation.externalInstallationId);
+      listing = await github.listAllInstallationRepositories(installation.externalInstallationId);
+    } catch (error) {
+      if (error instanceof GitHubApiError && (error.notFound || error.accessDenied)) {
+        await states.revokeInstallation(installation.id, "not_found_on_github");
+        return log.warn("Installation is no longer accessible; marked revoked");
+      }
+      throw toRetryable(error);
+    }
+    const links = await db.scmInstallationLink.findMany({
+      where: { installationId: installation.id, status: "linked" },
+      select: { id: true, tenantId: true },
+    });
+    // The stored selection: one compare-and-set on the installation row; only the call that changed it audits.
+    await db.$transaction(async (tx) => {
+      const selection = await tx.scmInstallation.updateMany({
+        where: {
+          id: installation.id,
+          status: { not: "revoked" },
+          NOT: { repositorySelection: facts.repositorySelection },
+        },
+        data: { repositorySelection: facts.repositorySelection },
+      });
+      if (selection.count !== 1) return;
+      for (const l of links)
+        await auditSystem(tx, {
+          tenantId: l.tenantId,
+          action: "scm_installation.selection_changed",
+          targetType: "scm_installation_link",
+          targetId: l.id,
+          metadata: { from: installation.repositorySelection, to: facts.repositorySelection },
+        });
+    });
+    if (installation.status !== "active")
+      return log.info(
+        { status: installation.status },
+        "Installation not active; selection refreshed only",
+      );
+    let unavailable = 0;
+    let recovered = 0;
+    for (const l of links) {
+      const repos = await db.repository.findMany({
+        where: { tenantId: l.tenantId, linkId: l.id, status: { in: ["active", "unavailable"] } },
+      });
+      for (const repo of repos) {
+        const byId = listing.repositories.find((r) => r.externalRepoId === repo.externalRepoId);
+        const remote =
+          byId ??
+          (repo.nodeId ? listing.repositories.find((r) => r.nodeId === repo.nodeId) : undefined);
+        if (!remote) {
+          if (listing.truncated) continue; // cannot prove it is gone
+          if (repo.status === "active") {
+            await states.recordFailure(repo, "not_listed");
+            unavailable += 1;
+          }
+        } else if (repo.status === "unavailable") {
+          await states.recordSuccess(repo, remote, { matchedBy: byId ? "id" : "node_id" });
+          recovered += 1;
+        }
+      }
+    }
+    log.info(
+      { selection: facts.repositorySelection, links: links.length, unavailable, recovered },
+      "Installation reconciled",
+    );
   }
 
   /** Scheduled sync: enqueue one tenant job per due repository (deterministic ids collapse duplicates). */
@@ -171,6 +263,11 @@ export function createScmJobHandler({ db, config, logger, github }) {
       case "scm.repository.sync_requested":
         return syncRepository(
           { tenantId: message.tenantId, repositoryId: message.payload.repositoryId },
+          log,
+        );
+      case "scm.installation.reconcile_requested":
+        return reconcileInstallation(
+          { tenantId: message.tenantId, linkId: message.payload.linkId },
           log,
         );
       case "scm.repositories.sync_requested":

@@ -3,6 +3,7 @@ import {
   QUEUE_NAMES,
   SCM_EVENTS_EXCHANGE,
   createEventEnvelope,
+  createJobEnvelope,
   scmRoutingKey,
 } from "@qmentisai/contracts";
 import { USABLE_TENANT_STATUSES } from "@qmentisai/shared";
@@ -290,6 +291,26 @@ export function createWebhookService({ repository, scm, outbox, infra, logger })
               payload: normalized.payload,
             }),
           });
+          // Installation-wide reconciliation (SPEC §16.3 item 1c): access changed on GitHub, so the worker re-lists the
+          // installation and reconciles every connected repository. One job per link per minute (the outbox is idempotent per
+          // message id and queue); the worker re-validates the link against the tenant before acting.
+          if (normalized.kind === "installation_repositories")
+            await outbox.enqueue(tx, {
+              queue: QUEUE_NAMES.SCM,
+              message: createJobEnvelope({
+                messageId: `scm-install-reconcile-${link.linkId}-${Math.floor(Date.now() / 60000)}`,
+                type: "scm.installation.reconcile_requested",
+                schemaVersion: 1,
+                tenantId: link.tenantId,
+                correlationId: deliveryId,
+                initiator: { type: "system", id: "github-webhook" },
+                payload: {
+                  linkId: link.linkId,
+                  deliveryId,
+                  action: normalized.payload.action,
+                },
+              }),
+            });
         });
       } catch (error) {
         if (error?.code === "P2002") return metric("duplicate", { event, deliveryId });

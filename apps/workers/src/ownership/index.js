@@ -48,6 +48,7 @@ const RESOURCE_CHECKS = {
   "scm.push.received": async (db, message) => repositoryInTenant(db, message),
   "scm.pull_request.received": async (db, message) => repositoryInTenant(db, message),
   "scm.repository.changed": async (db, message) => repositoryInTenant(db, message),
+  "scm.installation.reconcile_requested": async (db, message) => linkInTenant(db, message),
   "scm.installation.changed": async (db, message) => linkInTenant(db, message),
   "scm.installation_repositories.changed": async (db, message) => linkInTenant(db, message),
   // Uninstall/suspension fan-out: the installation link AND every workspace named in the payload must belong to the tenant.

@@ -37,7 +37,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 469;
+const EXPECTED_CHECKS = 473;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5593,7 +5593,11 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       id,
       name,
       { status: 200 },
-      async () => ({ status: 200, json: null, problems: await run(await stateWorld()) }),
+      async () => ({
+        status: 200,
+        json: null,
+        problems: await run(await stateWorld(), { deliver }),
+      }),
       (r) => r.problems,
     );
 }

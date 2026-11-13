@@ -193,6 +193,22 @@ export const MESSAGE_TYPES = Object.freeze({
     schemaVersion: 1,
     payload: z.object({ repositoryId: uuid }),
   }),
+  /**
+   * Installation-wide reconciliation (SPEC §16.3 item 1c), enqueued when an `installation_repositories` webhook arrives. The
+   * worker re-lists the installation on GitHub and reconciles every connected repository of every linked tenant link of it.
+   * `linkId` is the tenant link the webhook resolved to; `messageId = scm-install-reconcile-<linkId>-<minute>` dedupes per link
+   * per minute. Ids and short strings only.
+   */
+  "scm.installation.reconcile_requested": Object.freeze({
+    kind: "job",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({
+      linkId: uuid,
+      deliveryId: z.string().min(1).max(128),
+      action: z.string().max(64),
+    }),
+  }),
   "scm.repositories.sync_requested": Object.freeze({
     kind: "job",
     scope: "platform",

@@ -4,6 +4,28 @@ export const OPENAPI_TAG = "Pipelines";
 
 export const SORTABLE_FIELDS = Object.freeze(["name", "createdAt", "lastRequestedAt"]);
 
+/** Keyset terms of the list sort fields stored on the row (`lastRequestedAt` is an aggregate: see `pipelineKeyTerms`). */
+export const PIPELINE_KEY_SPECS = Object.freeze({
+  name: { type: "string" },
+  createdAt: { type: "date" },
+});
+export const PIPELINE_TIE = "asc";
+
+/**
+ * Keyset terms of a pipeline list sort. Sorting by `lastRequestedAt` (an aggregate over executions, ordered in memory) uses
+ * the fixed order latest request (never requested = -1), then name, then id, in the requested direction of the first.
+ * @param {Array<{ field: string, direction: "asc" | "desc" }>} sort
+ */
+export function pipelineKeyTerms(sort) {
+  const byRequest = sort.find((s) => s.field === "lastRequestedAt");
+  if (!byRequest) return null;
+  return [
+    { field: "latest", direction: byRequest.direction, type: "number", nullable: false },
+    { field: "name", direction: "asc", type: "string", nullable: false },
+    { field: "id", direction: "asc", type: "uuid", nullable: false },
+  ];
+}
+
 /** Statuses of an execution that are neither queued nor terminal: they block a soft delete (R-5). */
 export const ACTIVE_EXECUTION_STATUSES = Object.freeze(["preparing", "running", "cancelling"]);
 

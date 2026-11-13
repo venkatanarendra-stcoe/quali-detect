@@ -52,6 +52,10 @@
     {
       "pattern": "(extra operation: |OpenAPI: extra )(GET|PUT) /api/v1/me/preferences",
       "reason": "New operations of the user-preferences module (docs/modules/user-preferences/SPEC.md §8, 2026-11-13, owner decision): the signed-in user's own interface preferences (accent colour) in the active tenant. Tenant audience, no permission, no id in path/body/query, PUT rate-limited (write profile)."
+    },
+    {
+      "pattern": "(OpenAPI )?GET /api/v1/platform/tenants: (errorCodes differs|request differs|parameters)",
+      "reason": "Cursor pagination on the Root Console tenant list (2026-11-13, owner decision, API_STANDARDS \"Cursor pagination\"): the opt-in query parameters cursor and limit, and the transport error code INVALID_CURSOR (400) for an invalid or foreign HMAC-signed cursor. Offset paging (page, pageSize) is unchanged; meta.pagination gains nextCursor and hasMore."
     }
   ]
 }

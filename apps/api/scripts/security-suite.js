@@ -197,6 +197,13 @@ async function main() {
   const tenantPassword = randomBytes(12).toString("hex");
   const platformPassword = randomBytes(12).toString("hex");
   const mfaCode = String(randomInt(100000, 1000000));
+  // Cursor signing keys (newest first, as in CURSOR_SIGNING_SECRET): "current" signs, "previous" is still accepted (rotation),
+  // "retired" is never configured. The checks forge cursors with them, so they reach the suite too.
+  const cursorKeys = {
+    current: randomBytes(24).toString("hex"),
+    previous: randomBytes(24).toString("hex"),
+    retired: randomBytes(24).toString("hex"),
+  };
   log("starting the local GitHub stub");
   const gh = await startGitHub();
   log("starting the API");
@@ -214,6 +221,7 @@ async function main() {
     SCM_SYNC_FAILURES_BEFORE_DISCONNECT: "3",
     // Lifetime of a workspace-link state: 3 s so SCM-033 can prove that an expired state is refused (production default: 600).
     SCM_LINK_STATE_TTL_SECONDS: "3",
+    CURSOR_SIGNING_SECRET: `${cursorKeys.current},${cursorKeys.previous}`,
     DATABASE_URL: databaseUrl,
     MOCK_AUTH_PASSWORD: tenantPassword,
     MOCK_PLATFORM_AUTH_PASSWORD: platformPassword,
@@ -260,6 +268,7 @@ async function main() {
           SECURITY_TENANT_PASSWORD: tenantPassword,
           SECURITY_PLATFORM_PASSWORD: platformPassword,
           SECURITY_MFA_CODE: mfaCode,
+          SECURITY_CURSOR_KEYS: JSON.stringify(cursorKeys),
           // Direct database access for the SEC checks (secret storage has no HTTP surface yet); same disposable database.
           SECURITY_DATABASE_URL: databaseUrl,
           SECURITY_GITHUB_STUB_URL: gh.stub.url,

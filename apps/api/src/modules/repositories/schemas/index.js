@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { createPaginatedSchema, createSuccessSchema } from "@qmentisai/contracts";
+import {
+  createCursorPaginatedSchema,
+  createPaginatedSchema,
+  createSuccessSchema,
+} from "@qmentisai/contracts";
 import { atLeastOne, searchText, text, uuidParams } from "../../../lib/http.js";
 import { createCollectionQuerySchema, paginationShape } from "../../../lib/query.js";
 import { SORTABLE_FIELDS } from "../constants/index.js";
@@ -7,6 +11,7 @@ import { SORTABLE_FIELDS } from "../constants/index.js";
 export const repositoryParamsSchema = uuidParams("repositoryId");
 export const workspaceParamsSchema = uuidParams("workspaceId");
 export const listRepositoriesQuerySchema = createCollectionQuerySchema({
+  cursor: true,
   sortableFields: SORTABLE_FIELDS,
   defaultSort: [{ field: "fullName", direction: "asc" }],
   filters: {
@@ -73,7 +78,7 @@ const repositoryDto = z.object({
   pipelineCount: z.number().nullable(),
 });
 export const repositoryResponseSchema = createSuccessSchema(repositoryDto);
-export const repositoryListResponseSchema = createPaginatedSchema(repositoryDto);
+export const repositoryListResponseSchema = createCursorPaginatedSchema(repositoryDto);
 export const availableListResponseSchema = createPaginatedSchema(
   z.object({
     externalRepoId: z.string(),

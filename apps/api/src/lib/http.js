@@ -32,8 +32,18 @@ export const actorFrom = (request) => ({
 /** Whether a Prisma error is a unique-constraint violation. @param {unknown} error */
 export const isUniqueViolation = (error) => error?.code === "P2002";
 
-/** Page of items for `reply.paginated`. @param {{ items: any[], totalItems: number }} page @param {{ page: number, pageSize: number }} query */
-export const toPage = ({ items, totalItems }, { page, pageSize }) => ({
+/**
+ * Page of items for `reply.paginated`. Cursor-capable lists also pass `hasMore` and `nextCursor` (and may carry `limit` and
+ * `cursor` in the query): `limit` replaces `pageSize`, and a cursor request reports page 1 (it has no page number).
+ * @param {{ items: any[], totalItems: number, hasMore?: boolean, nextCursor?: string | null }} page
+ * @param {{ page: number, pageSize: number, limit?: number, cursor?: string }} query
+ */
+export const toPage = ({ items, totalItems, hasMore, nextCursor }, query) => ({
   items,
-  pagination: { page, pageSize, totalItems },
+  pagination: {
+    page: query.cursor ? 1 : query.page,
+    pageSize: query.limit ?? query.pageSize,
+    totalItems,
+    ...(hasMore === undefined ? {} : { hasMore, nextCursor: nextCursor ?? null }),
+  },
 });

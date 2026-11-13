@@ -1,4 +1,4 @@
-import { toPrismaOrderBy, toPrismaPaging } from "../../../lib/query.js";
+import { findKeysetPage } from "../../../lib/keyset.js";
 
 const CURRENT_SUBSCRIPTION = (now) => ({
   status: { in: ["trial", "active"] },
@@ -30,7 +30,8 @@ export function createPlatformTenantRepository({ db, authzRepository }) {
     return rows;
   };
   return Object.freeze({
-    async list({ q, status, plan, sort, page, pageSize, now }) {
+    /** @param {Record<string, any>} input validated query; `terms` and `after` come from `cursorContext` */
+    async list({ q, status, plan, page, pageSize, limit, terms, after, now }) {
       const where = {
         ...(status ? { status } : {}),
         ...(q
@@ -49,16 +50,17 @@ export function createPlatformTenantRepository({ db, authzRepository }) {
             }
           : {}),
       };
-      const [tenants, totalItems] = await Promise.all([
-        db.tenant.findMany({
-          where,
-          orderBy: toPrismaOrderBy(sort),
-          ...toPrismaPaging({ page, pageSize }),
-        }),
-        db.tenant.count({ where }),
-      ]);
+      const keyset = await findKeysetPage(db.tenant, {
+        where,
+        terms,
+        after: after ?? null,
+        page,
+        pageSize,
+        limit,
+      });
+      const { items: tenants, totalItems, hasMore, nextKey } = keyset;
       const ids = tenants.map((t) => t.id);
-      if (ids.length === 0) return { items: [], totalItems };
+      if (ids.length === 0) return { items: [], totalItems, hasMore, nextKey };
       const [users, workspaces, subscriptions] = await Promise.all([
         countBy("tenantMembership", null, ids, { status: "active" }),
         countBy("workspace", null, ids, { status: "active" }),
@@ -77,6 +79,8 @@ export function createPlatformTenantRepository({ db, authzRepository }) {
           subscription: subscriptions.find((s) => s.tenantId === tenant.id) ?? null,
         })),
         totalItems,
+        hasMore,
+        nextKey,
       };
     },
     findById: (id, client = db) => client.tenant.findUnique({ where: { id } }),

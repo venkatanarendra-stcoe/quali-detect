@@ -1,6 +1,12 @@
 import { z } from "zod";
-import { createPaginatedSchema } from "@qmentisai/contracts";
+import { createCursorPaginatedSchema, createPaginatedSchema } from "@qmentisai/contracts";
 import { createCollectionQuerySchema } from "./query.js";
+
+/** Sort fields of both audit-log read APIs as keyset terms (createdAt, action; `id` breaks ties). */
+export const AUDIT_KEY_SPECS = Object.freeze({
+  createdAt: { type: "date" },
+  action: { type: "string" },
+});
 
 /**
  * Shared pieces of the two audit-log read APIs (tenant and platform).
@@ -34,9 +40,11 @@ const isoDate = z
 /**
  * Query schema: pagination, `sort` (createdAt, action), and the filters actor, action, from, to, result.
  * @param {Record<string, import("zod").ZodTypeAny>} [extraFilters]
+ * @param {{ cursor?: boolean }} [options] `cursor: true` adds the cursor pagination parameters (tenant audit log only)
  */
-export function auditQuerySchema(extraFilters = {}) {
+export function auditQuerySchema(extraFilters = {}, { cursor = false } = {}) {
   return createCollectionQuerySchema({
+    cursor,
     sortableFields: ["createdAt", "action"],
     defaultSort: [{ field: "createdAt", direction: "desc" }],
     pagination: { defaultPageSize: 25, maxPageSize: 100 },
@@ -81,3 +89,4 @@ export const auditEntryDto = z.object({
   metadata: z.record(z.unknown()).nullable(),
 });
 export const auditListResponseSchema = createPaginatedSchema(auditEntryDto);
+export const auditCursorListResponseSchema = createCursorPaginatedSchema(auditEntryDto);

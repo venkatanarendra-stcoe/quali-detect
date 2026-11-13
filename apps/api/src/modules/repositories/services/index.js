@@ -16,6 +16,8 @@ import {
 import { AUDIT_ACTIONS } from "../../../audit/actions.js";
 import { ENTITLEMENT_KEYS } from "@qmentisai/db";
 import { toPage } from "../../../lib/http.js";
+import { cursorContext } from "../../../lib/keyset.js";
+import { REPOSITORY_KEY_SPECS, REPOSITORY_TIE } from "../constants/index.js";
 import { toRepositoryDto } from "../mappers/index.js";
 
 const PROVIDER_DOWN = "GitHub is temporarily unavailable. Try again later.";
@@ -183,8 +185,28 @@ export function createRepositoryService({
         .filter((workspaceId) =>
           can(actor.permissions, "repository.view", { type: "workspace", workspaceId }),
         );
-      const page = await repository.list({ ...query, tenantId: actor.tenantId, workspaceIds });
-      return toPage({ items: await toDtos(actor, page.items), totalItems: page.totalItems }, query);
+      const cursor = cursorContext({
+        kind: "repositories",
+        scope: `tenant:${actor.tenantId}`,
+        query,
+        specs: REPOSITORY_KEY_SPECS,
+        tie: REPOSITORY_TIE,
+      });
+      const page = await repository.list({
+        ...query,
+        tenantId: actor.tenantId,
+        workspaceIds,
+        terms: cursor.terms,
+        after: cursor.after,
+      });
+      return toPage(
+        {
+          items: await toDtos(actor, page.items),
+          totalItems: page.totalItems,
+          ...cursor.next(page),
+        },
+        query,
+      );
     },
 
     /**

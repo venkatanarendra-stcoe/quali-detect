@@ -1,3 +1,4 @@
+import { configureCursorSigning } from "./lib/cursor-signing.js";
 import express from "express";
 import swaggerUi from "swagger-ui-express";
 import helmet from "helmet";
@@ -38,6 +39,8 @@ import { createReadiness } from "./runtime/readiness.js";
  * @returns {Promise<{ app: import("express").Express, ctx: object, routes: import("./lib/route-kit.js").RouteRecord[], openapi: () => object, close: () => Promise<void> }>}
  */
 export async function createApp({ config, modules = defaultModules, loggerOptions }) {
+  // Pagination cursors are HMAC-signed with subkeys of CURSOR_SIGNING_SECRET (lib/cursor-signing.js).
+  configureCursorSigning(config.cursor.signingSecrets);
   const logger = createLogger(config, loggerOptions);
   const readiness = createReadiness({ logger });
   const { infra, close: closeInfrastructure } = createInfrastructure({ config, logger, readiness });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cursorQueryShape } from "./keyset.js";
 
 /**
  * Collection endpoint helpers: explicit pagination, allow-listed sorting and declared filters.
@@ -62,17 +63,21 @@ export function sortSchema(sortableFields, defaultSort) {
  *   defaultSort: Array<{ field: string, direction: "asc" | "desc" }>,
  *   filters?: Record<string, import("zod").ZodTypeAny>,
  *   pagination?: { defaultPageSize?: number, maxPageSize?: number },
- * }} options
+ *   cursor?: boolean,
+ * }} options `cursor: true` adds the opt-in cursor parameters `cursor` and `limit` (see lib/keyset.js); the endpoint's
+ * repository and service must then use `cursorContext` and `findKeysetPage`.
  */
 export function createCollectionQuerySchema({
   sortableFields,
   defaultSort,
   filters = {},
   pagination,
+  cursor = false,
 }) {
   return z
     .object({
       ...paginationShape(pagination),
+      ...(cursor ? cursorQueryShape(pagination?.maxPageSize ?? MAX_PAGE_SIZE) : {}),
       sort: sortSchema(sortableFields, defaultSort),
       ...filters,
     })
@@ -80,11 +85,17 @@ export function createCollectionQuerySchema({
 }
 
 /**
- * Pagination block for response `meta`.
- * @param {{ page: number, pageSize: number, totalItems: number }} input
+ * Pagination block for response `meta`. `hasMore` and `nextCursor` are present only on cursor-capable collections.
+ * @param {{ page: number, pageSize: number, totalItems: number, hasMore?: boolean, nextCursor?: string | null }} input
  */
-export function buildPaginationMeta({ page, pageSize, totalItems }) {
-  return { page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) };
+export function buildPaginationMeta({ page, pageSize, totalItems, hasMore, nextCursor }) {
+  return {
+    page,
+    pageSize,
+    totalItems,
+    totalPages: Math.ceil(totalItems / pageSize),
+    ...(hasMore === undefined ? {} : { nextCursor: nextCursor ?? null, hasMore }),
+  };
 }
 
 /**

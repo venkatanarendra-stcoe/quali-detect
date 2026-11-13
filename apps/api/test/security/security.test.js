@@ -36,10 +36,11 @@ import {
   runJitterFixtures,
   runPlanFixtures,
 } from "./helpers/schedule-fixtures.js";
+import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 497;
+const EXPECTED_CHECKS = 522;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10263,6 +10264,23 @@ const schWorld = () =>
 {
   const add = group("User preferences: own data only");
   for (const { id, name, expected, run, verify } of buildPreferenceChecks({
+    S,
+    once,
+    db: suiteDb,
+  }))
+    add(id, name, expected, run, verify);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 18. Cursor pagination (docs/technical/API_STANDARDS.md "Cursor pagination", PAG-001..015): the Repositories list, the two
+//     Pipelines lists and the tenant audit log. Cursor pages must equal the offset result (also under concurrent inserts), and
+//     a cursor is only a position: tampered, foreign (sort, filter, endpoint, parent, tenant) cursors answer 400, scope and
+//     authorization are re-applied from the session. Fixtures: tenants "pagp" and "pagq" through the public API, rows written
+//     to the disposable database (helpers/pagination.js).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Cursor pagination: position only, never scope");
+  for (const { id, name, expected, run, verify } of buildPaginationChecks({
     S,
     once,
     db: suiteDb,

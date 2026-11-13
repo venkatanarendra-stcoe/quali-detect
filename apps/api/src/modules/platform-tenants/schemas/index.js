@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createPaginatedSchema, createSuccessSchema } from "@qmentisai/contracts";
+import { createCursorPaginatedSchema, createSuccessSchema } from "@qmentisai/contracts";
 import { searchText, text, uuidParams } from "../../../lib/http.js";
 import { createCollectionQuerySchema } from "../../../lib/query.js";
 import { LIFECYCLE_ACTIONS, SORTABLE_FIELDS, TENANT_STATUSES } from "../constants/index.js";
@@ -7,6 +7,7 @@ import { LIFECYCLE_ACTIONS, SORTABLE_FIELDS, TENANT_STATUSES } from "../constant
 export const tenantParamsSchema = uuidParams("tenantId");
 
 export const listTenantsQuerySchema = createCollectionQuerySchema({
+  cursor: true,
   sortableFields: SORTABLE_FIELDS,
   defaultSort: [{ field: "name", direction: "asc" }],
   filters: {
@@ -56,7 +57,7 @@ const tenantItemDto = z.object({
   workspaceCount: z.number(),
   createdAt: z.string(),
 });
-export const tenantListResponseSchema = createPaginatedSchema(tenantItemDto);
+export const tenantListResponseSchema = createCursorPaginatedSchema(tenantItemDto);
 
 const tenantDetailDto = z.object({
   tenant: z.object({

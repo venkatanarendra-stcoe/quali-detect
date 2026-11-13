@@ -51,7 +51,7 @@ Q13 (naming permissions in 403 bodies); permission caching and invalidation; Ide
 
 | Operation | Permission | Notes |
 |---|---|---|
-| `GET /api/v1/audit-logs` | `audit_log.view_all` (tenant) | Session tenant only; `actor`, `action`, `from`, `to`, `result`, `sort` (`createdAt`, `action`), `page`, `pageSize`; unknown parameters (including `tenantId`) are `400` |
-| `GET /api/v1/platform/audit-logs` | `platform.audit_log.view` (platform) | Platform events; additionally `tenantId`; a tenant session gets `404` |
+| `GET /api/v1/audit-logs` | `audit_log.view_all` (tenant) | Session tenant only; `actor`, `action`, `from`, `to`, `result`, `sort` (`createdAt`, `action`), `page`, `pageSize`, `cursor`, `limit` (cursor pagination, API_STANDARDS: `meta.pagination` adds `nextCursor`, `hasMore`; ties by `id` descending; the cursor never carries or selects the tenant; checks `PAG-008..015`); unknown parameters (including `tenantId`) are `400`; the platform audit log has no cursor |
+| `GET /api/v1/platform/audit-logs` | `platform.audit_log.view` (platform) | Platform events; additionally `tenantId`; a tenant session gets `404`; `cursor`/`limit` cursor pagination (API_STANDARDS: HMAC-signed cursor bound to `platform:<platformUserId>`, `meta.pagination` adds `nextCursor`, `hasMore`, ties by `id` descending, `400 INVALID_CURSOR`; checks `PAG-016..025`) |
 
 `result` is derived from the action name (`*_failed`, `*_denied`, `*throttle_cap_reached` are failures); entries are append-only. Screens: T-19 and R-28 (`SCREENS.md`).

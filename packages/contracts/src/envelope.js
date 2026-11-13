@@ -51,3 +51,24 @@ export function createPaginatedSchema(itemSchema) {
     meta: z.object({ correlationId: z.string(), pagination: paginationMetaSchema }),
   });
 }
+
+/**
+ * Pagination block of a cursor-capable collection: the offset fields (unchanged) plus `nextCursor` (opaque; null on the last
+ * page) and `hasMore`. Offset requests receive the same two fields, so a client can start in either mode.
+ */
+export const cursorPaginationMetaSchema = paginationMetaSchema.extend({
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+});
+
+/**
+ * Paginated envelope of a cursor-capable collection.
+ * @param {import("zod").ZodTypeAny} itemSchema
+ */
+export function createCursorPaginatedSchema(itemSchema) {
+  return z.object({
+    success: z.literal(true),
+    data: z.array(itemSchema),
+    meta: z.object({ correlationId: z.string(), pagination: cursorPaginationMetaSchema }),
+  });
+}

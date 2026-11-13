@@ -1,5 +1,11 @@
-import { toPrismaOrderBy, toPrismaPaging } from "../../../lib/query.js";
-import { ACTIVE_EXECUTION_STATUSES } from "../constants/index.js";
+import { compareKeys, findKeysetPage, keyTerms } from "../../../lib/keyset.js";
+import { toPrismaPaging } from "../../../lib/query.js";
+import {
+  ACTIVE_EXECUTION_STATUSES,
+  PIPELINE_KEY_SPECS,
+  PIPELINE_TIE,
+  pipelineKeyTerms,
+} from "../constants/index.js";
 
 /** Rows of one effective state, mirroring `computeEffectiveState` in @qmentisai/shared (same precedence). */
 const EFFECTIVE_STATE_WHERE = Object.freeze({
@@ -129,6 +135,9 @@ export function createPipelineRepository({ db }) {
       sort,
       page,
       pageSize,
+      limit,
+      terms,
+      after,
     }) {
       const stateWhere =
         effectiveState && effectiveState !== "deleted"
@@ -150,24 +159,23 @@ export function createPipelineRepository({ db }) {
         ...(triggerType ? { triggers: { some: { type: triggerType } } } : {}),
         ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
       };
-      const sortsByLastRequest = sort.some((s) => s.field === "lastRequestedAt");
-      if (!sortsByLastRequest) {
-        const [items, totalItems] = await Promise.all([
-          db.pipeline.findMany({
-            where,
-            include: PIPELINE_INCLUDE,
-            orderBy: toPrismaOrderBy(sort),
-            ...toPrismaPaging({ page, pageSize }),
-          }),
-          db.pipeline.count({ where }),
-        ]);
-        return { items, totalItems };
-      }
+      const memoryTerms = pipelineKeyTerms(sort);
+      if (!memoryTerms)
+        return findKeysetPage(db.pipeline, {
+          where,
+          args: { include: PIPELINE_INCLUDE },
+          terms: terms ?? keyTerms(sort, PIPELINE_KEY_SPECS, PIPELINE_TIE),
+          after: after ?? null,
+          page,
+          pageSize,
+          limit,
+        });
       // `lastRequestedAt` is an aggregate over executions: order the (bounded) id set in memory, then load one page.
+      const take = limit ?? pageSize;
       const all = await db.pipeline.findMany({
         where,
         select: { id: true, name: true },
-        orderBy: { name: "asc" },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
         take: 5000,
       });
       const latest = new Map(
@@ -176,14 +184,16 @@ export function createPipelineRepository({ db }) {
           r.requestedAt.getTime(),
         ]),
       );
-      const direction =
-        sort.find((s) => s.field === "lastRequestedAt").direction === "desc" ? -1 : 1;
-      const ordered = [...all].sort((a, b) => {
-        const x = latest.get(a.id) ?? -1;
-        const y = latest.get(b.id) ?? -1;
-        return x === y ? a.name.localeCompare(b.name) : direction * (x - y);
-      });
-      const ids = ordered.slice((page - 1) * pageSize, page * pageSize).map((p) => p.id);
+      const keyed = all
+        .map((p) => ({ id: p.id, key: [latest.get(p.id) ?? -1, p.name, p.id] }))
+        .sort((a, b) => compareKeys(memoryTerms, a.key, b.key));
+      let from = (page - 1) * take;
+      if (after) {
+        const index = keyed.findIndex((row) => compareKeys(memoryTerms, row.key, after) > 0);
+        from = index === -1 ? keyed.length : index;
+      }
+      const window = keyed.slice(from, from + take);
+      const ids = window.map((row) => row.id);
       const rows = ids.length
         ? await db.pipeline.findMany({
             where: { tenantId, id: { in: ids } },
@@ -191,7 +201,13 @@ export function createPipelineRepository({ db }) {
           })
         : [];
       const byId = new Map(rows.map((r) => [r.id, r]));
-      return { items: ids.map((id) => byId.get(id)).filter(Boolean), totalItems: all.length };
+      const hasMore = from + take < keyed.length;
+      return {
+        items: ids.map((id) => byId.get(id)).filter(Boolean),
+        totalItems: all.length,
+        hasMore,
+        nextKey: hasMore ? window.at(-1).key : null,
+      };
     },
     lastRequested,
     countLive: ({ tenantId }, client = db) =>

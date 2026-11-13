@@ -3664,6 +3664,26 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "maxLength": 200
             },
             "required": false,
@@ -3808,13 +3828,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },
@@ -22152,6 +22181,26 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "maxLength": 200
             },
             "required": false,
@@ -22358,13 +22407,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },
@@ -22642,6 +22700,26 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "maxLength": 200
             },
             "required": false,
@@ -22857,13 +22935,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },
@@ -28872,6 +28959,26 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "maxLength": 200
             },
             "required": false,
@@ -29117,13 +29224,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },
@@ -33703,6 +33819,26 @@
           {
             "schema": {
               "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
               "maxLength": 200
             },
             "required": false,
@@ -34004,13 +34140,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },
@@ -34292,6 +34437,26 @@
             },
             "required": false,
             "name": "pageSize",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
             "in": "query"
           },
           {
@@ -34580,13 +34745,22 @@
                             "totalPages": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "nextCursor": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "hasMore": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
                             "page",
                             "pageSize",
                             "totalItems",
-                            "totalPages"
+                            "totalPages",
+                            "nextCursor",
+                            "hasMore"
                           ]
                         }
                       },

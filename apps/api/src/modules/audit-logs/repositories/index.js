@@ -1,5 +1,9 @@
 import { rangeWhere, resultWhere } from "../../../lib/audit-view.js";
-import { toPrismaOrderBy, toPrismaPaging } from "../../../lib/query.js";
+import { AUDIT_KEY_SPECS } from "../../../lib/audit-view.js";
+import { findKeysetPage, keyTerms } from "../../../lib/keyset.js";
+
+/** Tie-breaker of the audit order: newest id first, as before cursor pagination. */
+export const AUDIT_TIE = "desc";
 
 /**
  * Read access to a tenant's audit log. EVERY query carries the tenantId of the session; the audit table is append-only
@@ -8,7 +12,21 @@ import { toPrismaOrderBy, toPrismaPaging } from "../../../lib/query.js";
  */
 export function createAuditLogRepository({ db }) {
   return Object.freeze({
-    async list({ tenantId, actor, action, from, to, result, sort, page, pageSize }) {
+    /** @param {Record<string, any>} input validated query + tenantId; `after` (and `terms`) come from `cursorContext` */
+    async list({
+      tenantId,
+      actor,
+      action,
+      from,
+      to,
+      result,
+      sort,
+      page,
+      pageSize,
+      limit,
+      terms,
+      after,
+    }) {
       const where = {
         tenantId,
         ...(actor ? { actorUserId: actor } : {}),
@@ -16,16 +34,15 @@ export function createAuditLogRepository({ db }) {
         ...rangeWhere(from, to),
         ...resultWhere(result),
       };
-      const [items, totalItems] = await Promise.all([
-        db.auditLog.findMany({
-          where,
-          include: { actor: { select: { name: true, email: true } } },
-          orderBy: [...toPrismaOrderBy(sort), { id: "desc" }],
-          ...toPrismaPaging({ page, pageSize }),
-        }),
-        db.auditLog.count({ where }),
-      ]);
-      return { items, totalItems };
+      return findKeysetPage(db.auditLog, {
+        where,
+        args: { include: { actor: { select: { name: true, email: true } } } },
+        terms: terms ?? keyTerms(sort, AUDIT_KEY_SPECS, AUDIT_TIE),
+        after: after ?? null,
+        page,
+        pageSize,
+        limit,
+      });
     },
   });
 }

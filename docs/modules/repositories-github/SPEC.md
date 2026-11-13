@@ -265,7 +265,7 @@ All tenant routes: tenant session, `/api/v1`, standard envelope, Zod on params/q
 ### 8.2 Repositories (workspace scope)
 | Method and path | Permission and scope | Notes |
 |---|---|---|
-| `GET /repositories` | `repository.view`, collection (filtered to visible workspaces, never 403) | Query: `workspaceId`, `provider`, `health`, `status`, `q`, `sort` (`fullName`, `connectedAt`, `lastEventAt`), `page`, `pageSize` |
+| `GET /repositories` | `repository.view`, collection (filtered to visible workspaces, never 403) | Query: `workspaceId`, `provider`, `health`, `status`, `q`, `sort` (`fullName`, `connectedAt`, `lastEventAt`), `page`, `pageSize`; also `cursor` and `limit` (cursor pagination, API_STANDARDS; response `meta.pagination` adds `nextCursor`, `hasMore`; ties by `id`; `lastEventAt` NULLs per PostgreSQL order; `400 INVALID_CURSOR`, HMAC-signed with `CURSOR_SIGNING_SECRET` per API_STANDARDS; checks `PAG-001..004`, `PAG-010..017`) |
 | `GET /workspaces/{workspaceId}/repositories/available` | `repository.connect` in that workspace | Query `installationId`, `q`, `visibility`, `page`; live from GitHub; `alreadyConnected` flag; `PROVIDER_UNAVAILABLE` on outage |
 | `POST /workspaces/{workspaceId}/repositories` | `repository.connect` in that workspace | Body `{ installationId, externalRepoId, displayName?, description?, ownerUserId? }`; 201; `409 CONFLICT reason repository_already_connected` (unique identity); `403 QUOTA_EXCEEDED/ENTITLEMENT_REQUIRED` |
 | `GET /repositories/{repositoryId}` | `repository.view` via a repository scope resolver (loads by id **and** tenant, yields the workspace) | 404 when absent or not visible |

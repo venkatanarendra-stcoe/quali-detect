@@ -23,11 +23,15 @@ import {
   ValidationError,
 } from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
+import { cursorContext } from "../../../lib/keyset.js";
 import {
   IN_FLIGHT_EXECUTION_STATUSES,
   MANUAL_GATE_REASONS,
+  PIPELINE_KEY_SPECS,
+  PIPELINE_TIE,
   QUOTA_PERIOD,
   REASONS,
+  pipelineKeyTerms,
 } from "../constants/index.js";
 import {
   effectiveStateOf,
@@ -280,17 +284,29 @@ export function createPipelineService({
     return { version, summary };
   }
 
-  async function listPage(actor, query, extra = {}) {
+  async function listPage(actor, query, extra = {}, scope = {}) {
     const workspaceIds = actor.permissions.workspaces
       .map((w) => w.id)
       .filter((workspaceId) =>
         can(actor.permissions, "pipeline.view", { type: "workspace", workspaceId }),
       );
+    const memoryTerms = pipelineKeyTerms(query.sort);
+    const cursor = cursorContext({
+      kind: scope.kind ?? "pipelines",
+      scope: `tenant:${actor.tenantId}`,
+      query,
+      specs: PIPELINE_KEY_SPECS,
+      tie: PIPELINE_TIE,
+      terms: memoryTerms ?? undefined,
+      extra: scope.extra,
+    });
     const page = await repository.list({
       ...query,
       ...extra,
       tenantId: actor.tenantId,
       workspaceIds,
+      terms: cursor.terms,
+      after: cursor.after,
     });
     const last = new Map(
       (
@@ -310,6 +326,7 @@ export function createPipelineService({
           }),
         ),
         totalItems: page.totalItems,
+        ...cursor.next(page),
       },
       query,
     );
@@ -351,7 +368,12 @@ export function createPipelineService({
 
     /** Pipelines of one repository (T-24); the route authorized `pipeline.view` through the repository scope. */
     listForRepository: (actor, repo, query) =>
-      listPage(actor, { ...query }, { workspaceId: repo.workspaceId, repositoryId: repo.id }),
+      listPage(
+        actor,
+        { ...query },
+        { workspaceId: repo.workspaceId, repositoryId: repo.id },
+        { kind: "repository-pipelines", extra: { repositoryId: repo.id } },
+      ),
 
     get,
 

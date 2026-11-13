@@ -66,6 +66,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "TENANT_CONTEXT_REQUIRED",
             "status": 403
           },
@@ -89,6 +93,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "actor",
           "action",
@@ -1666,6 +1672,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "TENANT_CONTEXT_REQUIRED",
             "status": 403
           },
@@ -1689,6 +1699,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "q",
           "enabled",
@@ -2512,6 +2524,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "RESOURCE_NOT_FOUND",
             "status": 404
           },
@@ -2531,6 +2547,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "actor",
           "action",
@@ -2806,6 +2824,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "RESOURCE_NOT_FOUND",
             "status": 404
           },
@@ -2825,6 +2847,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "status",
           "plan",
@@ -3246,6 +3270,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "TENANT_CONTEXT_REQUIRED",
             "status": 403
           },
@@ -3269,6 +3297,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "q",
           "workspaceId",
@@ -3751,6 +3781,10 @@
             "status": 500
           },
           {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
             "code": "RESOURCE_NOT_FOUND",
             "status": 404
           },
@@ -3780,6 +3814,8 @@
         "query": [
           "page",
           "pageSize",
+          "cursor",
+          "limit",
           "sort",
           "q",
           "enabled",

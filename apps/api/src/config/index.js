@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { SecretConfigError, parseMasterKey, readGitHubAppConfig } from "@qmentisai/infra";
 import { PACKAGE_INFO } from "./package-info.js";
@@ -66,6 +67,11 @@ const envSchema = z.object({
   SECRET_KEY_PROVIDER: z.enum(["env", "kms", "vault"]).default("env"),
   SECRET_MASTER_KEY: z.string().optional(),
   SECRET_MASTER_KEY_VERSION: z.coerce.number().int().min(1).max(1000000).default(1),
+  // Signing keys of pagination cursors (HMAC; the raw value never signs, a subkey is derived with HKDF). Comma-separated, NEWEST
+  // FIRST: the first signs, all verify (rotation: prepend the new secret, drop the old one once its cursors have expired).
+  // Each secret needs 32+ characters. Required in production; in development and test an unset value generates a random
+  // per-process secret (cursors then stop working when the API restarts, which only restarts a "Load more" walk).
+  CURSOR_SIGNING_SECRET: z.string().optional(),
   AUTH_THROTTLE_LOGIN_FREE_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
   AUTH_THROTTLE_LOGIN_BASE_DELAY_SECONDS: z.coerce.number().int().min(1).max(3600).default(10),
   AUTH_THROTTLE_LOGIN_CAP_SECONDS: z.coerce.number().int().min(1).max(86400).default(900),
@@ -153,6 +159,17 @@ function crossChecks(e, allowedOrigins) {
         problems.push({ variable: "SECRET_MASTER_KEY", message: error.message });
       }
     }
+  }
+  if (production && !e.CURSOR_SIGNING_SECRET?.trim())
+    problems.push({ variable: "CURSOR_SIGNING_SECRET", message: "required in production" });
+  if (e.CURSOR_SIGNING_SECRET !== undefined && e.CURSOR_SIGNING_SECRET.trim() !== "") {
+    const secrets = e.CURSOR_SIGNING_SECRET.split(",").map((value) => value.trim());
+    if (secrets.length > 4 || secrets.some((value) => value.length < 32 || value.length > 256))
+      problems.push({
+        variable: "CURSOR_SIGNING_SECRET",
+        message:
+          "must be 1 to 4 comma-separated secrets (newest first) of 32 to 256 characters each",
+      });
   }
   if (e.PIPELINE_TIMEOUT_DEFAULT_SECONDS > e.PIPELINE_TIMEOUT_MAX_SECONDS)
     problems.push({
@@ -302,6 +319,15 @@ export function loadConfig(env = process.env) {
         pipelinesMaxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY,
       }),
     }),
+    // Secrets: never log or return. Unset outside production = random per-process secret (see the schema comment).
+    cursor: Object.freeze({
+      signingSecrets: Object.freeze(
+        e.CURSOR_SIGNING_SECRET?.trim()
+          ? e.CURSOR_SIGNING_SECRET.split(",").map((value) => value.trim())
+          : [randomBytes(32).toString("hex")],
+      ),
+      signingSecretConfigured: Boolean(e.CURSOR_SIGNING_SECRET?.trim()),
+    }),
     tenants: Object.freeze({
       deactivationRetentionSeconds: e.TENANT_DEACTIVATION_RETENTION_SECONDS,
     }),
@@ -362,6 +388,7 @@ export function describeConfig(config) {
     corsOrigins: config.auth.allowedOrigins.length,
     mockAuthEnabled: config.auth.mock.enabled,
     secretsEnabled: config.secrets.enabled,
+    cursorSigning: config.cursor.signingSecretConfigured ? "configured" : "ephemeral",
     githubEnabled: config.github.enabled,
   };
 }

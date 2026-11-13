@@ -2,7 +2,16 @@ export const MODULE_NAME = "platform-tenants";
 export const API_PREFIX = "/api/v1/platform";
 export const OPENAPI_TAG = "Platform tenants";
 export const SORTABLE_FIELDS = Object.freeze(["name", "slug", "status", "createdAt"]);
+/** In the DECLARATION order of the Postgres enum `tenant_status`, which is how the database sorts the column. */
 export const TENANT_STATUSES = Object.freeze(["active", "trial", "suspended", "deactivated"]);
+/** Sort fields of the tenant list as keyset terms (`id` ascending breaks ties). */
+export const TENANT_KEY_SPECS = Object.freeze({
+  name: { type: "string" },
+  slug: { type: "string" },
+  status: { type: "enum", values: TENANT_STATUSES },
+  createdAt: { type: "date" },
+});
+export const TENANT_TIE = "asc";
 
 /**
  * Tenant lifecycle (docs/design/ROOT_CONSOLE_DESIGN.md §3.2). Suspend and deactivate need the tenant name typed as

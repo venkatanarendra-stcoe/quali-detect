@@ -1,4 +1,5 @@
-import { toPrismaOrderBy, toPrismaPaging } from "../../../lib/query.js";
+import { findKeysetPage, keyTerms } from "../../../lib/keyset.js";
+import { REPOSITORY_KEY_SPECS, REPOSITORY_TIE } from "../constants/index.js";
 
 /**
  * Data access for repositories. EVERY query carries the tenantId (and workspace ids where listing); a repository is never
@@ -19,6 +20,9 @@ export function createRepositoryRepository({ db }) {
       sort,
       page,
       pageSize,
+      limit,
+      terms,
+      after,
     }) {
       const healthWhere = {
         healthy: { status: "active", consecutiveSyncFailures: 0 },
@@ -43,15 +47,14 @@ export function createRepositoryRepository({ db }) {
             }
           : {}),
       };
-      const [items, totalItems] = await Promise.all([
-        db.repository.findMany({
-          where,
-          orderBy: toPrismaOrderBy(sort),
-          ...toPrismaPaging({ page, pageSize }),
-        }),
-        db.repository.count({ where }),
-      ]);
-      return { items, totalItems };
+      return findKeysetPage(db.repository, {
+        where,
+        terms: terms ?? keyTerms(sort, REPOSITORY_KEY_SPECS, REPOSITORY_TIE),
+        after: after ?? null,
+        page,
+        pageSize,
+        limit,
+      });
     },
     findById: ({ tenantId, id }, client = db) =>
       client.repository.findFirst({ where: { tenantId, id } }),

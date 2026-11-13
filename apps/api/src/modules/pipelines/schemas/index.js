@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { createPaginatedSchema, createSuccessSchema } from "@qmentisai/contracts";
+import {
+  createCursorPaginatedSchema,
+  createPaginatedSchema,
+  createSuccessSchema,
+} from "@qmentisai/contracts";
 import {
   PIPELINE_EFFECTIVE_STATES,
   PIPELINE_TRIGGER_TYPES,
@@ -41,6 +45,7 @@ const listFilters = {
   includeDeleted: boolFlag.default("false"),
 };
 const listBase = {
+  cursor: true,
   sortableFields: SORTABLE_FIELDS,
   defaultSort: [{ field: "name", direction: "asc" }],
 };
@@ -251,7 +256,7 @@ function buildResponses(configSchema) {
   });
   return Object.freeze({
     pipeline: createSuccessSchema(pipeline),
-    pipelineList: createPaginatedSchema(pipeline),
+    pipelineList: createCursorPaginatedSchema(pipeline),
     versionList: createPaginatedSchema(versionSummary),
     version: createSuccessSchema(versionSummary.extend({ config: configSchema })),
     published: createSuccessSchema(versionSummary.extend({ config: configSchema })),

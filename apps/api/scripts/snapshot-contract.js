@@ -221,6 +221,7 @@ for (const [openapiPath, item] of Object.entries(openapi.paths)) {
     // produce for this route. An Express implementation must reproduce these through its middleware order.
     const transport = new Set(["INTERNAL_ERROR"]);
     if (hasInput) transport.add("VALIDATION_FAILED");
+    if (op.parameters?.some((p) => p.name === "cursor")) transport.add("INVALID_CURSOR");
     if (audience === "user" || audience === "tenant")
       ["UNAUTHENTICATED", "TENANT_SUSPENDED"].forEach((c) => transport.add(c));
     if (audience === "tenant") {

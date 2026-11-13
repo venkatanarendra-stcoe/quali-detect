@@ -7,6 +7,8 @@
 export const ERROR_CODES = Object.freeze({
   BAD_REQUEST: "BAD_REQUEST",
   VALIDATION_FAILED: "VALIDATION_FAILED",
+  // A pagination cursor that is malformed, tampered with or minted for another endpoint, tenant, sort or filter set.
+  INVALID_CURSOR: "INVALID_CURSOR",
   UNAUTHENTICATED: "UNAUTHENTICATED",
   FORBIDDEN: "FORBIDDEN",
   RESOURCE_NOT_FOUND: "RESOURCE_NOT_FOUND",

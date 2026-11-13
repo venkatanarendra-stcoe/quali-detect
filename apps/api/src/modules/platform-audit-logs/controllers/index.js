@@ -2,7 +2,10 @@
 export function createPlatformAuditLogController({ service }) {
   return {
     list: async (request, reply) => {
-      const { items, pagination } = await service.list(request.query);
+      const { items, pagination } = await service.list(
+        { platformUserId: request.principal.platform.platformUser.id },
+        request.query,
+      );
       return reply.paginated(items, pagination);
     },
   };

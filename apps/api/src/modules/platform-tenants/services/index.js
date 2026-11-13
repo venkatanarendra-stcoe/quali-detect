@@ -7,7 +7,8 @@ import {
   ValidationError,
 } from "../../../errors/app-error.js";
 import { isUniqueViolation, toPage } from "../../../lib/http.js";
-import { LIFECYCLE } from "../constants/index.js";
+import { cursorContext } from "../../../lib/keyset.js";
+import { LIFECYCLE, TENANT_KEY_SPECS, TENANT_TIE } from "../constants/index.js";
 import { toLifecycleEvent, toPlanSummary, toTenantListItem } from "../mappers/index.js";
 
 /** End of the restore window of a deactivated tenant, or null. A missing deactivation time fails closed (terminal). */
@@ -100,13 +101,26 @@ export function createPlatformTenantService({
 
   return Object.freeze({
     async list(actor, query) {
-      const page = await repository.list({ ...query, now: clock() });
+      const cursor = cursorContext({
+        kind: "platform-tenants",
+        scope: `platform:${actor.platformUserId}`,
+        query,
+        specs: TENANT_KEY_SPECS,
+        tie: TENANT_TIE,
+      });
+      const page = await repository.list({
+        ...query,
+        terms: cursor.terms,
+        after: cursor.after,
+        now: clock(),
+      });
       return toPage(
         {
           items: page.items.map(({ tenant, ...aggregates }) =>
             toTenantListItem(tenant, aggregates),
           ),
           totalItems: page.totalItems,
+          ...cursor.next(page),
         },
         query,
       );

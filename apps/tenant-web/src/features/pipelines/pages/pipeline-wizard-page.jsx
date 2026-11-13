@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AppPageLayout, WizardLayout } from "@qmentisai/ui";
-import { canonicalJson, checkEnableable } from "@qmentisai/shared";
+import { DEFAULT_PIPELINE_LIMITS, canonicalJson, checkEnableable } from "@qmentisai/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -66,7 +66,10 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
   const create = useCreatePipeline();
   const publish = usePublishConfig();
   const update = useUpdatePipeline();
-  const limits = options.limits;
+  const limits = useMemo(
+    () => ({ ...DEFAULT_PIPELINE_LIMITS, ...options.limits }),
+    [options.limits],
+  );
   const initialConfig = useMemo(
     () => snapshot.config ?? newConfig(limits),
     [snapshot.config, limits],

@@ -30,6 +30,7 @@ import {
   TimeAgo,
   absoluteTime,
 } from "../components/pipeline-bits.jsx";
+import { PipelineSummary } from "../components/pipeline-summary.jsx";
 import { RunDialog } from "../components/run-dialog.jsx";
 import { TriggersTab } from "../components/triggers-tab.jsx";
 import { EFFECTIVE_STATES } from "../constants/index.js";
@@ -243,6 +244,7 @@ function Detail({ pipeline }) {
           <TabsTrigger value="triggers">Triggers</TabsTrigger>
         </TabsList>
         <ScrollTabsContent value="overview">
+          <PipelineSummary pipeline={pipeline} />
           <Overview pipeline={pipeline} />
         </ScrollTabsContent>
         <ScrollTabsContent value="executions">

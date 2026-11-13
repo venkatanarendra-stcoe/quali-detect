@@ -1,4 +1,8 @@
-import { PIPELINE_SCAN_TYPES, PIPELINE_SEVERITIES } from "@qmentisai/shared";
+import {
+  DEFAULT_PIPELINE_LIMITS,
+  PIPELINE_SCAN_TYPES,
+  PIPELINE_SEVERITIES,
+} from "@qmentisai/shared";
 import { ShieldCheck } from "lucide-react";
 import { Controller } from "react-hook-form";
 import { Badge } from "@/components/ui/badge.jsx";
@@ -250,7 +254,9 @@ const SEVERITY_FAIL = ["none", "low", "medium", "high", "critical"];
 
 /** Step 4: scan mode, timeouts, concurrency, cancellation and the fail policy. */
 export function ControlsStep({ config, edit, errors, options }) {
-  const { limits } = options;
+  // The API options carry only the configurable limits (no `*MinSeconds`); the shared defaults fill the rest, otherwise
+  // `min` becomes NaN ("Received NaN for the `min` attribute").
+  const limits = { ...DEFAULT_PIPELINE_LIMITS, ...options.limits };
   const ex = config.execution;
   const minutes = (seconds) => String(minutesOf(seconds));
   return (

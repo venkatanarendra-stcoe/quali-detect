@@ -1,9 +1,8 @@
 import { Link, useNavigate } from "react-router";
 import { QueryTable } from "@/components/common/query-table.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
-import { usePipelineConfigs } from "../hooks/use-pipelines.js";
 import { PipelineEnabledSwitch, PipelineRowActions } from "./pipeline-actions.jsx";
-import { EffectiveStateChip, LastRequest, ScanChips, TriggerChips } from "./pipeline-bits.jsx";
+import { EffectiveStateChip, LastRequest } from "./pipeline-bits.jsx";
 
 const LOADED = Object.freeze({ isPending: false, isError: false, error: null, refetch: () => {} });
 
@@ -31,13 +30,12 @@ export function PipelineTable({
 }) {
   const navigate = useNavigate();
   const rows = items ?? query.data?.items ?? [];
-  const configs = usePipelineConfigs(rows.filter((p) => !p.deletedAt));
   const sortable = (id) =>
     onSort ? { id, sortDescFirst: false, accessorFn: () => null } : { id, enableSorting: false };
   const columns = [
     {
       ...sortable("name"),
-      header: "Pipeline",
+      header: "Name",
       meta: { className: "max-w-64" },
       cell: ({ row: { original: p } }) => (
         <>
@@ -74,35 +72,21 @@ export function PipelineTable({
         ]
       : []),
     {
-      id: "triggers",
-      header: "Triggers",
-      enableSorting: false,
-      cell: ({ row: { original: p } }) => <TriggerChips pipeline={p} config={configs.get(p.id)} />,
-    },
-    {
-      id: "scans",
-      header: "Scans",
-      enableSorting: false,
-      cell: ({ row: { original: p } }) => (
-        <ScanChips config={p.deletedAt ? null : configs.get(p.id)} />
-      ),
-    },
-    {
       ...sortable("lastRequestedAt"),
-      header: "Last request",
+      header: "Last run",
       cell: ({ row: { original: p } }) => <LastRequest lastRequest={p.lastRequest} />,
     },
     {
-      id: "state",
-      header: "State",
-      enableSorting: false,
-      cell: ({ row: { original: p } }) => <EffectiveStateChip state={p.effectiveState} />,
-    },
-    {
+      // The switch is the stored `enabled` flag; the chip is the derived effective state (its tooltip gives the reason).
       id: "enabled",
       header: "Enabled",
       enableSorting: false,
-      cell: ({ row: { original: p } }) => <PipelineEnabledSwitch pipeline={p} />,
+      cell: ({ row: { original: p } }) => (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <PipelineEnabledSwitch pipeline={p} />
+          {p.deletedAt ? null : <EffectiveStateChip state={p.effectiveState} />}
+        </span>
+      ),
     },
     {
       id: "actions",

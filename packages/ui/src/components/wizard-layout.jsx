@@ -154,10 +154,11 @@ export function Stepper({
  *   steps: Array<string | { id: string, label: string }>, current: string | number,
  *   onStepChange?: (id: string) => void, stepStatus?: Record<string, "complete" | "error">,
  *   stepDisabled?: Record<string, boolean>, stepperLabel?: string, summary?: import("react").ReactNode,
- *   summaryTitle?: string, actions: import("react").ReactNode, offset?: string,
+ *   summaryTitle?: string, actions: import("react").ReactNode, offset?: string, fill?: boolean,
  *   children: import("react").ReactNode }} props
  *   `actions` is the content of the bar: put the cancel control first and the Back/Next/Create group last.
- *   `offset` is a CSS length (default 6rem = 3rem top bar + 3rem page padding).
+ *   `offset` is a CSS length (default 6rem = 3rem top bar + 3rem page padding). `fill` (default false) makes the
+ *   wizard fill its parent instead of the viewport, for use inside `AppPageLayout scroll={false}`.
  */
 export function WizardLayout({
   title,
@@ -173,6 +174,7 @@ export function WizardLayout({
   summaryTitle = "Summary",
   actions,
   offset = "6rem",
+  fill = false,
   children,
 }) {
   const [open, setOpen] = useState(false);
@@ -180,7 +182,10 @@ export function WizardLayout({
   return (
     <div
       data-wizard-layout=""
-      className="flex h-[calc(100dvh-var(--wizard-offset))] min-h-[32rem] flex-col"
+      className={join(
+        "flex flex-col",
+        fill ? "h-full min-h-0" : "h-[calc(100dvh-var(--wizard-offset))] min-h-[32rem]",
+      )}
       style={{ "--wizard-offset": offset }}
     >
       <header data-wizard="header" className="mb-4 shrink-0">

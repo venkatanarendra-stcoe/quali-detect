@@ -1,0 +1,31 @@
+/*
+ * Opt-in scroll styling for the Tenant Application (UX_GUIDELINES "Scrolling"). NOT part of preset.css, so the
+ * Root Console is unaffected: only apps that import this file AND elements carrying `.qm-scroll` get it.
+ * A thin scrollbar that is invisible while idle and fades in on hover, keyboard focus inside, or while scrolling
+ * (`data-scrolling`, set by the `useScrollActivity` hook). Smooth scrolling is off under prefers-reduced-motion.
+ */
+@property --qm-scroll-thumb {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+.qm-scroll {
+  --qm-scroll-thumb: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--qm-scroll-thumb) transparent;
+  scroll-behavior: smooth;
+  transition: --qm-scroll-thumb 300ms ease;
+}
+.qm-scroll:hover,
+.qm-scroll:focus-within,
+.qm-scroll[data-scrolling] {
+  --qm-scroll-thumb: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qm-scroll {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}

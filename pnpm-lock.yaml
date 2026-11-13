@@ -206,6 +206,9 @@ catalogs:
     '@tanstack/react-query':
       specifier: 5.107.1
       version: 5.107.1
+    '@tanstack/react-table':
+      specifier: 8.21.3
+      version: 8.21.3
     '@vitejs/plugin-react':
       specifier: 5.2.0
       version: 5.2.0
@@ -693,6 +696,10 @@ importers:
         version: 9.39.5(jiti@2.7.0)(supports-color@7.2.0)
 
   packages/ui:
+    dependencies:
+      '@tanstack/react-table':
+        specifier: 'catalog:'
+        version: 8.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
     devDependencies:
       '@qmentisai/config':
         specifier: workspace:*
@@ -703,6 +710,9 @@ importers:
       react:
         specifier: 'catalog:'
         version: 19.3.1
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.1(react@19.3.1)
 
 packages:
 
@@ -1749,6 +1759,17 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@tanstack/react-table@8.21.3':
+    resolution: {integrity: sha512-5nNMTSETP4ykGegmVkhjcS8tTLW6Vl4axfEGQN3v0zdHYbK4UfoqfPChclTrJ4EoK9QynqAu9oUf8VEmrpZ5Ww==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      react: '>=16.8'
+      react-dom: '>=16.8'
+
+  '@tanstack/table-core@8.21.3':
+    resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
+    engines: {node: '>=12'}
 
   '@turbo/darwin-64@2.11.10':
     resolution: {integrity: sha512-By4idRap5+nLnMuRzLB4qkOPRlvNdyY1ne4VJYDyUoUB11H94k7uif9mbe3JT8JSNXs1D68uMcBj6hJ/jMQRvA==}
@@ -4211,6 +4232,14 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.107.1
       react: 19.3.1
+
+  '@tanstack/react-table@8.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+    dependencies:
+      '@tanstack/table-core': 8.21.3
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+
+  '@tanstack/table-core@8.21.3': {}
 
   '@turbo/darwin-64@2.11.10':
     optional: true

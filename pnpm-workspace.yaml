@@ -38,6 +38,8 @@ catalog:
   "@tailwindcss/vite": 4.3.5
   react-router: 8.5.1
   "@tanstack/react-query": 5.107.1
+  # Headless table behind packages/ui DataTable (docs/technical/TECH_STACK.md lists TanStack Table); MIT. v8 line pinned deliberately.
+  "@tanstack/react-table": 8.21.3
   zustand: 5.1.0
   lucide-react: 1.65.0
   sonner: 2.0.8

@@ -11,17 +11,23 @@
     ".": "./src/index.js",
     "./tokens.css": "./src/tokens.css",
     "./preset.css": "./src/preset.css",
-    "./root-theme.css": "./src/root-theme.css"
+    "./root-theme.css": "./src/root-theme.css",
+    "./scroll.css": "./src/scroll.css"
   },
   "scripts": {
     "lint": "eslint ."
   },
+  "dependencies": {
+    "@tanstack/react-table": "catalog:"
+  },
   "peerDependencies": {
-    "react": "catalog:"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@qmentisai/config": "workspace:*",
     "eslint": "catalog:",
-    "react": "catalog:"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   }
 }

@@ -195,3 +195,15 @@ Multi-step flows (T-23, T-26, R-05, and the horizontal `Stepper` of Create works
 - Below 1280 px the summary becomes a disclosure above the form (button with `aria-expanded` and `aria-controls`); below 1024 px the stepper is a horizontal indicator that scrolls sideways and keeps the current step in view.
 - Stepper: one list; the current step has `aria-current="step"`; completed and error steps carry an icon AND text ("(completed)", "(needs attention)"), never colour alone; steps are buttons when navigation is allowed. Tab order: summary disclosure (when shown), stepper, form, action bar.
 - Validate the whole draft with the schemas the API uses; keep the final action disabled until it is valid and list problems with a "Fix in <step>" link. One empty-value glyph: the em dash.
+
+---
+
+## 14. Shared form, layout and table primitives (`@qmentisai/ui`)
+
+Tenant Application primitives; the Root Console is unaffected unless it imports them. Colours come from existing tokens only (focus ring `--ring`; no brand fill on these controls).
+
+- **`Combobox` / `MultiSelect`** replace native `<select>`. ARIA 1.2 combobox with `aria-activedescendant`; the listbox is rendered in a portal (position fixed, flips above when there is no room) so cards and `overflow-hidden` ancestors never clip it. Keys: arrows, Home/End, Enter, Escape (closes without closing an enclosing dialog), Tab, type-ahead (non-searchable), Backspace removes the last chip. Static `options`, local search, or async `loadOptions(query, { signal })` (debounced, loading / empty / error with Retry). Forwards `ref`; pass `invalid`, `aria-describedby`, `id`, `name`, `onBlur` from React Hook Form (`Controller` for the value).
+- **`ComboboxAddRow`** is the member/role picker: optional type select, searchable subject, optional role select, Add, and a removable result list (duplicates ignored, announced via a live region).
+- **`AppPageLayout`** fixes the page header (breadcrumb slot, title, description, actions slot) and fills the viewport below the top bar (`offset`, default 6 rem, same as `WizardLayout`): the page never scrolls, only the content region does. Use `scroll={false}` to host a `DataTable height="fill"` or `<WizardLayout fill>`.
+- **`DataTable`** (TanStack Table v8): sticky column header, body scrolls inside the table (`height="fill"` or `maxHeight`), sorting header buttons with `aria-sort`, `onRowClick` rows focusable and activated with Enter/Space, slots for loading (8 skeleton rows), empty, error, unauthorized, and a "Load more" footer (`hasMore`/`onLoadMore`).
+- **Scrolling:** `@import "@qmentisai/ui/scroll.css"` (tenant-web entry only) enables `.qm-scroll`: thin scrollbar that is invisible when idle and fades in on hover, focus inside or scroll, plus smooth scrolling (disabled under `prefers-reduced-motion`). `AppPageLayout` and `DataTable` apply it; add the class to other tenant scroll containers.

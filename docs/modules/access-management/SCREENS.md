@@ -9,11 +9,11 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 | T-08 | Create workspace | `/workspaces/new` | `workspace.create` | `POST /workspaces`, then `POST /workspaces/{id}/role-assignments` per grant |
 | T-40 | Members & groups | `/workspaces/{id}/members` | `workspace.view` | `GET …/members`, `GET …/role-assignments`, `POST/DELETE …` |
 | T-44 | Workspace settings | `/workspaces/{id}/settings` | `workspace.update` | `GET/PATCH /workspaces/{id}`, `POST …/archive`, `POST …/restore` |
-| T-19 | Audit logs | `/audit-logs` | `audit_log.view_all` | `GET /audit-logs` (actor, action, from, to, result, sort, page in the URL) |
-| R-04 | Tenants list | `/tenants` | `platform.tenant.view` | `GET /platform/tenants` |
+| T-19 | Audit logs | `/audit-logs` | `audit_log.view_all` | `GET /audit-logs` (actor, action, from, to, result, sort in the URL; "Load more" with `cursor`/`limit`, no total or page count shown, `INVALID_CURSOR` restarts from the first page with a toast) |
+| R-04 | Tenants list | `/tenants` | `platform.tenant.view` | `GET /platform/tenants` (`cursor`/`limit` available for "Load more"; offset paging unchanged) |
 | R-05 | Provision tenant | `/tenants/new` | `platform.tenant.create` | `POST /platform/tenants`, `GET /platform/plans` |
 | R-06 | Tenant detail | `/tenants/{id}` | `platform.tenant.view` | `GET /platform/tenants/{id}`, `POST …/suspend|reactivate|deactivate` |
-| R-28 | Platform audit logs | `/audit-logs` | `platform.audit_log.view` | `GET /platform/audit-logs` (actor, action, tenantId, from, to, result, sort, page in the URL) |
+| R-28 | Platform audit logs | `/audit-logs` | `platform.audit_log.view` | `GET /platform/audit-logs` (actor, action, tenantId, from, to, result, sort, page in the URL; `cursor`/`limit` available for "Load more", offset paging unchanged) |
 
 ## Deviations from the design documents (what is not built, and why)
 - **Workspaces list columns:** Repositories, Pipelines, Open findings and Last activity need modules that do not exist yet. Shown: Name, Business unit, Owner, Members, Status, Created.

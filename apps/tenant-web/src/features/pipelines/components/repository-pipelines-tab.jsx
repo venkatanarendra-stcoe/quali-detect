@@ -46,7 +46,7 @@ export function AddPipelineButton({ repository, variant = "default" }) {
 
 /** Pipelines tab of T-24: compact table of the repository's pipelines. */
 export function RepositoryPipelinesTab({ repository }) {
-  const query = useRepositoryPipelines(repository.id, { pageSize: 50, sort: "name:asc" });
+  const query = useRepositoryPipelines(repository.id, { limit: 20, sort: "name:asc" });
   const can = useCan();
   const manage = can("pipeline.manage", { type: "workspace", workspaceId: repository.workspaceId });
   if (query.isPending) return <LoadingState rows={4} label="Loading pipelines" />;
@@ -65,6 +65,9 @@ export function RepositoryPipelinesTab({ repository }) {
       caption="Pipelines of this repository"
       items={query.data.items}
       showRepository={false}
+      hasMore={query.hasMore}
+      loadingMore={query.loadingMore}
+      onLoadMore={query.loadMore}
     />
   );
 }

@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
+import { useCursorList } from "@/hooks/use-cursor-list.js";
 import { repositoryKeys } from "@/features/repositories/hooks/use-repositories.js";
 import { pipelinesService } from "../services/pipelines-service.js";
 
@@ -36,19 +37,22 @@ export const pipelineKeys = {
   decisions: (tenantId, id, params) => ["tenant", tenantId, "pipelines", "decisions", id, params],
 };
 
+/** "Load more" list of the Pipelines page; `params` are the filters, sort and `limit` (never a cursor or page). */
 export function usePipelineList(workspaceId, params) {
   const tenantId = useTenantId();
-  return useQuery({
+  return useCursorList({
     queryKey: pipelineKeys.list(tenantId, workspaceId, params),
-    queryFn: ({ signal }) => pipelinesService.list({ workspaceId, ...params }, { signal }),
-    placeholderData: keepPreviousData,
+    fetchPage: (cursor, signal) =>
+      pipelinesService.list({ workspaceId, ...params, cursor }, { signal }),
   });
 }
+/** "Load more" list of a repository's pipelines (T-24 tab). */
 export function useRepositoryPipelines(repositoryId, params, { enabled = true } = {}) {
   const tenantId = useTenantId();
-  return useQuery({
+  return useCursorList({
     queryKey: pipelineKeys.forRepository(tenantId, repositoryId, params),
-    queryFn: ({ signal }) => pipelinesService.listForRepository(repositoryId, params, { signal }),
+    fetchPage: (cursor, signal) =>
+      pipelinesService.listForRepository(repositoryId, { ...params, cursor }, { signal }),
     enabled,
   });
 }

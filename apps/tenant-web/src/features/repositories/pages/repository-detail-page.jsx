@@ -273,11 +273,11 @@ function Detail({ repository }) {
                           className="rounded-sm underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => setTab("pipelines")}
                         >
-                          {repository.pipelineCount}
+                          View pipelines
                         </button>
                       ) : (
                         <>
-                          0
+                          None
                           {can("pipeline.manage", {
                             type: "workspace",
                             workspaceId: repository.workspaceId,

@@ -15,7 +15,7 @@ import { PipelineTable } from "../components/pipeline-table.jsx";
 import { TRIGGER_LABELS } from "../constants/index.js";
 import { usePipelineList } from "../hooks/use-pipelines.js";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 20; // rows per "Load more" request
 const STATES = Object.freeze({
   enabled: { effectiveState: "running_normally" },
   disabled: { effectiveState: "disabled" },
@@ -26,7 +26,7 @@ const STATES = Object.freeze({
 });
 
 /**
- * T-25 Pipelines (workspace). Search, repository, trigger and state filters, "Show deleted", sort and page live in the URL.
+ * T-25 Pipelines (workspace). Search, repository, trigger and state filters, "Show deleted", and sort live in the URL; rows load with "Load more" (cursor), no totals are shown.
  * Columns that depend on later modules (duration, success rate, open findings) stay hidden (SCREENS §4, C6).
  */
 export function PipelinesPage() {
@@ -39,7 +39,6 @@ export function PipelinesPage() {
   const state = params.get("state") ?? "";
   const deleted = params.get("deleted") === "1";
   const sort = params.get("sort") ?? "name:asc";
-  const page = Math.max(1, Number(params.get("page")) || 1);
   const [search, setSearch] = useState(qParam);
   const debounced = useDebouncedValue(search);
   const filtered = Boolean(qParam || repository || trigger || state || deleted);
@@ -55,7 +54,7 @@ export function PipelinesPage() {
       { replace: true },
     );
   useEffect(() => {
-    if (debounced.trim() !== qParam) update({ q: debounced.trim(), page: "" });
+    if (debounced.trim() !== qParam) update({ q: debounced.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the debounced text drives the URL
   }, [debounced]);
 
@@ -67,8 +66,7 @@ export function PipelinesPage() {
     ...(STATES[state] ?? {}),
     includeDeleted: deleted ? "true" : undefined,
     sort,
-    page,
-    pageSize: PAGE_SIZE,
+    limit: PAGE_SIZE,
   });
   const clear = () => {
     setSearch("");
@@ -108,7 +106,7 @@ export function PipelinesPage() {
           <Select
             id="pl-repo"
             value={repository}
-            onChange={(e) => update({ repository: e.target.value, page: "" })}
+            onChange={(e) => update({ repository: e.target.value })}
           >
             <option value="">All repositories</option>
             {(repositories.data?.items ?? []).map((r) => (
@@ -125,7 +123,7 @@ export function PipelinesPage() {
           <Select
             id="pl-trigger"
             value={trigger}
-            onChange={(e) => update({ trigger: e.target.value, page: "" })}
+            onChange={(e) => update({ trigger: e.target.value })}
           >
             <option value="">All triggers</option>
             {Object.entries(TRIGGER_LABELS).map(([value, label]) => (
@@ -139,11 +137,7 @@ export function PipelinesPage() {
           <label htmlFor="pl-state" className="sr-only">
             State
           </label>
-          <Select
-            id="pl-state"
-            value={state}
-            onChange={(e) => update({ state: e.target.value, page: "" })}
-          >
+          <Select id="pl-state" value={state} onChange={(e) => update({ state: e.target.value })}>
             <option value="">All states</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
@@ -157,7 +151,7 @@ export function PipelinesPage() {
           <input
             type="checkbox"
             checked={deleted}
-            onChange={(e) => update({ deleted: e.target.checked ? "1" : "", page: "" })}
+            onChange={(e) => update({ deleted: e.target.checked ? "1" : "" })}
           />
           Show deleted
         </label>
@@ -166,20 +160,15 @@ export function PipelinesPage() {
             Clear filters
           </Button>
         ) : null}
-        {list.data?.pagination ? (
-          <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {list.data.pagination.totalItems}{" "}
-            {list.data.pagination.totalItems === 1 ? "pipeline" : "pipelines"}
-          </p>
-        ) : null}
       </div>
       <PipelineTable
         caption="Pipelines"
         query={list}
         sort={sort}
-        onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
-        pagination={list.data?.pagination}
-        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onSort={(s) => update({ sort: s === "name:asc" ? "" : s })}
+        hasMore={list.hasMore}
+        loadingMore={list.loadingMore}
+        onLoadMore={list.loadMore}
         emptyState={
           filtered ? (
             <EmptyState

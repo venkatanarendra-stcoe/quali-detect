@@ -12,7 +12,7 @@ import { useUserSearch } from "@/features/directory/hooks/use-directory.js";
 import { TENANT_AUDIT_ACTIONS } from "../constants/index.js";
 import { useAuditLogs } from "../hooks/use-audit-logs.js";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 25; // rows per "Load more" request
 const when = (value) =>
   new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const startOfDay = (day) => new Date(`${day}T00:00:00`).toISOString();
@@ -112,7 +112,7 @@ const COLUMNS = [
 
 /**
  * T-19 Audit logs: the organization's audit log (needs `audit_log.view_all`; the API scopes it to the session's tenant).
- * Filters (actor, action, date range, result), sorting and the page live in the URL.
+ * Filters (actor, action, date range, result), and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown.
  */
 export function AuditLogsPage() {
   const can = useCan();
@@ -123,7 +123,6 @@ export function AuditLogsPage() {
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const sort = params.get("sort") ?? "createdAt:desc";
-  const page = Math.max(1, Number(params.get("page")) || 1);
   const filtered = Boolean(action || result || actor || from || to);
 
   const update = (next) =>
@@ -144,8 +143,7 @@ export function AuditLogsPage() {
     from: from ? startOfDay(from) : undefined,
     to: to ? endOfDay(to) : undefined,
     sort,
-    page,
-    pageSize: PAGE_SIZE,
+    limit: PAGE_SIZE,
   });
   const clear = () => setParams({}, { replace: true });
 
@@ -163,7 +161,7 @@ export function AuditLogsPage() {
           <Select
             id="audit-action"
             value={action}
-            onChange={(e) => update({ action: e.target.value, page: "" })}
+            onChange={(e) => update({ action: e.target.value })}
           >
             <option value="">All actions</option>
             {TENANT_AUDIT_ACTIONS.map((a) => (
@@ -181,7 +179,7 @@ export function AuditLogsPage() {
             <Select
               id="audit-actor"
               value={actor}
-              onChange={(e) => update({ actor: e.target.value, page: "" })}
+              onChange={(e) => update({ actor: e.target.value })}
             >
               <option value="">All actors</option>
               {(users.data ?? []).map((u) => (
@@ -199,7 +197,7 @@ export function AuditLogsPage() {
           <Select
             id="audit-result"
             value={result}
-            onChange={(e) => update({ result: e.target.value, page: "" })}
+            onChange={(e) => update({ result: e.target.value })}
           >
             <option value="">Any result</option>
             <option value="success">Success</option>
@@ -215,7 +213,7 @@ export function AuditLogsPage() {
             type="date"
             value={from}
             max={to || undefined}
-            onChange={(e) => update({ from: e.target.value, page: "" })}
+            onChange={(e) => update({ from: e.target.value })}
           />
         </div>
         <div>
@@ -227,19 +225,13 @@ export function AuditLogsPage() {
             type="date"
             value={to}
             min={from || undefined}
-            onChange={(e) => update({ to: e.target.value, page: "" })}
+            onChange={(e) => update({ to: e.target.value })}
           />
         </div>
         {filtered ? (
           <Button variant="ghost" onClick={clear}>
             Clear filters
           </Button>
-        ) : null}
-        {list.data?.pagination ? (
-          <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {list.data.pagination.totalItems}{" "}
-            {list.data.pagination.totalItems === 1 ? "entry" : "entries"}
-          </p>
         ) : null}
       </div>
       <QueryTable
@@ -248,9 +240,10 @@ export function AuditLogsPage() {
         columns={COLUMNS}
         getRowId={(entry) => entry.id}
         sort={sort}
-        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
-        pagination={list.data?.pagination}
-        onPage={(p) => update({ page: String(p) })}
+        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s })}
+        hasMore={list.hasMore}
+        loadingMore={list.loadingMore}
+        onLoadMore={list.loadMore}
         emptyState={
           filtered ? (
             <EmptyState

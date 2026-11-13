@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
+import { useCursorList } from "@/hooks/use-cursor-list.js";
 import { integrationKeys } from "@/features/integrations/hooks/use-integrations.js";
 import { repositoriesService } from "../services/repositories-service.js";
 
@@ -20,12 +21,21 @@ export const repositoryKeys = {
   pulls: (tenantId, id) => ["tenant", tenantId, "repositories", "pulls", id],
 };
 
+/** Offset list for pickers that need the whole (small) set at once, e.g. a repository filter. */
 export function useRepositoryList(params) {
   const tenantId = useTenantId();
   return useQuery({
     queryKey: repositoryKeys.list(tenantId, params),
     queryFn: ({ signal }) => repositoriesService.list(params, { signal }),
     placeholderData: keepPreviousData,
+  });
+}
+/** "Load more" list of the Repositories page; `params` are the filters, sort and `limit` (never a cursor or page). */
+export function useRepositoryCursorList(params) {
+  const tenantId = useTenantId();
+  return useCursorList({
+    queryKey: [...repositoryKeys.all(tenantId), "cursor", params],
+    fetchPage: (cursor, signal) => repositoriesService.list({ ...params, cursor }, { signal }),
   });
 }
 export function useRepository(repositoryId) {

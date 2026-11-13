@@ -13,7 +13,7 @@ const LOADED = Object.freeze({ isPending: false, isError: false, error: null, re
  * caller's permissions (hidden or disabled with a reason).
  * @param {{ items?: any[], query?: object, showRepository?: boolean, sort?: string, onSort?: (next: string) => void,
  *   caption: string, emptyState?: import("react").ReactNode, pagination?: object | null, onPage?: (page: number) => void,
- *   height?: "auto" | "fill", maxHeight?: string }} props
+ *   hasMore?: boolean, loadingMore?: boolean, onLoadMore?: () => void, height?: "auto" | "fill", maxHeight?: string }} props
  */
 export function PipelineTable({
   items,
@@ -25,6 +25,9 @@ export function PipelineTable({
   emptyState,
   pagination,
   onPage,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   height = "fill",
   maxHeight,
 }) {
@@ -107,6 +110,9 @@ export function PipelineTable({
       onSort={onSort}
       pagination={pagination}
       onPage={onPage}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
       emptyState={emptyState}
       height={height}
       maxHeight={maxHeight}

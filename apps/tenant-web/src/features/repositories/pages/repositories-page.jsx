@@ -13,16 +13,16 @@ import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { RepositoryRowActions } from "../components/repository-actions.jsx";
 import { RepositoryHealth } from "../components/repository-health.jsx";
-import { useRepositoryList } from "../hooks/use-repositories.js";
+import { useRepositoryCursorList } from "../hooks/use-repositories.js";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 20; // rows per "Load more" request
 const when = (value) =>
   value
     ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
     : "—";
 
 /**
- * T-22 Repositories (workspace). Filters, sort and page live in the URL. The list only holds repositories of this
+ * T-22 Repositories (workspace). Filters and sort live in the URL; rows load with "Load more" (cursor), no totals are shown. The list only holds repositories of this
  * workspace; a "Connect repository" action needs repository.connect there.
  */
 export function RepositoriesPage() {
@@ -34,7 +34,6 @@ export function RepositoriesPage() {
   const health = params.get("health") ?? "";
   const status = params.get("status") ?? "";
   const sort = params.get("sort") ?? "fullName:asc";
-  const page = Math.max(1, Number(params.get("page")) || 1);
   const [search, setSearch] = useState(qParam);
   const debounced = useDebouncedValue(search);
   const filtered = Boolean(qParam || health || status);
@@ -50,18 +49,17 @@ export function RepositoriesPage() {
       { replace: true },
     );
   useEffect(() => {
-    if (debounced.trim() !== qParam) update({ q: debounced.trim(), page: "" });
+    if (debounced.trim() !== qParam) update({ q: debounced.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the debounced text drives the URL
   }, [debounced]);
 
-  const list = useRepositoryList({
+  const list = useRepositoryCursorList({
     workspaceId,
     q: qParam || undefined,
     health: health || undefined,
     status: status || undefined,
     sort,
-    page,
-    pageSize: PAGE_SIZE,
+    limit: PAGE_SIZE,
   });
   const clear = () => {
     setSearch("");
@@ -166,7 +164,7 @@ export function RepositoriesPage() {
           <Select
             id="repo-health"
             value={health}
-            onChange={(e) => update({ health: e.target.value, page: "" })}
+            onChange={(e) => update({ health: e.target.value })}
           >
             <option value="">All health</option>
             <option value="healthy">Healthy</option>
@@ -182,7 +180,7 @@ export function RepositoriesPage() {
           <Select
             id="repo-status"
             value={status}
-            onChange={(e) => update({ status: e.target.value, page: "" })}
+            onChange={(e) => update({ status: e.target.value })}
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -195,12 +193,6 @@ export function RepositoriesPage() {
             Clear filters
           </Button>
         ) : null}
-        {list.data?.pagination ? (
-          <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {list.data.pagination.totalItems}{" "}
-            {list.data.pagination.totalItems === 1 ? "repository" : "repositories"}
-          </p>
-        ) : null}
       </div>
       <QueryTable
         caption="Repositories"
@@ -208,9 +200,10 @@ export function RepositoriesPage() {
         columns={columns}
         getRowId={(r) => r.id}
         sort={sort}
-        onSort={(s) => update({ sort: s === "fullName:asc" ? "" : s, page: "" })}
-        pagination={list.data?.pagination}
-        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onSort={(s) => update({ sort: s === "fullName:asc" ? "" : s })}
+        hasMore={list.hasMore}
+        loadingMore={list.loadingMore}
+        onLoadMore={list.loadMore}
         onRowClick={(r) => navigate(`/workspaces/${r.workspaceId}/repositories/${r.id}`)}
         rowLabel={(r) => `Open ${r.fullName}`}
         emptyState={

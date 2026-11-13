@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ErrorBoundary } from "@/components/states/error-boundary.jsx";
 import { Toaster } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
+import { AccentProvider } from "@/features/account/index.js";
 import { ME_KEY } from "@/features/auth/services/auth-service.js";
 import { endSessionInCache } from "@/features/auth/services/session-cache.js";
 import { isApiError, setUnauthenticatedHandler } from "@/lib/api/index.js";
@@ -79,10 +80,12 @@ export function Providers({ children }) {
   return (
     <ErrorBoundary fullPage>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          {children}
-          <Toaster theme={resolvedTheme} />
-        </TooltipProvider>
+        <AccentProvider>
+          <TooltipProvider>
+            {children}
+            <Toaster theme={resolvedTheme} />
+          </TooltipProvider>
+        </AccentProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

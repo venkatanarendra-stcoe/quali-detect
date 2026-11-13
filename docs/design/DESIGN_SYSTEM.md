@@ -6,6 +6,8 @@
 
 This document is the common design reference for Claude Code and other AI coding tools. Behavior and layout rules live in `UX_GUIDELINES.md`.
 
+> Revision note (2026-11-13, owner decision): the accent is **user-selectable from a fixed palette** (§2.5); **Electric Mint stays the default** and its values are unchanged. The "signal, not a theme" rule is unchanged: whatever accent is chosen appears only on primary action, active navigation and focus (and the other places the mint table in §1 allows), so every "mint" in §1, §2.1 and §6 reads "the accent (mint by default)". Severity, status and pipeline colours are fixed. Indigo is not reinstated.
+
 > Revision note: the earlier navy/indigo direction (`#3B5BDB`) is withdrawn. Nothing in this system uses blue-tinted neutrals or indigo.
 
 ---
@@ -101,6 +103,41 @@ Open item: success green sits near mint in hue. Differences that keep them apart
 | `--chart-grid` | `#272D33` | `#DDE4E3` | Gridlines |
 
 Severity charts use the severity tokens, not chart tokens. Distinguish series by position, labels, or pattern as well as color.
+
+---
+
+### 2.5 Selectable accent (user preference)
+
+**Decision (owner, 2026-11-13, Confirmed):** each user may choose the accent from a fixed palette (`ACCENT_KEYS` in `@qmentisai/shared`, stored by the `user-preferences` module): `mint` (default), `violet`, `blue`, `cyan`, `teal`, `emerald`, `amber`, `orange`, `rose`. No indigo, no black or white, no severity or status colour. The picker only changes which colour fills the three allowed spots (primary action, active navigation, focus ring); it is not a theme.
+
+**Implementation:** `packages/ui/src/accents.css`, driven by `data-accent="<key>"` on `<html>` (set by the tenant app's `AccentProvider`; the last value is cached in localStorage and applied pre-paint by `index.html`). Mint has no override (it is `tokens.css`). Every other key re-points `--primary`, `--primary-foreground`, `--primary-hover`, `--primary-text`, `--primary-tint`, `--ring`, `--chart-1` and the sidebar active pair (`--sidebar-active-foreground`, `--sidebar-active-bg`) in light and dark. Rules are scoped `:not([data-app="root"])`, so the Root Console (violet, fixed) ignores the attribute. `[data-accent-preview="<key>"]` applies the same values to a single element (picker swatches, live preview).
+
+**Constraints:** (1) severity, status, pipeline and neutral tokens are never overridden; (2) **amber, orange and rose sit near the warning, high-severity and destructive hues**, so they are used only for the three allowed spots and never for status, severity, success or error indication (severity and status keep their icon plus label, so they remain distinguishable even when the accent is warm); (3) violet in the dark theme is close to the Root Console violet by design of the palette (the apps stay separate by the PLATFORM tag and dark sidebar); (4) teal and cyan are close in hue to mint, differing mainly in hue (see below), so the picker always shows the label and a check mark.
+
+**Measured contrast** (WCAG relative luminance; script `accent/palette.mjs` in the session scratchpad; light surfaces canvas `#F5F7F7`, card `#FFFFFF`, elevated `#EDF1F1`; dark surfaces canvas `#080A0D`, card `#111418`, elevated `#171B20`, tint = accent over the surface). Targets: text on fill >= 4.5, accent text on card / elevated / tint >= 4.5, ring on canvas and card >= 3. Mint is exactly the values of §2.1.
+
+| Accent | Mode | `--primary` | `--primary-foreground` | `--primary-hover` | `--primary-text` | `--primary-tint` | Text on fill | Text on hover | Accent text on card / elevated / tint | Ring on canvas / card | Hue |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| mint | light | `#087f70` | `#ffffff` | `#06695d` | `#06705f` | `#e6f2f1` | 4.91 | 6.59 | 6.02 / 5.29 / 5.25 | 4.56 / 4.91 | 172° |
+| mint | dark | `#40e0c0` | `#04110e` | `#6bebd0` | `#40e0c0` | `#112625` | 11.58 | 13.21 | 11.12 / 10.41 / 9.52 | 11.93 / 11.12 | 168° |
+| violet | light | `#8550e2` | `#ffffff` | `#7335de` | `#7f47e1` | `#f3eefc` | 4.95 | 6.38 | 5.40 / 4.74 / 4.74 | 4.60 / 4.95 | 262° |
+| violet | dark | `#a676f9` | `#0e0915` | `#bf9dfb` | `#a676f9` | `#1e1a2c` | 6.16 | 8.83 | 5.79 / 5.42 / 5.31 | 6.21 / 5.79 | 262° |
+| blue | light | `#306be8` | `#ffffff` | `#1958e1` | `#1e5de6` | `#eaf0fd` | 4.78 | 5.96 | 5.58 / 4.90 / 4.88 | 4.44 / 4.78 | 221° |
+| blue | dark | `#6492f7` | `#090d15` | `#8baef9` | `#6492f7` | `#161d2c` | 6.48 | 8.81 | 6.15 / 5.76 / 5.61 | 6.60 / 6.15 | 221° |
+| cyan | light | `#0d79a0` | `#ffffff` | `#0b6484` | `#0c7297` | `#e7f2f6` | 4.93 | 6.62 | 5.43 / 4.77 / 4.76 | 4.58 / 4.93 | 196° |
+| cyan | dark | `#74c8e7` | `#091215` | `#97d6ed` | `#74c8e7` | `#18232a` | 10.06 | 11.86 | 9.81 / 9.19 / 8.50 | 10.53 / 9.81 | 196° |
+| teal | light | `#0b8089` | `#ffffff` | `#09666d` | `#0a737b` | `#e7f2f3` | 4.71 | 6.70 | 5.60 / 4.92 / 4.90 | 4.38 / 4.71 | 184° |
+| teal | dark | `#78dce3` | `#091515` | `#99e5ea` | `#78dce3` | `#182629` | 11.64 | 13.06 | 11.56 / 10.83 / 9.75 | 12.41 / 11.56 | 184° |
+| emerald | light | `#0a8049` | `#ffffff` | `#076439` | `#097743` | `#e7f2ed` | 5.00 | 7.26 | 5.63 / 4.95 / 4.91 | 4.65 / 5.00 | 152° |
+| emerald | dark | `#7cdeb1` | `#091510` | `#9de7c4` | `#7cdeb1` | `#192623` | 11.49 | 13.02 | 11.38 / 10.66 / 9.64 | 12.21 / 11.38 | 152° |
+| amber | light | `#ab5f07` | `#ffffff` | `#8e4e06` | `#9d5707` | `#f7efe6` | 4.80 | 6.48 | 5.53 / 4.86 / 4.85 | 4.47 / 4.80 | 32° |
+| amber | dark | `#efb26c` | `#151009` | `#f3c591` | `#efb26c` | `#26211b` | 10.14 | 11.90 | 9.90 / 9.27 / 8.55 | 10.62 / 9.90 | 32° |
+| orange | light | `#c54a0d` | `#ffffff` | `#a83f0b` | `#b6440c` | `#f9ede7` | 4.82 | 6.21 | 5.50 / 4.83 / 4.79 | 4.48 / 4.82 | 20° |
+| orange | dark | `#f59566` | `#150d09` | `#f8b08c` | `#f59566` | `#271d1a` | 8.57 | 10.59 | 8.24 / 7.72 / 7.34 | 8.85 / 8.24 | 20° |
+| rose | light | `#de1b53` | `#ffffff` | `#c31849` | `#cc194c` | `#fce8ee` | 4.79 | 5.92 | 5.51 / 4.84 / 4.70 | 4.45 / 4.79 | 343° |
+| rose | dark | `#f5668e` | `#15090d` | `#f88caa` | `#f5668e` | `#27181f` | 6.66 | 8.66 | 6.31 / 5.91 / 5.80 | 6.77 / 6.31 | 343° |
+
+Every pair passes (lowest text pair 4.70, lowest ring pair 4.38). Light values are 600/700-level and darker for amber, orange, rose and cyan so that white text reaches 4.5; dark values are lighter equivalents with a near-black, hue-tinted foreground. The values are **derived** (none were supplied) and **Recommended** for visual sign-off.
 
 ---
 

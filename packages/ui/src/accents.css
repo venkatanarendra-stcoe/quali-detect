@@ -1,0 +1,242 @@
+/*
+ * Selectable accent colours (docs/design/DESIGN_SYSTEM.md §2.5, module user-preferences). Mint is the default and has NO override
+ * (its values are the tokens in tokens.css). Every other key re-points only the primary-action family: --primary, --primary-foreground,
+ * --primary-hover, --primary-text, --primary-tint, --ring, --chart-1 and the sidebar active pair. Severity, status and neutral
+ * tokens are never touched. The accent still appears ONLY on primary action, active navigation and focus.
+ *
+ * Applied by `<html data-accent="<key>">` (tenant app). The Root Console (`data-app="root"`) ignores it: its violet theme is fixed.
+ * `[data-accent-preview="<key>"]` scopes the same values to one element (picker swatches and the live preview) in any theme.
+ * GENERATED values; measured contrast is in DESIGN_SYSTEM.md §2.5. Do not hand-edit one value without re-measuring.
+ */
+
+/* mint */
+[data-accent-preview="mint"] {
+  --primary: #087f70;
+  --primary-foreground: #ffffff;
+  --primary-hover: #06695d;
+  --primary-text: #06705f;
+  --primary-tint: #e6f2f1;
+  --ring: #087f70;
+  --chart-1: #087f70;
+  --sidebar-active-foreground: #06705f;
+  --sidebar-active-bg: #e6f2f1;
+}
+.dark [data-accent-preview="mint"] {
+  --primary: #40e0c0;
+  --primary-foreground: #04110e;
+  --primary-hover: #6bebd0;
+  --primary-text: #40e0c0;
+  --primary-tint: #112625;
+  --ring: #40e0c0;
+  --chart-1: #40e0c0;
+  --sidebar-active-foreground: #40e0c0;
+  --sidebar-active-bg: #112625;
+}
+
+/* violet */
+html[data-accent="violet"]:not([data-app="root"]),
+[data-accent-preview="violet"] {
+  --primary: #8550e2;
+  --primary-foreground: #ffffff;
+  --primary-hover: #7335de;
+  --primary-text: #7f47e1;
+  --primary-tint: #f3eefc;
+  --ring: #8550e2;
+  --chart-1: #8550e2;
+  --sidebar-active-foreground: #7f47e1;
+  --sidebar-active-bg: #f3eefc;
+}
+html.dark[data-accent="violet"]:not([data-app="root"]),
+.dark [data-accent-preview="violet"] {
+  --primary: #a676f9;
+  --primary-foreground: #0e0915;
+  --primary-hover: #bf9dfb;
+  --primary-text: #a676f9;
+  --primary-tint: #1e1a2c;
+  --ring: #a676f9;
+  --chart-1: #a676f9;
+  --sidebar-active-foreground: #a676f9;
+  --sidebar-active-bg: #1e1a2c;
+}
+
+/* blue */
+html[data-accent="blue"]:not([data-app="root"]),
+[data-accent-preview="blue"] {
+  --primary: #306be8;
+  --primary-foreground: #ffffff;
+  --primary-hover: #1958e1;
+  --primary-text: #1e5de6;
+  --primary-tint: #eaf0fd;
+  --ring: #306be8;
+  --chart-1: #306be8;
+  --sidebar-active-foreground: #1e5de6;
+  --sidebar-active-bg: #eaf0fd;
+}
+html.dark[data-accent="blue"]:not([data-app="root"]),
+.dark [data-accent-preview="blue"] {
+  --primary: #6492f7;
+  --primary-foreground: #090d15;
+  --primary-hover: #8baef9;
+  --primary-text: #6492f7;
+  --primary-tint: #161d2c;
+  --ring: #6492f7;
+  --chart-1: #6492f7;
+  --sidebar-active-foreground: #6492f7;
+  --sidebar-active-bg: #161d2c;
+}
+
+/* cyan */
+html[data-accent="cyan"]:not([data-app="root"]),
+[data-accent-preview="cyan"] {
+  --primary: #0d79a0;
+  --primary-foreground: #ffffff;
+  --primary-hover: #0b6484;
+  --primary-text: #0c7297;
+  --primary-tint: #e7f2f6;
+  --ring: #0d79a0;
+  --chart-1: #0d79a0;
+  --sidebar-active-foreground: #0c7297;
+  --sidebar-active-bg: #e7f2f6;
+}
+html.dark[data-accent="cyan"]:not([data-app="root"]),
+.dark [data-accent-preview="cyan"] {
+  --primary: #74c8e7;
+  --primary-foreground: #091215;
+  --primary-hover: #97d6ed;
+  --primary-text: #74c8e7;
+  --primary-tint: #18232a;
+  --ring: #74c8e7;
+  --chart-1: #74c8e7;
+  --sidebar-active-foreground: #74c8e7;
+  --sidebar-active-bg: #18232a;
+}
+
+/* teal */
+html[data-accent="teal"]:not([data-app="root"]),
+[data-accent-preview="teal"] {
+  --primary: #0b8089;
+  --primary-foreground: #ffffff;
+  --primary-hover: #09666d;
+  --primary-text: #0a737b;
+  --primary-tint: #e7f2f3;
+  --ring: #0b8089;
+  --chart-1: #0b8089;
+  --sidebar-active-foreground: #0a737b;
+  --sidebar-active-bg: #e7f2f3;
+}
+html.dark[data-accent="teal"]:not([data-app="root"]),
+.dark [data-accent-preview="teal"] {
+  --primary: #78dce3;
+  --primary-foreground: #091515;
+  --primary-hover: #99e5ea;
+  --primary-text: #78dce3;
+  --primary-tint: #182629;
+  --ring: #78dce3;
+  --chart-1: #78dce3;
+  --sidebar-active-foreground: #78dce3;
+  --sidebar-active-bg: #182629;
+}
+
+/* emerald */
+html[data-accent="emerald"]:not([data-app="root"]),
+[data-accent-preview="emerald"] {
+  --primary: #0a8049;
+  --primary-foreground: #ffffff;
+  --primary-hover: #076439;
+  --primary-text: #097743;
+  --primary-tint: #e7f2ed;
+  --ring: #0a8049;
+  --chart-1: #0a8049;
+  --sidebar-active-foreground: #097743;
+  --sidebar-active-bg: #e7f2ed;
+}
+html.dark[data-accent="emerald"]:not([data-app="root"]),
+.dark [data-accent-preview="emerald"] {
+  --primary: #7cdeb1;
+  --primary-foreground: #091510;
+  --primary-hover: #9de7c4;
+  --primary-text: #7cdeb1;
+  --primary-tint: #192623;
+  --ring: #7cdeb1;
+  --chart-1: #7cdeb1;
+  --sidebar-active-foreground: #7cdeb1;
+  --sidebar-active-bg: #192623;
+}
+
+/* amber */
+html[data-accent="amber"]:not([data-app="root"]),
+[data-accent-preview="amber"] {
+  --primary: #ab5f07;
+  --primary-foreground: #ffffff;
+  --primary-hover: #8e4e06;
+  --primary-text: #9d5707;
+  --primary-tint: #f7efe6;
+  --ring: #ab5f07;
+  --chart-1: #ab5f07;
+  --sidebar-active-foreground: #9d5707;
+  --sidebar-active-bg: #f7efe6;
+}
+html.dark[data-accent="amber"]:not([data-app="root"]),
+.dark [data-accent-preview="amber"] {
+  --primary: #efb26c;
+  --primary-foreground: #151009;
+  --primary-hover: #f3c591;
+  --primary-text: #efb26c;
+  --primary-tint: #26211b;
+  --ring: #efb26c;
+  --chart-1: #efb26c;
+  --sidebar-active-foreground: #efb26c;
+  --sidebar-active-bg: #26211b;
+}
+
+/* orange */
+html[data-accent="orange"]:not([data-app="root"]),
+[data-accent-preview="orange"] {
+  --primary: #c54a0d;
+  --primary-foreground: #ffffff;
+  --primary-hover: #a83f0b;
+  --primary-text: #b6440c;
+  --primary-tint: #f9ede7;
+  --ring: #c54a0d;
+  --chart-1: #c54a0d;
+  --sidebar-active-foreground: #b6440c;
+  --sidebar-active-bg: #f9ede7;
+}
+html.dark[data-accent="orange"]:not([data-app="root"]),
+.dark [data-accent-preview="orange"] {
+  --primary: #f59566;
+  --primary-foreground: #150d09;
+  --primary-hover: #f8b08c;
+  --primary-text: #f59566;
+  --primary-tint: #271d1a;
+  --ring: #f59566;
+  --chart-1: #f59566;
+  --sidebar-active-foreground: #f59566;
+  --sidebar-active-bg: #271d1a;
+}
+
+/* rose */
+html[data-accent="rose"]:not([data-app="root"]),
+[data-accent-preview="rose"] {
+  --primary: #de1b53;
+  --primary-foreground: #ffffff;
+  --primary-hover: #c31849;
+  --primary-text: #cc194c;
+  --primary-tint: #fce8ee;
+  --ring: #de1b53;
+  --chart-1: #de1b53;
+  --sidebar-active-foreground: #cc194c;
+  --sidebar-active-bg: #fce8ee;
+}
+html.dark[data-accent="rose"]:not([data-app="root"]),
+.dark [data-accent-preview="rose"] {
+  --primary: #f5668e;
+  --primary-foreground: #15090d;
+  --primary-hover: #f88caa;
+  --primary-text: #f5668e;
+  --primary-tint: #27181f;
+  --ring: #f5668e;
+  --chart-1: #f5668e;
+  --sidebar-active-foreground: #f5668e;
+  --sidebar-active-bg: #27181f;
+}

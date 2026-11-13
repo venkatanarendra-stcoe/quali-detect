@@ -6,6 +6,16 @@
     <meta name="color-scheme" content="light dark" />
     <title>QmentisAI</title>
     <script>
+      // Apply the last known accent before first paint (cache written by the app; unknown or missing = mint).
+      try {
+        var accent = localStorage.getItem("qm-accent");
+        document.documentElement.setAttribute(
+          "data-accent",
+          /^(mint|violet|blue|cyan|teal|emerald|amber|orange|rose)$/.test(accent) ? accent : "mint",
+        );
+      } catch (e) {
+        document.documentElement.setAttribute("data-accent", "mint");
+      }
       // Apply the saved theme before first paint (no flash). Storage may be unavailable: fall back to the system theme.
       try {
         var saved = JSON.parse(localStorage.getItem("qm-ui") || "{}").state || {};

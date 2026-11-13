@@ -6,6 +6,7 @@
  * Exposes the tokens as utilities (bg-card, text-muted-foreground, border-border, bg-primary, text-sev-high-fg ...).
  */
 @import "./tokens.css";
+@import "./accents.css";
 
 @custom-variant dark (&:is(.dark *));
 

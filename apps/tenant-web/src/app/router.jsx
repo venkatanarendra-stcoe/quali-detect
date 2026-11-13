@@ -7,6 +7,7 @@ import {
   RequireTenant,
   SelectTenantPage,
 } from "@/features/auth/index.js";
+import { AccountPage } from "@/features/account/index.js";
 import { RequirePermission } from "@/features/authorization/index.js";
 import { PipelineAliasRedirect } from "@/features/pipelines/index.js";
 import { ConnectAliasRedirect, RepositoryAliasRedirect } from "@/features/repositories/index.js";
@@ -39,6 +40,8 @@ export function AppRouter() {
           <Route element={<RequireTenant />}>
             <Route element={<AppLayout />}>
               <Route index element={<LandingRedirect />} />
+              {/* Own account: any signed-in user, no permission (preferences are the user's own). */}
+              <Route path="account" element={<AccountPage />} />
               {ORG_ROUTES.map((r) => (
                 <Route key={r.path} path={r.path} element={guarded(r)} />
               ))}

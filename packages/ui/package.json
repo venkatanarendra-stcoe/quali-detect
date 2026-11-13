@@ -11,6 +11,7 @@
     ".": "./src/index.js",
     "./tokens.css": "./src/tokens.css",
     "./preset.css": "./src/preset.css",
+    "./accents.css": "./src/accents.css",
     "./root-theme.css": "./src/root-theme.css",
     "./scroll.css": "./src/scroll.css"
   },

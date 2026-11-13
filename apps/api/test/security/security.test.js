@@ -26,6 +26,7 @@ import { createSecrets } from "../../src/runtime/secrets.js";
 import { createClient } from "./helpers/http.js";
 import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-repos.js";
 import { STATE_CHECKS, buildStateWorld } from "./helpers/repo-state.js";
+import { BROKER_CHECKS, buildBrokerWorld } from "./helpers/broker-topology.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import {
   DAY_FIRES,
@@ -37,7 +38,7 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 473;
+const EXPECTED_CHECKS = 477;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5598,6 +5599,24 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
         json: null,
         problems: await run(await stateWorld(), { deliver }),
       }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 12f. Broker topology and publish safety (SPEC repositories-github §16.3 item 6, BRK-001..004): the shared topology
+//      definition and the mandatory-publish rule. The real publisher, relay, consumer and outbox repository run in process
+//      against a channel double (helpers/broker-topology.js); no real broker is used.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Broker topology and publish safety");
+  const brokerWorld = () => once("broker", () => buildBrokerWorld(suiteDb()));
+  for (const { id, name, run } of BROKER_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await brokerWorld()) }),
       (r) => r.problems,
     );
 }

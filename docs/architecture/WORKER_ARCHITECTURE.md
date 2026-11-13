@@ -31,7 +31,7 @@ The previous job envelope (`eventType`, `createdAt`) and the unused domain-event
 
 State changes that must produce a message write it to `outbox_messages` **in the same database transaction** (`outbox.enqueue(tx, { queue, message })`). Columns: `tenantId`, `messageId`, `type`, `queue`, `payload` (the full envelope), `status` (`pending`, `sent`, `dead`), `attempts`, `availableAt`, `lastError`, `createdAt`, `sentAt`; unique on (`messageId`, `queue`), so fan-out is one row per queue.
 
-The **outbox relay** (`apps/workers`, `start:outbox`) claims due rows with `SELECT ... FOR UPDATE SKIP LOCKED`, publishes each with a **publisher confirm** and marks the batch sent in the same transaction. Any number of relay instances can run at once: each takes different rows and none waits for another. Failures reschedule the row with bounded exponential backoff and jitter; an envelope that can never be valid is marked `dead` immediately, and rows are marked `dead` after `OUTBOX_MAX_ATTEMPTS` (default 100). A broker outage does not stop the relay: rows stay pending and publishing resumes by itself when the broker is back. If a relay dies after publishing but before marking, the row is published again: delivery is **at-least-once**, consumers deduplicate.
+The **outbox relay** (`apps/workers`, `start:outbox`) claims due rows with `SELECT ... FOR UPDATE SKIP LOCKED`, publishes each with a **publisher confirm** and the `mandatory` flag (an unroutable message is returned by the broker and counts as a failed publish: the row is rescheduled with backoff and never marked sent) and marks the batch sent in the same transaction. Any number of relay instances can run at once: each takes different rows and none waits for another. Failures reschedule the row with bounded exponential backoff and jitter; an envelope that can never be valid is marked `dead` immediately, and rows are marked `dead` after `OUTBOX_MAX_ATTEMPTS` (default 100). A broker outage does not stop the relay: rows stay pending and publishing resumes by itself when the broker is back. If a relay dies after publishing but before marking, the row is published again: delivery is **at-least-once**, consumers deduplicate.
 
 ## Scheduled maintenance (scheduler worker)
 
@@ -45,7 +45,9 @@ The handler repeats, up to `PIPELINE_SCHEDULE_BATCH` times (100) per job: peek t
 
 ## Queues and bindings
 
-Each queue has the derived topology above (`qmentis.<q>`, `qmentis.<q>.retry.<n>`, `qmentis.<q>.dlq`). Queues fed from the SCM topic exchange `qmentis.scm.events` (the webhook transaction writes ONE outbox row; RabbitMQ copies it to every bound queue) add bindings that the consumer declares on start:
+**One shared definition.** `BROKER_TOPOLOGY` / `declareBrokerTopology` (`packages/infra/src/rabbitmq/topology.js`, derived from `QUEUE_NAMES` and the SCM bindings in `@qmentisai/contracts`) declares every exchange, queue, binding, retry tier and dead-letter queue, idempotently, at startup of every process that touches the broker: the API publisher, the outbox relay and each worker consumer. No other code declares broker objects. All publishing (outbox relay, retry and dead-letter copies) is mandatory with confirms and treats `basic.return` as a failure (`publishConfirmed`), so a message published before any binding exists is retried, not lost. Suite: `BRK-001..004`.
+
+Each queue has the derived topology above (`qmentis.<q>`, `qmentis.<q>.retry.<n>`, `qmentis.<q>.dlq`). Queues fed from the SCM topic exchange `qmentis.scm.events` (the webhook transaction writes ONE outbox row; RabbitMQ copies it to every bound queue) have the extra bindings below (part of the shared definition, declared by every process):
 
 | Queue | Worker | Bindings on `qmentis.scm.events` | Handler |
 |---|---|---|---|

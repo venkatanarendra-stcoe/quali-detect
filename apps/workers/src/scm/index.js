@@ -1,4 +1,4 @@
-import { QUEUE_NAMES, SCM_EVENTS_EXCHANGE } from "@qmentisai/contracts";
+import { QUEUE_NAMES } from "@qmentisai/contracts";
 import { runWorker } from "../runtime/run-worker.js";
 import { createWorkerGitHub } from "./github.js";
 import { createScmEventHandler } from "./events.js";
@@ -25,7 +25,6 @@ export function start() {
         queue: QUEUE_NAMES.SCM_EVENTS,
         buildHandler: ({ db, config, logger }) => createScmEventHandler({ db, config, logger }),
         verifyOwnership: true,
-        bindings: [{ exchange: SCM_EVENTS_EXCHANGE, routingKey: "scm.github.#" }],
       },
     ],
   });

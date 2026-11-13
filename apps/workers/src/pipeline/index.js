@@ -1,4 +1,4 @@
-import { PIPELINE_TRIGGERS_BINDINGS, QUEUE_NAMES } from "@qmentisai/contracts";
+import { QUEUE_NAMES } from "@qmentisai/contracts";
 import { createNoopHandler } from "../handlers/noop.js";
 import { runWorker } from "../runtime/run-worker.js";
 import { createPipelineTriggerHandler } from "./router.js";
@@ -26,7 +26,6 @@ export function start() {
         buildHandler: ({ db, config, logger }) =>
           createPipelineTriggerHandler({ db, config, logger }),
         verifyOwnership: true,
-        bindings: [...PIPELINE_TRIGGERS_BINDINGS],
       },
     ],
   });

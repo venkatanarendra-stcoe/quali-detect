@@ -1,3 +1,4 @@
+import { PIPELINE_TRIGGERS_BINDINGS, QUEUE_NAMES, SCM_EVENTS_EXCHANGE } from "@qmentisai/contracts";
 import { backoffCeilingMs } from "./retry.js";
 
 /**
@@ -22,15 +23,36 @@ export const retryRoutingKey = (queue, tier) => `${queue}.${tier}`;
 const QUEUE_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
 /**
- * Declares exchanges, the main queue, retry tiers and the dead-letter queue (idempotent).
- * @param {import("amqplib").Channel} channel
- * @param {{ queue: string, retryPolicy: { maxAttempts: number, baseDelayMs: number, maxDelayMs: number } }} options
+ * THE broker topology: the single definition every process that touches the broker declares at startup (API publisher,
+ * outbox relay, every worker). Derived from the queue catalogue in `@qmentisai/contracts`; nothing else declares exchanges,
+ * queues or bindings. Declarations are idempotent and their arguments are fixed here, so processes never disagree.
+ * - `exchanges`: the three direct exchanges above plus the topic exchange of normalized SCM events.
+ * - `queues`: every worker queue (main + retry tiers + DLQ) and the extra TOPIC bindings of its main queue
+ *   (`scm-events` <- `scm.github.#`; `pipeline-triggers` <- push and pull_request).
  */
-export async function assertTopology(channel, { queue, retryPolicy }) {
-  if (!QUEUE_NAME.test(queue)) throw new TypeError(`Invalid queue name "${queue}"`);
-  for (const exchange of Object.values(EXCHANGES))
-    await channel.assertExchange(exchange, "direct", { durable: true });
+export const BROKER_TOPOLOGY = Object.freeze({
+  exchanges: Object.freeze([
+    ...Object.values(EXCHANGES).map((name) => Object.freeze({ name, type: "direct" })),
+    Object.freeze({ name: SCM_EVENTS_EXCHANGE, type: "topic" }),
+  ]),
+  queues: Object.freeze(
+    Object.values(QUEUE_NAMES).map((queue) =>
+      Object.freeze({
+        queue,
+        bindings: Object.freeze(
+          queue === QUEUE_NAMES.SCM_EVENTS
+            ? [{ exchange: SCM_EVENTS_EXCHANGE, routingKey: "scm.github.#" }]
+            : queue === QUEUE_NAMES.PIPELINE_TRIGGERS
+              ? [...PIPELINE_TRIGGERS_BINDINGS]
+              : [],
+        ),
+      }),
+    ),
+  ),
+});
 
+async function declareQueue(channel, { queue, bindings }, retryPolicy) {
+  if (!QUEUE_NAME.test(queue)) throw new TypeError(`Invalid queue name "${queue}"`);
   await channel.assertQueue(deadLetterQueueName(queue), { durable: true });
   await channel.bindQueue(deadLetterQueueName(queue), EXCHANGES.DEAD_LETTER, queue);
 
@@ -42,6 +64,8 @@ export async function assertTopology(channel, { queue, retryPolicy }) {
     },
   });
   await channel.bindQueue(mainQueueName(queue), EXCHANGES.JOBS, queue);
+  for (const binding of bindings)
+    await channel.bindQueue(mainQueueName(queue), binding.exchange, binding.routingKey);
 
   for (let tier = 1; tier < retryPolicy.maxAttempts; tier += 1) {
     const ttl = backoffCeilingMs({
@@ -63,4 +87,17 @@ export async function assertTopology(channel, { queue, retryPolicy }) {
       retryRoutingKey(queue, tier),
     );
   }
+}
+
+/**
+ * Declares the whole broker topology (`BROKER_TOPOLOGY`): all exchanges, then every queue with its bindings, retry tiers
+ * and dead-letter queue. Idempotent; call it at startup of every process that publishes or consumes. Redeclaring with the
+ * same arguments is a no-op on the broker.
+ * @param {import("amqplib").Channel} channel
+ * @param {{ retryPolicy: { maxAttempts: number, baseDelayMs: number, maxDelayMs: number } }} options
+ */
+export async function declareBrokerTopology(channel, { retryPolicy }) {
+  for (const { name, type } of BROKER_TOPOLOGY.exchanges)
+    await channel.assertExchange(name, type, { durable: true });
+  for (const entry of BROKER_TOPOLOGY.queues) await declareQueue(channel, entry, retryPolicy);
 }

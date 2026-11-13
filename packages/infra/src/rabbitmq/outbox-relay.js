@@ -15,7 +15,7 @@ const sleep = (ms, signal) =>
  * side by side), publishes each to RabbitMQ and waits for the broker's publisher confirm, then marks it sent in the same
  * transaction. Failures are rescheduled with bounded exponential backoff and jitter; a message that can never be valid is
  * marked dead. A broker outage is survived: publishing fails, rows stay pending, and the relay resumes by itself when the
- * broker is back (the publisher reconnects on demand). Delivery is at-least-once.
+ * broker is back (the publisher reconnects on demand). Publishing is mandatory: a message the broker cannot route to a queue is a failed publish (rescheduled with backoff, never marked sent). Delivery is at-least-once.
  * @param {{
  *   repository: ReturnType<typeof import("@qmentisai/db").createOutboxRepository>,
  *   publisher: ReturnType<typeof import("./publisher.js").createPublisher>,
@@ -78,6 +78,16 @@ export function createOutboxRelay({
       abort = new AbortController();
       loop = (async () => {
         log.info({ batchSize, pollIntervalMs }, "Outbox relay started");
+        // Startup declaration of the shared broker topology (idempotent). A broker outage is survived: the publisher
+        // declares it again on its next channel, and an unroutable publish fails (mandatory) instead of being lost.
+        try {
+          await publisher.declareTopology();
+        } catch (error) {
+          log.warn(
+            { err: error },
+            "Could not declare the broker topology at startup (will retry on publish)",
+          );
+        }
         while (running) {
           let busy = false;
           try {

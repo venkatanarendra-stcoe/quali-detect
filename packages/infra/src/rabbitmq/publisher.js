@@ -1,6 +1,7 @@
 import { createEventEnvelope, createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import { childLogger } from "../logging.js";
-import { EXCHANGES, assertTopology, mainQueueName } from "./topology.js";
+import { EXCHANGES, declareBrokerTopology, mainQueueName } from "./topology.js";
+import { publishConfirmed } from "./confirmed-publish.js";
 import { resolveRetryPolicy } from "./retry.js";
 
 /**
@@ -13,7 +14,7 @@ import { resolveRetryPolicy } from "./retry.js";
 export function createPublisher({ connection, logger, retryPolicy }) {
   const log = childLogger(logger, { component: "publisher" });
   const policy = resolveRetryPolicy(retryPolicy);
-  const declared = new Set();
+  let declared = false;
   let channelPromise = null;
 
   async function channel() {
@@ -22,7 +23,7 @@ export function createPublisher({ connection, logger, retryPolicy }) {
         (ch) => {
           const reset = () => {
             channelPromise = null;
-            declared.clear();
+            declared = false;
           };
           ch.on("close", reset);
           ch.on("error", (error) => log.warn({ err: error }, "Publisher channel error"));
@@ -37,46 +38,49 @@ export function createPublisher({ connection, logger, retryPolicy }) {
     return channelPromise;
   }
 
+  async function ensureDeclared(ch) {
+    if (declared) return;
+    await declareBrokerTopology(ch, { retryPolicy: policy });
+    declared = true;
+  }
+
   const publisher = {
     /**
-     * Validates and publishes a message to `queue`. Resolves after the broker confirms.
+     * Declares the whole broker topology (idempotent). Call it at process startup; `publish` also does it once per channel.
+     * @returns {Promise<void>}
+     */
+    async declareTopology() {
+      await ensureDeclared(await channel());
+    },
+    /**
+     * Validates and publishes a message to `queue`. Resolves after the broker confirms AND routed it to a queue (mandatory publish: an unroutable message rejects with `UnroutableMessageError`).
      * @param {{ queue: string, exchange?: string, routingKey?: string, envelope: unknown, allowUnknownTypes?: boolean }} input `exchange` + `routingKey` publish to a topic exchange (SCM events); otherwise to the direct jobs exchange
      * @returns {Promise<ReturnType<typeof parseMessage>>} the validated message that was sent
      */
     async publish({ queue, exchange, routingKey, envelope, allowUnknownTypes = true }) {
       const valid = parseMessage(envelope, { allowUnknownTypes });
       const ch = await channel();
-      if (exchange) {
-        if (!declared.has(`x:${exchange}`)) {
-          await ch.assertExchange(exchange, "topic", { durable: true });
-          declared.add(`x:${exchange}`);
-        }
-      } else if (!declared.has(queue)) {
-        await assertTopology(ch, { queue, retryPolicy: policy });
-        declared.add(queue);
-      }
-      await new Promise((resolve, reject) => {
-        ch.publish(
-          exchange ?? EXCHANGES.JOBS,
-          exchange ? routingKey : queue,
-          Buffer.from(JSON.stringify(valid)),
-          {
-            persistent: true,
-            contentType: "application/json",
-            messageId: valid.messageId,
-            correlationId: valid.correlationId,
-            timestamp: Math.floor(Date.parse(valid.occurredAt) / 1000),
-            type: valid.type,
-            headers: {
-              "x-attempt": 0,
-              "x-schema-version": valid.schemaVersion,
-              "x-envelope-version": valid.envelopeVersion,
-              "x-kind": valid.kind,
-            },
+      await ensureDeclared(ch);
+      await publishConfirmed(
+        ch,
+        exchange ?? EXCHANGES.JOBS,
+        exchange ? routingKey : queue,
+        Buffer.from(JSON.stringify(valid)),
+        {
+          persistent: true,
+          contentType: "application/json",
+          messageId: valid.messageId,
+          correlationId: valid.correlationId,
+          timestamp: Math.floor(Date.parse(valid.occurredAt) / 1000),
+          type: valid.type,
+          headers: {
+            "x-attempt": 0,
+            "x-schema-version": valid.schemaVersion,
+            "x-envelope-version": valid.envelopeVersion,
+            "x-kind": valid.kind,
           },
-          (error) => (error ? reject(error) : resolve(undefined)),
-        );
-      });
+        },
+      );
       log.debug(
         {
           queue: mainQueueName(queue),
@@ -100,6 +104,7 @@ export function createPublisher({ connection, logger, retryPolicy }) {
     async close() {
       const current = channelPromise;
       channelPromise = null;
+      declared = false;
       if (current) await (await current).close().catch(() => {});
     },
   };

@@ -50,6 +50,13 @@ export function createInfrastructure({ config, logger, readiness }) {
   if (rabbitmqUrl) {
     const connection = createRabbitConnection({ url: rabbitmqUrl, logger, connectAttempts: 1 });
     infra.publisher = createPublisher({ connection, logger });
+    // Startup declaration of the shared broker topology (idempotent). The API must still start without a broker
+    // (readiness reports it); the publisher declares the topology again on its first publish.
+    infra.publisher
+      .declareTopology()
+      .catch((error) =>
+        logger.warn({ err: error }, "Could not declare the broker topology at startup"),
+      );
     readiness.register("rabbitmq", () => connection.ping());
     closers.push({
       name: "rabbitmq",

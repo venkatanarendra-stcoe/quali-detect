@@ -1,7 +1,8 @@
 import { getMessageType, parseMessage } from "@qmentisai/contracts";
 import { childLogger } from "../logging.js";
 import { classifyError, computeBackoffDelay, resolveRetryPolicy } from "./retry.js";
-import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./topology.js";
+import { EXCHANGES, declareBrokerTopology, mainQueueName, retryRoutingKey } from "./topology.js";
+import { publishConfirmed } from "./confirmed-publish.js";
 
 /**
  * @typedef {object} JobContext
@@ -30,7 +31,6 @@ import { EXCHANGES, assertTopology, mainQueueName, retryRoutingKey } from "./top
  *   retryPolicy?: Parameters<typeof resolveRetryPolicy>[0],
  *   idempotency?: { begin: Function, complete: Function, release: Function },
  *   allowUnknownTypes?: boolean,
- *   bindings?: Array<{ exchange: string, routingKey: string }> additional TOPIC-exchange bindings of the main queue (for example SCM events),
  *   requireTenant?: boolean,
  *   unknownErrorAs?: "transient" | "non-retryable",
  *   random?: () => number,
@@ -47,7 +47,6 @@ export function createConsumer({
   idempotency,
   requireTenant = true,
   allowUnknownTypes = false,
-  bindings = [],
   unknownErrorAs = "non-retryable",
   random = Math.random,
 }) {
@@ -66,26 +65,18 @@ export function createConsumer({
     }
   };
 
-  /** Publishes a copy to an exchange and waits for the broker confirm. */
+  /** Publishes a copy to an exchange (mandatory) and waits for the broker confirm; an unroutable copy is a failure. */
   function republish(exchange, routingKey, message, extra) {
-    return new Promise((resolve, reject) => {
-      const { properties } = message;
-      channel.publish(
-        exchange,
-        routingKey,
-        message.content,
-        {
-          persistent: true,
-          contentType: properties.contentType,
-          messageId: properties.messageId,
-          correlationId: properties.correlationId,
-          timestamp: properties.timestamp,
-          type: properties.type,
-          headers: { ...properties.headers, ...extra.headers },
-          ...(extra.expiration === undefined ? {} : { expiration: String(extra.expiration) }),
-        },
-        (error) => (error ? reject(error) : resolve(undefined)),
-      );
+    const { properties } = message;
+    return publishConfirmed(channel, exchange, routingKey, message.content, {
+      persistent: true,
+      contentType: properties.contentType,
+      messageId: properties.messageId,
+      correlationId: properties.correlationId,
+      timestamp: properties.timestamp,
+      type: properties.type,
+      headers: { ...properties.headers, ...extra.headers },
+      ...(extra.expiration === undefined ? {} : { expiration: String(extra.expiration) }),
     });
   }
 
@@ -253,11 +244,7 @@ export function createConsumer({
       if (channel) throw new Error("Consumer already started");
       channel = await connection.createConfirmChannel();
       channel.on("error", (error) => log.warn({ err: error }, "Consumer channel error"));
-      await assertTopology(channel, { queue, retryPolicy: policy });
-      for (const binding of bindings) {
-        await channel.assertExchange(binding.exchange, "topic", { durable: true });
-        await channel.bindQueue(mainQueueName(queue), binding.exchange, binding.routingKey);
-      }
+      await declareBrokerTopology(channel, { retryPolicy: policy });
       await channel.prefetch(prefetch);
       ({ consumerTag } = await channel.consume(
         mainQueueName(queue),

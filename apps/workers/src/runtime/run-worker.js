@@ -16,7 +16,7 @@ import {
  * is set, else Redis), RabbitMQ connection, a consumer for the worker's
  * queue, and graceful shutdown on SIGINT/SIGTERM (stop consuming, wait for in-flight jobs up to the timeout, close
  * connections). A second signal exits immediately. Startup failures (bad config, unreachable broker) exit with code 1.
- * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean, requireTenant?: boolean, bindings?: Array<{ exchange: string, routingKey: string }> }} ConsumerSpec
+ * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean, requireTenant?: boolean}} ConsumerSpec
  * @param {ConsumerSpec & { name: string, additional?: ConsumerSpec[], onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options
  *   `handler` or `buildHandler` (when the handler needs the database or the config); `verifyOwnership` re-validates tenant and
  *   resource ownership against the database before the handler (needs DATABASE_URL); `additional` runs more consumers in the
@@ -30,14 +30,10 @@ export async function runWorker({
   buildHandler,
   verifyOwnership = false,
   requireTenant = true,
-  bindings = [],
   additional = [],
   onReady,
 }) {
-  const specs = [
-    { queue, handler, buildHandler, verifyOwnership, requireTenant, bindings },
-    ...additional,
-  ];
+  const specs = [{ queue, handler, buildHandler, verifyOwnership, requireTenant }, ...additional];
   let config;
   try {
     config = loadWorkerConfig();
@@ -74,7 +70,6 @@ export async function runWorker({
       retryPolicy: config.retryPolicy,
       idempotency,
       requireTenant: spec.requireTenant ?? true,
-      bindings: spec.bindings ?? [],
     }),
   );
 

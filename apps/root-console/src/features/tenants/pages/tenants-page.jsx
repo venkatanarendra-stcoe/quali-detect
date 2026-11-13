@@ -13,7 +13,7 @@ import { PlatformPermissionGate, useCanPlatform } from "@/features/authorization
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { usePlans, useTenantList } from "../hooks/use-tenants.js";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 20; // rows per "Load more" request
 const date = (value) =>
   new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
@@ -22,8 +22,7 @@ const date = (value) =>
   });
 
 /**
- * R-04 Tenants: metadata and counts only (never tenant content). Search, status and plan filters, sorting and the page
- * live in the URL. Provisioning needs `platform.tenant.create`.
+ * R-04 Tenants: metadata and counts only (never tenant content). Search, status and plan filters, and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown. Provisioning needs `platform.tenant.create`.
  */
 export function TenantsPage() {
   const can = useCanPlatform();
@@ -33,7 +32,6 @@ export function TenantsPage() {
   const status = params.get("status") ?? "";
   const plan = params.get("plan") ?? "";
   const sort = params.get("sort") ?? "name:asc";
-  const page = Math.max(1, Number(params.get("page")) || 1);
   const [search, setSearch] = useState(qParam);
   const debounced = useDebouncedValue(search);
   const filtered = Boolean(qParam || status || plan);
@@ -49,7 +47,7 @@ export function TenantsPage() {
       { replace: true },
     );
   useEffect(() => {
-    if (debounced.trim() !== qParam) update({ q: debounced.trim(), page: "" });
+    if (debounced.trim() !== qParam) update({ q: debounced.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the debounced text drives the URL
   }, [debounced]);
 
@@ -62,8 +60,7 @@ export function TenantsPage() {
     status: status || undefined,
     plan: plan || undefined,
     sort,
-    page,
-    pageSize: PAGE_SIZE,
+    limit: PAGE_SIZE,
   });
   const clear = () => {
     setSearch("");
@@ -165,7 +162,7 @@ export function TenantsPage() {
           <Select
             id="tenant-status"
             value={status}
-            onChange={(e) => update({ status: e.target.value, page: "" })}
+            onChange={(e) => update({ status: e.target.value })}
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -182,7 +179,7 @@ export function TenantsPage() {
             <Select
               id="tenant-plan"
               value={plan}
-              onChange={(e) => update({ plan: e.target.value, page: "" })}
+              onChange={(e) => update({ plan: e.target.value })}
             >
               <option value="">All plans</option>
               {planOptions.map(([key, name]) => (
@@ -198,12 +195,6 @@ export function TenantsPage() {
             Clear filters
           </Button>
         ) : null}
-        {list.data?.pagination ? (
-          <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {list.data.pagination.totalItems}{" "}
-            {list.data.pagination.totalItems === 1 ? "tenant" : "tenants"}
-          </p>
-        ) : null}
       </div>
 
       <QueryTable
@@ -212,9 +203,10 @@ export function TenantsPage() {
         caption="Tenants"
         getRowId={(t) => t.id}
         sort={sort}
-        onSort={(s) => update({ sort: s === "name:asc" ? "" : s, page: "" })}
-        pagination={list.data?.pagination}
-        onPage={(p) => update({ page: p > 1 ? String(p) : "" })}
+        onSort={(s) => update({ sort: s === "name:asc" ? "" : s })}
+        hasMore={list.hasMore}
+        loadingMore={list.loadingMore}
+        onLoadMore={list.loadMore}
         onRowClick={(t) => navigate(`/tenants/${t.id}`)}
         rowLabel={(t) => `Open ${t.name}`}
         emptyState={

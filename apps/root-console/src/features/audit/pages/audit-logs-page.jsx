@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/select.jsx";
 import { PLATFORM_AUDIT_ACTIONS } from "../constants/index.js";
 import { useAuditLogs } from "../hooks/use-audit-logs.js";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 25; // rows per "Load more" request
 const when = (value) =>
   new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const startOfDay = (day) => new Date(`${day}T00:00:00`).toISOString();
@@ -45,7 +45,7 @@ function Details({ entry }) {
 
 /**
  * R-28 Platform audit logs: platform actions such as tenant lifecycle and platform sign-in (needs `platform.audit_log.view`).
- * It never shows a tenant's own audit log. Filters (actor, action, tenant, date range, result), sorting and the page live in the URL.
+ * It never shows a tenant's own audit log. Filters (actor, action, tenant, date range, result), and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown.
  */
 export function PlatformAuditLogsPage() {
   const [params, setParams] = useSearchParams();
@@ -56,7 +56,6 @@ export function PlatformAuditLogsPage() {
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const sort = params.get("sort") ?? "createdAt:desc";
-  const page = Math.max(1, Number(params.get("page")) || 1);
   const filtered = Boolean(action || result || actor || tenantId || from || to);
 
   const update = (next) =>
@@ -77,8 +76,7 @@ export function PlatformAuditLogsPage() {
     from: from ? startOfDay(from) : undefined,
     to: to ? endOfDay(to) : undefined,
     sort,
-    page,
-    pageSize: PAGE_SIZE,
+    limit: PAGE_SIZE,
   });
   const clear = () => setParams({}, { replace: true });
   const columns = useMemo(
@@ -180,7 +178,7 @@ export function PlatformAuditLogsPage() {
           <Select
             id="audit-action"
             value={action}
-            onChange={(e) => update({ action: e.target.value, page: "" })}
+            onChange={(e) => update({ action: e.target.value })}
           >
             <option value="">All actions</option>
             {PLATFORM_AUDIT_ACTIONS.map((a) => (
@@ -198,7 +196,7 @@ export function PlatformAuditLogsPage() {
             id="audit-actor"
             placeholder="Actor ID (platform user UUID)"
             value={actor}
-            onChange={(e) => update({ actor: e.target.value.trim(), page: "" })}
+            onChange={(e) => update({ actor: e.target.value.trim() })}
           />
         </div>
         <div className="w-72">
@@ -209,7 +207,7 @@ export function PlatformAuditLogsPage() {
             id="audit-tenant"
             placeholder="Tenant ID (UUID)"
             value={tenantId}
-            onChange={(e) => update({ tenantId: e.target.value.trim(), page: "" })}
+            onChange={(e) => update({ tenantId: e.target.value.trim() })}
           />
         </div>
         <div className="w-36">
@@ -219,7 +217,7 @@ export function PlatformAuditLogsPage() {
           <Select
             id="audit-result"
             value={result}
-            onChange={(e) => update({ result: e.target.value, page: "" })}
+            onChange={(e) => update({ result: e.target.value })}
           >
             <option value="">Any result</option>
             <option value="success">Success</option>
@@ -235,7 +233,7 @@ export function PlatformAuditLogsPage() {
             type="date"
             value={from}
             max={to || undefined}
-            onChange={(e) => update({ from: e.target.value, page: "" })}
+            onChange={(e) => update({ from: e.target.value })}
           />
         </div>
         <div>
@@ -247,19 +245,13 @@ export function PlatformAuditLogsPage() {
             type="date"
             value={to}
             min={from || undefined}
-            onChange={(e) => update({ to: e.target.value, page: "" })}
+            onChange={(e) => update({ to: e.target.value })}
           />
         </div>
         {filtered ? (
           <Button variant="ghost" onClick={clear}>
             Clear filters
           </Button>
-        ) : null}
-        {list.data?.pagination ? (
-          <p className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-            {list.data.pagination.totalItems}{" "}
-            {list.data.pagination.totalItems === 1 ? "entry" : "entries"}
-          </p>
         ) : null}
       </div>
 
@@ -269,9 +261,10 @@ export function PlatformAuditLogsPage() {
         caption="Platform audit log"
         getRowId={(e) => e.id}
         sort={sort}
-        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s, page: "" })}
-        pagination={list.data?.pagination}
-        onPage={(p) => update({ page: String(p) })}
+        onSort={(s) => update({ sort: s === "createdAt:desc" ? "" : s })}
+        hasMore={list.hasMore}
+        loadingMore={list.loadingMore}
+        onLoadMore={list.loadMore}
         emptyState={
           filtered ? (
             <EmptyState

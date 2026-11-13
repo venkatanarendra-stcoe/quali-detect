@@ -1,12 +1,12 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCursorList } from "@/hooks/use-cursor-list.js";
 import { auditService } from "../services/audit-service.js";
 
 export const auditKeys = { list: (params) => ["platform", "audit-logs", params] };
 
+/** "Load more" platform audit list; `params` are the filters, sort and `limit` (never a cursor or page). */
 export function useAuditLogs(params) {
-  return useQuery({
+  return useCursorList({
     queryKey: auditKeys.list(params),
-    queryFn: ({ signal }) => auditService.list(params, { signal }),
-    placeholderData: keepPreviousData,
+    fetchPage: (cursor, signal) => auditService.list({ ...params, cursor }, { signal }),
   });
 }

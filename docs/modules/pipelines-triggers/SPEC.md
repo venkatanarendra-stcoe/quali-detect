@@ -1,8 +1,8 @@
 # Pipelines and triggers — Module Specification
 
-**Status:** **Approved (2026-11-12).** The owner decided the questions of §15 on 2026-11-12 (see "Decisions applied at approval" below). Implementation follows in the parts of §13.3; parts A to E are built (§16). Items still labelled Open are listed in §15.3.
+**Status:** **Implemented (2026-11-13).** Approved 2026-11-12; parts A to G are built (§16), including the live test, the DST follow-up and the pull-request-closed housekeeping. The items still Open are listed in §15.3 and `docs/decisions/OPEN_DECISIONS.md`.
 **Owner:** Product owner (decisions); Claude Code (specification)
-**Last updated:** 2026-11-13 (part E implementation notes in §16)
+**Last updated:** 2026-11-13 (module closed)
 **Related ADRs:** ADR-002 (modular monolith, separate workers), ADR-003 (tenant isolation), ADR-004 (finding identity is per pipeline), ADR-007 (Express 5), ADR-008 (security suite), ADR-009 (no secrets in messages), ADR-011 (outbox, one message family, idempotent consumers), ADR-012 (workspace-level source-control linking)
 
 **Labels** (`docs/README.md`, `CLAUDE.md`): **Confirmed** = stated in the docs, an accepted ADR, the owner's instruction for this module, or a fact of the built code; **Confirmed (owner, 2026-11-12)** = decided by the owner at approval; **Recommended — default applied** = a proposal of the draft that the owner accepted at approval (it is in force; the owner may still change it); **Recommended** (bare, in a mechanics column) = a design detail inside an approved item, in force with it; **Open** = still needs a decision (§15.3). Where two documents disagree §15.2 records how the conflict was resolved.

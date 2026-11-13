@@ -1,3 +1,4 @@
+import { Stepper } from "@qmentisai/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CircleAlert, CircleCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -7,7 +8,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { PageHeader } from "@/components/common/page-header.jsx";
 import { SearchPicker } from "@/components/common/search-picker.jsx";
-import { Stepper } from "@/components/common/stepper.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import {
   Card,
@@ -373,7 +373,7 @@ export function CreateWorkspacePage() {
         title="Create workspace"
         description="Set up a workspace for a team or product."
       />
-      <Stepper steps={STEPS} current={step} />
+      <Stepper steps={STEPS} current={step} orientation="horizontal" className="mb-6" />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card>
           <CardContent className="pt-4">

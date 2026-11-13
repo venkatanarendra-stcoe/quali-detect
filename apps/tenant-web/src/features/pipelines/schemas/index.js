@@ -26,6 +26,29 @@ export const basicsSchema = z.object({
   changeNote: z.string().trim().max(200, "At most 200 characters."),
 });
 
+const BASICS_LABELS = {
+  repositoryId: "Repository",
+  name: "Name",
+  description: "Description",
+  changeNote: "Change note",
+};
+
+/**
+ * Validates the Basics fields (repository, name, description, change note) as a whole-draft check: issues carry the
+ * field path and a label. Mirrors the API request schema (`apps/api` pipelines `createBody`/`updateBody`, which is not
+ * importable): repository = UUID; name = trimmed, 1-100 characters, no control characters; description = trimmed, up to
+ * 500, no control characters; change note up to 200 (configBody). The API stays authoritative.
+ * @param {Record<string, unknown>} values @returns {Array<{ path: string, label: string, message: string }>}
+ */
+export function checkBasics(values) {
+  const result = basicsSchema.safeParse(values);
+  if (result.success) return [];
+  return result.error.issues.map((i) => {
+    const path = String(i.path[0] ?? "");
+    return { path, label: BASICS_LABELS[path] ?? path, message: i.message };
+  });
+}
+
 /**
  * Client-side validation HINTS with the same configuration schema the API uses (`@qmentisai/shared`, limits from the
  * options endpoint). The API stays authoritative and re-validates every request.

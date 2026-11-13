@@ -19,17 +19,23 @@ export function WizardSummary({ name, repositoryName, config, editing, nextVersi
           </div>
           <div>
             <dt className="text-muted-foreground">Repository</dt>
-            <dd className="font-mono text-xs break-all">{repositoryName ?? "—"}</dd>
+            <dd>
+              {repositoryName ? (
+                <span className="font-mono text-xs [overflow-wrap:anywhere]">{repositoryName}</span>
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Triggers</dt>
             <dd>
-              {triggers.length ? triggers.map((t) => TRIGGER_LABELS[t.type]).join(", ") : "None"}
+              {triggers.length ? triggers.map((t) => TRIGGER_LABELS[t.type]).join(", ") : "—"}
             </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Scans</dt>
-            <dd>{scans.length ? scans.map((s) => SCAN_SHORT[s]).join(", ") : "None"}</dd>
+            <dd>{scans.length ? scans.map((s) => SCAN_SHORT[s]).join(", ") : "—"}</dd>
           </div>
           {editing ? (
             <div>

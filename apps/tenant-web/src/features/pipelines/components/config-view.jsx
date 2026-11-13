@@ -9,34 +9,81 @@ import {
 } from "../constants/index.js";
 import { describeCron, minutesOf } from "../schemas/index.js";
 
-const list = (patterns) =>
-  patterns?.length
-    ? patterns.map((p) => (p === DEFAULT_BRANCH_TOKEN ? "default branch" : p)).join(", ")
-    : "none";
+const EMPTY = "—";
+const patternLabel = (p) => (p === DEFAULT_BRANCH_TOKEN ? "default branch" : p);
 
+/** Wrapped chips for multi-value fields; `mono` for branch/glob patterns (identifiers). Empty -> the one empty glyph. */
+function Chips({ values, mono = false }) {
+  if (!values?.length) return EMPTY;
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {values.map((v, i) => (
+        <li
+          key={`${v}-${i}`}
+          className={
+            mono
+              ? "max-w-full rounded-sm border border-border bg-secondary px-1.5 py-0.5 font-mono text-xs [overflow-wrap:anywhere]"
+              : "rounded-sm border border-border bg-secondary px-1.5 py-0.5 text-xs"
+          }
+        >
+          {v}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Definition list as a two-column grid: label (min 140px) and value (shrinkable, wraps by word). In a container narrower
+ * than 22rem (two trigger cards side by side at 1280 px) the label sits above the value instead, so a value never
+ * shrinks to a few characters.
+ */
+function Dl({ children }) {
+  return (
+    <div className="@container min-w-0">
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-0.5 text-sm @[22rem]:grid-cols-[minmax(140px,10rem)_minmax(0,1fr)] @[22rem]:gap-y-2">
+        {children}
+      </dl>
+    </div>
+  );
+}
+
+/** `mono` is for a single long identifier/code value (may break anywhere); normal text breaks by word only. */
 function Row({ label, children, mono = false }) {
   return (
-    <div className="grid gap-x-4 sm:grid-cols-[11rem_1fr]">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={mono ? "font-mono text-xs break-all" : "break-words"}>{children}</dd>
-    </div>
+    <>
+      <dt className="mt-1.5 text-muted-foreground first:mt-0 @[22rem]:mt-0">{label}</dt>
+      <dd
+        className={
+          mono
+            ? "min-w-0 font-mono text-xs [overflow-wrap:anywhere]"
+            : "min-w-0 [overflow-wrap:break-word]"
+        }
+      >
+        {children}
+      </dd>
+    </>
   );
 }
 
 /** The options of one trigger as a definition list. */
 export function TriggerDetails({ trigger }) {
   return (
-    <dl className="space-y-1 text-sm">
+    <Dl>
       {trigger.type === "push" ? (
         <>
-          <Row label="Branches" mono>
-            {list(trigger.branches?.include)}
+          <Row label="Branches">
+            <Chips mono values={(trigger.branches?.include ?? []).map(patternLabel)} />
           </Row>
-          <Row label="Excluded branches" mono>
-            {list(trigger.branches?.exclude)}
+          <Row label="Excluded branches">
+            <Chips mono values={(trigger.branches?.exclude ?? []).map(patternLabel)} />
           </Row>
           <Row label="Tags">
-            {trigger.tags?.enabled ? list(trigger.tags.include) : "Not scanned"}
+            {trigger.tags?.enabled ? (
+              <Chips mono values={trigger.tags.include ?? []} />
+            ) : (
+              "Not scanned"
+            )}
           </Row>
           <Row label="New branches">
             {trigger.onBranchCreated === "run" ? "Scanned" : "Skipped"}
@@ -47,10 +94,10 @@ export function TriggerDetails({ trigger }) {
       {trigger.type === "pull_request" ? (
         <>
           <Row label="Actions">
-            {(trigger.actions ?? []).map((a) => PR_ACTION_LABELS[a] ?? a).join(", ")}
+            <Chips values={(trigger.actions ?? []).map((a) => PR_ACTION_LABELS[a] ?? a)} />
           </Row>
-          <Row label="Target branches" mono>
-            {list(trigger.targetBranches?.include)}
+          <Row label="Target branches">
+            <Chips mono values={(trigger.targetBranches?.include ?? []).map(patternLabel)} />
           </Row>
           <Row label="Draft pull requests">{trigger.drafts === "run" ? "Run" : "Skip"}</Row>
           <Row label="Fork pull requests">
@@ -61,14 +108,14 @@ export function TriggerDetails({ trigger }) {
       {trigger.type === "schedule" ? (
         <>
           <Row label="Cron" mono>
-            {trigger.cron}
+            {trigger.cron || EMPTY}
           </Row>
-          <Row label="Reads as">{describeCron(trigger.cron) ?? "—"}</Row>
+          <Row label="Reads as">{describeCron(trigger.cron) ?? EMPTY}</Row>
           <Row label="Time zone" mono>
-            {trigger.timezone}
+            {trigger.timezone || EMPTY}
           </Row>
           <Row label="Ref" mono>
-            {trigger.ref === DEFAULT_BRANCH_TOKEN ? "default branch" : trigger.ref}
+            {trigger.ref === DEFAULT_BRANCH_TOKEN ? "default branch" : trigger.ref || EMPTY}
           </Row>
           <Row label="Scan kind">{trigger.scanKind === "full" ? "Full" : "Incremental"}</Row>
           <Row label="Missed runs">{trigger.missedPolicy === "run_once" ? "Run once" : "Skip"}</Row>
@@ -77,20 +124,27 @@ export function TriggerDetails({ trigger }) {
       {trigger.type === "manual" ? (
         <Row label="Run now">Allowed for people who can run pipelines</Row>
       ) : null}
-    </dl>
+    </Dl>
   );
 }
 
 function TriggerBlock({ trigger }) {
   return (
     <section
-      aria-label={`${TRIGGER_LABELS[trigger.type]} trigger ${trigger.key}`}
-      className="rounded-md border border-border p-3"
+      aria-label={`${TRIGGER_LABELS[trigger.type]} trigger`}
+      title={`Trigger key: ${trigger.key}`}
+      className="min-w-0 rounded-md border border-border p-3"
     >
-      <h4 className="mb-2 flex items-center gap-2 text-sm font-medium">
-        {TRIGGER_LABELS[trigger.type]}
-        <span className="font-mono text-xs font-normal text-muted-foreground">{trigger.key}</span>
-        <Badge tone={trigger.enabled ? "success" : "neutral"}>
+      <h4 className="mb-3 flex items-center justify-between gap-2 text-sm font-medium">
+        <span className="min-w-0 truncate">
+          {TRIGGER_LABELS[trigger.type]}
+          {trigger.type === "schedule" ? (
+            <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+              {trigger.key}
+            </span>
+          ) : null}
+        </span>
+        <Badge tone={trigger.enabled ? "success" : "neutral"} className="shrink-0">
           {trigger.enabled ? "On" : "Off"}
         </Badge>
       </h4>
@@ -106,7 +160,7 @@ export function ConfigView({ config }) {
     <div className="space-y-5">
       <section>
         <h3 className="mb-2 text-sm font-semibold">Triggers</h3>
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           {(config.triggers ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">No triggers.</p>
           ) : null}
@@ -117,7 +171,7 @@ export function ConfigView({ config }) {
       </section>
       <section>
         <h3 className="mb-2 text-sm font-semibold">Scans</h3>
-        <dl className="space-y-1 text-sm">
+        <Dl>
           {scans.map(([type, scan]) => (
             <Row key={type} label={SCAN_LABELS[type]}>
               {scan?.enabled
@@ -125,14 +179,14 @@ export function ConfigView({ config }) {
                 : "Off"}
             </Row>
           ))}
-          <Row label="Excluded paths" mono>
-            {list(config.exclusions?.paths)}
+          <Row label="Excluded paths">
+            <Chips mono values={config.exclusions?.paths ?? []} />
           </Row>
-        </dl>
+        </Dl>
       </section>
       <section>
         <h3 className="mb-2 text-sm font-semibold">Execution controls</h3>
-        <dl className="space-y-1 text-sm">
+        <Dl>
           <Row label="Scan mode">
             {config.scanMode?.default === "full" ? "Full" : "Incremental"}
           </Row>
@@ -154,7 +208,7 @@ export function ConfigView({ config }) {
             {config.failOn?.scope === "all" ? "all findings" : "new findings only"} · engine errors{" "}
             {config.failOn?.onEngineError === "ignore" ? "ignored" : "fail the run"}
           </Row>
-        </dl>
+        </Dl>
       </section>
     </div>
   );

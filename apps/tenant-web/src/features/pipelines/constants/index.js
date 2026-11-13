@@ -217,6 +217,7 @@ export function stepOfPath(path) {
   if (head === "triggers") return "triggers";
   if (head === "scans" || head === "exclusions") return "scans";
   if (head === "name" || head === "description" || head === "repositoryId") return "basics";
+  if (head === "changeNote") return "review";
   return "controls";
 }
 

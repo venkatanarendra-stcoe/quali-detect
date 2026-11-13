@@ -30,7 +30,7 @@ export function ReviewStep({
         </h3>
         {issues.length === 0 ? (
           <p role="status" className="text-sm text-status-success">
-            The configuration is valid.
+            The pipeline is valid. Every step passes the same checks the server applies.
           </p>
         ) : (
           <ul role="alert" className="space-y-1 text-sm">
@@ -38,6 +38,7 @@ export function ReviewStep({
               const step = stepOfPath(issue.path);
               return (
                 <li key={`${issue.path}-${i}`} className="text-status-danger">
+                  {issue.label ? <strong className="font-medium">{issue.label}: </strong> : null}
                   {issue.message}{" "}
                   <button
                     type="button"

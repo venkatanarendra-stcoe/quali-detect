@@ -184,3 +184,14 @@ Plain, specific, active voice. Buttons are verbs. Errors say what happened and w
 | Confirm destructive and audited actions | Single-click irreversible changes |
 | Reuse shared components | Build a second badge/table/dialog for one screen |
 | Show AI output as advisory with provenance | Present AI output as a decision |
+
+---
+
+## 13. Wizard layout
+
+Multi-step flows (T-23, T-26, R-05, and the horizontal `Stepper` of Create workspace) use `WizardLayout` and `Stepper` from `@qmentisai/ui` (no router or app imports; the app passes an `offset`, the height of the chrome above the page, default 6 rem; the Root Console passes 7.5 rem).
+
+- The wizard fills the viewport below the app chrome (at least 32 rem): **the page never scrolls**. The title and description are fixed at the top; the stepper (left) and summary (right, from 1280 px) stay put; **only the form column scrolls**. The action bar (Cancel left; Back / Next / Create right; top border) sits under the form and is always visible. `scroll-padding-bottom` and `scroll-margin-bottom` keep focused fields clear of it.
+- Below 1280 px the summary becomes a disclosure above the form (button with `aria-expanded` and `aria-controls`); below 1024 px the stepper is a horizontal indicator that scrolls sideways and keeps the current step in view.
+- Stepper: one list; the current step has `aria-current="step"`; completed and error steps carry an icon AND text ("(completed)", "(needs attention)"), never colour alone; steps are buttons when navigation is allowed. Tab order: summary disclosure (when shown), stepper, form, action bar.
+- Validate the whole draft with the schemas the API uses; keep the final action disabled until it is valid and list problems with a "Fix in <step>" link. One empty-value glyph: the em dash.

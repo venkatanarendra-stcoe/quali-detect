@@ -1,13 +1,13 @@
+import { WizardLayout } from "@qmentisai/ui";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/common/page-header.jsx";
 import { Pager } from "@/components/common/pager.jsx";
-import { Stepper } from "@/components/common/stepper.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { QueryErrorState } from "@/components/states/error-state.jsx";
 import { LoadingState } from "@/components/states/loading-state.jsx";
 import { Button } from "@/components/ui/button.jsx";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
@@ -18,7 +18,11 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { useAvailableRepositories, useConnectRepository } from "../hooks/use-repositories.js";
 import { newIdempotencyKey } from "../services/repositories-service.js";
 
-const STEPS = ["Provider", "Select repositories", "Review"];
+const STEPS = [
+  { id: "provider", label: "Provider" },
+  { id: "select", label: "Select repositories" },
+  { id: "review", label: "Review" },
+];
 
 /**
  * T-23 Connect repository wizard: provider -> select repositories -> review. Repositories are connected one request each
@@ -88,14 +92,112 @@ export function ConnectRepositoryPage() {
   const running = [...picked.keys()].some((id) => results[id] === "pending");
   const back = `/workspaces/${workspaceId}/repositories`;
 
-  return (
-    <>
-      <PageHeader
-        title="Connect repository"
-        description="Choose repositories from a linked GitHub account."
-      />
-      <Stepper steps={STEPS} current={step} />
+  const account = links.find((l) => l.id === selected)?.account.login;
+  const cancel = (
+    <Button variant="ghost" asChild>
+      <Link to={back}>Cancel</Link>
+    </Button>
+  );
+  const actions =
+    step === 0 ? (
+      <>
+        {cancel}
+        <Button disabled={!selected} onClick={() => setStep(1)}>
+          Next
+        </Button>
+      </>
+    ) : step === 1 ? (
+      <>
+        {cancel}
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setStep(0)}>
+            Back
+          </Button>
+          <Button disabled={picked.size === 0} onClick={() => setStep(2)}>
+            Review ({picked.size})
+          </Button>
+        </div>
+      </>
+    ) : (
+      <>
+        {cancel}
+        <div className="flex gap-2">
+          <Button variant="secondary" disabled={running} onClick={() => setStep(1)}>
+            Back
+          </Button>
+          {allDone ? (
+            <Button
+              onClick={() => {
+                toast.success(`${picked.size} repositories connected`);
+                navigate(back);
+              }}
+            >
+              Done
+            </Button>
+          ) : (
+            <Button disabled={running} onClick={submit}>
+              {anyFailed
+                ? "Retry failed"
+                : `Connect ${picked.size} ${picked.size === 1 ? "repository" : "repositories"}`}
+            </Button>
+          )}
+        </div>
+      </>
+    );
 
+  return (
+    <WizardLayout
+      title="Connect repository"
+      description="Choose repositories from a linked GitHub account."
+      steps={STEPS}
+      current={STEPS[step].id}
+      stepperLabel="Connect steps"
+      onStepChange={(id) => setStep(STEPS.findIndex((x) => x.id === id))}
+      stepDisabled={Object.fromEntries(STEPS.map((x, i) => [x.id, i > step || running]))}
+      stepStatus={Object.fromEntries(
+        STEPS.map((x, i) => [x.id, i < step || (allDone && i === 2) ? "complete" : undefined]),
+      )}
+      summaryTitle="Connection summary"
+      summary={
+        <Card className="h-fit">
+          <CardHeader>
+            <CardTitle className="text-sm">Connection summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Provider</dt>
+                <dd>GitHub</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Account</dt>
+                <dd className="break-words">{account ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Repositories</dt>
+                <dd>
+                  {picked.size === 0 ? (
+                    "—"
+                  ) : (
+                    <ul className="space-y-1">
+                      {[...picked.values()].map((r) => (
+                        <li
+                          key={r.externalRepoId}
+                          className="font-mono text-xs [overflow-wrap:anywhere]"
+                        >
+                          {r.fullName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      }
+      actions={actions}
+    >
       {step === 0 ? (
         <section aria-labelledby="provider-heading" className="space-y-4">
           <h2 id="provider-heading" className="text-base font-semibold">
@@ -147,14 +249,6 @@ export function ConnectRepositoryPage() {
           <p className="text-xs text-muted-foreground">
             Events arrive through the GitHub App. Signatures are verified on every delivery.
           </p>
-          <div className="flex gap-2">
-            <Button variant="ghost" asChild>
-              <Link to={back}>Cancel</Link>
-            </Button>
-            <Button disabled={!selected} onClick={() => setStep(1)}>
-              Next
-            </Button>
-          </div>
         </section>
       ) : null}
 
@@ -242,14 +336,6 @@ export function ConnectRepositoryPage() {
               <Pager pagination={available.data.pagination} onPage={setPage} />
             </>
           ) : null}
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setStep(0)}>
-              Back
-            </Button>
-            <Button disabled={picked.size === 0} onClick={() => setStep(2)}>
-              Review ({picked.size})
-            </Button>
-          </div>
         </section>
       ) : null}
 
@@ -285,29 +371,8 @@ export function ConnectRepositoryPage() {
           <p className="text-xs text-muted-foreground">
             Connecting saves the repository to this workspace. Pipelines are added separately.
           </p>
-          <div className="flex gap-2">
-            <Button variant="ghost" disabled={running} onClick={() => setStep(1)}>
-              Back
-            </Button>
-            {allDone ? (
-              <Button
-                onClick={() => {
-                  toast.success(`${picked.size} repositories connected`);
-                  navigate(back);
-                }}
-              >
-                Done
-              </Button>
-            ) : (
-              <Button disabled={running} onClick={submit}>
-                {anyFailed
-                  ? "Retry failed"
-                  : `Connect ${picked.size} ${picked.size === 1 ? "repository" : "repositories"}`}
-              </Button>
-            )}
-          </div>
         </section>
       ) : null}
-    </>
+    </WizardLayout>
   );
 }

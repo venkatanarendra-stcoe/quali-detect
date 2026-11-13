@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WizardLayout } from "@qmentisai/ui";
 import { canonicalJson, checkEnableable } from "@qmentisai/shared";
 import { useQuery } from "@tanstack/react-query";
-import { CircleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -32,51 +32,21 @@ import {
   usePublishConfig,
   useUpdatePipeline,
 } from "../hooks/use-pipelines.js";
-import { basicsSchema, checkConfig, issueMap, serverIssues } from "../schemas/index.js";
+import {
+  basicsSchema,
+  checkBasics,
+  checkConfig,
+  issueMap,
+  serverIssues,
+} from "../schemas/index.js";
 import { newIdempotencyKey, pipelinesService } from "../services/pipelines-service.js";
 import { useWizardStore } from "../stores/wizard-store.js";
-
-/** Vertical stepper that is a real list of buttons (Tab / Enter / Space), the current step marked with aria-current. */
-function WizardStepper({ step, goTo, problems }) {
-  const visited = useWizardStore((s) => s.visited);
-  return (
-    <nav aria-label="Pipeline steps" className="min-w-0">
-      <ol className="flex gap-1 overflow-x-auto lg:flex-col">
-        {WIZARD_STEPS.map((s, i) => (
-          <li key={s.id}>
-            <button
-              type="button"
-              onClick={() => goTo(s.id)}
-              aria-current={step === s.id ? "step" : undefined}
-              className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                step === s.id
-                  ? "bg-accent font-medium text-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              }`}
-            >
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border-strong text-xs">
-                {i + 1}
-              </span>
-              {s.label}
-              {problems[s.id] && (visited[s.id] || step === "review") ? (
-                <>
-                  <CircleAlert aria-hidden="true" className="size-3.5 text-status-danger" />
-                  <span className="sr-only">(needs attention)</span>
-                </>
-              ) : null}
-            </button>
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
-}
 
 function Banner({ children, tone = "danger", action }) {
   return (
     <div
       role="alert"
-      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-strong bg-secondary p-3 text-sm"
+      className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-strong bg-secondary p-3 text-sm"
     >
       <p className={tone === "danger" ? "" : "text-muted-foreground"}>{children}</p>
       {action}
@@ -155,8 +125,24 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
     ...serverProblems.filter((p) => p.path.startsWith("config")),
   ];
   const errors = issueMap(issues);
-  const problems = { basics: Boolean(nameError), triggers: false, scans: false, controls: false };
-  for (const issue of issues) problems[stepOfPath(issue.path)] = true;
+  // The WHOLE draft (all steps), with the schemas the API uses: Create stays disabled until this is empty.
+  const basicsIssues = useMemo(
+    () =>
+      checkBasics({
+        repositoryId: values.repositoryId ?? "",
+        name: values.name ?? "",
+        description: values.description ?? "",
+        enabled: values.enabled ?? true,
+        changeNote: values.changeNote ?? "",
+      }),
+    [values.repositoryId, values.name, values.description, values.enabled, values.changeNote],
+  );
+  const allIssues = [...basicsIssues, ...issues];
+  // Server-reported problems are shown (stepper, Review) but do not lock Create: the next attempt clears and re-sends them.
+  const blockingCount = basicsIssues.length + clientIssues.length + enableIssue.length;
+  const problems = { basics: false, triggers: false, scans: false, controls: false, review: false };
+  if (nameError) problems.basics = true;
+  for (const issue of allIssues) problems[stepOfPath(issue.path)] = true;
 
   const dirty = form.formState.isDirty;
   useEffect(() => {
@@ -260,7 +246,7 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
     setNameError(null);
     const valid = await form.trigger(["repositoryId", "name", "description", "changeNote"]);
     if (!valid) return goTo("basics");
-    if (!checked.ok || enableIssue.length) return goTo("review");
+    if (blockingCount) return goTo("review");
     const v = form.getValues();
     const name = v.name.trim();
     const description = v.description.trim();
@@ -320,81 +306,70 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
 
   const pending = create.isPending || publish.isPending || update.isPending;
   const title = editing ? `Edit ${snapshot.name}` : "Create pipeline";
+  const visited = useWizardStore((s) => s.visited);
+  const stepStatus = {};
+  WIZARD_STEPS.forEach((s) => {
+    if (problems[s.id] && (step === "review" ? s.id !== "review" : visited[s.id] && s.id !== step))
+      stepStatus[s.id] = "error";
+    else if (visited[s.id] && s.id !== step && s.id !== "review") stepStatus[s.id] = "complete";
+  });
+  const blocked = blockingCount > 0;
   return (
     <>
-      <PageHeader
+      <WizardLayout
         title={title}
         description={
           editing
             ? "Saving publishes a new configuration version."
             : "A pipeline decides what is scanned and when."
         }
-      />
-      {banner ? (
-        <Banner
-          action={
-            banner.conflict ? (
-              <Button variant="secondary" onClick={onReload}>
-                Reload the latest version
-              </Button>
-            ) : null
-          }
-        >
-          {banner.text}
-          {banner.reference ? (
-            <span className="ml-2 text-xs text-subtle-foreground">
-              Reference <span className="font-mono">{banner.reference}</span>
-            </span>
-          ) : null}
-        </Banner>
-      ) : null}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[13rem_minmax(0,1fr)_16rem]">
-        <WizardStepper step={step} goTo={goTo} problems={problems} />
-        <div className="min-w-0">
-          <h2 className="mb-4 text-base font-semibold">{WIZARD_STEPS[stepIndex].label}</h2>
-          {step === "basics" ? (
-            <BasicsStep
-              form={form}
-              repositories={repositories}
-              repositoryLocked={repositoryLocked}
-              repositoryName={chosenRepository?.fullName}
-              editing={editing}
-              nameError={nameError}
-            />
-          ) : null}
-          {step === "triggers" ? (
-            <TriggersStep
-              config={config}
-              edit={edit}
-              errors={errors}
-              options={options}
-              defaultBranch={chosenRepository?.defaultBranch ?? null}
-              canForkPolicy={can("pipeline.manage_fork_policy", { type: "workspace", workspaceId })}
-            />
-          ) : null}
-          {step === "scans" ? (
-            <ScansStep config={config} edit={edit} errors={errors} options={options} />
-          ) : null}
-          {step === "controls" ? (
-            <ControlsStep config={config} edit={edit} errors={errors} options={options} />
-          ) : null}
-          {step === "review" ? (
-            <ReviewStep
-              form={form}
-              config={checked.ok ? checked.config : config}
-              issues={issues}
-              goTo={goTo}
-              editing={editing}
-              currentVersion={snapshot.version}
-              previousConfig={editing ? snapshot.config : null}
-              onTest={() => setTesting(true)}
-            />
-          ) : null}
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+        banner={
+          banner ? (
+            <Banner
+              action={
+                banner.conflict ? (
+                  <Button variant="secondary" onClick={onReload}>
+                    Reload the latest version
+                  </Button>
+                ) : null
+              }
+            >
+              {banner.text}
+              {banner.reference ? (
+                <span className="ml-2 text-xs text-subtle-foreground">
+                  Reference <span className="font-mono">{banner.reference}</span>
+                </span>
+              ) : null}
+            </Banner>
+          ) : null
+        }
+        steps={WIZARD_STEPS}
+        current={step}
+        onStepChange={goTo}
+        stepStatus={stepStatus}
+        stepperLabel="Pipeline steps"
+        summaryTitle="Pipeline summary"
+        summary={
+          <WizardSummary
+            name={values.name}
+            repositoryName={chosenRepository?.fullName}
+            config={config}
+            editing={editing}
+            nextVersion={snapshot.version + 1}
+          />
+        }
+        actions={
+          <>
             <Button variant="ghost" onClick={cancel}>
               Cancel
             </Button>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {step === "review" && blocked ? (
+                <p id="pl-blocked" className="text-xs text-status-danger">
+                  {blockingCount === 1 ? "1 problem" : `${blockingCount} problems`} to fix before
+                  saving.
+                </p>
+              ) : null}
               {stepIndex > 0 ? (
                 <Button variant="secondary" onClick={() => goTo(WIZARD_STEPS[stepIndex - 1].id)}>
                   Back
@@ -403,7 +378,11 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
               {step !== "review" ? (
                 <Button onClick={next}>Next</Button>
               ) : (
-                <Button onClick={save} disabled={pending || !checked.ok}>
+                <Button
+                  onClick={save}
+                  disabled={pending || blocked}
+                  aria-describedby={blocked ? "pl-blocked" : undefined}
+                >
                   {pending
                     ? "Saving…"
                     : editing
@@ -412,16 +391,49 @@ function WizardForm({ mode, workspaceId, snapshot, repository, repositories, opt
                 </Button>
               )}
             </div>
-          </div>
-        </div>
-        <WizardSummary
-          name={values.name}
-          repositoryName={chosenRepository?.fullName}
-          config={config}
-          editing={editing}
-          nextVersion={snapshot.version + 1}
-        />
-      </div>
+          </>
+        }
+      >
+        <h2 className="mb-4 text-base font-semibold">{WIZARD_STEPS[stepIndex].label}</h2>
+        {step === "basics" ? (
+          <BasicsStep
+            form={form}
+            repositories={repositories}
+            repositoryLocked={repositoryLocked}
+            repositoryName={chosenRepository?.fullName}
+            editing={editing}
+            nameError={nameError}
+          />
+        ) : null}
+        {step === "triggers" ? (
+          <TriggersStep
+            config={config}
+            edit={edit}
+            errors={errors}
+            options={options}
+            defaultBranch={chosenRepository?.defaultBranch ?? null}
+            canForkPolicy={can("pipeline.manage_fork_policy", { type: "workspace", workspaceId })}
+          />
+        ) : null}
+        {step === "scans" ? (
+          <ScansStep config={config} edit={edit} errors={errors} options={options} />
+        ) : null}
+        {step === "controls" ? (
+          <ControlsStep config={config} edit={edit} errors={errors} options={options} />
+        ) : null}
+        {step === "review" ? (
+          <ReviewStep
+            form={form}
+            config={checked.ok ? checked.config : config}
+            issues={allIssues}
+            goTo={goTo}
+            editing={editing}
+            currentVersion={snapshot.version}
+            previousConfig={editing ? snapshot.config : null}
+            onTest={() => setTesting(true)}
+          />
+        ) : null}
+      </WizardLayout>
       <DryRunDialog
         draft={{
           repositoryId: values.repositoryId,

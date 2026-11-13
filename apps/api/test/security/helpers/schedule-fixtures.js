@@ -53,7 +53,7 @@ export const NEXT_FIRES = Object.freeze([
     expected: ["2026-03-29T01:00:00.000Z", "2026-03-30T00:00:00.000Z", "2026-03-30T00:30:00.000Z"],
   },
   {
-    name: "an interval-style (hourly) schedule skips the gap instead of adding a fire that would shorten its interval",
+    name: "a wildcard-hour (hourly) schedule skips the gap instead of adding a fire that would shorten its interval",
     expression: "30 * * * *",
     timeZone: "Europe/Berlin",
     after: "2026-03-28T23:00:00Z",
@@ -65,15 +65,48 @@ export const NEXT_FIRES = Object.freeze([
     ],
   },
   {
-    name: "fall back with a step-hour schedule (interval style): the repeated 02:00 fires at BOTH real occurrences (00:00Z and 01:00Z), 1 h apart, the minimum interval",
+    name: "Berlin fall back, step hours N > 1 (0 */2): the repeated 02:00 fires ONCE, at its first occurrence (00:00Z), the next fire is 04:00 local (03:00Z)",
     expression: "0 */2 * * *",
     timeZone: "Europe/Berlin",
     after: "2026-10-24T21:00:00Z",
     expected: [
       "2026-10-24T22:00:00.000Z",
       "2026-10-25T00:00:00.000Z",
-      "2026-10-25T01:00:00.000Z",
       "2026-10-25T03:00:00.000Z",
+      "2026-10-25T05:00:00.000Z",
+    ],
+  },
+  {
+    name: "Berlin fall back, step range (0 0-23/3): the 03:00 local nominal time occurs once on 25 October (the repeated hour is 02:00), so 0 0-23/3 fires 00:00 (22:00Z), 03:00 (02:00Z) and 06:00 (05:00Z) local, never twice",
+    expression: "0 0-23/3 * * *",
+    timeZone: "Europe/Berlin",
+    after: "2026-10-24T20:00:00Z",
+    expected: ["2026-10-24T22:00:00.000Z", "2026-10-25T02:00:00.000Z", "2026-10-25T05:00:00.000Z"],
+  },
+  {
+    name: "New York fall back, step hours (0 */2): the repeated 01:00 is not a step hour; 02:00 local fires once (07:00Z)",
+    expression: "0 */2 * * *",
+    timeZone: "America/New_York",
+    after: "2026-11-01T03:00:00Z",
+    expected: ["2026-11-01T04:00:00.000Z", "2026-11-01T07:00:00.000Z", "2026-11-01T09:00:00.000Z"],
+  },
+  {
+    name: "Berlin spring forward, step hours (0 */2): 02:00 is in the gap and is skipped (no fire at the gap end), 00:00 local then 04:00 local (02:00Z)",
+    expression: "0 */2 * * *",
+    timeZone: "Europe/Berlin",
+    after: "2026-03-28T22:00:00Z",
+    expected: ["2026-03-28T23:00:00.000Z", "2026-03-29T02:00:00.000Z", "2026-03-29T04:00:00.000Z"],
+  },
+  {
+    name: "New York fall back, */1 is a wildcard: the repeated 01:15 fires at both real occurrences",
+    expression: "15 */1 * * *",
+    timeZone: "America/New_York",
+    after: "2026-11-01T03:30:00Z",
+    expected: [
+      "2026-11-01T04:15:00.000Z",
+      "2026-11-01T05:15:00.000Z",
+      "2026-11-01T06:15:00.000Z",
+      "2026-11-01T07:15:00.000Z",
     ],
   },
   {
@@ -110,9 +143,9 @@ export const NEXT_FIRES = Object.freeze([
 ]);
 
 /**
- * Fires inside one LOCAL DAY of a transition day, as UTC instants in `(from, to]`. A named-hour expression fires once in the
- * repeated hour; an interval-style expression fires once per REAL UTC hour (a fall-back day has 25 real hours, a spring-forward
- * day 23): the instants are asserted, so a double fire of one slot is a different instant count or a repeated instant.
+ * Fires inside one LOCAL DAY of a transition day, as UTC instants in `(from, to]`. A named-hour or step-hour (N > 1)
+ * expression fires once in the repeated hour; a wildcard-hour expression (`*` or `*\/1`) fires once per REAL UTC hour (a fall-back
+ * day has 25 real hours, a spring-forward day 23): the instants are asserted, so a double fire of one slot is a different instant count or a repeated instant.
  */
 export const DAY_FIRES = Object.freeze([
   {
@@ -165,9 +198,40 @@ export const DAY_FIRES = Object.freeze([
     first: "2026-03-28T23:30:00.000Z",
     last: "2026-03-29T21:30:00.000Z",
   },
+  {
+    name: "Berlin fall-back day, step hours 0 */2: 12 fires, the repeated 02:00 once (00:00Z), none at the second occurrence (01:00Z)",
+    expression: "0 */2 * * *",
+    timeZone: "Europe/Berlin",
+    from: "2026-10-24T21:00:00Z",
+    to: "2026-10-25T22:00:00Z",
+    count: 12,
+    first: "2026-10-24T22:00:00.000Z",
+    last: "2026-10-25T21:00:00.000Z",
+    never: ["2026-10-25T01:00:00.000Z"],
+  },
+  {
+    name: "New York fall-back day, */1 wildcard hour: 25 fires",
+    expression: "15 */1 * * *",
+    timeZone: "America/New_York",
+    from: "2026-11-01T04:00:00Z",
+    to: "2026-11-02T05:00:00Z",
+    count: 25,
+    first: "2026-11-01T04:15:00.000Z",
+    last: "2026-11-02T04:15:00.000Z",
+  },
+  {
+    name: "New York spring-forward day (23 real hours), hourly 30 * * * *: 23 fires, none inside the gap",
+    expression: "30 * * * *",
+    timeZone: "America/New_York",
+    from: "2026-03-08T05:00:00Z",
+    to: "2026-03-09T04:00:00Z",
+    count: 23,
+    first: "2026-03-08T05:30:00.000Z",
+    last: "2026-03-09T03:30:00.000Z",
+  },
 ]);
 
-/** Fall-back days walked through the scheduler handler (an interval-style expression, both overlap occurrences). */
+/** Fall-back days walked through the scheduler handler (a wildcard-hour expression, both overlap occurrences). */
 export const OVERLAP_WALKS = Object.freeze([
   {
     name: "Berlin hourly across the fall back",
@@ -188,6 +252,18 @@ export const MIN_GAPS = Object.freeze([
   {
     expression: "0 * * * *",
     timeZone: "America/New_York",
+    from: "2026-01-01T00:00:00Z",
+    expected: 3600,
+  },
+  {
+    expression: "0 */2 * * *",
+    timeZone: "Europe/Berlin",
+    from: "2026-01-01T00:00:00Z",
+    expected: 7200,
+  },
+  {
+    expression: "30 * * * *",
+    timeZone: "Europe/Berlin",
     from: "2026-01-01T00:00:00Z",
     expected: 3600,
   },
@@ -240,6 +316,8 @@ export function runEvaluationFixtures() {
     if (got.length !== row.count || got[0] !== row.first || got[got.length - 1] !== row.last)
       problems.push(`${row.name}: ${got.length} fires (${got[0]} .. ${got[got.length - 1]})`);
     if (new Set(got).size !== got.length) problems.push(`${row.name}: a slot fired twice`);
+    for (const bad of row.never ?? [])
+      if (got.includes(bad)) problems.push(`${row.name}: fired at ${bad}, the repeated occurrence`);
   }
   // previous fire: the gap-end fire is the one at or before 01:00Z on 29 March; strictly before it is the previous day's
   const gapEnd = new Date("2026-03-29T01:00:00Z");
@@ -279,6 +357,9 @@ export function runEvaluationFixtures() {
   const good = [
     ["0 * * * *", "America/New_York"],
     ["30 * * * *", "Europe/Berlin"],
+    ["30 * * * *", "America/New_York"],
+    ["0 */2 * * *", "Europe/Berlin"],
+    ["0 */2 * * *", "America/New_York"],
     ["0 2 * * MON-FRI", "Europe/Berlin"],
     ["0 0 29 2 *", "UTC"],
   ];

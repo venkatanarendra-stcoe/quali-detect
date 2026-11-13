@@ -10,10 +10,11 @@
  * (`Intl`), with the rules of SPEC §5.6 (croner's own time-zone mode shifts a nonexistent local time by the length of the
  * gap, 02:30 -> 03:30, which is not the rule the owner approved):
  * - a local time that does not exist (spring forward) fires ONCE at the end of the gap (the first valid instant after it);
- *   the exception is an interval-style expression (hour field `*` or `*\/n`): there the nominal times inside the gap are
+ *   the exception is a wildcard or step hour field (`*`, `*\/n`, `0-23/3`): there the nominal times inside the gap are
  *   skipped, because a fire at the gap end would shorten the interval of an hourly schedule below the platform minimum;
- * - a local time that occurs twice (fall back) fires once, at its FIRST occurrence; an interval-style expression instead fires
- *   at EVERY real occurrence (once per real hour: `30 * * * *` fires 25 times on a fall-back day), the same reason in reverse;
+ * - a local time that occurs twice (fall back) fires once, at its FIRST occurrence (named hours, and step hours N > 1 such as
+ *   `0 *\/2`); only a wildcard hour (`*`, `*\/1`) fires at EVERY real occurrence (once per real hour: `30 * * * *` fires 25
+ *   times on a fall-back day), so an hourly schedule keeps its hour (owner decision 2026-11-13 follow-up);
  * - the slot is the UTC instant of that fire, never changed by jitter.
  */
 import { Cron } from "croner";
@@ -90,12 +91,19 @@ export function wallToInstant(timeZone, wallMs) {
 /** @param {string} expression the whitespace-normalized expression */
 const normalize = (expression) => expression.trim().split(/\s+/).join(" ");
 
-/** Interval-style: the hour field starts with `*` in some list entry (`*`, `*\/2`); such a schedule skips gap times and fires at every real occurrence of a repeated time. */
-const isIntervalStyle = (expression) =>
-  normalize(expression)
-    .split(" ")[1]
-    .split(",")
-    .some((entry) => entry.startsWith("*"));
+/** The entries of the hour field. @param {string} expression */
+const hourEntries = (expression) => normalize(expression).split(" ")[1].split(",");
+
+/** Wildcard hour: some entry is `*` or `*\/1` (every hour). Fires at EVERY real occurrence of a repeated hour (25 on a fall-back day). */
+const isWildcardHour = (expression) =>
+  hourEntries(expression).some((entry) => entry === "*" || entry === "*/1");
+
+/** Step hour: some entry has a step N > 1 (`*\/2`, `0-23/3`). Skips gap times (spring forward) but fires ONCE in a repeated hour. */
+const isStepHour = (expression) =>
+  hourEntries(expression).some((entry) => {
+    const step = entry.split("/")[1];
+    return step !== undefined && Number(step) > 1;
+  });
 
 const crons = new Map();
 /** @param {string} expression */
@@ -117,7 +125,8 @@ function cronOf(expression) {
  */
 function* fires(expression, timeZone, afterMs, horizonMs = SCHEDULE_HORIZON_DAYS * DAY_MS) {
   const cron = cronOf(expression);
-  const intervalStyle = isIntervalStyle(expression);
+  const wildcard = isWildcardHour(expression);
+  const skipsGap = wildcard || isStepHour(expression);
   const limit = afterMs + horizonMs;
   // Start four hours earlier on the wall clock: a zone offset moves by at most two hours, so every fire after `afterMs` is seen.
   let wall = afterMs + zoneOffsetMs(timeZone, afterMs) - 4 * HOUR_MS;
@@ -127,10 +136,10 @@ function* fires(expression, timeZone, afterMs, horizonMs = SCHEDULE_HORIZON_DAYS
     if (!next) return;
     wall = next.getTime();
     const { instants, kind } = wallToInstant(timeZone, wall);
-    if (kind === "gap" && intervalStyle) continue;
-    // a repeated time fires at its first occurrence only, except for an interval-style expression: it fires at every real
-    // occurrence, i.e. once per REAL hour (a fall-back day has 25), so the interval is never longer than its steps
-    for (const instant of kind === "overlap" && !intervalStyle ? instants.slice(0, 1) : instants) {
+    if (kind === "gap" && skipsGap) continue;
+    // a repeated time fires at its first occurrence only (named hours and step hours N > 1), except for a wildcard hour: it
+    // fires at every real occurrence, i.e. once per REAL hour (a fall-back day has 25)
+    for (const instant of kind === "overlap" && !wildcard ? instants.slice(0, 1) : instants) {
       if (instant <= last) continue;
       if (instant > limit) return;
       last = instant;

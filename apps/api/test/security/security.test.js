@@ -8501,7 +8501,7 @@ const schWorld = () =>
           schCfg({ cron: row.expression, timezone: row.timeZone }),
         ),
       );
-    // fall-back days through the handler (interval-style expressions, both overlap occurrences) and the jitter check
+    // fall-back days through the handler (wildcard-hour expressions, both overlap occurrences; step and named hours once) and the jitter check
     p.wild = [];
     for (const row of DAY_FIRES.slice(0, 2))
       p.wild.push(
@@ -8966,7 +8966,7 @@ const schWorld = () =>
   );
   add(
     "PIP-043",
-    "daylight saving and slots (fixed instants, Europe/Berlin and America/New_York, both transitions of 2026): a local time inside the spring-forward gap fires once at the gap end (a named-hour expression) or is skipped (a wildcard or step-hour expression), a repeated local time fires once at its first occurrence (named hours) or at every real occurrence, 25 fires on a fall-back day (wildcard or step hours), no slot twice, the slot is the UTC instant, the real minimum gap counts the transitions, the missed-run plan fires only the latest pending slot within the lateness limit and records one missed run beyond it",
+    "daylight saving and slots (fixed instants, Europe/Berlin and America/New_York, both transitions of 2026): a local time inside the spring-forward gap fires once at the gap end (a named-hour expression) or is skipped (a wildcard or step-hour expression), a repeated local time fires once at its first occurrence (named hours and step hours N > 1) or at every real occurrence, 25 fires on a fall-back day and 23 on a spring-forward day (wildcard hour `*` or `*/1` only), no slot twice, the slot is the UTC instant, the real minimum gap counts the transitions, the missed-run plan fires only the latest pending slot within the lateness limit and records one missed run beyond it",
     { status: 200 },
     async () => ({
       status: 200,
@@ -9486,7 +9486,7 @@ const schWorld = () =>
   );
   add(
     "PIP-050",
-    "daylight saving fall back through the scheduler (Europe/Berlin 25 October and America/New_York 1 November 2026, fixed instants): an hourly interval-style schedule fires once per REAL UTC hour (25 executions on the fall-back day, the repeated hour at both occurrences), no slot twice, each slot handled again creates nothing",
+    "daylight saving fall back through the scheduler (Europe/Berlin 25 October and America/New_York 1 November 2026, fixed instants): a wildcard-hour schedule fires once per REAL UTC hour (25 executions on the fall-back day, the repeated hour at both occurrences), no slot twice, each slot handled again creates nothing; step hours N > 1 and named hours fire once in the repeated hour (Berlin 0 */2: 12 fires, none at 01:00Z) and a wildcard hour fires 23 times on a spring-forward day",
     { status: 200 },
     async () => {
       const x = await schWorld();
@@ -9522,6 +9522,20 @@ const schWorld = () =>
         }
         if ((await schExecs(pipeline.id)).length !== expected.length)
           problems.push(`${day.name}: a slot created a second execution on repeat`);
+      }
+      // the other days of the fixture: step hours (N > 1) and named hours once in the repeated hour, 23 on spring forward
+      for (const day of DAY_FIRES.slice(2)) {
+        const got = [];
+        for (
+          let at = nextFireAfter(day.expression, day.timeZone, new Date(day.from));
+          at && at.getTime() <= new Date(day.to).getTime();
+          at = nextFireAfter(day.expression, day.timeZone, at)
+        )
+          got.push(at.toISOString());
+        if (got.length !== day.count || new Set(got).size !== got.length)
+          problems.push(`${day.name}: ${got.length} fires`);
+        for (const never of day.never ?? [])
+          if (got.includes(never)) problems.push(`${day.name}: fired at ${never}`);
       }
       return { status: 200, json: null, problems };
     },

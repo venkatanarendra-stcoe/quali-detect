@@ -910,6 +910,22 @@ Parts A to E built, part G (suite consolidation) started (spec approved 2026-11-
 
   Two rules need two mutations to show a change because each half is absorbed by the other (router idempotency: the lookup and the unique-violation handler; the fork flag: the router default and the message contract). The suite is 457 checks (`EXPECTED_CHECKS`), `ADR-008` and `apps/api/test/security/README.md` updated.
 
+- **2026-11-13, part G (live test with the real GitHub App; repository `STCOE-TESTING/qm-test-2-renamed`, workspace Identity & Access, pipeline `live-test`: push `main`, pull_request to `main`, schedule `2 * * * *` UTC, manual; SCA and SBOM on; fork policy `skip`, later `run_without_credentials`).** Webhooks arrived through the tunnel and were verified; the trigger router (`pipeline-triggers` queue) and the scheduler ran against the real broker and database.
+  | Step | Result |
+  |---|---|
+  | Push to `main` (first run) | one `queued` execution, trigger `push-main`, scan kind `full` (`first_run`), trust `trusted`; one `pipeline.execution.requested` message |
+  | **Schedule** | the slot fired **exactly at 07:02:00 UTC** (jitter 0 for the test): trigger `hourly`, scan kind `full` (`scheduled`), `schedule_slot` 07:02:00, quota unit consumed |
+  | Merge of an earlier PR into `main` | `pull_request.closed` created nothing (the trigger lists opened, synchronize, reopened); the merge push created one `incremental` execution |
+  | Push of a new branch `feature-x` and a commit on it | accepted by the SCM ingest, **no execution and no decision row** (branch filter: counters only, Q20) |
+  | PR #2 `feature-x` -> `main` (same repository) | one execution, trigger `pr`, ref `pull/2`, `incremental`, trust `trusted` |
+  | **Fork PR #3 with policy `skip`** | **no execution**; one decision row `scm_event / skipped_by_policy / fork_policy_skip` for trigger `pr`, PR 3 (the T-27 "skipped events" source) |
+  | Fork policy changed to `run_without_credentials` by an Admin | version 2; audit `pipeline.fork_policy_changed` (from/to version and config hash only) |
+  | **Fork PR #3 synchronize (second commit in the fork)** | one execution, config version **2**, trust **`untrusted_fork`**, `incremental`; its `pipeline.execution.requested` message carries only ids and flags (no token, secret or credential text) |
+  | Redelivery of the PR #2 delivery | `202`; executions unchanged, one delivery row (deduped at ingest by the delivery GUID, then by `(scm event, pipeline)`) |
+  | Manual run (Admin) | `202`, one `queued` execution (`manual`, `full`); the same `Idempotency-Key` again created no second execution |
+  | Manual run as Viewer | `403`; nothing created; audit `execution.manual_denied` (`permission_denied`) |
+  Totals: 6 executions (push, schedule, merge push, PR, manual, untrusted_fork PR), 1 decision row, 6 published messages, no duplicates. The seeded Manager belongs to Payments only, so its calls on this Identity & Access pipeline were `404` (hidden workspace), not the fork-policy `403`; the permission itself is covered by PIP-026. Not exercised live: the second schedule tick (checked separately), a draft PR, tag pushes, quota exhaustion and the pipelines cap (covered by the suite).
+
 ## 17. What I verified in the code (built facts relied on)
 
 | Fact | Where |

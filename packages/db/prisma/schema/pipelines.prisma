@@ -20,7 +20,10 @@ enum PipelineMissedPolicy {
   @@map("pipeline_missed_policy")
 }
 
-/// Written by the pipelines module: queued, blocked, skipped, cancelled. Reserved for the execution module: the rest.
+/// Written by the pipelines module: queued, blocked, skipped, cancelled. The execution module (docs/modules/executions/SPEC.md
+/// §6.1) drives the rest. `cancelling` is a legacy value that is NEVER written (CHECK `executions_not_cancelling_check`,
+/// SPEC CF-1): a cancel request is the `cancel_*` columns of a preparing/running row. `partial` is appended last because
+/// PostgreSQL enums only grow at the end (`ALTER TYPE ... ADD VALUE`).
 enum ExecutionStatus {
   queued
   blocked
@@ -32,8 +35,16 @@ enum ExecutionStatus {
   succeeded
   failed
   timed_out
+  partial
 
   @@map("execution_status")
+}
+
+enum ExecutionCancelMode {
+  graceful
+  immediate
+
+  @@map("execution_cancel_mode")
 }
 
 enum ExecutionRefType {
@@ -180,55 +191,89 @@ model PipelineTrigger {
   @@map("pipeline_triggers")
 }
 
-/// One execution request (minimum model; the execution module extends it). Everything except `status`, `statusReason`,
-/// `updatedAt` and a one-time `commitSha` null -> value is immutable (database trigger). `scmEventId` has no foreign key
-/// (scm_events retention is undecided, SPEC §7.6).
+/// One execution (SPEC executions §7.2). Created `queued` (or `blocked`/`skipped`) by the pipelines module and driven by the
+/// execution module. A database trigger (`executions_guard`) enforces the state machine of SPEC §6.1: only the allowed
+/// transitions, terminal rows are immutable, one-time columns accept null -> value only, `statusRev` follows every status
+/// change, lease epochs only grow and terminal rows hold no lease; every status change writes an `execution_events` row.
+/// Everything not listed as lifecycle (status, reason, lifecycle timestamps, cancel request, lease, quota release, archive
+/// facts, counts, `commitSha` once) is immutable. `scmEventId` has no foreign key (scm_events retention is undecided,
+/// SPEC pipelines §7.6). The unique keys on `scmEventId` and `scheduleSlot` are PARTIAL indexes written in the migration
+/// (`WHERE retry_of_execution_id IS NULL`) because a retry repeats its predecessor's origin; Prisma cannot model them.
 model Execution {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  workspaceId       String              @map("workspace_id") @db.Uuid
-  repositoryId      String              @map("repository_id") @db.Uuid
-  pipelineId        String              @map("pipeline_id") @db.Uuid
-  configVersionId   String              @map("config_version_id") @db.Uuid
-  configVersion     Int                 @map("config_version")
-  configHash        String              @map("config_hash")
-  triggerType       PipelineTriggerType @map("trigger_type")
-  triggerKey        String              @map("trigger_key")
-  scmEventId        String?             @map("scm_event_id") @db.Uuid
-  scmDeliveryId     String?             @map("scm_delivery_id")
-  scmEventKind      ScmEventKind?       @map("scm_event_kind")
-  scheduleSlot      DateTime?           @map("schedule_slot") @db.Timestamptz(6)
-  requestedByUserId String?             @map("requested_by_user_id") @db.Uuid
-  refType           ExecutionRefType    @map("ref_type")
-  refName           String              @map("ref_name")
-  baseRef           String?             @map("base_ref")
-  pullRequestNumber Int?                @map("pull_request_number")
-  commitSha         String?             @map("commit_sha")
-  baseSha           String?             @map("base_sha")
-  scanKind          ExecutionScanKind   @map("scan_kind")
-  scanKindReason    String              @map("scan_kind_reason")
-  trust             ExecutionTrust      @default(trusted)
-  concurrencyGroup  String              @map("concurrency_group")
-  status            ExecutionStatus     @default(queued)
-  statusReason      String?             @map("status_reason")
-  quotaPeriod       String?             @map("quota_period")
-  quotaConsumed     Int                 @default(0) @map("quota_consumed")
-  idempotencyKey    String              @map("idempotency_key")
-  correlationId     String?             @map("correlation_id")
-  requestedAt       DateTime            @default(now()) @map("requested_at") @db.Timestamptz(6)
-  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      String               @id @default(uuid()) @db.Uuid
+  tenantId                String               @map("tenant_id") @db.Uuid
+  workspaceId             String               @map("workspace_id") @db.Uuid
+  repositoryId            String               @map("repository_id") @db.Uuid
+  pipelineId              String               @map("pipeline_id") @db.Uuid
+  configVersionId         String               @map("config_version_id") @db.Uuid
+  configVersion           Int                  @map("config_version")
+  configHash              String               @map("config_hash")
+  triggerType             PipelineTriggerType  @map("trigger_type")
+  triggerKey              String               @map("trigger_key")
+  scmEventId              String?              @map("scm_event_id") @db.Uuid
+  scmDeliveryId           String?              @map("scm_delivery_id")
+  scmEventKind            ScmEventKind?        @map("scm_event_kind")
+  scheduleSlot            DateTime?            @map("schedule_slot") @db.Timestamptz(6)
+  requestedByUserId       String?              @map("requested_by_user_id") @db.Uuid
+  retryOfExecutionId      String?              @map("retry_of_execution_id") @db.Uuid
+  refType                 ExecutionRefType     @map("ref_type")
+  refName                 String               @map("ref_name")
+  baseRef                 String?              @map("base_ref")
+  pullRequestNumber       Int?                 @map("pull_request_number")
+  commitSha               String?              @map("commit_sha")
+  baseSha                 String?              @map("base_sha")
+  scanKind                ExecutionScanKind    @map("scan_kind")
+  scanKindReason          String               @map("scan_kind_reason")
+  trust                   ExecutionTrust       @default(trusted)
+  concurrencyGroup        String               @map("concurrency_group")
+  status                  ExecutionStatus      @default(queued)
+  statusReason            String?              @map("status_reason")
+  /// +1 on every status change (assigned by the trigger); the ordering key of realtime hints.
+  statusRev               Int                  @default(0) @map("status_rev")
+  claimedAt               DateTime?            @map("claimed_at") @db.Timestamptz(6)
+  startedAt               DateTime?            @map("started_at") @db.Timestamptz(6)
+  finishedAt              DateTime?            @map("finished_at") @db.Timestamptz(6)
+  deadlineAt              DateTime?            @map("deadline_at") @db.Timestamptz(6)
+  taskCounts              Json?                @map("task_counts")
+  /// Cancel request (SPEC CF-1, ER-18): all four set together, once, on a preparing/running row.
+  cancelRequestedAt       DateTime?            @map("cancel_requested_at") @db.Timestamptz(6)
+  cancelRequestedByUserId String?              @map("cancel_requested_by_user_id") @db.Uuid
+  cancelMode              ExecutionCancelMode? @map("cancel_mode")
+  cancelGraceUntil        DateTime?            @map("cancel_grace_until") @db.Timestamptz(6)
+  /// Worker lease (SPEC ER-27): owner, expiry and heartbeat are set together while preparing/running; the epoch only grows
+  /// (+1 on the claim and on every reclaim) and is the fence of every holder write (ER-30).
+  leaseOwner              String?              @map("lease_owner")
+  leaseEpoch              Int                  @default(0) @map("lease_epoch")
+  leaseExpiresAt          DateTime?            @map("lease_expires_at") @db.Timestamptz(6)
+  heartbeatAt             DateTime?            @map("heartbeat_at") @db.Timestamptz(6)
+  quotaPeriod             String?              @map("quota_period")
+  quotaConsumed           Int                  @default(0) @map("quota_consumed")
+  /// Set once, in the statement that makes the row terminal, when its quota unit was given back (SPEC §5.9).
+  quotaReleasedAt         DateTime?            @map("quota_released_at") @db.Timestamptz(6)
+  archiveSha256           String?              @map("archive_sha256")
+  archiveBytes            BigInt?              @map("archive_bytes")
+  idempotencyKey          String               @map("idempotency_key")
+  correlationId           String?              @map("correlation_id")
+  requestedAt             DateTime             @default(now()) @map("requested_at") @db.Timestamptz(6)
+  createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   pipeline Pipeline              @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict)
   version  PipelineConfigVersion @relation(fields: [tenantId, pipelineId, configVersionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+  retryOf  Execution?            @relation("ExecutionRetry", fields: [tenantId, pipelineId, retryOfExecutionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+  retries  Execution[]           @relation("ExecutionRetry")
+  tasks    ScanTask[]
+  events   ExecutionEvent[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, pipelineId, id])
+  @@unique([tenantId, workspaceId, repositoryId, pipelineId, id])
   @@unique([tenantId, pipelineId, idempotencyKey])
-  @@unique([tenantId, pipelineId, scmEventId])
-  @@unique([tenantId, pipelineId, scheduleSlot])
   @@index([tenantId, pipelineId, requestedAt(sort: Desc)])
   @@index([tenantId, workspaceId, status, requestedAt(sort: Desc)])
+  @@index([tenantId, workspaceId, requestedAt(sort: Desc), id(sort: Desc)])
+  @@index([tenantId, pipelineId, requestedAt(sort: Desc), id(sort: Desc)])
   @@index([tenantId, pipelineId, concurrencyGroup, status])
   @@index([status, requestedAt])
   @@map("executions")

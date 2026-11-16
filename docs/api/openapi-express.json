@@ -43031,7 +43031,8 @@
                 "cancelling",
                 "succeeded",
                 "failed",
-                "timed_out"
+                "timed_out",
+                "partial"
               ]
             },
             "required": false,

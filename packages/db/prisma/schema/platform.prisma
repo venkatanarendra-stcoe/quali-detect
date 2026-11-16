@@ -90,6 +90,11 @@ model Tenant {
   pipelineVersions    PipelineConfigVersion[]
   pipelineTriggers    PipelineTrigger[]
   executions          Execution[]
+  executionEvents     ExecutionEvent[]
+  scanTasks           ScanTask[]
+  scanTaskAttempts    ScanTaskAttempt[]
+  scanResults         ScanResult[]
+  scanResultItems     ScanResultItem[]
   triggerDecisions    PipelineTriggerDecision[]
 
   @@index([status])

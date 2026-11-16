@@ -77,6 +77,7 @@ export const executionsQuerySchema = z
         "succeeded",
         "failed",
         "timed_out",
+        "partial",
       ])
       .optional(),
     triggerType: z.enum(PIPELINE_TRIGGER_TYPES).optional(),

@@ -14,7 +14,7 @@ const SHA = "a".repeat(40);
 const SHA2 = "b".repeat(40);
 
 /** Runs `fn`; answers `{ ok: true }` or the rejection with its Prisma code and message. @param {() => Promise<any>} fn */
-async function attempt(fn) {
+export async function attempt(fn) {
   try {
     await fn();
     return { ok: true, code: null, message: "" };
@@ -169,14 +169,14 @@ export async function buildPipelineDbWorld(db) {
 }
 
 /** Records a problem unless `r` is a rejection; `needle` (a Prisma code or message text) must match. */
-function mustReject(problems, label, r, needle) {
+export function mustReject(problems, label, r, needle) {
   if (r.ok) problems.push(`${label}: accepted`);
   else if (needle && r.code !== needle && !r.message.includes(needle))
     problems.push(
       `${label}: rejected for another reason (${r.code ?? r.message.trim().split("\n").pop().slice(0, 120)})`,
     );
 }
-const mustAccept = (problems, label, r) => {
+export const mustAccept = (problems, label, r) => {
   if (!r.ok)
     problems.push(
       `control failed, ${label}: ${r.code ?? r.message.trim().split("\n").pop().slice(0, 160)}`,
@@ -184,7 +184,7 @@ const mustAccept = (problems, label, r) => {
 };
 const ROLLBACK = new Error("rollback");
 /** Runs raw SQL in a transaction that is always rolled back (for TRUNCATE probes). */
-const probe = (db, fn) =>
+export const probe = (db, fn) =>
   attempt(() =>
     db.$transaction(async (tx) => {
       await fn(tx);
@@ -759,7 +759,7 @@ export const PIPDB_CHECKS = [
   },
   {
     id: "PIPDB-010",
-    name: "an execution's snapshot and identity are immutable: only status, status_reason, updated_at and a one-time commit_sha can change",
+    name: "an execution's snapshot and identity are immutable: only the lifecycle columns (status with its reason, a one-time commit_sha, ...) can change, and a terminal row accepts no UPDATE at all",
     async run(c) {
       const p = [];
       const { A } = c;
@@ -767,41 +767,48 @@ export const PIPDB_CHECKS = [
       const other = await c.published(A, 1);
       const e = await c.execution(one.pipeline, one.version);
       const upd = (data) => attempt(() => c.db.execution.update({ where: { id: e.id }, data }));
-      mustAccept(
-        p,
-        "status and status_reason",
-        await upd({ status: "cancelled", statusReason: "superseded" }),
-      );
       mustAccept(p, "pinning commit_sha once (null to a value)", await upd({ commitSha: SHA }));
       mustAccept(p, "rewriting commit_sha to the same value", await upd({ commitSha: SHA }));
       mustReject(
         p,
         "changing a pinned commit_sha",
         await upd({ commitSha: SHA2 }),
-        "commit_sha is already pinned",
+        "can only be set once",
       );
-      mustReject(p, "config_hash", await upd({ configHash: "changed" }), "only status");
+      mustReject(p, "config_hash", await upd({ configHash: "changed" }), "lifecycle columns");
       mustReject(
         p,
         "config_version_id",
         await upd({ configVersionId: other.version.id }),
-        "only status",
+        "lifecycle columns",
       );
-      mustReject(p, "config_version", await upd({ configVersion: 9 }), "only status");
+      mustReject(p, "config_version", await upd({ configVersion: 9 }), "lifecycle columns");
       mustReject(
         p,
         "idempotency_key",
         await upd({ idempotencyKey: "scm:rewritten:push" }),
-        "only status",
+        "lifecycle columns",
       );
-      mustReject(p, "trigger_type", await upd({ triggerType: "manual" }), "only status");
-      mustReject(p, "trust", await upd({ trust: "untrusted_fork" }), "only status");
+      mustReject(p, "trigger_type", await upd({ triggerType: "manual" }), "lifecycle columns");
+      mustReject(p, "trust", await upd({ trust: "untrusted_fork" }), "lifecycle columns");
       mustReject(
         p,
         "quota_consumed",
         await upd({ quotaConsumed: 5, quotaPeriod: "2026-12" }),
-        "only status",
+        "lifecycle columns",
       );
+      mustAccept(
+        p,
+        "status and status_reason together (queued to cancelled)",
+        await upd({ status: "cancelled", statusReason: "superseded" }),
+      );
+      mustReject(
+        p,
+        "any change of a terminal row",
+        await upd({ statusReason: "other" }),
+        "terminal",
+      );
+      mustReject(p, "pinning on a terminal row", await upd({ commitSha: SHA }), "terminal");
       const after = await c.db.execution.findUnique({ where: { id: e.id } });
       if (
         after.configHash !== e.configHash ||

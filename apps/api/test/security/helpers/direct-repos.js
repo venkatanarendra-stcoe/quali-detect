@@ -6,6 +6,9 @@ import {
   createSecretRepository,
   createTenantRepository,
   createEntitlementRepository,
+  createExecutionIdempotency,
+  createExecutionRepository,
+  executionStepKey,
 } from "@qmentisai/db";
 import { NonRetryableError, createOutbox } from "@qmentisai/infra";
 import { createAuthzRepository } from "../../../src/authz/repository.js";
@@ -48,6 +51,11 @@ const sort = (field, direction = "asc") => [{ field, direction }];
 const PAGE = { page: 1, pageSize: 50 };
 const quiet = { warn() {}, error() {}, info() {}, debug() {} };
 const rand = (n = 6) => randomBytes(n).toString("hex");
+/** Removes a scratch execution of a control: its history rows (written by the status trigger) reference it with RESTRICT. */
+const dropExecution = async (db, id) => {
+  await db.executionEvent.deleteMany({ where: { executionId: id } });
+  await db.execution.deleteMany({ where: { id } });
+};
 
 /** Whether a result carries no data: null, 0, false, [], an empty page or `{ count: 0 }`. @param {any} v */
 function isEmpty(v) {
@@ -293,6 +301,14 @@ export async function buildDalWorld(db) {
   await db.processedMessage.create({ data: processed(keys.done, "done") });
   await db.processedMessage.create({ data: processed(keys.complete, "processing") });
   await db.processedMessage.create({ data: processed(keys.release, "processing") });
+  // the execution idempotency helper's key (DAL-224..): X has a finished step; tenant Y running the same step must not see it
+  keys.execStep = executionStepKey({
+    executionId: "00000000-0000-4000-8000-0000000000e1",
+    step: "claim",
+  });
+  await db.processedMessage.create({
+    data: { ...processed(keys.execStep, "done"), consumer: "dal-execution" },
+  });
   await db.tenantDataKey.create({
     data: { tenantId: X.id, version: 1, wrappedKey: "dal-wrapped", masterKeyVersion: 1 },
   });
@@ -405,9 +421,26 @@ export async function buildDalWorld(db) {
       metadata: { reason: "quota_exceeded" },
     },
   });
+  // a running execution holds a lease (CHECK executions_lease_check): it is claimed and started the way a worker would
   const plRunning = await db.execution.create({
-    data: executionData({ status: "running", concurrencyGroup: "manual:running" }),
+    data: executionData({ concurrencyGroup: "manual:running" }),
   });
+  await db.$executeRaw`
+    UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-worker',
+      lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '1 hour' WHERE id = ${plRunning.id}::uuid`;
+  await db.$executeRaw`UPDATE executions SET status = 'running' WHERE id = ${plRunning.id}::uuid`;
+  // execution module fixtures (part B, DAL-224..): a queued request, and a preparing one whose short lease has expired by the
+  // time the entries run (the world waits for it below), so reclaim calls with the wrong tenant are not vacuously refused
+  const exQueued = await db.execution.create({
+    data: executionData({ concurrencyGroup: "manual:ex-queued" }),
+  });
+  const exExpired = await db.execution.create({
+    data: executionData({ concurrencyGroup: "manual:ex-expired" }),
+  });
+  await db.$executeRaw`
+    UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-lost-worker',
+      lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '200 milliseconds' WHERE id = ${exExpired.id}::uuid`;
+  await new Promise((resolve) => setTimeout(resolve, 400));
   // the schedule handler's fixtures (part E): one due schedule trigger, one without a planned time, and the request of a slot
   const plSchedule = await db.pipelineTrigger.create({
     data: {
@@ -477,6 +510,8 @@ export async function buildDalWorld(db) {
     triggerId: plTrigger.id,
     executionId: plExecution.id,
     runningId: plRunning.id,
+    exQueuedId: exQueued.id,
+    exExpiredId: exExpired.id,
     decisionId: plDecision.id,
     pushEvent: plPushEvent,
     pushExecution: plPushExecution,
@@ -642,6 +677,8 @@ export async function buildDalWorld(db) {
     webhooks: createWebhookRepository({ db }),
     users: createUserRepository({ db }),
     preferences: createUserPreferenceRepository({ db }),
+    executions: createExecutionRepository({ db }),
+    executionIdempotency: createExecutionIdempotency({ db }),
     workspaceMembers: createWorkspaceMemberRepository({ db }),
     workspaces: createWorkspaceRepository({ db }),
     baseWorkspace: createTenantRepository({ model: "workspace", getClient: () => db }),
@@ -721,6 +758,11 @@ async function snapshot(c) {
     db.pipelineTrigger.findMany({ where: tenant }),
     db.execution.findMany({ where: tenant }),
     db.pipelineTriggerDecision.findMany({ where: tenant }),
+    db.executionEvent.findMany({ where: tenant }),
+    db.scanTask.findMany({ where: tenant }),
+    db.scanTaskAttempt.findMany({ where: tenant }),
+    db.scanResult.findMany({ where: tenant }),
+    db.scanResultItem.findMany({ where: tenant }),
     db.repository.findMany({ where: { tenantId: c.v.id } }),
     db.scmWorkspaceLinkRepository.findMany({ where: { tenantId: c.v.id } }),
   ]);
@@ -2565,12 +2607,12 @@ export function buildDalEntries() {
     (c) => PL(c).createExecution(c.pl.executionData({ tenantId: c.y })),
     {
       mayThrow: true,
-      ...created("the execution", (c, row) => c.db.execution.deleteMany({ where: { id: row.id } })),
+      ...created("the execution", (c, row) => dropExecution(c.db, row.id)),
       control: async (c) => {
         const row = await PL(c).createExecution(
           c.pl.executionData({ concurrencyGroup: "scratch" }),
         );
-        await c.db.execution.delete({ where: { id: row.id } });
+        await dropExecution(c.db, row.id);
         return row;
       },
     },
@@ -2626,7 +2668,7 @@ export function buildDalEntries() {
           concurrencyGroup: "scratch-cancel",
           reason: "superseded",
         });
-        await c.db.execution.delete({ where: { id: row.id } });
+        await dropExecution(c.db, row.id);
         return cancelled;
       },
     },
@@ -2819,19 +2861,19 @@ export function buildDalEntries() {
           concurrencyGroup: "scratch-router-cancel",
           reason: "superseded",
         });
-        await c.db.execution.delete({ where: { id: row.id } });
+        await dropExecution(c.db, row.id);
         return cancelled;
       },
     },
   );
   E("router.createExecution", (c) => RT(c).createExecution(c.pl.executionData({ tenantId: c.y })), {
     mayThrow: true,
-    ...created("the execution", (c, row) => c.db.execution.deleteMany({ where: { id: row.id } })),
+    ...created("the execution", (c, row) => dropExecution(c.db, row.id)),
     control: async (c) => {
       const row = await RT(c).createExecution(
         c.pl.executionData({ concurrencyGroup: "scratch-router" }),
       );
-      await c.db.execution.delete({ where: { id: row.id } });
+      await dropExecution(c.db, row.id);
       return row;
     },
   });
@@ -3252,7 +3294,7 @@ export function buildDalEntries() {
     return {
       row,
       drop: async () => {
-        await c.db.execution.delete({ where: { id: row.id } });
+        await dropExecution(c.db, row.id);
         await c.db.scmEvent.delete({ where: { id: event.id } });
       },
     };
@@ -3311,6 +3353,178 @@ export function buildDalEntries() {
       // the composite key to the membership refuses a user that is not a member of tenant Y; X's row stays unchanged
       mayThrow: true,
       control: (c) => UP(c).upsert({ tenantId: c.x, userId: c.uA, data: { accent: "violet" } }),
+    },
+  );
+
+  // ----- executions (docs/modules/executions/SPEC.md part B, DAL-224..): the claim / lease / transition helpers of @qmentisai/db.
+  // Every call presents tenant Y with tenant X's execution id; the two platform-wide peeks return identifiers only by design.
+  const EX = (c) => c.repos.executions;
+  const exLease = (c, over) => ({
+    tenantId: c.y,
+    executionId: c.pl.runningId,
+    workerId: "dal-worker",
+    leaseEpoch: 1,
+    leaseTtlSeconds: 60,
+    ...over,
+  });
+  const notRenewed = (r) => (r.renewed ? ["renewed another tenant's lease"] : []);
+  const notMoved = (r) =>
+    r.transitioned || r.quotaReleased || r.execution ? ["changed another tenant's execution"] : [];
+  const freshQueued = (c, group) =>
+    c.db.execution.create({ data: c.pl.executionData({ concurrencyGroup: group }) });
+  E(
+    "executions.findExecution",
+    (c) => EX(c).findExecution({ tenantId: c.y, executionId: c.pl.exQueuedId }),
+    { control: (c) => EX(c).findExecution({ tenantId: c.x, executionId: c.pl.exQueuedId }) },
+  );
+  E(
+    "executions.listEvents",
+    (c) => EX(c).listEvents({ tenantId: c.y, executionId: c.pl.runningId }),
+    { control: (c) => EX(c).listEvents({ tenantId: c.x, executionId: c.pl.runningId }) },
+  );
+  E(
+    "executions.peekQueued (platform scan: identifiers only)",
+    (c) => EX(c).peekQueued({ limit: 10000, maxPerTenant: 10000 }),
+    {
+      verify: (rows) =>
+        rows.filter((r) => Object.keys(r).sort().join() !== "id,requestedAt,tenantId").length
+          ? ["a peek row carries more than identifiers"]
+          : [],
+      control: async (c) => (await EX(c).peekQueued({ limit: 10000, maxPerTenant: 10000 })).length,
+    },
+  );
+  E(
+    "executions.peekExpiredLeases (platform scan: identifiers only)",
+    (c) => EX(c).peekExpiredLeases({ limit: 5000 }),
+    {
+      verify: (rows) =>
+        rows.filter((r) => Object.keys(r).sort().join() !== "id,leaseEpoch,tenantId").length
+          ? ["a peek row carries more than identifiers"]
+          : [],
+      control: async (c) => (await EX(c).peekExpiredLeases({ limit: 5000 })).length,
+    },
+  );
+  E(
+    "executions.claimQueued",
+    (c) =>
+      EX(c).claimQueued({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        workerId: "intruder",
+        leaseTtlSeconds: 60,
+        deadlineSeconds: 60,
+        staleThresholdSeconds: 10 * 365 * 86400,
+      }),
+    {
+      control: async (c) =>
+        EX(c).claimQueued({
+          tenantId: c.x,
+          executionId: (await freshQueued(c, "scratch-claim")).id,
+          workerId: "dal-worker",
+          leaseTtlSeconds: 60,
+          deadlineSeconds: 60,
+          staleThresholdSeconds: 10 * 365 * 86400,
+        }),
+    },
+  );
+  E("executions.renewLease", (c) => EX(c).renewLease(exLease(c)), {
+    verify: notRenewed,
+    control: (c) => EX(c).renewLease(exLease(c, { tenantId: c.x })),
+  });
+  E(
+    "executions.fenceExecution",
+    (c) =>
+      c.db.$transaction((tx) =>
+        EX(c).fenceExecution({ tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1 }, tx),
+      ),
+    {
+      mayThrow: true,
+      verify: () => ["the fence accepted another tenant's execution"],
+      control: async (c) => {
+        await c.db.$transaction((tx) =>
+          EX(c).fenceExecution({ tenantId: c.x, executionId: c.pl.runningId, leaseEpoch: 1 }, tx),
+        );
+        return [1];
+      },
+    },
+  );
+  E(
+    "executions.transitionExecution",
+    (c) =>
+      EX(c).transitionExecution({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        from: "queued",
+        to: "cancelled",
+        reason: "user_cancelled",
+        releaseQuota: true,
+      }),
+    {
+      verify: notMoved,
+      control: async (c) =>
+        EX(c).transitionExecution({
+          tenantId: c.x,
+          executionId: (await freshQueued(c, "scratch-transition")).id,
+          from: "queued",
+          to: "cancelled",
+          reason: "user_cancelled",
+        }),
+    },
+  );
+  E(
+    "executions.recordEvent",
+    (c) =>
+      EX(c).recordEvent({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        type: "limit_deferred",
+      }),
+    {
+      control: (c) =>
+        EX(c).recordEvent({ tenantId: c.x, executionId: c.pl.exQueuedId, type: "limit_deferred" }),
+    },
+  );
+  E(
+    "executions.execution-idempotency.runOnce",
+    (c) =>
+      c.repos.executionIdempotency.runOnce(
+        { tenantId: c.y, scope: "dal-execution", key: c.keys.execStep },
+        async () => "ran",
+      ),
+    {
+      // tenant Y runs the step although X finished the same (scope, key): rows are keyed by tenant, and X's row is untouched
+      verify: (r) => (r.ran ? [] : ["tenant Y was told that tenant X's finished step is done"]),
+      cleanup: (c) =>
+        c.db.processedMessage.deleteMany({ where: { tenantId: c.y, consumer: "dal-execution" } }),
+      control: async (c) => {
+        const r = await c.repos.executionIdempotency.runOnce(
+          { tenantId: c.x, scope: "dal-execution", key: c.keys.execStep },
+          async () => "ran",
+        );
+        return r.ran ? [] : [r.state];
+      },
+    },
+  );
+  E(
+    "executions.reclaimLease",
+    (c) =>
+      EX(c).reclaimLease({
+        tenantId: c.y,
+        executionId: c.pl.exExpiredId,
+        workerId: "intruder",
+        observedEpoch: 1,
+        leaseTtlSeconds: 60,
+        event: { details: { step: "dal" } },
+      }),
+    {
+      control: (c) =>
+        EX(c).reclaimLease({
+          tenantId: c.x,
+          executionId: c.pl.exExpiredId,
+          workerId: "dal-reclaimer",
+          observedEpoch: 1,
+          leaseTtlSeconds: 60,
+        }),
     },
   );
 

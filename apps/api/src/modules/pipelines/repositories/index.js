@@ -364,7 +364,12 @@ export function createPipelineRepository({ db }) {
       for (const row of rows) {
         const done = await client.execution.updateMany({
           where: { id: row.id, tenantId, pipelineId, status: "queued" },
-          data: { status: "cancelled", statusReason: reason },
+          data: {
+            status: "cancelled",
+            statusReason: reason,
+            // the caller gives the unit back in this transaction; recording it here keeps "released once" visible on the row
+            ...(row.quotaConsumed > 0 ? { quotaReleasedAt: new Date() } : {}),
+          },
         });
         if (done.count === 1) cancelled.push(row);
       }

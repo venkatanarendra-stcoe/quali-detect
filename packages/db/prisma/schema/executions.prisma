@@ -1,0 +1,201 @@
+// ---------------------------------------------------------------- Executions and scan orchestration
+// docs/modules/executions/SPEC.md §7 (part B). The `executions` table itself is in pipelines.prisma. Every table here carries
+// `tenant_id` and a composite foreign-key chain (tenant, workspace, repository, pipeline, execution), so the database refuses a
+// row whose chain does not match its parent (ER-2). Nothing stores a secret, source text, commit message, PR title or token.
+// The migration adds what Prisma cannot express: CHECK constraints, partial indexes and the guard triggers (execution state
+// machine, task machine, insert-only history, lease and attempt fences, orchestrator marker).
+
+enum ScanTaskType {
+  sca
+  sbom
+  sast
+  secrets
+
+  @@map("scan_task_type")
+}
+
+enum ScanTaskStatus {
+  pending
+  queued
+  running
+  succeeded
+  failed
+  timed_out
+  cancelled
+  skipped
+
+  @@map("scan_task_status")
+}
+
+/// Append-only history of one execution (SPEC §7.4). `seq` is assigned by the database (per execution, 1, 2, ...) whatever the
+/// caller sends. `transition` rows are written by the `executions_guard` trigger in the statement that changes the status;
+/// actor and correlation id come from the transaction settings `qm.actor_type`, `qm.actor_user_id`, `qm.correlation_id`
+/// and `qm.event_details` (default: system). `recovered`, `cancel_requested`, `limit_deferred` and `retry_requested` rows are
+/// written by the execution helpers. Insert-only: UPDATE is rejected; DELETE is left to the retention purge (Open).
+model ExecutionEvent {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  workspaceId   String           @map("workspace_id") @db.Uuid
+  repositoryId  String           @map("repository_id") @db.Uuid
+  pipelineId    String           @map("pipeline_id") @db.Uuid
+  executionId   String           @map("execution_id") @db.Uuid
+  seq           Int              @default(0)
+  type          String
+  fromStatus    ExecutionStatus? @map("from_status")
+  toStatus      ExecutionStatus? @map("to_status")
+  reason        String?
+  actorType     String           @default("system") @map("actor_type")
+  actorUserId   String?          @map("actor_user_id") @db.Uuid
+  at            DateTime         @default(now()) @db.Timestamptz(6)
+  correlationId String?          @map("correlation_id")
+  details       Json             @default("{}")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
+
+  @@unique([tenantId, executionId, seq])
+  @@map("execution_events")
+}
+
+/// One scan task of one execution (SPEC §7.4), created from the configuration snapshot. `attempt` (0-based, below
+/// `maxAttempts`) is the task fence: it grows on a retry and on a lease reclaim, and a result or attempt close for any other
+/// attempt is refused by the database (ER-30). Task machine: pending -> queued -> running -> terminal, running -> queued
+/// (retry), pending/queued -> cancelled/skipped; terminal rows are immutable.
+model ScanTask {
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  workspaceId       String         @map("workspace_id") @db.Uuid
+  repositoryId      String         @map("repository_id") @db.Uuid
+  pipelineId        String         @map("pipeline_id") @db.Uuid
+  executionId       String         @map("execution_id") @db.Uuid
+  scanType          ScanTaskType   @map("scan_type")
+  ordinal           Int
+  status            ScanTaskStatus @default(pending)
+  statusReason      String?        @map("status_reason")
+  statusRev         Int            @default(0) @map("status_rev")
+  attempt           Int            @default(0)
+  maxAttempts       Int            @default(2) @map("max_attempts")
+  engineId          String         @map("engine_id")
+  engineProfile     String         @map("engine_profile")
+  severityThreshold String         @map("severity_threshold")
+  timeoutSeconds    Int            @map("timeout_seconds")
+  queuedAt          DateTime?      @map("queued_at") @db.Timestamptz(6)
+  startedAt         DateTime?      @map("started_at") @db.Timestamptz(6)
+  finishedAt        DateTime?      @map("finished_at") @db.Timestamptz(6)
+  deadlineAt        DateTime?      @map("deadline_at") @db.Timestamptz(6)
+  leaseOwner        String?        @map("lease_owner")
+  leaseExpiresAt    DateTime?      @map("lease_expires_at") @db.Timestamptz(6)
+  heartbeatAt       DateTime?      @map("heartbeat_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  execution Execution         @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
+  attempts  ScanTaskAttempt[]
+  results   ScanResult[]
+
+  @@unique([tenantId, executionId, scanType])
+  @@unique([tenantId, id])
+  @@unique([tenantId, workspaceId, repositoryId, pipelineId, executionId, id])
+  @@index([tenantId, executionId, ordinal])
+  @@map("scan_tasks")
+}
+
+/// One attempt of a scan task (SPEC §7.4). Inserted while the task runs that attempt and closed (status, error class and
+/// code, finish time) exactly once; the database refuses an insert or close for any attempt other than the task's current one
+/// and any change after the close.
+model ScanTaskAttempt {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  repositoryId String    @map("repository_id") @db.Uuid
+  pipelineId   String    @map("pipeline_id") @db.Uuid
+  executionId  String    @map("execution_id") @db.Uuid
+  scanTaskId   String    @map("scan_task_id") @db.Uuid
+  attempt      Int
+  status       String    @default("running")
+  errorClass   String?   @map("error_class")
+  errorCode    String?   @map("error_code")
+  workerId     String?   @map("worker_id")
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  durationMs   Int?      @map("duration_ms")
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task   ScanTask @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict)
+
+  @@unique([tenantId, scanTaskId, attempt])
+  @@map("scan_task_attempts")
+}
+
+/// The result of one scan task (the contract with the Findings module, SPEC §7.4, EQ-11). At most one per task, insert-only,
+/// refused unless it names the task's current running attempt (fence, ER-30). Counts and flags only; the items are in
+/// `scan_result_items`. No finding identity (ADR-004).
+model ScanResult {
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  workspaceId    String       @map("workspace_id") @db.Uuid
+  repositoryId   String       @map("repository_id") @db.Uuid
+  pipelineId     String       @map("pipeline_id") @db.Uuid
+  executionId    String       @map("execution_id") @db.Uuid
+  scanTaskId     String       @map("scan_task_id") @db.Uuid
+  attempt        Int
+  scanType       ScanTaskType @map("scan_type")
+  schemaVersion  Int          @default(1) @map("schema_version")
+  engineId       String       @map("engine_id")
+  engineVersion  String       @map("engine_version")
+  completeness   String
+  truncated      Boolean      @default(false)
+  itemCount      Int          @default(0) @map("item_count")
+  severityCounts Json         @default("{}") @map("severity_counts")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task   ScanTask         @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict)
+  items  ScanResultItem[]
+
+  @@unique([tenantId, scanTaskId])
+  @@unique([tenantId, executionId, id])
+  @@map("scan_results")
+}
+
+/// Normalized locator facts of one result (SPEC §7.4, ER-26): no secret value, no identity key. Insert-only.
+model ScanResultItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  executionId      String   @map("execution_id") @db.Uuid
+  scanResultId     String   @map("scan_result_id") @db.Uuid
+  ordinal          Int
+  kind             String
+  ruleId           String?  @map("rule_id")
+  severity         String
+  title            String
+  path             String?
+  startLine        Int?     @map("start_line")
+  endLine          Int?     @map("end_line")
+  componentPurl    String?  @map("component_purl")
+  componentVersion String?  @map("component_version")
+  data             Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  result ScanResult @relation(fields: [tenantId, executionId, scanResultId], references: [tenantId, executionId, id], onDelete: Restrict)
+
+  @@unique([tenantId, scanResultId, ordinal])
+  @@map("scan_result_items")
+}
+
+/// Platform-level marker rows of the execution orchestrator (SPEC ER-31): the persisted first-enable marker and the one-time
+/// stale-queue sweep state. NO tenant column and no tenant data (counts only); written only by the system, never exposed by
+/// any API. `first_enabled_at` and `sweep_completed_at` are set once; DELETE and TRUNCATE are refused.
+model ExecutionOrchestratorMarker {
+  markerKey           String    @id @map("marker_key")
+  firstEnabledAt      DateTime  @map("first_enabled_at") @db.Timestamptz(6)
+  sweepStartedAt      DateTime? @map("sweep_started_at") @db.Timestamptz(6)
+  sweepCompletedAt    DateTime? @map("sweep_completed_at") @db.Timestamptz(6)
+  sweptCount          Int       @default(0) @map("swept_count")
+  sweepLeaseOwner     String?   @map("sweep_lease_owner")
+  sweepLeaseExpiresAt DateTime? @map("sweep_lease_expires_at") @db.Timestamptz(6)
+
+  @@map("execution_orchestrator_markers")
+}

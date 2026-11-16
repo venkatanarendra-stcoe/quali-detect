@@ -28,6 +28,7 @@ import { buildDalEntries, buildDalWorld, runDalEntry } from "./helpers/direct-re
 import { STATE_CHECKS, buildStateWorld } from "./helpers/repo-state.js";
 import { BROKER_CHECKS, buildBrokerWorld } from "./helpers/broker-topology.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
+import { buildExecutionDbWorld, driveExecution, EXECDB_CHECKS } from "./helpers/execution-db.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -40,7 +41,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 522;
+const EXPECTED_CHECKS = 541;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5664,6 +5665,25 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// 12b. Executions: database integrity and the state-machine helpers (ADR-008 area 10, SPEC executions §7.3, §14.1 part B):
+//     the transition trigger, immutability and insert-only guards, lease and attempt fences, composite tenant-safe foreign
+//     keys, the orchestrator marker, and the real claim / lease / quota-release helpers of @qmentisai/db called concurrently,
+//     in process against the disposable database. Fixtures and checks live in helpers/execution-db.js.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Executions: database integrity and state-machine helpers");
+  const execdbWorld = () => once("execdb", () => buildExecutionDbWorld(suiteDb()));
+  for (const { id, name, run } of EXECDB_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await execdbWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // 13. Pipelines API (SPEC pipelines-triggers §14.1, part C): tenant isolation, 404/403, the fork-policy permission, the manual
 //     run, quota and entitlement blocks, immutable versions and the "no code execution" configuration. HTTP checks run against
 //     the real API; the world is built through the public API (GitHub stub, linking, connecting) and read back from the
@@ -6923,7 +6943,7 @@ const capWorld = () =>
         db.tenantQuotaUsage
           .findFirst({ where: { tenantId: x.tenantId, quotaDefinitionId: quota.id } })
           .then((u) => Number(u?.used ?? 0));
-      await db.execution.updateMany({ where: { id: a }, data: { status: "running" } });
+      await driveExecution(db, a, "running");
       const usedBefore = await used();
       const refused = await w.api("DELETE", `/pipelines/${p.id}`, {
         cookie: x.sessions.admin,
@@ -6936,7 +6956,7 @@ const capWorld = () =>
         problems.push(`delete with a running execution answered ${refused.status}`);
       if ((await db.pipeline.findFirst({ where: { id: p.id } })).deletedAt)
         problems.push("a refused delete changed the pipeline");
-      await db.execution.updateMany({ where: { id: a }, data: { status: "succeeded" } });
+      await driveExecution(db, a, "succeeded");
       const wrong = await w.api("DELETE", `/pipelines/${p.id}`, {
         cookie: x.sessions.admin,
         body: { confirm: "nope" },
@@ -8336,8 +8356,8 @@ const rtId = (x, name) => x.repoIds[x.ext[name]];
       a: (await rtExecs(x.pr.a.id, { pullRequestNumber: n }))[0],
       b: (await rtExecs(x.pr.b.id, { pullRequestNumber: n }))[0],
     };
-    await db.execution.updateMany({ where: { id: first.a.id }, data: { status: "running" } });
-    await db.execution.updateMany({ where: { id: first.b.id }, data: { status: "succeeded" } });
+    await driveExecution(db, first.a.id, "running");
+    await driveExecution(db, first.b.id, "succeeded");
     await prOpen(x, "prc", n, { action: "synchronize", sha: rtSha("2") });
     await prOpen(x, "prc", n, { action: "synchronize", sha: rtSha("3") });
     return first;

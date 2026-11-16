@@ -4,6 +4,7 @@ import { actorFrom } from "../../../lib/http.js";
 export function createUserPreferenceController({ service }) {
   return {
     get: async (request, reply) => reply.success(await service.get(actorFrom(request))),
+    landing: async (request, reply) => reply.success(await service.landing(actorFrom(request))),
     update: async (request, reply) =>
       reply.success(await service.update(actorFrom(request), request.body)),
   };

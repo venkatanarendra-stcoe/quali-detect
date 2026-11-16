@@ -4578,6 +4578,16 @@ export function buildDalEntries() {
     },
   );
 
+  // Default workspace preference (owner decision 2026-11-17, DAL-292): the workspace lookup behind the PUT validation is
+  // tenant-scoped; X's workspace presented with tenant Y finds nothing.
+  E(
+    "user-preferences.findWorkspaceInTenant",
+    (c) => UP(c).findWorkspaceInTenant({ tenantId: c.y, workspaceId: c.ws }),
+    {
+      control: (c) => UP(c).findWorkspaceInTenant({ tenantId: c.x, workspaceId: c.ws }),
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

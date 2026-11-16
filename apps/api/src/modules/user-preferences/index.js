@@ -8,13 +8,14 @@ import { createUserPreferenceService } from "./services/index.js";
 async function userPreferencesPlugin(app) {
   const repository = createUserPreferenceRepository({ db: app.infra.db });
   const service = createUserPreferenceService({ repository });
-  await app.register(userPreferenceRoutes(createUserPreferenceController({ service })));
+  await app.register(userPreferenceRoutes(createUserPreferenceController({ service }), app.authz));
 }
 
 /** @type {import("../../runtime/modules.js").ApiModule} */
 export const userPreferencesModule = {
   name: MODULE_NAME,
-  description: "Interface preferences of the signed-in user (accent colour), per tenant.",
+  description:
+    "Interface preferences of the signed-in user (accent colour, default workspace) and the post-login landing, per tenant.",
   prefix: API_PREFIX,
   plugin: userPreferencesPlugin,
 };

@@ -17,6 +17,21 @@ export function usePreferences({ enabled = true } = {}) {
 }
 
 /**
+ * Post-login landing from `GET /me/landing` (use-time decision on the server). Always refetched when the landing mounts, so a
+ * stale default or a revoked workspace is never acted on from a cache; the tenant id is part of the key.
+ * @param {string | null} tenantId
+ */
+export function useLanding(tenantId) {
+  return useQuery({
+    queryKey: ["account", "landing", tenantId],
+    queryFn: ({ signal }) => preferencesService.landing({ signal }),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/**
  * Saves preferences with an optimistic cache update (the accent applies instantly through the provider), a toast, and a
  * rollback to the previous value on failure.
  * @param {{ successMessage?: string }} [options]

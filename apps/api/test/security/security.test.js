@@ -50,7 +50,7 @@ import { buildOverviewChecks } from "./helpers/overview-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 692;
+const EXPECTED_CHECKS = 706;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10296,6 +10296,8 @@ const schWorld = () =>
     S,
     once,
     db: suiteDb,
+    withRole,
+    loginAs,
   }))
     add(id, name, expected, run, verify);
 }

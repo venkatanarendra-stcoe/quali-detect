@@ -64,6 +64,10 @@
     {
       "pattern": "(extra operation: |OpenAPI: extra )GET /api/v1/overview",
       "reason": "New operation (2026-11-17, owner decision, AUTHORIZATION decision 30): Organization overview data for the tenant (accessibleWorkspaces, counted only among the caller's visible active workspaces). Tenant audience, tenant-scope permission dashboard.view (Admin built-in bundle only; 403 for everyone else), strict empty query (a tenant or workspace id there is a 400), no path/body identifiers."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )GET /api/v1/me/landing",
+      "reason": "New operation (2026-11-17, owner decision, user-preferences SPEC UP-008): the post-login landing target, computed at request time from the caller's current permissions and saved default workspace. Tenant audience, no permission, strict empty query, returns only { target, workspaceId }. Also 2026-11-17: GET/PUT /me/preferences gained the nullable defaultWorkspaceId (PUT: 404 RESOURCE_NOT_FOUND for a workspace the caller cannot see, of another tenant or missing; the existing extra-operation entry for /me/preferences covers both)."
     }
   ]
 }

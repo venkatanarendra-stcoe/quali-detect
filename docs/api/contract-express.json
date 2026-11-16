@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 116,
+  "operationCount": 117,
   "operations": [
     {
       "method": "GET",
@@ -1827,6 +1827,55 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/me/landing",
+      "module": "user-preferences",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ target, workspaceId }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Where I land after sign-in: my default workspace if I can still access it, else the overview (holders of dashboard.view), else my first workspace, else nothing"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/me/permissions",
       "module": "identity",
       "audience": "user",
@@ -1881,7 +1930,7 @@
       "module": "user-preferences",
       "audience": "tenant",
       "permission": null,
-      "permissionScope": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
       "successStatus": 200,
       "documentedErrorStatuses": [
         400,
@@ -1917,7 +1966,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ accent }",
+        "dataShape": "{ accent, defaultWorkspaceId }",
         "metaKeys": [
           "correlationId"
         ]
@@ -1930,7 +1979,7 @@
       "module": "user-preferences",
       "audience": "tenant",
       "permission": null,
-      "permissionScope": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
       "successStatus": 200,
       "documentedErrorStatuses": [
         400,
@@ -1972,11 +2021,11 @@
       "request": {
         "params": [],
         "query": [],
-        "body": "{ accent }"
+        "body": "{ accent, defaultWorkspaceId }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ accent }",
+        "dataShape": "{ accent, defaultWorkspaceId }",
         "metaKeys": [
           "correlationId"
         ]

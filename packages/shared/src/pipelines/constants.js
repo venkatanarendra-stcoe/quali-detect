@@ -93,7 +93,7 @@ export const ENGINE_CATALOG = Object.freeze({
   }),
   sbom: Object.freeze({
     default: Object.freeze({
-      name: "Default SBOM engine (placeholder)",
+      name: "SBOM inventory engine (sbom-inventory)",
       profiles: Object.freeze(["standard"]),
     }),
   }),

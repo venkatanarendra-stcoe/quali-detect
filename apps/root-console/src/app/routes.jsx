@@ -99,7 +99,8 @@ export const DEV_ROUTES = import.meta.env.DEV
   ? [{ path: "dev/components", element: <ComponentGalleryPage /> }]
   : [];
 
-const AVAILABLE = new Set(PLATFORM_ROUTES.map((r) => r.itemId));
+// "account" is registered outside the guarded table (own pages, no permission) in router.jsx.
+const AVAILABLE = new Set([...PLATFORM_ROUTES.map((r) => r.itemId), "account"]);
 
 /** Whether a page is registered for the navigation item. @param {string} itemId */
 export const isRouteAvailable = (itemId) => AVAILABLE.has(itemId);

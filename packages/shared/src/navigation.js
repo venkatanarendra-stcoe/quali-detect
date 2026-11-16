@@ -8,18 +8,26 @@ import { can, canInAnyWorkspace } from "./authorization.js";
  * `scope` of an item:
  * - "tenant":       `permission` is a tenant-scope key, checked at tenant scope;
  * - "workspace":    a workspace-scope key, checked in the active workspace (workspace layout);
- * - "anyWorkspace": a workspace-scope key, held in at least one visible workspace (organization layout).
+ * - "anyWorkspace": a workspace-scope key, held in at least one visible workspace (organization layout);
+ * - "self":         the signed-in user's own pages (Account); `permission` is null. Still evaluated by this engine: shown
+ *                   to every authenticated principal (a non-null `permissions` object), never to an anonymous context.
  *
  * Permission keys follow the current catalog (docs/AUTHORIZATION.md). docs/architecture/FRONTEND_ARCHITECTURE.md still
  * names retired prototype keys (`tenant_user.view`); they are mapped here to `user.view` and `role.view`.
  *
- * @typedef {{ id: string, permission: string, scope: "tenant" | "workspace" | "anyWorkspace", implemented: boolean }} NavItemDefinition
+ * @typedef {{ id: string, permission: string | null, scope: "tenant" | "workspace" | "anyWorkspace" | "self", implemented: boolean }} NavItemDefinition
  * @typedef {{ id: string, items: readonly NavItemDefinition[] }} NavGroupDefinition
  */
 
 const item = (id, permission, scope, implemented) =>
   Object.freeze({ id, permission, scope, implemented });
 const group = (id, items) => Object.freeze({ id, items: Object.freeze(items) });
+
+/**
+ * Account group (owner decision 2026-11-16, revises the bottom-pinned account block): a normal nav item, last in both
+ * layouts, no permission required. The Account page links to Settings (Appearance, Preferences).
+ */
+const ACCOUNT_GROUP = group("account", [item("account", null, "self", true)]);
 
 /** Organization layout (outside a workspace). @type {readonly NavGroupDefinition[]} */
 export const ORG_NAV_GROUPS = Object.freeze([
@@ -34,6 +42,7 @@ export const ORG_NAV_GROUPS = Object.freeze([
     item("settings", "tenant_settings.view", "tenant", true),
     item("audit-logs", "audit_log.view_all", "tenant", true),
   ]),
+  ACCOUNT_GROUP,
 ]);
 
 /** Workspace layout (inside /workspaces/:workspaceId/...). @type {readonly NavGroupDefinition[]} */
@@ -59,6 +68,7 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
     item("workspace-settings", "workspace.update", "workspace", true),
     item("workspace-integrations", "workspace_integration.view", "workspace", true),
   ]),
+  ACCOUNT_GROUP,
 ]);
 
 /**
@@ -68,6 +78,8 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
  */
 export function isNavItemPermitted(navItem, { permissions, workspaceId = null }) {
   switch (navItem.scope) {
+    case "self":
+      return Boolean(permissions);
     case "tenant":
       return can(permissions, navItem.permission);
     case "anyWorkspace":

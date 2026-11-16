@@ -1,4 +1,7 @@
 import { AppPageLayout } from "@qmentisai/ui";
+import { LogOut, Settings } from "lucide-react";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button.jsx";
 import {
   Card,
   CardContent,
@@ -6,11 +9,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
+import { useAuthActions } from "@/features/auth/hooks/use-auth-actions.js";
 import { usePlatformSession } from "@/features/auth/hooks/use-platform-session.js";
 
 /** Account: the signed-in platform user. Read-only; any verified platform session may open it (no permission). */
 export function AccountPage() {
   const { me } = usePlatformSession();
+  const { logout } = useAuthActions();
   const rows = [
     ["Name", me.platformUser.name],
     ["Email", me.platformUser.email],
@@ -36,6 +41,16 @@ export function AccountPage() {
           </dl>
         </CardContent>
       </Card>
+      <div className="mt-4 flex max-w-xl flex-wrap gap-2">
+        <Button asChild variant="secondary">
+          <Link to="/account/settings">
+            <Settings aria-hidden="true" /> Settings
+          </Link>
+        </Button>
+        <Button variant="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>
+          <LogOut aria-hidden="true" /> Sign out
+        </Button>
+      </div>
     </AppPageLayout>
   );
 }

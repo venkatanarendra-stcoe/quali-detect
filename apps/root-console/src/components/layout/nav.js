@@ -10,6 +10,7 @@ import {
   ScrollText,
   SlidersHorizontal,
   ToggleRight,
+  UserRound,
   Users,
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ export const GROUP_LABELS = Object.freeze({
   customers: "Customers",
   "platform-administration": "Platform administration",
   operations: "Operations",
+  account: "You",
 });
 
 const item = (label, icon, to) => ({ label, icon, to });
@@ -39,4 +41,5 @@ export const NAV_ITEMS = Object.freeze({
   "global-config": item("Global configuration", SlidersHorizontal, "/config"),
   support: item("Support & diagnostics", LifeBuoy, "/support"),
   "audit-logs": item("Platform audit logs", ScrollText, "/audit-logs"),
+  account: item("Account", UserRound, "/account"),
 });

@@ -1,13 +1,13 @@
-import { ArrowLeft, Search, Shield } from "lucide-react";
+import { ArrowLeft, LogOut, Search, Shield } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { ORG_NAV_GROUPS, WORKSPACE_NAV_GROUPS, evaluateNavigation } from "@qmentisai/shared";
 import { isRouteAvailable } from "@/app/routes.jsx";
+import { useAuthActions } from "@/features/auth/hooks/use-auth-actions.js";
 import { useSession } from "@/features/auth/hooks/use-session.js";
 import { usePermissions } from "@/features/authorization/hooks/use-permissions.js";
 import { useNavContext } from "@/hooks/use-nav-context.js";
 import { cn } from "@/lib/cn.js";
-import { AccountMenu } from "./account-menu.jsx";
 import { CommandPalette } from "./command-palette.jsx";
 import { GROUP_LABELS, NAV_ITEMS } from "./nav.js";
 import { NotificationsItem } from "./notifications.jsx";
@@ -19,13 +19,14 @@ const isActive = (pathname, paths) =>
 /**
  * Sidebar (240 px), the only app chrome (the top bar was removed by owner decision, 2026-11-16). Top to bottom: logo,
  * search / command palette trigger (⌘K), the organization (and, inside a workspace, "All workspaces" + the workspace
- * switcher), Notifications with its unread badge, the navigation, and the account area pinned at the bottom.
+ * switcher), Notifications with its unread badge, the navigation, and the Account (last group "You") and Sign out.
  * Organization layout outside a workspace, Workspace layout inside one. The items come from `evaluateNavigation`
  * (implemented && permitted && route exists); empty groups are not rendered.
  */
 export function Sidebar({ onNavigate }) {
   const { layout, workspaceId } = useNavContext();
   const { me } = useSession();
+  const { logout } = useAuthActions();
   const permissions = usePermissions();
   const { pathname } = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -164,14 +165,27 @@ export function Sidebar({ onNavigate }) {
                     </li>
                   );
                 })}
+                {group.id === "account" ? (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => logout.mutate()}
+                      disabled={logout.isPending}
+                      className={cn(rowClass, "disabled:opacity-60")}
+                    >
+                      <LogOut
+                        aria-hidden="true"
+                        className="size-4 shrink-0 text-muted-foreground"
+                        strokeWidth={1.75}
+                      />
+                      <span className="truncate">Sign out</span>
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </section>
           ))
         )}
-      </div>
-
-      <div className="border-t border-sidebar-border p-2">
-        <AccountMenu onNavigate={onNavigate} />
       </div>
       <CommandPalette
         entries={paletteEntries}

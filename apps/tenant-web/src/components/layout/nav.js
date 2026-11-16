@@ -13,6 +13,7 @@ import {
   ScrollText,
   Settings,
   ShieldAlert,
+  UserRound,
   Users,
   Workflow,
   Wrench,
@@ -32,6 +33,7 @@ export const GROUP_LABELS = Object.freeze({
   workspace: "Workspace",
   security: "Security",
   "workspace-administration": "Workspace administration",
+  account: "You",
 });
 
 const org = (label, icon, path, extraPaths = []) => ({
@@ -56,6 +58,8 @@ export const NAV_ITEMS = Object.freeze({
   roles: org("Roles & permissions", Key, "/roles"),
   settings: org("Organization settings", Settings, "/settings"),
   "audit-logs": org("Audit logs", ScrollText, "/audit-logs"),
+  // own pages (both layouts)
+  account: org("Account", UserRound, "/account", ["/account/settings"]),
   // workspace layout
   dashboard: ws("Dashboard", LayoutGrid, "dashboard"),
   repositories: ws("Repositories", GitBranch, "repositories"),

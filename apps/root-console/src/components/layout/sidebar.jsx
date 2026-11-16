@@ -1,12 +1,12 @@
-import { Search, Shield } from "lucide-react";
+import { LogOut, Search, Shield } from "lucide-react";
 import { useScrollActivity } from "@qmentisai/ui";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { evaluatePlatformNavigation } from "@qmentisai/shared/platform";
 import { isRouteAvailable } from "@/app/routes.jsx";
+import { useAuthActions } from "@/features/auth/hooks/use-auth-actions.js";
 import { usePlatformPermissions } from "@/features/authorization/hooks/use-platform-permissions.js";
 import { cn } from "@/lib/cn.js";
-import { AccountMenu } from "./account-menu.jsx";
 import { CommandPalette } from "./command-palette.jsx";
 import { GROUP_LABELS, NAV_ITEMS } from "./nav.js";
 import { NotificationsItem } from "./notifications.jsx";
@@ -25,6 +25,7 @@ export function Sidebar({ onNavigate }) {
   const permissions = usePlatformPermissions();
   const { pathname } = useLocation();
   const scrollRef = useRef(null);
+  const { logout } = useAuthActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const searchRef = useRef(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -119,14 +120,26 @@ export function Sidebar({ onNavigate }) {
                     </li>
                   );
                 })}
+                {group.id === "account" ? (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => logout.mutate()}
+                      disabled={logout.isPending}
+                      className="flex h-8 w-full items-center gap-2.5 rounded-sm px-2 text-sm outline-none transition-colors hover:bg-sidebar-hover hover:text-sidebar-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    >
+                      <LogOut aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">Sign out</span>
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </section>
           ))
         )}
       </div>
-      <div className="space-y-2 border-t border-sidebar-border p-2">
+      <div className="border-t border-sidebar-border p-2">
         <SystemStatus />
-        <AccountMenu onNavigate={onNavigate} />
       </div>
       <CommandPalette
         entries={paletteEntries}

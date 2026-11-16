@@ -16,7 +16,7 @@ The Root Console uses the same tokens, components and shell proportions as the T
 | No workspace switcher | Tenant context appears only inside the tenant drill-in banner |
 | Tenant drill-in banner | When viewing a tenant, a bar at the top of the content area names the tenant and the access reason; cross-tenant support access is scoped, time-limited and audited |
 | Sidebar header | "QmentisAI Platform" wordmark line |
-| Sidebar chrome (2026-11-16, owner decision, Confirmed) | Below the header: search / command palette (⌘K) and Notifications; at the bottom: system-status indicator ("API reachable" / "API unreachable", text + dot) and the account area (avatar + name + role; menu: Account, Settings > Appearance (theme only, **no accent picker**) / Preferences, Sign out). Violet / dark identity unchanged |
+| Sidebar chrome (2026-11-16, owner decision, Confirmed) | Below the header: Notifications; Account is a normal navigation item (last group "You", then Sign out; Account page > Settings > Appearance (theme only, **no accent picker**) / Preferences); at the bottom: system-status indicator ("API reachable" / "API unreachable", text + dot). No search / command palette trigger and no bottom-pinned account block (revised 2026-11-16, owner decision, Confirmed). Violet / dark identity unchanged |
 | Destructive actions | Typed confirmation (tenant name) for suspend, deactivate and entitlement removal |
 
 Typography, neutrals, status chips and severity rules are identical to the Tenant Application. The accent is **violet** instead of mint (same usage rules: primary action, active navigation, focus, links) and the sidebar is dark in both themes (`packages/ui/src/root-theme.css`).

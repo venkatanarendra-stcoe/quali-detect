@@ -1,4 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { AppPageLayout } from "@qmentisai/ui";
+import { Building2, LogOut, Settings } from "lucide-react";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button.jsx";
 import {
   Card,
   CardContent,
@@ -6,11 +10,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
+import { useAuthActions } from "@/features/auth/hooks/use-auth-actions.js";
+import { authService } from "@/features/auth/services/auth-service.js";
 import { useSession } from "@/features/auth/hooks/use-session.js";
 
 /** Account (T-03): who you are signed in as. Read-only; any signed-in user may open it, no permission needed. */
 export function AccountPage() {
   const { me } = useSession();
+  const { logout } = useAuthActions();
+  const tenants = useQuery({
+    queryKey: ["account", "tenants"],
+    queryFn: ({ signal }) => authService.listTenants({ signal }),
+    staleTime: 60_000,
+  });
+  const canSwitchOrganization = (tenants.data?.length ?? 0) > 1;
   const rows = [
     ["Name", me.user.name],
     ["Email", me.user.email],
@@ -22,7 +35,7 @@ export function AccountPage() {
         <CardHeader>
           <CardTitle>Profile</CardTitle>
           <CardDescription>
-            Managed by your organization. Theme and accent colour are under Settings.
+            Managed by your organization. Appearance and Preferences are under Settings.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -36,6 +49,23 @@ export function AccountPage() {
           </dl>
         </CardContent>
       </Card>
+      <div className="mt-4 flex max-w-xl flex-wrap gap-2">
+        <Button asChild variant="secondary">
+          <Link to="/account/settings">
+            <Settings aria-hidden="true" /> Settings
+          </Link>
+        </Button>
+        {canSwitchOrganization ? (
+          <Button asChild variant="secondary">
+            <Link to="/select-tenant">
+              <Building2 aria-hidden="true" /> Switch organization
+            </Link>
+          </Button>
+        ) : null}
+        <Button variant="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>
+          <LogOut aria-hidden="true" /> Sign out
+        </Button>
+      </div>
     </AppPageLayout>
   );
 }

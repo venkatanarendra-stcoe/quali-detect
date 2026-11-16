@@ -212,8 +212,12 @@ export const WORKSPACE_ROUTES = [
   },
 ];
 
+// "account" is registered outside the guarded tables (own pages, no permission) in router.jsx.
 const AVAILABLE = new Set(
-  [...ORG_ROUTES, ...WORKSPACE_ROUTES].map((r) => r.itemId).filter(Boolean),
+  [...ORG_ROUTES, ...WORKSPACE_ROUTES]
+    .map((r) => r.itemId)
+    .filter(Boolean)
+    .concat("account"),
 );
 
 /** Whether a page is registered for the navigation item. @param {string} itemId */

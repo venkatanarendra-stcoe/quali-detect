@@ -14,7 +14,7 @@ import { isPlatformPermissionKey } from "./platform-permissions.js";
  * `platform.subscription.view`; Usage & Quotas -> `platform.usage.view`; Support & Diagnostics ->
  * `platform.support.request_access`.
  *
- * @typedef {{ id: string, permission: string, implemented: boolean }} PlatformNavItemDefinition
+ * @typedef {{ id: string, permission: string | null, implemented: boolean }} PlatformNavItemDefinition
  * @typedef {{ id: string, items: readonly PlatformNavItemDefinition[] }} PlatformNavGroupDefinition
  */
 
@@ -43,12 +43,14 @@ export const PLATFORM_NAV_GROUPS = Object.freeze([
     item("support", "platform.support.request_access", true),
     item("audit-logs", "platform.audit_log.view", true),
   ]),
+  // Own pages of the verified platform principal; no permission (owner decision 2026-11-16).
+  group("account", [item("account", null, true)]),
 ]);
 
 // Fail at import time if a definition ever references a non-platform key (tenant models must never leak in).
 for (const g of PLATFORM_NAV_GROUPS) {
   for (const i of g.items) {
-    if (!isPlatformPermissionKey(i.permission)) {
+    if (i.permission !== null && !isPlatformPermissionKey(i.permission)) {
       throw new Error(
         `Platform navigation item "${i.id}" must use a platform.* permission, got "${i.permission}".`,
       );
@@ -83,7 +85,10 @@ export function evaluatePlatformNavigation({
     .map((g) => ({
       id: g.id,
       items: g.items.filter(
-        (i) => i.implemented && isRouteAvailable(i.id) && canPlatform(permissions, i.permission),
+        (i) =>
+          i.implemented &&
+          isRouteAvailable(i.id) &&
+          (i.permission === null ? Boolean(permissions) : canPlatform(permissions, i.permission)),
       ),
     }))
     .filter((g) => g.items.length > 0);

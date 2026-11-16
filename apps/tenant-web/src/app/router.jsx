@@ -43,7 +43,8 @@ export function AppRouter() {
               <Route index element={<LandingRedirect />} />
               {/* Own account: any signed-in user, no permission (preferences are the user's own). */}
               <Route path="account" element={<AccountPage />} />
-              <Route path="account/settings" element={<SettingsPage />} />
+              <Route path="my-settings" element={<SettingsPage />} />
+              <Route path="account/settings" element={<Navigate to="/my-settings" replace />} />
               {ORG_ROUTES.map((r) => (
                 <Route key={r.path} path={r.path} element={guarded(r)} />
               ))}

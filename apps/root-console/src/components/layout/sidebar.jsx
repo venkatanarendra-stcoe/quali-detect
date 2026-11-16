@@ -15,10 +15,10 @@ const isActive = (pathname, to) => pathname === to || pathname.startsWith(`${to}
 
 /**
  * Dark sidebar (dark in light mode too), the only app chrome besides the environment strip (the top bar was removed by
- * owner decision, 2026-11-16). Top to bottom: "QmentisAI Platform" logo, Notifications with its unread badge, the
- * navigation from `evaluatePlatformNavigation` with the user's `platform.*` permissions (empty groups are not
- * rendered), and the system-status indicator. Account is a normal navigation item (last group "You", no permission)
- * with Sign out as the last row of that group. No search / command palette trigger (removed 2026-11-16), no
+ * owner decision, 2026-11-16). Top to bottom: "QmentisAI Platform" logo, the navigation from
+ * `evaluatePlatformNavigation` with the user's `platform.*` permissions (empty groups are not rendered), and the
+ * system-status indicator. The last group ("You", no permission) is Account, Settings, Notifications (an action item:
+ * opens the drawer, unread badge) and Sign out as its last row (owner decision 2026-11-17). No search / command palette trigger (removed 2026-11-16), no
  * bottom-pinned account block, no workspace switcher.
  */
 export function Sidebar({ onNavigate }) {
@@ -47,9 +47,6 @@ export function Sidebar({ onNavigate }) {
           QmentisAI Platform
         </Link>
       </div>
-      <div className="space-y-1 border-b border-sidebar-border px-3 py-3">
-        <NotificationsItem open={notificationsOpen} onOpenChange={setNotificationsOpen} />
-      </div>
       <div
         ref={scrollRef}
         className="qm-scroll qm-scroll-dark min-h-0 flex-1 overflow-y-auto px-3 py-3"
@@ -68,6 +65,15 @@ export function Sidebar({ onNavigate }) {
               <ul className="space-y-0.5">
                 {group.items.map((entry) => {
                   const def = NAV_ITEMS[entry.id];
+                  if (def.action === "notifications")
+                    return (
+                      <li key={entry.id}>
+                        <NotificationsItem
+                          open={notificationsOpen}
+                          onOpenChange={setNotificationsOpen}
+                        />
+                      </li>
+                    );
                   const active = isActive(pathname, def.to);
                   const Icon = def.icon;
                   return (

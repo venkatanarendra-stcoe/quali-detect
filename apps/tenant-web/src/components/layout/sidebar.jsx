@@ -17,9 +17,10 @@ const isActive = (pathname, paths) =>
 
 /**
  * Sidebar (240 px), the only app chrome (the top bar was removed by owner decision, 2026-11-16). Top to bottom: logo,
- * the organization (and, inside a workspace, "All workspaces" + the workspace switcher), Notifications with its unread
- * badge, then the navigation. Account is a normal navigation item (the last group, "You"; defined in
- * `@qmentisai/shared`, no permission) and Sign out is the last row of that group. There is no search / command palette
+ * the organization (and, inside a workspace, "All workspaces" + the workspace switcher), then the navigation. The last
+ * group ("You"; defined in `@qmentisai/shared`, no permission) is Account, Settings, Notifications (an action item: it
+ * opens the drawer and carries the unread badge) and Sign out as its last row. Nothing notification-related sits above
+ * the navigation (owner decision 2026-11-17). There is no search / command palette
  * trigger (removed 2026-11-16) and no bottom-pinned account block. Organization layout outside a workspace, Workspace
  * layout inside one. The items come from `evaluateNavigation` (implemented && permitted && route exists); empty groups
  * are not rendered.
@@ -86,14 +87,6 @@ export function Sidebar({ onNavigate }) {
         ) : null}
       </div>
 
-      <div className="px-3 pt-3">
-        <NotificationsItem
-          open={notificationsOpen}
-          onOpenChange={setNotificationsOpen}
-          itemClassName={rowClass}
-        />
-      </div>
-
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {groups.length === 0 ? (
           <p className="px-1 text-xs text-muted-foreground">No pages are available to you here.</p>
@@ -109,6 +102,16 @@ export function Sidebar({ onNavigate }) {
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const def = NAV_ITEMS[item.id];
+                  if (def.action === "notifications")
+                    return (
+                      <li key={item.id}>
+                        <NotificationsItem
+                          open={notificationsOpen}
+                          onOpenChange={setNotificationsOpen}
+                          itemClassName={rowClass}
+                        />
+                      </li>
+                    );
                   const active = isActive(pathname, def.matches(workspaceId));
                   const Icon = def.icon;
                   return (

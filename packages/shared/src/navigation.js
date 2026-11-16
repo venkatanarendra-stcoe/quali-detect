@@ -9,7 +9,7 @@ import { can, canInAnyWorkspace } from "./authorization.js";
  * - "tenant":       `permission` is a tenant-scope key, checked at tenant scope;
  * - "workspace":    a workspace-scope key, checked in the active workspace (workspace layout);
  * - "anyWorkspace": a workspace-scope key, held in at least one visible workspace (organization layout);
- * - "self":         the signed-in user's own pages (Account); `permission` is null. Still evaluated by this engine: shown
+ * - "self":         the signed-in user's own pages (Account, Settings, Notifications); `permission` is null. Still evaluated by this engine: shown
  *                   to every authenticated principal (a non-null `permissions` object), never to an anonymous context.
  *
  * Permission keys follow the current catalog (docs/AUTHORIZATION.md). docs/architecture/FRONTEND_ARCHITECTURE.md still
@@ -24,10 +24,16 @@ const item = (id, permission, scope, implemented) =>
 const group = (id, items) => Object.freeze({ id, items: Object.freeze(items) });
 
 /**
- * Account group (owner decision 2026-11-16, revises the bottom-pinned account block): a normal nav item, last in both
- * layouts, no permission required. The Account page links to Settings (Appearance, Preferences).
+ * Account group ("You"; owner decisions 2026-11-16 and 2026-11-17): the last group in both layouts, in this order:
+ * Account, Settings (the user's own Appearance and Preferences page; "my-settings" because "settings" is Organization
+ * settings), Notifications (an ACTION item: the app opens the notifications drawer instead of navigating). All three
+ * are scope "self", no permission; the app renders Sign out as the last row after them.
  */
-const ACCOUNT_GROUP = group("account", [item("account", null, "self", true)]);
+const ACCOUNT_GROUP = group("account", [
+  item("account", null, "self", true),
+  item("my-settings", null, "self", true),
+  item("notifications", null, "self", true),
+]);
 
 /** Organization layout (outside a workspace). @type {readonly NavGroupDefinition[]} */
 export const ORG_NAV_GROUPS = Object.freeze([

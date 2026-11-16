@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AppPageLayout } from "@qmentisai/ui";
-import { Building2, LogOut, Settings } from "lucide-react";
+import { Building2, LogOut } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button.jsx";
 import {
@@ -34,9 +34,7 @@ export function AccountPage() {
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle>Profile</CardTitle>
-          <CardDescription>
-            Managed by your organization. Appearance and Preferences are under Settings.
-          </CardDescription>
+          <CardDescription>Managed by your organization.</CardDescription>
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
@@ -50,11 +48,6 @@ export function AccountPage() {
         </CardContent>
       </Card>
       <div className="mt-4 flex max-w-xl flex-wrap gap-2">
-        <Button asChild variant="secondary">
-          <Link to="/account/settings">
-            <Settings aria-hidden="true" /> Settings
-          </Link>
-        </Button>
         {canSwitchOrganization ? (
           <Button asChild variant="secondary">
             <Link to="/select-tenant">

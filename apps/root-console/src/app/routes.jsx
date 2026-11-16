@@ -99,8 +99,14 @@ export const DEV_ROUTES = import.meta.env.DEV
   ? [{ path: "dev/components", element: <ComponentGalleryPage /> }]
   : [];
 
-// "account" is registered outside the guarded table (own pages, no permission) in router.jsx.
-const AVAILABLE = new Set([...PLATFORM_ROUTES.map((r) => r.itemId), "account"]);
+// "account" and "my-settings" are registered outside the guarded table (own pages, no permission) in router.jsx;
+// "notifications" is an action item (opens the drawer), it has no route.
+const AVAILABLE = new Set([
+  ...PLATFORM_ROUTES.map((r) => r.itemId),
+  "account",
+  "my-settings",
+  "notifications",
+]);
 
 /** Whether a page is registered for the navigation item. @param {string} itemId */
 export const isRouteAvailable = (itemId) => AVAILABLE.has(itemId);

@@ -212,12 +212,13 @@ export const WORKSPACE_ROUTES = [
   },
 ];
 
-// "account" is registered outside the guarded tables (own pages, no permission) in router.jsx.
+// "account" and "my-settings" are registered outside the guarded tables (own pages, no permission) in router.jsx;
+// "notifications" is an action item (opens the drawer), it has no route.
 const AVAILABLE = new Set(
   [...ORG_ROUTES, ...WORKSPACE_ROUTES]
     .map((r) => r.itemId)
     .filter(Boolean)
-    .concat("account"),
+    .concat("account", "my-settings", "notifications"),
 );
 
 /** Whether a page is registered for the navigation item. @param {string} itemId */

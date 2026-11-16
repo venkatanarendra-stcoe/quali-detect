@@ -1,6 +1,5 @@
 import { AppPageLayout } from "@qmentisai/ui";
-import { LogOut, Settings } from "lucide-react";
-import { Link } from "react-router";
+import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import {
   Card,
@@ -26,9 +25,7 @@ export function AccountPage() {
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle>Profile</CardTitle>
-          <CardDescription>
-            Managed by platform administrators. Theme is under Settings.
-          </CardDescription>
+          <CardDescription>Managed by platform administrators.</CardDescription>
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
@@ -42,11 +39,6 @@ export function AccountPage() {
         </CardContent>
       </Card>
       <div className="mt-4 flex max-w-xl flex-wrap gap-2">
-        <Button asChild variant="secondary">
-          <Link to="/account/settings">
-            <Settings aria-hidden="true" /> Settings
-          </Link>
-        </Button>
         <Button variant="secondary" onClick={() => logout.mutate()} disabled={logout.isPending}>
           <LogOut aria-hidden="true" /> Sign out
         </Button>

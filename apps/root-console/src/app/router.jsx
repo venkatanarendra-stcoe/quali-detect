@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { NotFoundState } from "@/components/states/not-found-state.jsx";
 import {
   LoginPage,
@@ -39,7 +39,8 @@ export function AppRouter() {
             <Route index element={<LandingRedirect />} />
             {/* Own account: any verified platform session, no permission. */}
             <Route path="account" element={<AccountPage />} />
-            <Route path="account/settings" element={<SettingsPage />} />
+            <Route path="my-settings" element={<SettingsPage />} />
+            <Route path="account/settings" element={<Navigate to="/my-settings" replace />} />
             {PLATFORM_ROUTES.map((r) => (
               <Route
                 key={r.path}

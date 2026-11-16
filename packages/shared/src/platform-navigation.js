@@ -43,8 +43,13 @@ export const PLATFORM_NAV_GROUPS = Object.freeze([
     item("support", "platform.support.request_access", true),
     item("audit-logs", "platform.audit_log.view", true),
   ]),
-  // Own pages of the verified platform principal; no permission (owner decision 2026-11-16).
-  group("account", [item("account", null, true)]),
+  // Own pages of the verified platform principal; no permission (owner decisions 2026-11-16, 2026-11-17). Order: Account,
+  // Settings (theme only), Notifications (an action item that opens the drawer); the app adds Sign out after them.
+  group("account", [
+    item("account", null, true),
+    item("my-settings", null, true),
+    item("notifications", null, true),
+  ]),
 ]);
 
 // Fail at import time if a definition ever references a non-platform key (tenant models must never leak in).

@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   Building2,
   Cable,
   Gauge,
@@ -8,6 +9,7 @@ import {
   LifeBuoy,
   Layers,
   ScrollText,
+  Settings,
   SlidersHorizontal,
   ToggleRight,
   UserRound,
@@ -42,4 +44,7 @@ export const NAV_ITEMS = Object.freeze({
   support: item("Support & diagnostics", LifeBuoy, "/support"),
   "audit-logs": item("Platform audit logs", ScrollText, "/audit-logs"),
   account: item("Account", UserRound, "/account"),
+  "my-settings": item("Settings", Settings, "/my-settings"),
+  // Action item (no route): opens the notifications drawer; rendered by the sidebar.
+  notifications: { label: "Notifications", icon: Bell, action: "notifications" },
 });

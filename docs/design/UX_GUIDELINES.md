@@ -39,7 +39,7 @@ Checklist before shipping a screen:
 | Region | Spec |
 |---|---|
 | Sidebar | 240 px, collapsible to 56 px (icons with tooltips). Background `--sidebar`, 1 px right border. Sections with 11 px uppercase labels in `--subtle-foreground`. |
-| Top bar | **Removed 2026-11-16 (owner decision, Confirmed).** Its contents moved into the sidebar: logo at the top, workspace switcher under it (Tenant app), Notifications item with badge, and Account as a normal navigation item in the last group "You" followed by Sign out (Account > Settings > Appearance (theme, accent; tenant only) and Preferences). The search / command palette trigger and the bottom-pinned account block were removed (revised 2026-11-16, owner decision, Confirmed); the palette code stays unused. Below 768 px a 3rem strip with the menu button opens the sidebar as a drawer. |
+| Top bar | **Removed 2026-11-16 (owner decision, Confirmed).** Its contents moved into the sidebar: logo at the top, workspace switcher under it (Tenant app), and the last navigation group "You": Account, Settings (own page; Appearance (theme, accent; tenant only) and Preferences), Notifications (item with badge, opens the drawer; below Settings, not pinned at the top; amended 2026-11-17, owner decision, Confirmed), then Sign out. The search / command palette trigger and the bottom-pinned account block were removed (revised 2026-11-16, owner decision, Confirmed); the palette code stays unused. Below 768 px a 3rem strip with the menu button opens the sidebar as a drawer. |
 | Content | Max width fluid; padding 24 px. Content scrolls; the sidebar is fixed. |
 | Page header | Breadcrumb, title (20/28), optional status chip, secondary actions, then the primary action at the far right. |
 

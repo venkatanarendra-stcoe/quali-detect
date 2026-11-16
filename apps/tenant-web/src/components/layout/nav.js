@@ -1,4 +1,5 @@
 import {
+  Bell,
   Boxes,
   Cable,
   ClipboardCheck,
@@ -59,7 +60,10 @@ export const NAV_ITEMS = Object.freeze({
   settings: org("Organization settings", Settings, "/settings"),
   "audit-logs": org("Audit logs", ScrollText, "/audit-logs"),
   // own pages (both layouts)
-  account: org("Account", UserRound, "/account", ["/account/settings"]),
+  account: org("Account", UserRound, "/account"),
+  "my-settings": org("Settings", Settings, "/my-settings"),
+  // Action item (no route): opens the notifications drawer; rendered by the sidebar.
+  notifications: { label: "Notifications", icon: Bell, action: "notifications" },
   // workspace layout
   dashboard: ws("Dashboard", LayoutGrid, "dashboard"),
   repositories: ws("Repositories", GitBranch, "repositories"),

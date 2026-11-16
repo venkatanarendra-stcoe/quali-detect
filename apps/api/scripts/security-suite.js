@@ -241,6 +241,16 @@ async function main() {
     RATE_LIMIT_AUTH_MAX: "200",
     RATE_LIMIT_AUTH_WINDOW_MS: "5000",
     RATE_LIMIT_WRITE_MAX: "5000",
+    // Realtime (Socket.IO): on for the RT checks. Few rooms and a small session cap so the limits are reachable; the periodic
+    // re-validation is pushed to its maximum (1 h) so a disconnect seen in the live process came from the revocation signal.
+    REALTIME_ENABLED: "true",
+    REALTIME_MAX_ROOMS_PER_SOCKET: "3",
+    REALTIME_MAX_CONNECTIONS_PER_SESSION: "5",
+    REALTIME_MAX_CONNECTIONS_PER_IP: "500",
+    REALTIME_CONNECT_RATE_PER_MINUTE: "100000",
+    REALTIME_JOIN_RATE_PER_MINUTE: "1000",
+    REALTIME_EVENTS_PER_MINUTE: "100000",
+    REALTIME_REAUTH_SECONDS: "3600",
     // Restore window of deactivated tenants: 4 s so the RST checks can cross it (production default: see config).
     TENANT_DEACTIVATION_RETENTION_SECONDS: "4",
   });

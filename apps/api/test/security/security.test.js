@@ -35,6 +35,7 @@ import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
 import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
 import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
+import { buildRealtimeWorld, REALTIME_CHECKS } from "./helpers/realtime-checks.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -47,7 +48,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 625;
+const EXPECTED_CHECKS = 643;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10344,6 +10345,29 @@ const schWorld = () =>
       name,
       { status: 200 },
       async () => ({ status: 200, json: null, problems: await run(await orchWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Realtime: the Socket.IO server (SPEC executions 9.4 and 17.ad), live API process plus in-process server and consumer.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Executions: realtime (Socket.IO)");
+  const realtimeWorld = () =>
+    once("realtime", () =>
+      buildRealtimeWorld(w, {
+        db: suiteDb(),
+        apiUrl: env("SECURITY_API_URL"),
+        origin: env("SECURITY_ORIGIN"),
+      }),
+    );
+  for (const { id, name, run } of REALTIME_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await realtimeWorld()) }),
       (r) => r.problems,
     );
 }

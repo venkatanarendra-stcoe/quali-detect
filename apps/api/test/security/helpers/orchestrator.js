@@ -679,7 +679,11 @@ export async function buildOrchestratorWorld(db, github) {
       db.executionLog.findMany({ where: t }),
       db.executionArtifact.findMany({ where: t }),
     ]);
-    return JSON.stringify(parts, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+    // findMany has no ORDER BY, so two reads of identical rows may return them in different physical order (seen with the
+    // execution log table, whose rows are written by concurrent writers): sort each table's rows by their serialization so
+    // the fingerprint depends on content only.
+    const text = (v) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
+    return `[${parts.map((rows) => `[${rows.map(text).sort().join(",")}]`).join(",")}]`;
   };
   w.fingerprint = async (tree) => sha256(await w.dump(tree));
 

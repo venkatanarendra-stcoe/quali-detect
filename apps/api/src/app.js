@@ -24,6 +24,7 @@ import { createScm } from "./runtime/scm.js";
 import { createSecrets } from "./runtime/secrets.js";
 import { registerModules } from "./runtime/modules.js";
 import { createReadiness } from "./runtime/readiness.js";
+import { createRealtime } from "./realtime/index.js";
 
 /**
  * Builds the Express application (ADR-007). Everything is created per call (no module-level state), so several
@@ -47,6 +48,8 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   const audit = createAudit({ infra, logger });
   // Transactional outbox (writer side): modules enqueue messages inside their transactions; the relay worker publishes them.
   const outbox = createOutbox({ repository: createOutboxRepository({ db: infra.db }) });
+  // Filled once the realtime layer exists (it needs the authentication it is created after).
+  const signals = { sessionRevoked: (_event) => {} };
   const { auth, middleware: authentication } = createAuthentication({
     db: infra.db,
     config,
@@ -54,8 +57,12 @@ export async function createApp({ config, modules = defaultModules, loggerOption
     infra,
     logger,
     outbox,
+    onTenantSessionRevoked: (event) => signals.sessionRevoked(event),
   });
   const authz = createAuthorization({ db: infra.db });
+  // Socket.IO hints (REALTIME_ENABLED, single instance): null when off. The caller attaches it to the HTTP server.
+  const realtime = createRealtime({ config, infra, auth, authz, logger });
+  if (realtime) signals.sessionRevoked = (event) => realtime.onSessionRevoked(event);
   const entitlements = createEntitlements({ infra });
   // Secret storage foundation (ADR-009): only when enabled; config already validated the key and refused unsafe providers.
   const secrets = createSecrets({ config, infra, audit });
@@ -106,6 +113,7 @@ export async function createApp({ config, modules = defaultModules, loggerOption
     outbox,
     secrets,
     scm,
+    realtime,
   };
   await registerModules({ ctx, modules, routeKit });
 
@@ -132,7 +140,12 @@ export async function createApp({ config, modules = defaultModules, loggerOption
     ctx,
     routes: routeKit.table,
     openapi: () => buildOpenApiDocument({ config, routes: routeKit.table }),
-    /** Releases RabbitMQ, Redis and Prisma. The HTTP server is closed by the caller first. */
-    close: closeInfrastructure,
+    /** Realtime layer or null; `realtime.start(httpServer)` attaches the sockets and starts the hint consumer. */
+    realtime,
+    /** Releases realtime, RabbitMQ, Redis and Prisma. The HTTP server is closed by the caller first. */
+    close: async () => {
+      await realtime?.close();
+      await closeInfrastructure();
+    },
   };
 }

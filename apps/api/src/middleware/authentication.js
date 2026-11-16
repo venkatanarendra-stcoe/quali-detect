@@ -28,13 +28,26 @@ export const AUDIENCES = Object.freeze(["public", "user", "tenant", "platform"])
  * two surfaces are separate Express routers with their own authentication middleware (`middleware.tenant`, `middleware.platform`).
  * Unsafe methods are checked against the allowed browser origins (CSRF defense on top of SameSite=Lax cookies).
  *
- * @param {{ db: any, config: any, audit: any, infra: any, logger: import("pino").Logger, outbox: any }} deps
+ * `onTenantSessionRevoked` receives `{ sessionId }` / `{ subjectId }` after a tenant session revocation (realtime disconnects).
+ * @param {{ db: any, config: any, audit: any, infra: any, logger: import("pino").Logger, outbox: any, onTenantSessionRevoked?: (event: object) => void }} deps
  */
-export function createAuthentication({ db, config, audit, infra, logger, outbox }) {
+export function createAuthentication({
+  db,
+  config,
+  audit,
+  infra,
+  logger,
+  outbox,
+  onTenantSessionRevoked,
+}) {
   if (!db) throw new Error("The identity module requires DATABASE_URL.");
 
   const sessions = Object.freeze({
-    tenant: createSessionService({ store: createSessionStore({ db, kind: "tenant" }), config }),
+    tenant: createSessionService({
+      store: createSessionStore({ db, kind: "tenant" }),
+      config,
+      onRevoked: onTenantSessionRevoked,
+    }),
     platform: createSessionService({ store: createSessionStore({ db, kind: "platform" }), config }),
   });
   const limiter = infra.rateLimiter ?? createMemoryRateLimiter();

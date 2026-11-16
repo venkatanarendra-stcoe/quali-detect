@@ -66,6 +66,19 @@ const envSchema = z.object({
   PIPELINE_CANCEL_GRACE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
   EXECUTION_ABORT_GRACE_SECONDS: z.coerce.number().int().min(0).max(600).default(10),
   EXECUTION_RETRY_CHAIN_MAX: z.coerce.number().int().min(1).max(20).default(5),
+  // Realtime (docs/modules/executions/SPEC.md §9.4 and §17.ad): Socket.IO hints, OFF unless enabled. Single instance only (no Redis
+  // adapter): the `realtime` queue consumer and the sockets live in this process.
+  REALTIME_ENABLED: booleanFlag.optional(),
+  REALTIME_MAX_ROOMS_PER_SOCKET: z.coerce.number().int().min(1).max(100).default(20),
+  REALTIME_MAX_DENIED_JOINS: z.coerce.number().int().min(1).max(100).default(5),
+  REALTIME_DENIED_WINDOW_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
+  REALTIME_REAUTH_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
+  REALTIME_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().min(1).max(10000).default(20),
+  REALTIME_MAX_CONNECTIONS_PER_SESSION: z.coerce.number().int().min(1).max(100).default(5),
+  REALTIME_CONNECT_RATE_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(60),
+  REALTIME_JOIN_RATE_PER_MINUTE: z.coerce.number().int().min(1).max(10000).default(60),
+  REALTIME_EVENTS_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(240),
+  REALTIME_MAX_PAYLOAD_BYTES: z.coerce.number().int().min(256).max(65536).default(2048),
   // Secret storage (ADR-009). Off unless a feature needs it. The "env" key provider (master key from the environment) is
   // for DEVELOPMENT only and is refused in production; the KMS and Vault adapters are not implemented yet.
   SECRETS_ENABLED: booleanFlag.optional(),
@@ -329,6 +342,19 @@ export function loadConfig(env = process.env) {
       abortGraceSeconds: e.EXECUTION_ABORT_GRACE_SECONDS,
       retryChainMax: e.EXECUTION_RETRY_CHAIN_MAX,
     }),
+    realtime: Object.freeze({
+      enabled: e.REALTIME_ENABLED ?? false,
+      maxRoomsPerSocket: e.REALTIME_MAX_ROOMS_PER_SOCKET,
+      maxDeniedJoins: e.REALTIME_MAX_DENIED_JOINS,
+      deniedWindowSeconds: e.REALTIME_DENIED_WINDOW_SECONDS,
+      reauthSeconds: e.REALTIME_REAUTH_SECONDS,
+      maxConnectionsPerIp: e.REALTIME_MAX_CONNECTIONS_PER_IP,
+      maxConnectionsPerSession: e.REALTIME_MAX_CONNECTIONS_PER_SESSION,
+      connectRatePerMinute: e.REALTIME_CONNECT_RATE_PER_MINUTE,
+      joinRatePerMinute: e.REALTIME_JOIN_RATE_PER_MINUTE,
+      eventsPerMinute: e.REALTIME_EVENTS_PER_MINUTE,
+      maxPayloadBytes: e.REALTIME_MAX_PAYLOAD_BYTES,
+    }),
     // Secrets: never log or return. Unset outside production = random per-process secret (see the schema comment).
     cursor: Object.freeze({
       signingSecrets: Object.freeze(
@@ -400,5 +426,6 @@ export function describeConfig(config) {
     secretsEnabled: config.secrets.enabled,
     cursorSigning: config.cursor.signingSecretConfigured ? "configured" : "ephemeral",
     githubEnabled: config.github.enabled,
+    realtimeEnabled: config.realtime.enabled,
   };
 }

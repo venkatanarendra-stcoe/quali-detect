@@ -5,9 +5,18 @@ const TOUCH_INTERVAL_MS = 60_000;
 /**
  * Issues, resolves and revokes sessions for one audience. Sessions expire absolutely (`expiresAt`) and when idle
  * (`lastSeenAt`); `lastSeenAt` is refreshed at most once a minute to avoid a write per request.
- * @param {{ store: ReturnType<typeof import("./session-store.js").createSessionStore>, config: { auth: { sessionTtlSeconds: number, idleTimeoutSeconds: number } }, clock?: () => Date }} options
+ * `onRevoked` is told about every revocation made through this service (`{ sessionId }` or `{ subjectId }`), AFTER it is stored, so
+ * the realtime layer can disconnect the sockets of that session at once. It must not throw (a failure is swallowed).
+ * @param {{ store: ReturnType<typeof import("./session-store.js").createSessionStore>, config: { auth: { sessionTtlSeconds: number, idleTimeoutSeconds: number } }, clock?: () => Date, onRevoked?: (event: { sessionId?: string, subjectId?: string }) => void }} options
  */
-export function createSessionService({ store, config, clock = () => new Date() }) {
+export function createSessionService({ store, config, clock = () => new Date(), onRevoked }) {
+  const notify = (event) => {
+    try {
+      onRevoked?.(event);
+    } catch {
+      /* the periodic re-validation of the realtime layer is the guarantee */
+    }
+  };
   return Object.freeze({
     /**
      * Creates a session with a fresh random token (never reuse a token across logins: no session fixation).
@@ -49,9 +58,17 @@ export function createSessionService({ store, config, clock = () => new Date() }
       return session;
     },
     /** @param {string} sessionId */
-    revoke: (sessionId) => store.revoke(sessionId, clock()),
+    revoke: async (sessionId) => {
+      const result = await store.revoke(sessionId, clock());
+      notify({ sessionId });
+      return result;
+    },
     /** @param {string} subjectId */
-    revokeAll: (subjectId) => store.revokeAllForSubject(subjectId, clock()),
+    revokeAll: async (subjectId) => {
+      const result = await store.revokeAllForSubject(subjectId, clock());
+      notify({ subjectId });
+      return result;
+    },
     /** @param {string} sessionId @param {string | null} tenantId */
     setActiveTenant: (sessionId, tenantId) => store.setActiveTenant(sessionId, tenantId),
   });

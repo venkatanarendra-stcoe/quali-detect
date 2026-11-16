@@ -12,7 +12,7 @@ import {
 
 /**
  * Connects the infrastructure that is configured and returns `{ infra, close }`.
- * `infra` = `{ db, redis, cache, locks, rateLimiter, publisher }` (an entry is `null` when its URL is not configured).
+ * `infra` = `{ db, redis, cache, locks, rateLimiter, publisher, rabbit }` (`rabbit` is the shared connection, for the realtime consumer) (an entry is `null` when its URL is not configured).
  * Connections are lazy; each registers a readiness check (/ready). `close()` shuts them down in reverse dependency order
  * (RabbitMQ publisher and connection, Redis, Prisma) and never throws, so a failing close cannot hide the others.
  * Tenant rules: the cache, locks and rate limiter require `tenantId` on every call; the publisher validates the job envelope.
@@ -27,6 +27,7 @@ export function createInfrastructure({ config, logger, readiness }) {
     locks: null,
     rateLimiter: null,
     publisher: null,
+    rabbit: null,
   };
   /** @type {Array<{ name: string, close: () => Promise<unknown> }>} */
   const closers = [];
@@ -49,6 +50,7 @@ export function createInfrastructure({ config, logger, readiness }) {
   }
   if (rabbitmqUrl) {
     const connection = createRabbitConnection({ url: rabbitmqUrl, logger, connectAttempts: 1 });
+    infra.rabbit = connection;
     infra.publisher = createPublisher({ connection, logger });
     // Startup declaration of the shared broker topology (idempotent). The API must still start without a broker
     // (readiness reports it); the publisher declares the topology again on its first publish.

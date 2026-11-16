@@ -72,6 +72,26 @@ export function createScanTaskRepository({ db }) {
       return { created: result.count };
     },
 
+    /**
+     * Marks the still `pending` tasks of the given scan types `unsupported` with the reason `engine_not_registered` (SPEC
+     * §17.ab): the scan type is enabled in the snapshot but no engine is registered for it. Terminal and immutable; no attempt,
+     * no queue message and no credential ever exists for such a task. Fenced by the lease, scoped by the trusted tenant,
+     * compare-and-set on `pending` (a replay marks nothing twice). Call inside the transaction that creates the tasks.
+     * @param {{ tenantId: string, executionId: string, leaseEpoch: number, scanTypes: string[] }} input
+     * @param {any} tx The caller's TRANSACTION client.
+     * @returns {Promise<Array<{ id: string, scanType: string, statusRev: number }>>}
+     */
+    async markUnsupported({ tenantId, executionId, leaseEpoch, scanTypes }, tx) {
+      await executions.fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
+      if (scanTypes.length === 0) return [];
+      return tx.$queryRaw`
+        UPDATE scan_tasks
+        SET status = 'unsupported', status_reason = 'engine_not_registered', updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND execution_id = ${executionId}::uuid AND status = 'pending'
+          AND scan_type::text = ANY(${scanTypes}::text[])
+        RETURNING id, scan_type::text AS "scanType", status_rev AS "statusRev"`;
+    },
+
     /** The tasks of one execution in dispatch order. @param {{ tenantId: string, executionId: string }} input @param {any} [client] */
     listTasks: ({ tenantId, executionId }, client = db) =>
       client.scanTask.findMany({ where: { tenantId, executionId }, orderBy: { ordinal: "asc" } }),

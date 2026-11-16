@@ -1669,4 +1669,140 @@ export const EXECDB_CHECKS = [
       return p;
     },
   },
+  {
+    id: "EXECDB-019",
+    name: "scan task status unsupported (SPEC executions §17.ab): pending -> unsupported and queued -> unsupported are the only ways in (reason engine_not_registered required, nothing else accepted, finished_at set, status_rev bumped), running -> unsupported and every way out are refused, a task cannot be inserted unsupported or hold a lease while unsupported, and no attempt or result can ever be written for it",
+    async run(c) {
+      const p = [];
+      const { db, A } = c;
+      const { execution } = await queuedExecution(c, A, 0);
+      await driveExecution(db, execution.id, "running");
+      const e = await db.execution.findUnique({ where: { id: execution.id } });
+      const mark = (id, over = {}) =>
+        attempt(() =>
+          db.scanTask.update({
+            where: { id },
+            data: { status: "unsupported", statusReason: "engine_not_registered", ...over },
+          }),
+        );
+      const pending = await db.scanTask.create({ data: taskData(e, "sca", { status: "pending" }) });
+      const queued = await db.scanTask.create({ data: taskData(e, "sast", { status: "queued" }) });
+      const strict = await db.scanTask.create({ data: taskData(e, "sbom", { status: "pending" }) });
+      const running = await runningTask(c, e, "secrets");
+      // refusals first (each is paired with the control below that marks the same kind of row legitimately)
+      rej(p, "running -> unsupported", await mark(running.id), "not allowed");
+      rej(
+        p,
+        "unsupported without a reason",
+        await mark(strict.id, { statusReason: null }),
+        "scan_tasks_status_reason_check",
+      );
+      rej(
+        p,
+        "unsupported with another reason",
+        await mark(strict.id, { statusReason: "engine_failed" }),
+        "scan_tasks_status_reason_check",
+      );
+      rej(
+        p,
+        "unsupported holding a lease",
+        await mark(strict.id, {
+          leaseOwner: "w",
+          leaseExpiresAt: new Date(Date.now() + 60000),
+          heartbeatAt: new Date(),
+        }),
+        "scan_tasks_lease_check",
+      );
+      const fresh = await queuedExecution(c, A, 0);
+      for (const [label, create] of [
+        ["create", (data) => db.scanTask.create({ data })],
+        ["createMany", (data) => db.scanTask.createMany({ data: [data] })],
+      ])
+        rej(
+          p,
+          `a task inserted unsupported (${label})`,
+          await attempt(() =>
+            create(
+              taskData(fresh.execution, "sbom", {
+                status: "unsupported",
+                statusReason: "engine_not_registered",
+              }),
+            ),
+          ),
+          "created pending or queued",
+        );
+      mustAccept(
+        p,
+        "a task inserted pending in the same execution",
+        await attempt(() =>
+          db.scanTask.create({ data: taskData(fresh.execution, "sbom", { status: "pending" }) }),
+        ),
+      );
+      // controls: both legal entries
+      mustAccept(p, "pending -> unsupported", await mark(pending.id));
+      mustAccept(p, "queued -> unsupported", await mark(queued.id));
+      for (const t of [pending, queued]) {
+        const row = await db.scanTask.findUnique({ where: { id: t.id } });
+        if (
+          row.status !== "unsupported" ||
+          row.statusReason !== "engine_not_registered" ||
+          !row.finishedAt ||
+          row.statusRev !== 1 ||
+          row.attempt !== 0 ||
+          row.leaseOwner !== null
+        )
+          p.push(
+            `${t.scanType}: the unsupported task row is not terminal and untouched (${row.status}, rev ${row.statusRev})`,
+          );
+      }
+      // terminal and immutable
+      for (const to of ["queued", "running", "cancelled", "skipped", "failed", "pending"])
+        rej(
+          p,
+          `unsupported -> ${to}`,
+          await attempt(() =>
+            db.scanTask.update({
+              where: { id: pending.id },
+              data: {
+                status: to,
+                statusReason: to === "queued" || to === "running" || to === "pending" ? null : "x",
+              },
+            }),
+          ),
+          "terminal",
+        );
+      rej(
+        p,
+        "a change of a column of an unsupported task",
+        await attempt(() =>
+          db.scanTask.update({ where: { id: pending.id }, data: { ordinal: 3 } }),
+        ),
+        "terminal",
+      );
+      rej(
+        p,
+        "a change of the reason of an unsupported task",
+        await attempt(() =>
+          db.scanTask.update({ where: { id: pending.id }, data: { statusReason: "other" } }),
+        ),
+        "terminal",
+      );
+      // no attempt, no result for an unsupported task
+      rej(
+        p,
+        "an attempt for an unsupported task",
+        await attempt(() => db.scanTaskAttempt.create({ data: attemptData(pending) })),
+        "not the running attempt",
+      );
+      rej(
+        p,
+        "a result for an unsupported task",
+        await attempt(() => db.scanResult.create({ data: resultData(pending) })),
+        "not the running attempt",
+      );
+      // control: the strict row is still markable once the bad variants were refused
+      mustAccept(p, "pending -> unsupported after the refusals", await mark(strict.id));
+      return p;
+    },
+  },
 ];

@@ -10,10 +10,15 @@ export const SCAN_TASK_ORDER = Object.freeze(["sbom", "sca", "sast", "secrets"])
 export const SCAN_TASK_ACTIVE_STATUSES = Object.freeze(["pending", "queued", "running"]);
 
 /**
- * Table 5.4 for a run that ended normally (no task is pending, queued or running).
- * - every task `succeeded` (and at least one task exists): `succeeded`;
- * - at least one `succeeded` and at least one `failed`/`timed_out` (EQ-3, option A): `partial` / `tasks_incomplete`;
- * - no task `succeeded`: `failed` / `tasks_failed`.
+ * Table 5.4 for a run that ended normally (no task is pending, queued or running), as amended by SPEC §17.ab (owner decision
+ * 2026-11-16: an enabled scan type without a registered engine is `unsupported`, never `failed`, and never blocks the run).
+ * Let `unsupported` tasks be those that never ran for lack of an engine:
+ * - every task `succeeded` (and at least one task exists): `succeeded` (so SBOM alone enabled and run is `succeeded`);
+ * - at least one `succeeded` and at least one `failed`/`timed_out`/other non-success: `partial` / `tasks_incomplete` (EQ-3);
+ * - at least one `succeeded`, the rest only `unsupported`: `partial` / `tasks_unsupported`;
+ * - no task `succeeded`, every task `unsupported` (nothing could run; Recommended, flagged in SPEC §17.ab): `failed` /
+ *   `tasks_unsupported`;
+ * - no task `succeeded` otherwise: `failed` / `tasks_failed`.
  * Deadline and cancel endings are decided by the caller, not here.
  * @param {Array<{ status: string }>} tasks
  * @returns {{ status: "succeeded" | "partial" | "failed", reason: string | null }}
@@ -24,15 +29,22 @@ export function aggregateTaskOutcome(tasks) {
   if (tasks.some((t) => SCAN_TASK_ACTIVE_STATUSES.includes(t.status)))
     throw new TypeError("aggregateTaskOutcome needs every task to be finished");
   const succeeded = tasks.filter((t) => t.status === "succeeded").length;
+  const unsupported = tasks.filter((t) => t.status === "unsupported").length;
+  const otherNonSuccess = tasks.length - succeeded - unsupported;
   if (succeeded === tasks.length) return { status: "succeeded", reason: null };
-  if (succeeded > 0) return { status: "partial", reason: "tasks_incomplete" };
+  if (succeeded > 0)
+    return otherNonSuccess > 0
+      ? { status: "partial", reason: "tasks_incomplete" }
+      : { status: "partial", reason: "tasks_unsupported" };
+  if (otherNonSuccess === 0) return { status: "failed", reason: "tasks_unsupported" };
   return { status: "failed", reason: "tasks_failed" };
 }
 
 /**
  * `resolutionEligible` of `pipeline.execution.completed` (ER-24): necessary, not sufficient, for the Findings module to resolve
  * findings. True ONLY for a succeeded, full, trusted (non-fork) execution in which every enabled scan type has a task with a
- * complete, non-truncated result.
+ * complete, non-truncated result. An `unsupported` task never has a result, so an execution with one is never eligible (and its
+ * status is `partial` or `failed` anyway).
  * @param {{ status: string, scanKind: string, trust: string, enabledScanTypes: string[], tasks: Array<{ scanType: string, status: string, completeness?: string | null, truncated?: boolean }> }} input
  * @returns {boolean}
  */

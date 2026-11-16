@@ -382,7 +382,7 @@ export function createExecutionRepository({ db, entitlements }) {
     },
 
     /**
-     * Appends a NON-transition history row (`recovered`, `cancel_requested`, `limit_deferred`, `retry_requested`); `transition`
+     * Appends a NON-transition history row (`recovered`, `cancel_requested`, `limit_deferred`, `retry_requested`, `task_unsupported`); `transition`
      * rows are written by the database. With `leaseEpoch` the write is fenced (a lease holder's write). The sequence number
      * is assigned by the database. Returns `null` when the execution is not the tenant's, or terminal (the database refuses
      * events of a finished execution).
@@ -393,7 +393,7 @@ export function createExecutionRepository({ db, entitlements }) {
       const { tenantId, executionId, type, reason = null, leaseEpoch } = input;
       if (type === "transition" || !EXECUTION_EVENT_TYPES.includes(type))
         throw new TypeError(
-          "recordEvent writes recovered, cancel_requested, limit_deferred or retry_requested rows",
+          "recordEvent writes recovered, cancel_requested, limit_deferred, retry_requested or task_unsupported rows",
         );
       return withTransaction(client, async (tx) => {
         if (Number.isInteger(leaseEpoch))

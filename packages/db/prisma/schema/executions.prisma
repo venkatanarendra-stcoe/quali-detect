@@ -23,6 +23,7 @@ enum ScanTaskStatus {
   timed_out
   cancelled
   skipped
+  unsupported
 
   @@map("scan_task_status")
 }

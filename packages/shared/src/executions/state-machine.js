@@ -85,12 +85,17 @@ export const SCAN_TASK_STATUS_VALUES = Object.freeze([
   "timed_out",
   "cancelled",
   "skipped",
+  "unsupported",
 ]);
 
-/** Allowed scan task status changes; `running -> queued` is a retry attempt only (the attempt grows by one). */
+/**
+ * Allowed scan task status changes; `running -> queued` is a retry attempt only (the attempt grows by one). `unsupported`
+ * (SPEC §17.ab: the scan type is enabled but no engine is registered; reason `engine_not_registered`) is reachable only from
+ * `pending` and `queued`, never from `running`.
+ */
 export const SCAN_TASK_TRANSITIONS = Object.freeze({
-  pending: Object.freeze(["queued", "cancelled", "skipped"]),
-  queued: Object.freeze(["running", "cancelled", "skipped"]),
+  pending: Object.freeze(["queued", "cancelled", "skipped", "unsupported"]),
+  queued: Object.freeze(["running", "cancelled", "skipped", "unsupported"]),
   running: Object.freeze(["queued", "succeeded", "failed", "timed_out", "cancelled"]),
 });
 
@@ -106,7 +111,11 @@ export const SCAN_TASK_TERMINAL_STATUSES = Object.freeze([
   "timed_out",
   "cancelled",
   "skipped",
+  "unsupported",
 ]);
+
+/** The one reason a task is `unsupported` (SPEC §17.ab). */
+export const SCAN_TASK_UNSUPPORTED_REASON = "engine_not_registered";
 
 /** Types of `execution_events` rows. */
 export const EXECUTION_EVENT_TYPES = Object.freeze([
@@ -115,4 +124,5 @@ export const EXECUTION_EVENT_TYPES = Object.freeze([
   "cancel_requested",
   "limit_deferred",
   "retry_requested",
+  "task_unsupported",
 ]);

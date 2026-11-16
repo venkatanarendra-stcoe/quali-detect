@@ -100,6 +100,7 @@ Wireframe columns **not** shown: "New findings" (Findings module, C6). Sorting: 
 
 **Scan task cards** (one per enabled scan type, order SBOM, SCA, SAST, Secrets; in a responsive grid: 2 columns at 1280, 4 at 1440; each is an expandable `button`/region with `aria-expanded`):
 - title (SCA, SBOM, SAST, Secrets), status chip, engine id/profile (mono), "Attempt 2 of 2" when retried, duration;
+- a task with status `unsupported` (SPEC §17.ab: the scan type is enabled but the platform has no engine for it yet) shows a neutral chip "Not supported" (icon + text, not a failure color) and the text "No engine is available for this scan type yet."; it has no attempt, duration or result, is counted as not succeeded in the "3/4" segments, and an execution with such a task reads `partial` with the reason text "Some scan types are not supported yet" (or `failed` when nothing could run);
 - while running: an **indeterminate** progress bar with the text "Running"; **no percentage is shown, because the API provides none** (the wireframe's "64%" is not reproduced);
 - when finished: result summary: item count and severity chips (Critical, High, Medium, Low, Info with the severity tokens, icon + text), a "Truncated" badge and the text "Partial results" for an incomplete result;
 - expanded: attempts (number, outcome, error class in words, duration), the stable reason text for failed/timed-out/cancelled tasks, and "View log" which sets the Logs tab task filter. No findings list or link (Findings module, C6).

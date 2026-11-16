@@ -291,8 +291,13 @@ export function createScanTaskHandler({
         const result = {
           engineId: task.engineId,
           engineVersion: adapter.version,
-          completeness: normalized.truncated ? "incomplete" : "complete",
-          truncated: normalized.truncated,
+          // an adapter may report its own cap (`truncated`) or a partial inventory (`incomplete`, e.g. a malformed file): both make the
+          // result incomplete, which keeps the execution from being resolution eligible (SPEC §17.ab)
+          completeness:
+            normalized.truncated || run?.truncated === true || run?.incomplete === true
+              ? "incomplete"
+              : "complete",
+          truncated: normalized.truncated || run?.truncated === true,
           severityCounts: normalized.severityCounts,
           items: normalized.items,
         };

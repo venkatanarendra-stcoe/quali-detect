@@ -475,6 +475,10 @@ export async function buildDalWorld(db) {
   const taskQueued = await db.scanTask.create({
     data: { ...taskBase, scanType: "sbom", ordinal: 1, status: "queued" },
   });
+  // SBOM engine part (DAL-263): a PENDING task of the running execution, so a wrong-tenant markUnsupported has something to touch
+  await db.scanTask.create({
+    data: { ...taskBase, scanType: "secrets", ordinal: 2, status: "pending" },
+  });
   await db.scanResult.create({
     data: {
       tenantId: X.id,
@@ -4146,6 +4150,31 @@ export function buildDalEntries() {
           type: "retry_requested",
           actor: { type: "user", userId: c.uA },
         }),
+    },
+  );
+
+  // SBOM engine part (SPEC executions §17.ab, DAL-263): marking tasks unsupported is tenant-scoped and lease-fenced
+  E(
+    "tasks.markUnsupported",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).markUnsupported(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, scanTypes: ["secrets"] },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "pending");
+        return inTx(c, (tx) =>
+          TK(c).markUnsupported(
+            { tenantId: c.x, executionId: e.id, leaseEpoch: 1, scanTypes: ["sca"] },
+            tx,
+          ),
+        );
+      },
     },
   );
 

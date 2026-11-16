@@ -2125,7 +2125,7 @@ export const ORCH_CHECKS = [
   },
   {
     id: "EXE-036",
-    name: "off by default and no engine, no work: with the flag off the pipeline queue handler is the no-op handler (the orchestrator is not even built) and the scan worker configuration neither requires nor accepts GitHub App settings; with the flag on but no engine registered a queued execution stays queued and nothing is written; the orchestrator configuration is validated (absolute artifact root, database)",
+    name: "off by default and no engine, no work: with the flag off the pipeline queue handler is the no-op handler (the orchestrator is not even built) and the scan worker configuration neither requires nor accepts GitHub App settings; with the flag on but no engine registered every task is created unsupported and the execution ends failed (tasks_unsupported) instead of staying queued (SPEC §17.ab); the orchestrator configuration is validated (absolute artifact root, database)",
     async run(w) {
       const p = [];
       const tree = await w.tree("flagoff");
@@ -2165,8 +2165,10 @@ export const ORCH_CHECKS = [
         pipelineRefused = error instanceof ConfigError;
       }
       ok(p, pipelineRefused, "control: the same environment is accepted by the pipeline worker");
-      // enabled but no engine registered: deferred, nothing written
-      const empty = w.orchestrator(
+      // enabled but no engine registered (SPEC §17.ab, amends EQ-7): NOT deferred; every task is created unsupported, nothing is
+      // queued, the execution ends failed (tasks_unsupported: nothing could run) with its quota unit consumed
+      const e2 = await w.execution(tree);
+      const emptyOrch = w.orchestrator(
         {},
         {
           engines: (
@@ -2174,13 +2176,19 @@ export const ORCH_CHECKS = [
           ).createEngineRegistry(),
         },
       );
-      const r = await empty.claimAndStart({ tenantId: tree.tenant.id, executionId: e.id });
+      const r = await emptyOrch.claimAndStart({ tenantId: tree.tenant.id, executionId: e2.id });
+      await w.pump(tree, { orch: emptyOrch });
+      const emptyTasks = await w.taskRows(e2);
       ok(
         p,
-        r.outcome === "deferred" &&
-          (await w.statusOf(e)) === "queued" &&
-          (await w.fingerprint(tree)) === before,
-        `with no engine the execution was not left alone (${r.outcome})`,
+        r.outcome === "failed" &&
+          emptyTasks.length === 4 &&
+          emptyTasks.every(
+            (t) => t.status === "unsupported" && t.statusReason === "engine_not_registered",
+          ) &&
+          (await w.statusOf(e2)) === "failed" &&
+          (await w.row(e2)).statusReason === "tasks_unsupported",
+        `with no engine the execution was not run to its end by the unsupported rule (${r.outcome}, ${await w.statusOf(e2)})`,
       );
       const noRoot = (() => {
         try {

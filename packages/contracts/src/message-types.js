@@ -240,6 +240,7 @@ export const MESSAGE_TYPES = Object.freeze({
                   "timed_out",
                   "cancelled",
                   "skipped",
+                  "unsupported",
                 ]),
                 resultId: uuid.nullable(),
                 itemCount: z.number().int().min(0),
@@ -352,6 +353,7 @@ export const MESSAGE_TYPES = Object.freeze({
           "timed_out",
           "cancelled",
           "skipped",
+          "unsupported",
         ]),
         rev: z.number().int().min(0),
       })

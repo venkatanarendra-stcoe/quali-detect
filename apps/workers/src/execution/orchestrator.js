@@ -16,7 +16,12 @@ import {
   TransientError,
   inspectTarGz,
 } from "@qmentisai/infra";
-import { aggregateTaskOutcome, cancelWaitDecision, isResolutionEligible } from "@qmentisai/shared";
+import {
+  SCAN_TASK_UNSUPPORTED_REASON,
+  aggregateTaskOutcome,
+  cancelWaitDecision,
+  isResolutionEligible,
+} from "@qmentisai/shared";
 import { CONFIG_SCHEMA, UUID } from "../pipeline/execution-request.js";
 import { auditSystem } from "../scm/audit.js";
 import {
@@ -39,6 +44,8 @@ class PrepareFailure extends Error {
 }
 /** A cancel request was seen at a safe point of the preparation (SPEC ER-14, ER-18). */
 class CancelRequested extends Error {}
+/** Every enabled scan type has no registered engine: nothing can run (SPEC §17.ab); the execution fails before any fetch. */
+class NoEngineRegistered extends Error {}
 /** The archive recorded by a previous holder is missing or does not match: a half-done side effect (ER-29). */
 class WorkerLost extends Error {}
 
@@ -217,7 +224,7 @@ export function createOrchestrator({
       const row = await repo.findExecution({ tenantId, executionId }, tx);
       if (!row || row.status !== "queued") return { outcome: "skipped" };
       const gate = await evaluateGates(
-        { entitlements, engines, staleThresholdSeconds: ex.staleThresholdSeconds },
+        { entitlements, staleThresholdSeconds: ex.staleThresholdSeconds },
         tx,
         row,
       );
@@ -268,6 +275,7 @@ export function createOrchestrator({
     timed_out: tasks.filter((t) => t.status === "timed_out").length,
     cancelled: tasks.filter((t) => t.status === "cancelled").length,
     skipped: tasks.filter((t) => t.status === "skipped").length,
+    unsupported: tasks.filter((t) => t.status === "unsupported").length,
   });
 
   /**
@@ -406,6 +414,46 @@ export function createOrchestrator({
     }
   }
 
+  /**
+   * SPEC §17.ab: an enabled scan type without a registered engine is `unsupported` at once (terminal; no attempt, no queue
+   * message, no credential), recorded in the history and announced; it never blocks the execution. Inside the caller's
+   * transaction, right after the tasks are created.
+   */
+  async function markUnsupportedInTransaction(tx, row, epoch, specs) {
+    const unsupported = await tasksRepo.markUnsupported(
+      {
+        tenantId: row.tenantId,
+        executionId: row.id,
+        leaseEpoch: epoch,
+        scanTypes: specs
+          .filter((spec) => !engines.has(spec.scanType, spec.engineId))
+          .map((spec) => spec.scanType),
+      },
+      tx,
+    );
+    for (const task of unsupported) {
+      await repo.recordEvent(
+        {
+          tenantId: row.tenantId,
+          executionId: row.id,
+          type: "task_unsupported",
+          reason: SCAN_TASK_UNSUPPORTED_REASON,
+          leaseEpoch: epoch,
+          correlationId: row.correlationId ?? undefined,
+          details: { taskId: task.id, scanType: task.scanType },
+        },
+        tx,
+      );
+      await producer.taskStatusChanged(
+        tx,
+        row,
+        { taskId: task.id, scanType: task.scanType, status: "unsupported", rev: task.statusRev },
+        row.correlationId,
+      );
+    }
+    return unsupported;
+  }
+
   const failPrepare = (row, epoch, code, details = {}) => {
     log.warn({ executionId: row.id, code }, "Execution failed while preparing");
     return terminalize({
@@ -479,6 +527,27 @@ export function createOrchestrator({
     const { cfg, fullName, installationId } = await loadPrepareContext(row);
     const types = enabledScanTypes(cfg);
     if (types.length === 0) throw new PrepareFailure("config_invalid");
+    const specs = types.map((type, ordinal) => ({
+      scanType: type,
+      ordinal,
+      engineId: cfg.scans[type].engine.id,
+      engineProfile: cfg.scans[type].engine.profile ?? "default",
+      severityThreshold: cfg.scans[type].severityThreshold ?? "low",
+      timeoutSeconds: cfg.execution.scanTaskTimeoutSeconds,
+      maxAttempts: ex.taskMaxAttempts,
+    }));
+    // SPEC §17.ab: when NO enabled scan type has a registered engine, nothing can run: the tasks are recorded `unsupported` and the
+    // execution fails before anything is fetched (no archive, no credential is ever used)
+    if (specs.every((spec) => !engines.has(spec.scanType, spec.engineId))) {
+      await withTransaction(db, async (tx) => {
+        await tasksRepo.createTasks(
+          { tenantId, executionId: row.id, leaseEpoch: epoch, tasks: specs },
+          tx,
+        );
+        await markUnsupportedInTransaction(tx, row, epoch, specs);
+      });
+      throw new NoEngineRegistered();
+    }
     const ref = { tenantId, executionId: row.id, name: ARCHIVE_NAME };
     let session = null;
     const open = async () =>
@@ -534,20 +603,12 @@ export function createOrchestrator({
       session?.close();
     }
     // tasks (one per enabled scan type, from the SNAPSHOT), the move to `running`, the started event and the first dispatch
-    const specs = types.map((type, ordinal) => ({
-      scanType: type,
-      ordinal,
-      engineId: cfg.scans[type].engine.id,
-      engineProfile: cfg.scans[type].engine.profile ?? "default",
-      severityThreshold: cfg.scans[type].severityThreshold ?? "low",
-      timeoutSeconds: cfg.execution.scanTaskTimeoutSeconds,
-      maxAttempts: ex.taskMaxAttempts,
-    }));
     await withTransaction(db, async (tx) => {
       await tasksRepo.createTasks(
         { tenantId, executionId: row.id, leaseEpoch: epoch, tasks: specs },
         tx,
       );
+      await markUnsupportedInTransaction(tx, row, epoch, specs);
       // createTasks holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
       await assertNotCancelled(tx);
       const done = await repo.transitionExecution(
@@ -629,6 +690,19 @@ export function createOrchestrator({
             details: { step: "preparing", decision: "cancel" },
           });
           return { outcome: done.lost ? "lost" : "cancelled" };
+        }
+        if (error instanceof NoEngineRegistered) {
+          // nothing could run: a platform capability gap, so the unit goes back (preparing -> failed, SPEC §5.9, §17.ab)
+          const done = await terminalize({
+            row,
+            epoch: entry.epoch,
+            from: "preparing",
+            to: "failed",
+            reason: "tasks_unsupported",
+            release: true,
+            details: { step: "preparing", decision: "fail", code: "no_engine_registered" },
+          });
+          return { outcome: done.lost ? "lost" : "failed" };
         }
         if (error instanceof WorkerLost) {
           const done = await failPrepare(row, entry.epoch, "worker_lost", {

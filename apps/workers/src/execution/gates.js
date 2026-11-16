@@ -19,14 +19,14 @@ export const enabledScanTypes = (cfg) =>
  * The re-validation gates of a claim (docs/modules/executions/SPEC.md §6.2, EXEC-005, B2), evaluated in the order of the spec,
  * FROM THE DATABASE (never from a message), inside the claim transaction under the pipeline advisory lock. Returns a decision:
  * - `{ decision: "cancel", reason }`: the execution can never run (the queued row is cancelled, quota released once);
- * - `{ decision: "defer", reason }`: leave it `queued` and try again next tick (suspended tenant, limits, no engine);
+ * - `{ decision: "defer", reason }`: leave it `queued` and try again next tick (suspended tenant, limits);
  * - `{ decision: "invalid", reason, config? }`: the snapshot cannot be trusted: claim, then fail the execution;
  * - `{ decision: "go", cfg, repository, pipeline }`.
- * @param {{ entitlements: { assertEntitlement: Function }, engines: { has: Function }, staleThresholdSeconds: number }} deps
+ * @param {{ entitlements: { assertEntitlement: Function }, staleThresholdSeconds: number }} deps
  * @param {any} tx The claim transaction client.
  * @param {{ id: string, tenantId: string, workspaceId: string, repositoryId: string, pipelineId: string, configVersionId: string, configHash: string }} exec the row, re-read by tenant and id
  */
-export async function evaluateGates({ entitlements, engines, staleThresholdSeconds }, tx, exec) {
+export async function evaluateGates({ entitlements, staleThresholdSeconds }, tx, exec) {
   const { tenantId } = exec;
   // 1. never start a stale run (ER-32): evaluated first, with the database clock
   const [age] = await tx.$queryRaw`
@@ -104,10 +104,7 @@ export async function evaluateGates({ entitlements, engines, staleThresholdSecon
   });
   if (active >= (cfg.execution?.concurrency?.maxActive ?? 1))
     return { decision: "defer", reason: "limit_reached" };
-  // EXEC-026: claim only executions whose enabled scan types all have a registered engine
-  const missing = enabledScanTypes(cfg).filter(
-    (type) => !engines.has(type, cfg.scans[type].engine.id),
-  );
-  if (missing.length > 0) return { decision: "defer", reason: "engine_unavailable" };
+  // SPEC §17.ab (amends EQ-7a/EXEC-026): a scan type without a registered engine no longer defers the claim; its task is created
+  // `unsupported` (engine_not_registered) and the execution runs the types that do have an engine.
   return { decision: "go", cfg, repository, pipeline };
 }

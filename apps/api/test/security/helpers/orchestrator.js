@@ -13,6 +13,10 @@ import { createGitHubClient, createLocalArtifactStore } from "@qmentisai/infra";
 import { canonicalJson } from "@qmentisai/shared";
 import { loadWorkerConfig } from "../../../../workers/src/config.js";
 import { createEngineRegistry, EngineError } from "../../../../workers/src/execution/engines.js";
+import {
+  createSbomEngine,
+  inventoryArchive,
+} from "../../../../workers/src/execution/engines/sbom/index.js";
 import { createOrchestrator } from "../../../../workers/src/execution/orchestrator.js";
 import { createScanTaskHandler } from "../../../../workers/src/execution/scan-handler.js";
 import { createOwnershipVerifier } from "../../../../workers/src/ownership/index.js";
@@ -293,13 +297,36 @@ export async function buildOrchestratorWorld(db, github) {
       workerId: `suite-${rand(3)}`,
       sleep: async () => {},
     });
-  w.scanHandler = (over = {}, scanConfig) =>
+  /**
+   * The production shape of the registry (SPEC §17.ab): ONLY the built-in SBOM engine, wrapped so the suite sees what the engine
+   * is given. `w.sbomSpy.inputs` are the objects handed to the inventory function, `contexts` the scan contexts handed to the
+   * adapter. The engine itself is the real one.
+   */
+  w.sbomSpy = { inputs: [], contexts: [] };
+  w.sbomRegistry = ({ inventory } = {}) => {
+    const registry = createEngineRegistry();
+    const sbom = createSbomEngine({
+      inventory: async (input, hooks) => {
+        w.sbomSpy.inputs.push(input);
+        return (inventory ?? inventoryArchive)(input, hooks);
+      },
+    });
+    registry.register({
+      ...sbom,
+      runTask: (context, hooks) => {
+        w.sbomSpy.contexts.push(context);
+        return sbom.runTask(context, hooks);
+      },
+    });
+    return registry;
+  };
+  w.scanHandler = (over = {}, scanConfig, engines) =>
     createScanTaskHandler({
       db,
       config: scanConfig ?? w.config(over, "scan"),
       logger,
       store: w.store,
-      engines: w.registry(),
+      engines: engines ?? w.registry(),
       workerId: `suite-scan-${rand(3)}`,
       tmpRoot: scanTmp,
     });

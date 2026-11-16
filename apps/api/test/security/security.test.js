@@ -32,6 +32,7 @@ import { buildExecutionDbWorld, driveExecution, EXECDB_CHECKS } from "./helpers/
 import { buildOrchestratorWorld } from "./helpers/orchestrator.js";
 import { ORCH_CHECKS } from "./helpers/orchestrator-checks.js";
 import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
+import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -44,7 +45,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 598;
+const EXPECTED_CHECKS = 605;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10330,7 +10331,7 @@ const schWorld = () =>
         privateKey: env("SECURITY_GITHUB_PRIVATE_KEY"),
       }),
     );
-  for (const { id, name, run } of [...ORCH_CHECKS, ...CANCEL_RETRY_CHECKS])
+  for (const { id, name, run } of [...ORCH_CHECKS, ...CANCEL_RETRY_CHECKS, ...SBOM_CHECKS])
     add(
       id,
       name,

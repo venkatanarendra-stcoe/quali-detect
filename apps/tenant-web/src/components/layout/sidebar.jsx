@@ -1,5 +1,5 @@
-import { ArrowLeft, LogOut, Search, Shield } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ArrowLeft, LogOut, Shield } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { ORG_NAV_GROUPS, WORKSPACE_NAV_GROUPS, evaluateNavigation } from "@qmentisai/shared";
 import { isRouteAvailable } from "@/app/routes.jsx";
@@ -8,7 +8,6 @@ import { useSession } from "@/features/auth/hooks/use-session.js";
 import { usePermissions } from "@/features/authorization/hooks/use-permissions.js";
 import { useNavContext } from "@/hooks/use-nav-context.js";
 import { cn } from "@/lib/cn.js";
-import { CommandPalette } from "./command-palette.jsx";
 import { GROUP_LABELS, NAV_ITEMS } from "./nav.js";
 import { NotificationsItem } from "./notifications.jsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.jsx";
@@ -18,19 +17,19 @@ const isActive = (pathname, paths) =>
 
 /**
  * Sidebar (240 px), the only app chrome (the top bar was removed by owner decision, 2026-11-16). Top to bottom: logo,
- * search / command palette trigger (⌘K), the organization (and, inside a workspace, "All workspaces" + the workspace
- * switcher), Notifications with its unread badge, the navigation, and the Account (last group "You") and Sign out.
- * Organization layout outside a workspace, Workspace layout inside one. The items come from `evaluateNavigation`
- * (implemented && permitted && route exists); empty groups are not rendered.
+ * the organization (and, inside a workspace, "All workspaces" + the workspace switcher), Notifications with its unread
+ * badge, then the navigation. Account is a normal navigation item (the last group, "You"; defined in
+ * `@qmentisai/shared`, no permission) and Sign out is the last row of that group. There is no search / command palette
+ * trigger (removed 2026-11-16) and no bottom-pinned account block. Organization layout outside a workspace, Workspace
+ * layout inside one. The items come from `evaluateNavigation` (implemented && permitted && route exists); empty groups
+ * are not rendered.
  */
 export function Sidebar({ onNavigate }) {
   const { layout, workspaceId } = useNavContext();
   const { me } = useSession();
-  const { logout } = useAuthActions();
   const permissions = usePermissions();
   const { pathname } = useLocation();
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const searchRef = useRef(null);
+  const { logout } = useAuthActions();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const groups = useMemo(
@@ -50,21 +49,6 @@ export function Sidebar({ onNavigate }) {
     [permissions],
   );
 
-  const paletteEntries = useMemo(
-    () => [
-      ...groups.flatMap((group) =>
-        group.items.map((item) => ({
-          id: item.id,
-          label: NAV_ITEMS[item.id].label,
-          group: GROUP_LABELS[group.id],
-          to: NAV_ITEMS[item.id].to(workspaceId),
-        })),
-      ),
-      { id: "account", label: "Account", group: "You", to: "/account" },
-      { id: "settings-account", label: "Settings", group: "You", to: "/account/settings" },
-    ],
-    [groups, workspaceId],
-  );
   const rowClass =
     "flex h-8 w-full items-center gap-2.5 rounded-sm px-2 text-sm outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -85,18 +69,6 @@ export function Sidebar({ onNavigate }) {
       </div>
 
       <div className="space-y-3 border-b border-sidebar-border px-3 py-3">
-        <button
-          ref={searchRef}
-          type="button"
-          aria-haspopup="dialog"
-          aria-keyshortcuts="Control+K Meta+K"
-          onClick={() => setPaletteOpen(true)}
-          className="flex h-8 w-full items-center gap-2 rounded-sm border border-border-strong bg-secondary px-2 text-sm text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Search aria-hidden="true" className="size-4 shrink-0" />
-          <span className="flex-1 truncate text-left">Search or jump to…</span>
-          <kbd className="rounded-sm border border-border px-1 font-sans text-[11px]">⌘K</kbd>
-        </button>
         <p className="truncate px-1 text-xs text-muted-foreground" title={me.tenant.name}>
           {me.tenant.name}
         </p>
@@ -187,13 +159,6 @@ export function Sidebar({ onNavigate }) {
           ))
         )}
       </div>
-      <CommandPalette
-        entries={paletteEntries}
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        onNavigate={onNavigate}
-        returnFocusRef={searchRef}
-      />
     </nav>
   );
 }

@@ -5,6 +5,13 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { cn } from "@/lib/cn.js";
 
 /**
+ * Whether the global Ctrl/Cmd+K listener is registered. OFF since 2026-11-16: the palette trigger was removed from the
+ * sidebar by owner decision and the component is intentionally unused (kept in place, not deleted); nothing mounts it.
+ * Re-enable only together with a mounted trigger.
+ */
+const GLOBAL_SHORTCUT_ENABLED = false;
+
+/**
  * Global jump palette (⌘K / Ctrl+K), the owner-approved home of the former top-bar search. It only lists pages the
  * caller already sees in the sidebar (`entries` are built from `evaluateNavigation`'s output) plus the user's own
  * Account and Settings pages, so it can never reveal a page the navigation hides. Combobox pattern: the input keeps
@@ -21,6 +28,7 @@ export function CommandPalette({ entries, open, onOpenChange, onNavigate, return
   const listRef = useRef(null);
 
   useEffect(() => {
+    if (!GLOBAL_SHORTCUT_ENABLED) return undefined;
     const onKey = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();

@@ -16,7 +16,7 @@ Status labels: **Confirmed** (in docs) · **Recommended** (proposed here) · **O
 
 ## 1. Design system
 
-> **Note:** The docs define the stack (shadcn/ui, Tailwind CSS, shared design tokens, Lucide, Recharts, Sonner) and require the Root Console to be a separate app sharing tokens but **not** navigation/permission models. **No colors are defined in the docs.** The palette below is **Recommended**, using Tailwind defaults and the same neutral tokens as the Tenant app, with a **distinct violet accent and a dark sidebar** to signal platform-level (privileged) context.
+> **Note:** The docs define the stack (shadcn/ui, Tailwind CSS, shared design tokens, Lucide, Recharts, Sonner) and require the Root Console to be a separate app sharing tokens but **not** navigation/permission models. **Reconciled with `docs/design/DESIGN_SYSTEM.md` (2026-11-16):** the Root Console keeps its own **violet** accent (no accent picker, no mint, no indigo) with the design-system values below; the design system governs any differing value, and severity, status and lifecycle colours are kept as written. The palette below is **Recommended** input, using Tailwind defaults and the same neutral tokens as the Tenant app, with a **distinct violet accent and a dark sidebar** to signal platform-level (privileged) context.
 
 ### 1.1 Core tokens (Recommended)
 
@@ -30,13 +30,13 @@ Status labels: **Confirmed** (in docs) · **Recommended** (proposed here) · **O
 | `--sidebar` | `#0F172A` | slate-900 | **Dark** sidebar (differs from tenant) |
 | `--sidebar-foreground` | `#CBD5E1` | slate-300 | Sidebar text |
 | `--sidebar-active` | `#1E293B` | slate-800 | Active item bg |
-| `--primary` | `#7C3AED` | violet-600 | Primary buttons, active indicator, links |
-| `--primary-hover` | `#6D28D9` | violet-700 | Hover |
-| `--primary-soft` | `#F5F3FF` | violet-50 | Selected rows, soft badges |
+| `--primary` | `#6D28D9` (light) / `#A78BFA` (dark) | Root Console violet (design system) | Primary action, active navigation, focus, links |
+| `--primary-hover` | `#5B21B6` (light) / `#C4B5FD` (dark) | Root Console violet (design system) | Hover |
+| `--primary-tint` (was `--primary-soft`) | `#F0EAFB` (light) / `#232233` (dark) | Root Console violet (design system) | Selected rows, soft badges |
 | `--platform-banner` | `#020617` | slate-950 | Top "PLATFORM CONSOLE" environment strip |
 | `--destructive` | `#DC2626` | red-600 | Suspend, deactivate, revoke |
 | `--warning` | `#D97706` | amber-600 | Support-access banner, quota warnings |
-| `--ring` | `#8B5CF6` | violet-500 | Focus ring |
+| `--ring` | follows `--primary` | design system | Focus ring |
 
 ### 1.2 Status colors (Recommended)
 
@@ -59,7 +59,7 @@ Same as Tenant app: Inter / JetBrains Mono, 8px grid, 8px radius, shadcn/ui + Ta
 ```
 Design a desktop web application (1440px wide) called "QmentisAI Root Console" — the platform administration console used by the QmentisAI operator team to provision and manage customer tenants, plans, subscriptions, licenses, entitlements, quotas, platform users, the global integration catalog, feature flags, system health and audit. It is NOT used by customers.
 
-Style: professional, data-dense enterprise admin console built with shadcn/ui and Tailwind CSS conventions. A thin 32px environment strip at the very top in #020617 with small uppercase text "PLATFORM CONSOLE · PRODUCTION" and a violet dot. Below it a white 56px top bar with "QmentisAI Root" logo, global search "Search tenants, users, plans… ⌘K", a system-status indicator ("All systems operational" green dot), notifications bell and avatar menu. Left sidebar 256px with DARK background slate-900 (#0F172A), slate-300 text, active item slate-800 background with a 2px violet-600 (#7C3AED) left bar, small uppercase group labels in slate-500. Content area white with slate-200 (#E2E8F0) borders, 8px radius, minimal shadows. Primary color violet-600 (#7C3AED) for primary buttons and links. Destructive red-600 (#DC2626). Font Inter, mono JetBrains Mono for IDs. Lucide-style icons.
+Style: professional, data-dense enterprise admin console built with shadcn/ui and Tailwind CSS conventions. A thin 32px environment strip at the very top in #020617 with small uppercase text "PLATFORM CONSOLE · PRODUCTION" and a violet dot. Below it a white 56px top bar with "QmentisAI Root" logo, global search "Search tenants, users, plans… ⌘K", a system-status indicator ("All systems operational" green dot), notifications bell and avatar menu. Left sidebar 256px with DARK background slate-900 (#0F172A), slate-300 text, active item slate-800 background with a 2px accent left bar (`#A78BFA`, design-system Root Console violet), small uppercase group labels in slate-500. Content area white with slate-200 (#E2E8F0) borders, 8px radius, minimal shadows. Primary color is the design-system Root Console violet (`#6D28D9` light / `#A78BFA` dark) for the primary button, active navigation, focus and links. Destructive red-600 (#DC2626). Font Inter, mono JetBrains Mono for IDs. Lucide-style icons.
 
 Tenant lifecycle pills: Provisioning sky-600, Trial violet-600, Active green-600, Suspended amber-600, Deactivated red-600.
 ```
@@ -323,4 +323,4 @@ Create "Support Diagnostics" with two frames. Frame 1 "Request support session":
 - Whether support sessions need tenant-admin approval.
 - Billing/invoicing provider (out of scope — no prices shown).
 - Plan names, quota values, SLA defaults — remain configurable placeholders.
-- Brand/primary colors for both apps.
+- Logo (brand accents are decided in `DESIGN_SYSTEM.md`: tenant app Electric Mint with a user-selectable palette, Root Console violet).

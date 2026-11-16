@@ -21,7 +21,7 @@ Status labels used in this file (per README):
 
 ## 1. Design system
 
-> **Note:** The documentation specifies the UI stack (shadcn/ui, Tailwind CSS, shared design tokens, Lucide icons, Recharts, Sonner) and the need for reusable severity / status / SLA / quota components, but **does not define brand colors**. The palette below is **Recommended**, built entirely from Tailwind default colors and shadcn/ui token conventions so it maps 1:1 into code. Replace the primary color if QmentisAI has an approved brand color (**Open**).
+> **Note:** The documentation specifies the UI stack (shadcn/ui, Tailwind CSS, shared design tokens, Lucide icons, Recharts, Sonner) and the need for reusable severity / status / SLA / quota components, but **does not define brand colors**. **Reconciled with `docs/design/DESIGN_SYSTEM.md` (2026-11-16):** the brand accent is **Electric Mint** (user-selectable from a fixed palette, mint default); indigo is withdrawn and appears nowhere in the accent role. The accent rows of the table below are updated to the design-system values; where any other value here differs from `DESIGN_SYSTEM.md` (neutrals, surfaces), the design system governs. Severity, status and lifecycle colours are kept as written. This wireframe is illustrative input for design generation, not the token source.
 
 ### 1.1 Core tokens (Recommended — shadcn/ui naming)
 
@@ -34,11 +34,11 @@ Status labels used in this file (per README):
 | `--border` | `#E2E8F0` | `#1E293B` | slate-200 / slate-800 | Card, table, input borders |
 | `--card` | `#FFFFFF` | `#0F172A` | white / slate-900 | Cards |
 | `--sidebar` | `#F8FAFC` | `#0F172A` | slate-50 / slate-900 | Left navigation |
-| `--primary` | `#4F46E5` | `#6366F1` | indigo-600 / indigo-500 | Primary buttons, active nav, links |
-| `--primary-hover` | `#4338CA` | `#4F46E5` | indigo-700 / indigo-600 | Hover |
-| `--primary-soft` | `#EEF2FF` | `#1E1B4B` | indigo-50 / indigo-950 | Active nav item background |
+| `--primary` | `#087F70` | `#40E0C0` | Electric Mint (design system) | Primary action, active nav, focus (accent is user-selectable; mint default) |
+| `--primary-hover` | `#06695D` | `#6BEBD0` | Electric Mint (design system) | Hover |
+| `--primary-tint` (was `--primary-soft`) | `#E6F2F1` | `#112625` | Electric Mint tint (design system) | Active nav item background, selected row |
 | `--destructive` | `#DC2626` | `#EF4444` | red-600 / red-500 | Delete, revoke, reject |
-| `--ring` | `#6366F1` | `#818CF8` | indigo-500 / indigo-400 | Keyboard focus ring (2px) |
+| `--ring` | `#087F70` | `#40E0C0` | follows `--primary` | Keyboard focus ring (2px) |
 
 ### 1.2 Severity colors (Recommended — used by `SeverityBadge`, charts)
 
@@ -78,7 +78,7 @@ Always pair color with a text label or icon (accessibility — never color alone
 ```
 Design a desktop web application (1440px wide) called "QmentisAI" — an AI-native security engineering workflow platform for enterprise security teams and developers. It connects source repositories, security scan pipelines (SCA, SBOM, SAST, Secret Scanning, manual DAST), findings, human security review, lead approvals and developer remediation.
 
-Style: clean, professional, data-dense enterprise SaaS, built with shadcn/ui and Tailwind CSS conventions. Light theme. White page background, slate-50 (#F8FAFC) left sidebar, slate-200 (#E2E8F0) 1px borders, 8px corner radius, minimal shadows. Primary color indigo-600 (#4F46E5) for primary buttons, active navigation and links; indigo-50 (#EEF2FF) for the active nav item background. Text slate-900 (#0F172A), secondary text slate-500 (#64748B). Font Inter; monospace JetBrains Mono for commit SHAs, fingerprints and logs. Lucide-style line icons.
+Style: clean, professional, data-dense enterprise SaaS, built with shadcn/ui and Tailwind CSS conventions. Light theme. White page background, slate-50 (#F8FAFC) left sidebar, slate-200 (#E2E8F0) 1px borders, 8px corner radius, minimal shadows. Primary color is the design-system accent `--primary` (Electric Mint, `#087F70` light / `#40E0C0` dark; user-selectable) for the primary button, active navigation and focus only; `--primary-tint` (`#E6F2F1`) for the active nav item background. Text slate-900 (#0F172A), secondary text slate-500 (#64748B). Font Inter; monospace JetBrains Mono for commit SHAs, fingerprints and logs. Lucide-style line icons.
 
 Severity colors: Critical #B91C1C, High #EA580C, Medium #D97706, Low #2563EB, Info #64748B — shown as soft pill badges with text labels. Success #16A34A, Running #0284C7, Failed #DC2626.
 
@@ -255,7 +255,7 @@ Each prompt is self-contained. Paste after the Global Design Brief.
 - Variants: Admin (all groups) and Developer (Main only).
 
 ```
-Using the QmentisAI design system, create the application shell in "Organization layout". Top bar 64px: QmentisAI logo left, centered search input "Search or jump to… ⌘K", right side notification bell with red count badge "3" and a circular avatar "QS" with a dropdown chevron. Left sidebar 256px, background #F8FAFC, header shows organization name "Acme Corp" with a small building icon. Group label "MAIN": Organization Overview (active, indigo-50 background, indigo-600 text and left 2px indigo bar), Workspaces. Group label "ADMINISTRATION": Users & Groups, Integrations, Roles & Permissions, Organization Settings, Audit Logs. No profile area in the sidebar. Main area shows an empty page header "Organization Overview" with breadcrumb "Acme Corp / Overview".
+Using the QmentisAI design system, create the application shell in "Organization layout". Top bar 64px: QmentisAI logo left, centered search input "Search or jump to… ⌘K", right side notification bell with red count badge "3" and a circular avatar "QS" with a dropdown chevron. Left sidebar 256px, background #F8FAFC, header shows organization name "Acme Corp" with a small building icon. Group label "MAIN": Organization Overview (active, `--primary-tint` background, accent text and left 2px accent bar), Workspaces. Group label "ADMINISTRATION": Users & Groups, Integrations, Roles & Permissions, Organization Settings, Audit Logs. No profile area in the sidebar. Main area shows an empty page header "Organization Overview" with breadcrumb "Acme Corp / Overview".
 ```
 RBAC variant prompt:
 ```
@@ -271,7 +271,7 @@ RBAC variant: *Developer in workspace* → shows Dashboard, Repositories, Pipeli
 ### T-01 — Sign in
 - Email + password, "Continue with SSO" button, tenant/org hint, error banner. Mock auth now (Confirmed); SSO is Recommended.
 ```
-Create the QmentisAI sign-in page. Split layout: left 50% panel in slate-950 (#020617) with the QmentisAI logo, headline "Security engineering, one workflow." and three small feature lines with icons (Automated SCA, SBOM, SAST & Secrets · Human review and approvals · Developer remediation tracking). Right 50% white with a centered 400px card: title "Sign in to your organization", fields Work email and Password, link "Forgot password?", primary indigo button "Sign in", divider "or", outline button "Continue with SSO". Show an inline error alert variant at the top of the card: "Invalid email or password."
+Create the QmentisAI sign-in page. Split layout: left 50% panel in slate-950 (#020617) with the QmentisAI logo, headline "Security engineering, one workflow." and three small feature lines with icons (Automated SCA, SBOM, SAST & Secrets · Human review and approvals · Developer remediation tracking). Right 50% white with a centered 400px card: title "Sign in to your organization", fields Work email and Password, link "Forgot password?", primary accent button "Sign in", divider "or", outline button "Continue with SSO". Show an inline error alert variant at the top of the card: "Invalid email or password."
 ```
 
 ### T-02 — MFA verification
@@ -357,7 +357,7 @@ Create an "Organization Settings" page with a left vertical settings nav: Genera
 
 ### T-18 — Usage & consumption
 ```
-Create the "Usage & consumption" settings tab. Plan card: plan name, billing period, renewal date (no prices). Quota meters as horizontal progress bars with color thresholds (indigo <70%, amber 70–90%, red >90%): Scan executions 7,420 / 10,000; Repositories 48 / 50 (red); Users 62 / 100; Manual DAST scans 3 / 10. Below, a Recharts line chart "Executions per day" for 30 days and a table of usage by workspace. Info note: "Limits are set by your subscription. Contact your account team to change them."
+Create the "Usage & consumption" settings tab. Plan card: plan name, billing period, renewal date (no prices). Quota meters as horizontal progress bars with color thresholds (neutral below the warning threshold, warning amber, danger red; thresholds per the design-system QuotaMeter, values open, the numbers in this example are illustrative): Scan executions 7,420 / 10,000; Repositories 48 / 50 (red); Users 62 / 100; Manual DAST scans 3 / 10. Below, a Recharts line chart "Executions per day" for 30 days and a table of usage by workspace. Info note: "Limits are set by your subscription. Contact your account team to change them."
 ```
 
 ### T-19 — Audit Logs
@@ -524,7 +524,7 @@ Create a QmentisAI component sheet on one canvas: SeverityBadge in Critical #B91
 
 ## 8. Open items
 
-- Approved brand color/logo (replaces indigo primary).
+- Logo (the brand accent is decided: Electric Mint default with a user-selectable palette, see `DESIGN_SYSTEM.md`; indigo is withdrawn).
 - Final permission keys for planned modules (`execution.view`, `finding.review`, `finding.approve`, `remediation.view`, `report.view`, etc.).
 - Default role → permission mapping (validate §4.4 against AUTHORIZATION.md).
 - Whether Manager holds `workspace.update`.

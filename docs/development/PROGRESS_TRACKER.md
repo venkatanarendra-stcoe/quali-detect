@@ -42,6 +42,7 @@ Update this file as implementation progresses. Use `Not Started`, `In Progress`,
 | Policies and governance | Not Started | |
 | Reporting and notifications | Not Started | |
 | Subscription and usage | Not Started | |
+| Account navigation entry (backlog, 2026-11-16) | Deferred | Add an Account entry to the central navigation in `@qmentisai/shared` (evaluated by the authorization engine, no permission needed for any authenticated user) so `/account` is reachable from the menu and not only by URL; the page already exists (Preferences tab, accent picker). Never check role names in UI code. |
 
 ## Current sprint / task
 

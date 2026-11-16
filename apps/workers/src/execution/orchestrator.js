@@ -34,6 +34,7 @@ import {
 } from "./constants.js";
 import { enabledScanTypes, evaluateGates } from "./gates.js";
 import { createMessageProducer } from "./messages.js";
+import { resolveLogStore } from "./task-log.js";
 
 /** A prepare step failed with a stable code (becomes `prepare_failed:<code>`). */
 class PrepareFailure extends Error {
@@ -61,7 +62,9 @@ const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * write of a lease holder is fenced by `(execution, lease_epoch)` (ER-30); the installation token exists only inside the
  * source session of the fetch step (never logged, stored or sent) and `untrusted_fork` executions are fetched by the platform
  * and then handled with no credential at all; repository content is only parsed, never executed (R-8).
- * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void> }} deps
+ * Milestones are also written to the execution log (SPEC §17.ac) through the LogStore, best effort: a log failure never fails
+ * a run, and every line passes the store's redaction and caps.
+ * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void>, logStore?: any }} deps
  */
 export function createOrchestrator({
   db,
@@ -72,6 +75,7 @@ export function createOrchestrator({
   engines,
   workerId,
   sleep = sleepFor,
+  logStore,
 }) {
   const ex = config.execution;
   const id = workerId ?? `pipeline-${process.pid}-${randomBytes(3).toString("hex")}`;
@@ -84,6 +88,28 @@ export function createOrchestrator({
     repository: createEntitlementRepository({ db }),
   });
   const producer = createMessageProducer({ db });
+  const logs = resolveLogStore({ db, config, logStore });
+  /** Appends execution-level log lines as the lease holder; never throws. */
+  async function execLog(row, epoch, source, messages, level = "info") {
+    try {
+      await logs.appendExecution(
+        { tenantId: row.tenantId, executionId: row.id, leaseEpoch: epoch, source },
+        messages.map((message) => ({ level, message })),
+      );
+    } catch (error) {
+      log?.warn?.(
+        { executionId: row.id, errorName: error?.name },
+        "Execution log lines could not be stored",
+      );
+    }
+  }
+  const unsupportedLines = (specs) =>
+    specs
+      .filter((spec) => !engines.has(spec.scanType, spec.engineId))
+      .map(
+        (spec) =>
+          `scan type ${spec.scanType}: no engine is registered, the task is recorded unsupported`,
+      );
   /** Executions this process holds the lease of: executionId -> { tenantId, executionId, epoch, controller }. */
   const owned = new Map();
   let ticking = false;
@@ -546,6 +572,7 @@ export function createOrchestrator({
         );
         await markUnsupportedInTransaction(tx, row, epoch, specs);
       });
+      await execLog(row, epoch, "platform", unsupportedLines(specs), "warn");
       throw new NoEngineRegistered();
     }
     const ref = { tenantId, executionId: row.id, name: ARCHIVE_NAME };
@@ -596,6 +623,7 @@ export function createOrchestrator({
           sha256: put.sha256,
           bytes: put.bytes,
         });
+        await execLog(row, epoch, "fetch", [`source archive stored (${put.bytes} bytes)`]);
       }
       signal.throwIfAborted();
       await assertNotCancelled();
@@ -641,6 +669,9 @@ export function createOrchestrator({
       await producer.statusChanged(tx, row, "running", done.execution.statusRev, row.correlationId);
       await dispatchInTransaction(tx, { ...row, ...fresh }, epoch, ex.taskParallelism);
     });
+    await execLog(row, epoch, "platform", [`execution started with ${specs.length} scan task(s)`]);
+    const skipped = unsupportedLines(specs);
+    if (skipped.length > 0) await execLog(row, epoch, "platform", skipped, "warn");
   }
 
   /**

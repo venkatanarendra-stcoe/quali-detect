@@ -14,7 +14,7 @@ This document tracks decisions that must not be guessed by AI coding tools.
 | Scan engine vendors | Adapter architecture recommended | Select providers |
 | Built-in vs external scan engines | Hybrid proposed | Confirm implementation boundary |
 | AI provider/model selection | Provider-independent abstraction recommended | Select initial providers |
-| Object storage provider | Abstraction required | Select implementation |
+| Object storage provider | Abstraction required; the `ArtifactStore`/`LogStore` interfaces and a capped Postgres driver exist since executions part E (SPEC executions 17.ac) | Select implementation (the provider adapter is still not built) |
 | Billing/invoicing integration | Not finalized | Commercial decision |
 | SSO providers and protocols | Requirements include SSO | Confirm supported protocols |
 | Data retention periods | Not finalized | Compliance/business decision |

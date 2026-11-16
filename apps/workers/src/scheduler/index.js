@@ -3,6 +3,7 @@ import { NonRetryableError } from "@qmentisai/infra";
 import { runWorker } from "../runtime/run-worker.js";
 import { enqueuePlatformJob, enqueueSessionPurge, purgeSessions } from "./jobs.js";
 import { createScheduleHandler } from "./schedules.js";
+import { createExecutionRetentionHandler } from "./retention.js";
 
 /** Entry point of the scheduler worker (see docs/architecture/WORKER_ARCHITECTURE.md). */
 export const WORKER_NAME = "scheduler";
@@ -15,7 +16,12 @@ export const WORKER_NAME = "scheduler";
  */
 export function createSchedulerHandler({ db, config, logger }) {
   const schedules = createScheduleHandler({ db, config, logger });
+  const retention = createExecutionRetentionHandler({ db, config });
   return async (message, { log }) => {
+    if (message.type === "maintenance.executions.purge_requested") {
+      await retention(message, { log });
+      return;
+    }
     if (message.type === "pipeline.schedules.due_requested") {
       await schedules(message, { log });
       return;
@@ -79,6 +85,29 @@ export function start() {
         );
       void scheduleTick();
       timers.push(setInterval(scheduleTick, scheduleSeconds * 1000));
+      // Execution retention purge (ER-17, SPEC §17.ac): OFF unless EXECUTION_RETENTION_PURGE_ENABLED=true. One platform job per
+      // interval bucket; the handler deletes only expired rows of terminal executions, in batches, and logs counts only.
+      if (config.execution?.retention?.purgeEnabled) {
+        const r = config.execution.retention;
+        const purgeTick = () =>
+          enqueuePlatformJob({
+            db,
+            queue: QUEUE_NAMES.SCHEDULER,
+            type: "maintenance.executions.purge_requested",
+            prefix: "executions-purge",
+            intervalSeconds: r.purgeIntervalSeconds,
+            payload: {
+              logRetentionDays: r.logRetentionDays,
+              artifactRetentionDays: r.artifactRetentionDays,
+              metadataRetentionMonths: r.purgeMetadata ? r.metadataRetentionMonths : null,
+              batchSize: r.batchSize,
+            },
+          }).catch((error) =>
+            logger.error({ err: error }, "Could not enqueue the execution retention purge job"),
+          );
+        void purgeTick();
+        timers.push(setInterval(purgeTick, r.purgeIntervalSeconds * 1000));
+      }
       if (config.scm.enabled) {
         // GitHub reconciliation and retention (SPEC §6.5): the scm worker consumes these platform jobs.
         const schedule = (name, seconds, build) => {

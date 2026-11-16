@@ -421,6 +421,24 @@ export const MESSAGE_TYPES = Object.freeze({
       throttleScope: z.enum(["account", "ip"]),
     }),
   }),
+  /**
+   * Scheduled retention purge of execution logs, artifacts and (optionally) metadata (docs/modules/executions/SPEC.md ER-17,
+   * §17.ac). Platform job (no tenant); the handler runs only in the scheduler worker. Periods and batch size only.
+   * `metadataRetentionMonths: null` leaves execution metadata alone.
+   */
+  "maintenance.executions.purge_requested": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        logRetentionDays: z.number().int().min(1).max(3650),
+        artifactRetentionDays: z.number().int().min(1).max(3650),
+        metadataRetentionMonths: z.number().int().min(1).max(600).nullable(),
+        batchSize: z.number().int().min(1).max(5000),
+      })
+      .strict(),
+  }),
   /** Scheduled maintenance: delete expired and revoked sessions older than the retention period. */
   "maintenance.sessions.purge_requested": Object.freeze({
     kind: "job",

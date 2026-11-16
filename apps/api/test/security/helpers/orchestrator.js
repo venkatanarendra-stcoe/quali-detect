@@ -141,6 +141,9 @@ function testEngine(world, scanType) {
         /* no script: the happy path */
       }
       log("info", `scanned ${files.length} files`);
+      // `logs: [text]` and `logBurst: n` make the engine write log lines (part E, SPEC 17.ac): hostile text and volume
+      for (const text of script.logs ?? []) log("info", text);
+      for (let i = 0; i < (script.logBurst ?? 0); i += 1) log("info", `burst line ${i}`);
       const item = {
         sbom: {
           kind: "component",
@@ -673,6 +676,8 @@ export async function buildOrchestratorWorld(db, github) {
       db.scanTask.findMany({ where: t }),
       db.scanTaskAttempt.findMany({ where: t }),
       db.execution.findMany({ where: t }),
+      db.executionLog.findMany({ where: t }),
+      db.executionArtifact.findMany({ where: t }),
     ]);
     return JSON.stringify(parts, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
   };

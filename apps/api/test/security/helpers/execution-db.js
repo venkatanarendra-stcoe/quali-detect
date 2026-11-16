@@ -91,7 +91,7 @@ export async function driveExecution(db, id, target, reason = "suite_fixture") {
 }
 
 /** The `chain` columns shared by every child table. @param {{ tenantId: string, workspaceId: string, repositoryId: string, pipelineId: string, id: string }} e */
-const chain = (e) => ({
+export const chain = (e) => ({
   tenantId: e.tenantId,
   workspaceId: e.workspaceId,
   repositoryId: e.repositoryId,
@@ -100,14 +100,14 @@ const chain = (e) => ({
 });
 
 /** A published pipeline of tree `tree` (workspace `i`) and a queued execution on it. */
-async function queuedExecution(c, tree, i = 0, extra = {}) {
+export async function queuedExecution(c, tree, i = 0, extra = {}) {
   const { pipeline, version } = await c.published(tree, i);
   const execution = await c.execution(pipeline, version, extra);
   return { pipeline, version, execution };
 }
 
 /** An execution in `status`, created legitimately (blocked/skipped directly, others driven through the machine). */
-async function inState(c, tree, status, i = 0) {
+export async function inState(c, tree, status, i = 0) {
   if (status === "blocked" || status === "skipped") {
     const { execution } = await queuedExecution(c, tree, i, {
       status,
@@ -120,7 +120,7 @@ async function inState(c, tree, status, i = 0) {
   return c.db.execution.findUnique({ where: { id: execution.id } });
 }
 
-const taskData = (e, scanType = "sca", extra = {}) => ({
+export const taskData = (e, scanType = "sca", extra = {}) => ({
   ...chain(e),
   scanType,
   ordinal: 0,
@@ -133,7 +133,7 @@ const taskData = (e, scanType = "sca", extra = {}) => ({
 });
 
 /** A scan task of `execution`, driven to `running` at attempt 0 (the lease columns the CHECK requires are set). */
-async function runningTask(c, execution, scanType = "sca") {
+export async function runningTask(c, execution, scanType = "sca") {
   const task = await c.db.scanTask.create({ data: taskData(execution, scanType) });
   await c.db.$executeRaw`
     UPDATE scan_tasks SET status = 'running', lease_owner = 'suite-worker', lease_expires_at = now() + interval '5 minutes', heartbeat_at = now()

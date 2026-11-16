@@ -18,6 +18,7 @@ import { z } from "zod";
 import { CONFIG_SCHEMA } from "../pipeline/execution-request.js";
 import { ARCHIVE_NAME, CONTROL_CHARS } from "./constants.js";
 import { EngineError } from "./engines.js";
+import { createTaskLogWriter, resolveLogStore } from "./task-log.js";
 import { createMessageProducer } from "./messages.js";
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
@@ -107,7 +108,9 @@ const exclusionOf = (patterns) => (relativePath) =>
  * attempt deadline and the lease, and finishes the attempt exactly once: result + items, attempt close and terminal task
  * status in one transaction, together with the `scan.task.completed` wake-up. A zombie (superseded attempt, lost lease) writes
  * nothing.
- * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string }} deps
+ * The engine's `log(level, message)` also goes to the task's execution log (SPEC §17.ac): buffered, redacted and capped by the
+ * LogStore, written only while the attempt is held (fenced), and flushed before the attempt is finished.
+ * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string, logStore?: any }} deps
  */
 export function createScanTaskHandler({
   db,
@@ -117,6 +120,7 @@ export function createScanTaskHandler({
   engines,
   workerId,
   tmpRoot = os.tmpdir(),
+  logStore,
 }) {
   const ex = config.execution;
   const id = workerId ?? `scan-${process.pid}-${randomBytes(3).toString("hex")}`;
@@ -124,6 +128,7 @@ export function createScanTaskHandler({
   const tasks = createScanTaskRepository({ db });
   const executions = createExecutionRepository({ db });
   const producer = createMessageProducer({ db });
+  const logs = resolveLogStore({ db, config, logStore });
 
   async function finish(exec, task, input) {
     return withTransaction(db, async (tx) => {
@@ -228,6 +233,15 @@ export function createScanTaskHandler({
       },
       Math.min(ex.heartbeatSeconds * 1000, 1000),
     );
+    const taskLog = createTaskLogWriter({
+      logStore: logs,
+      ref: { tenantId, executionId, taskId, attempt, workerId: id },
+      logger: log,
+    });
+    taskLog.log(
+      "info",
+      `scan task started: ${task.scanType} with engine ${task.engineId} (attempt ${attempt + 1} of ${task.maxAttempts})`,
+    );
     const workDir = await mkdtemp(path.join(tmpRoot, "qm-scan-"));
     const collected = [];
     let outcome;
@@ -276,11 +290,13 @@ export function createScanTaskHandler({
         assertNoCredentials(context, "scan context");
         const run = await adapter.runTask(context, {
           signal: abort.signal,
-          log: (level, message) =>
+          log: (level, message) => {
             log?.[["debug", "info", "warn", "error"].includes(level) ? level : "info"]?.(
               { taskId, attempt },
               redactCredentialText(clean(message, 500)),
-            ),
+            );
+            taskLog.log(level, message);
+          },
           emit: (item) => {
             if (collected.length < ex.maxResultItemsPerTask + 1) collected.push(item);
           },
@@ -379,6 +395,13 @@ export function createScanTaskHandler({
       clearTimeout(deadline);
       await rm(workDir, { recursive: true, force: true }).catch(() => {});
     }
+    if (outcome)
+      taskLog.log(
+        outcome.status === "succeeded" ? "info" : "warn",
+        `scan task ${outcome.retryable ? "will be retried after a transient failure" : outcome.status}${outcome.reason ? `: ${outcome.reason}` : ""}`,
+      );
+    // flushed BEFORE the attempt is finished: a finished task is no longer running, so the write fence would refuse the lines
+    await taskLog.close();
     if (!outcome) return;
     if (outcome.retryable) {
       const next = await withTransaction(db, async (tx) => {

@@ -33,6 +33,8 @@ import { buildOrchestratorWorld } from "./helpers/orchestrator.js";
 import { ORCH_CHECKS } from "./helpers/orchestrator-checks.js";
 import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
 import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
+import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
+import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -45,7 +47,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 605;
+const EXPECTED_CHECKS = 625;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5677,7 +5679,7 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
 {
   const add = group("Executions: database integrity and state-machine helpers");
   const execdbWorld = () => once("execdb", () => buildExecutionDbWorld(suiteDb()));
-  for (const { id, name, run } of EXECDB_CHECKS)
+  for (const { id, name, run } of [...EXECDB_CHECKS, ...LOGDB_CHECKS])
     add(
       id,
       name,
@@ -10331,7 +10333,12 @@ const schWorld = () =>
         privateKey: env("SECURITY_GITHUB_PRIVATE_KEY"),
       }),
     );
-  for (const { id, name, run } of [...ORCH_CHECKS, ...CANCEL_RETRY_CHECKS, ...SBOM_CHECKS])
+  for (const { id, name, run } of [
+    ...ORCH_CHECKS,
+    ...CANCEL_RETRY_CHECKS,
+    ...SBOM_CHECKS,
+    ...STORE_CHECKS,
+  ])
     add(
       id,
       name,

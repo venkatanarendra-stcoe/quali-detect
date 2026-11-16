@@ -8,6 +8,8 @@ import {
   createEntitlementRepository,
   createExecutionIdempotency,
   createExecutionCancellation,
+  createExecutionArtifactRepository,
+  createExecutionLogRepository,
   createExecutionRepository,
   createScanTaskRepository,
   executionStepKey,
@@ -479,6 +481,34 @@ export async function buildDalWorld(db) {
   await db.scanTask.create({
     data: { ...taskBase, scanType: "secrets", ordinal: 2, status: "pending" },
   });
+  // part E (DAL-264..): a log line of the running task and an artifact of the running execution, so wrong-tenant reads have something to find
+  await db.executionLog.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: taskBase.workspaceId,
+      repositoryId: taskBase.repositoryId,
+      pipelineId: taskBase.pipelineId,
+      executionId: plRunning.id,
+      scanTaskId: taskRunning.id,
+      level: "info",
+      source: "scan",
+      message: "dal fixture line",
+    },
+  });
+  await db.executionArtifact.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: taskBase.workspaceId,
+      repositoryId: taskBase.repositoryId,
+      pipelineId: taskBase.pipelineId,
+      executionId: plRunning.id,
+      name: "dal-fixture.txt",
+      mediaType: "text/plain",
+      content: Buffer.from("dal"),
+      sizeBytes: 3,
+      sha256: "e".repeat(64),
+    },
+  });
   await db.scanResult.create({
     data: {
       tenantId: X.id,
@@ -744,6 +774,8 @@ export async function buildDalWorld(db) {
     executionCancel: createExecutionCancellation({ db }),
     executionsApi: createExecutionsRepository({ db }),
     tasks: createScanTaskRepository({ db }),
+    logs: createExecutionLogRepository({ db }),
+    artifacts: createExecutionArtifactRepository({ db }),
     executionIdempotency: createExecutionIdempotency({ db }),
     workspaceMembers: createWorkspaceMemberRepository({ db }),
     workspaces: createWorkspaceRepository({ db }),
@@ -829,6 +861,10 @@ async function snapshot(c) {
     db.scanTaskAttempt.findMany({ where: tenant }),
     db.scanResult.findMany({ where: tenant }),
     db.scanResultItem.findMany({ where: tenant }),
+    db.executionLog.findMany({ where: tenant }),
+    db.executionLogCounter.findMany({ where: tenant }),
+    db.executionTaskLogCounter.findMany({ where: tenant }),
+    db.executionArtifact.findMany({ where: tenant }),
     db.repository.findMany({ where: { tenantId: c.v.id } }),
     db.scmWorkspaceLinkRepository.findMany({ where: { tenantId: c.v.id } }),
   ]);
@@ -4174,6 +4210,163 @@ export function buildDalEntries() {
             tx,
           ),
         );
+      },
+    },
+  );
+
+  // Part E (SPEC executions §17.ac, DAL-264..): execution logs and artifacts. Tenant Y presents tenant X's running execution,
+  // its running task and its artifact; every write is fenced or scoped by the trusted tenant, every read answers nothing.
+  const LG = (c) => c.repos.logs;
+  const AR = (c) => c.repos.artifacts;
+  const LIMITS = {
+    maxLinesPerExecution: 100,
+    maxBytesPerExecution: 100000,
+    maxLinesPerTask: 50,
+    maxBytesPerTask: 50000,
+  };
+  const oneLine = (source) => [{ level: "info", source, message: "dal line" }];
+  const writeRefused = (r) =>
+    r?.fenced === true && r.appended === 0
+      ? []
+      : ["a log line of another tenant's task was written"];
+  E(
+    "logs.appendTaskLines",
+    (c) =>
+      LG(c).appendTaskLines({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        taskId: c.pl.taskRunningId,
+        attempt: 0,
+        workerId: "dal-task-worker",
+        lines: oneLine("scan"),
+        limits: LIMITS,
+      }),
+    {
+      verify: writeRefused,
+      control: (c) =>
+        LG(c).appendTaskLines({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          taskId: c.pl.taskRunningId,
+          attempt: 0,
+          workerId: "dal-task-worker",
+          lines: oneLine("scan"),
+          limits: LIMITS,
+        }),
+    },
+  );
+  E(
+    "logs.appendExecutionLines",
+    (c) =>
+      LG(c).appendExecutionLines({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        leaseEpoch: 1,
+        lines: oneLine("platform"),
+        limits: LIMITS,
+      }),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: (c) =>
+        LG(c).appendExecutionLines({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          leaseEpoch: 1,
+          lines: oneLine("platform"),
+          limits: LIMITS,
+        }),
+    },
+  );
+  E("logs.listLines", (c) => LG(c).listLines({ tenantId: c.y, executionId: c.pl.runningId }), {
+    control: (c) => LG(c).listLines({ tenantId: c.x, executionId: c.pl.runningId }),
+  });
+  E(
+    "logs.listLines (workspace of the same tenant that does not own the execution)",
+    (c) => LG(c).listLines({ tenantId: c.x, workspaceId: c.pl.wsB, executionId: c.pl.runningId }),
+    { control: (c) => LG(c).listLines({ tenantId: c.x, executionId: c.pl.runningId }) },
+  );
+  E(
+    "artifacts.put",
+    (c) =>
+      AR(c).put({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        name: "pwn.txt",
+        mediaType: "text/plain",
+        content: Buffer.from("x"),
+        sha256: "f".repeat(64),
+      }),
+    {
+      verify: (r) =>
+        r?.created === false && r.found === false
+          ? []
+          : ["an artifact was created on another tenant's execution"],
+      control: async (c) => {
+        const r = await AR(c).put({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          name: `dal-${rand()}.txt`,
+          mediaType: "text/plain",
+          content: Buffer.from("x"),
+          sha256: "f".repeat(64),
+        });
+        return r.created ? r : null;
+      },
+    },
+  );
+  E(
+    "artifacts.get",
+    (c) => AR(c).get({ tenantId: c.y, executionId: c.pl.runningId, name: "dal-fixture.txt" }),
+    {
+      control: (c) =>
+        AR(c).get({ tenantId: c.x, executionId: c.pl.runningId, name: "dal-fixture.txt" }),
+    },
+  );
+  E(
+    "artifacts.head",
+    (c) => AR(c).head({ tenantId: c.y, executionId: c.pl.runningId, name: "dal-fixture.txt" }),
+    {
+      control: (c) =>
+        AR(c).head({ tenantId: c.x, executionId: c.pl.runningId, name: "dal-fixture.txt" }),
+    },
+  );
+  E("artifacts.list", (c) => AR(c).list({ tenantId: c.y, executionId: c.pl.runningId }), {
+    control: (c) => AR(c).list({ tenantId: c.x, executionId: c.pl.runningId }),
+  });
+  E(
+    "artifacts.remove",
+    (c) => AR(c).remove({ tenantId: c.y, executionId: c.pl.runningId, name: "dal-fixture.txt" }),
+    {
+      control: async (c) => {
+        const name = `dal-del-${rand()}.txt`;
+        await AR(c).put({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          name,
+          mediaType: "text/plain",
+          content: Buffer.from("x"),
+          sha256: "f".repeat(64),
+        });
+        return AR(c).remove({ tenantId: c.x, executionId: c.pl.runningId, name });
+      },
+    },
+  );
+  E(
+    "artifacts.removeExecution",
+    (c) => AR(c).removeExecution({ tenantId: c.y, executionId: c.pl.runningId }),
+    {
+      control: async (c) => {
+        const { e } = await scratch(c, "pending");
+        await AR(c).put({
+          tenantId: c.x,
+          executionId: e.id,
+          name: "scratch.txt",
+          mediaType: "text/plain",
+          content: Buffer.from("x"),
+          sha256: "f".repeat(64),
+        });
+        return AR(c).removeExecution({ tenantId: c.x, executionId: e.id });
       },
     },
   );

@@ -90,10 +90,12 @@ model ScanTask {
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  execution Execution         @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
-  attempts  ScanTaskAttempt[]
-  results   ScanResult[]
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  execution   Execution                 @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
+  attempts    ScanTaskAttempt[]
+  results     ScanResult[]
+  logs        ExecutionLog[]
+  logCounters ExecutionTaskLogCounter[]
 
   @@unique([tenantId, executionId, scanType])
   @@unique([tenantId, id])
@@ -199,4 +201,108 @@ model ExecutionOrchestratorMarker {
   sweepLeaseExpiresAt DateTime? @map("sweep_lease_expires_at") @db.Timestamptz(6)
 
   @@map("execution_orchestrator_markers")
+}
+
+// ---------------------------------------------------------------- Execution logs and artifacts (part E, SPEC §17.ac)
+// Capped Postgres tables behind the `LogStore` and `ArtifactStore` interfaces (packages/infra). The object-storage adapter is
+// deferred (OD). Every row carries the tenant and the full chain (tenant, workspace, repository, pipeline, execution); the
+// migration adds what Prisma cannot express: CHECK constraints (caps, names, credential shapes), the insert triggers that
+// assign `seq` and keep the counters, the insert-only guards and the retention indexes.
+
+/// One log line (SPEC §7.4). Insert-only. `seq` is assigned by the BEFORE INSERT trigger from the counters (1, 2, ... per
+/// execution) whatever the caller sends; the message is redacted by the LogStore AND refused by a CHECK if it still has a
+/// credential shape. `lineTruncated` says the message was cut at the per-line cap.
+model ExecutionLog {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      String   @map("tenant_id") @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  repositoryId  String   @map("repository_id") @db.Uuid
+  pipelineId    String   @map("pipeline_id") @db.Uuid
+  executionId   String   @map("execution_id") @db.Uuid
+  scanTaskId    String?  @map("scan_task_id") @db.Uuid
+  seq           BigInt   @default(0)
+  level         String
+  source        String
+  message       String
+  lineTruncated Boolean  @default(false) @map("line_truncated")
+  at            DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "execution_logs_tenant_id_fkey")
+  execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "execution_logs_execution_fkey")
+  task      ScanTask? @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict, map: "execution_logs_task_fkey")
+
+  @@unique([tenantId, executionId, seq])
+  @@index([tenantId, executionId, scanTaskId, seq])
+  @@index([at, id])
+  @@map("execution_logs")
+}
+
+/// Per-execution log counters (SPEC §17.ac): lines and bytes written, lines dropped by the cap and the `truncated` flag. Kept
+/// by the `execution_logs` insert trigger (the CHECK is the hard ceiling) and by the store (dropped, truncated).
+model ExecutionLogCounter {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  pipelineId   String   @map("pipeline_id") @db.Uuid
+  executionId  String   @map("execution_id") @db.Uuid
+  lineCount    Int      @default(0) @map("line_count")
+  byteCount    Int      @default(0) @map("byte_count")
+  droppedLines Int      @default(0) @map("dropped_lines")
+  truncated    Boolean  @default(false)
+  capped       Boolean  @default(false)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "execution_log_counters_tenant_id_fkey")
+  execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "execution_log_counters_execution_fkey")
+
+  @@id([tenantId, executionId])
+  @@index([updatedAt])
+  @@map("execution_log_counters")
+}
+
+/// Per-task log counters (same meaning, per scan task).
+model ExecutionTaskLogCounter {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  pipelineId   String   @map("pipeline_id") @db.Uuid
+  executionId  String   @map("execution_id") @db.Uuid
+  scanTaskId   String   @map("scan_task_id") @db.Uuid
+  lineCount    Int      @default(0) @map("line_count")
+  byteCount    Int      @default(0) @map("byte_count")
+  droppedLines Int      @default(0) @map("dropped_lines")
+  truncated    Boolean  @default(false)
+  capped       Boolean  @default(false)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "execution_task_log_counters_tenant_id_fkey")
+  task   ScanTask @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict, map: "execution_task_log_counters_task_fkey")
+
+  @@id([tenantId, scanTaskId])
+  @@index([tenantId, executionId])
+  @@map("execution_task_log_counters")
+}
+
+/// An execution artifact held by the Postgres driver of the `ArtifactStore` (SPEC §17.ac). Insert-only, capped (size, count and
+/// bytes per execution), named by a validated single path segment; the logical key is `t/<tenant>/x/<execution>/<name>`.
+model ExecutionArtifact {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  pipelineId   String   @map("pipeline_id") @db.Uuid
+  executionId  String   @map("execution_id") @db.Uuid
+  name         String
+  mediaType    String   @map("media_type")
+  sizeBytes    Int      @map("size_bytes")
+  sha256       String
+  content      Bytes
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "execution_artifacts_tenant_id_fkey")
+  execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "execution_artifacts_execution_fkey")
+
+  @@unique([tenantId, executionId, name])
+  @@index([createdAt, id])
+  @@map("execution_artifacts")
 }

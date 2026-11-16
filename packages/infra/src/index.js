@@ -7,3 +7,7 @@ export * from "./scm/index.js";
 export * from "./credential-guard.js";
 export * from "./archive/index.js";
 export * from "./storage/artifact-store.js";
+export * from "./storage/artifact-ref.js";
+export * from "./storage/log-redaction.js";
+export * from "./storage/log-store.js";
+export * from "./storage/postgres-artifact-store.js";

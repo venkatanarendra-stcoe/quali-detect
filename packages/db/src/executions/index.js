@@ -9,3 +9,6 @@ export * from "./idempotency.js";
 export * from "./tasks.js";
 export * from "./markers.js";
 export * from "./cancel.js";
+export * from "./logs.js";
+export * from "./artifacts.js";
+export * from "./retention.js";

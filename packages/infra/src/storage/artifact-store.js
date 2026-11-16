@@ -5,8 +5,7 @@ import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const NAME = /^[a-z][a-z0-9._-]{0,63}$/;
+import { parseArtifactRef } from "./artifact-ref.js";
 
 /** The upload exceeded `maxBytes`. */
 export class ArtifactTooLargeError extends Error {
@@ -31,11 +30,10 @@ export function createLocalArtifactStore({ root }) {
   const base = path.resolve(root);
 
   /** @param {{ tenantId: string, executionId: string, name: string }} ref */
-  function locate({ tenantId, executionId, name }) {
-    if (!SEGMENT.test(tenantId ?? "") || !SEGMENT.test(executionId ?? "") || !NAME.test(name ?? ""))
-      throw new TypeError("Invalid artifact reference.");
+  function locate(ref) {
+    const { tenantId, executionId, name, key } = parseArtifactRef(ref);
     const dir = path.join(base, "t", tenantId, "x", executionId);
-    return { dir, file: path.join(dir, name), key: `t/${tenantId}/x/${executionId}/${name}` };
+    return { dir, file: path.join(dir, name), key };
   }
 
   return Object.freeze({

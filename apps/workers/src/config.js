@@ -57,6 +57,26 @@ const envSchema = z.object({
   EXECUTION_ARCHIVE_MAX_RATIO: z.coerce.number().int().min(2).max(10000).default(200),
   EXECUTION_ARCHIVE_MAX_DEPTH: z.coerce.number().int().min(1).max(256).default(64),
   EXECUTION_MAX_RESULT_ITEMS_PER_TASK: z.coerce.number().int().min(1).max(1000000).default(50000),
+  // Execution logs (SPEC §7.4, §17.ac): capped Postgres tables. The caps stay below the database ceilings (CHECK constraints:
+  // 100000 lines / 8 MiB per execution, 50000 lines / 4 MiB per task); over a cap one marker line is written and the rest dropped.
+  EXECUTION_LOG_MAX_LINES: z.coerce.number().int().min(10).max(100000).default(20000),
+  EXECUTION_LOG_MAX_BYTES: z.coerce.number().int().min(4096).max(8388608).default(2097152),
+  EXECUTION_LOG_MAX_LINES_PER_TASK: z.coerce.number().int().min(10).max(50000).default(10000),
+  EXECUTION_LOG_MAX_BYTES_PER_TASK: z.coerce.number().int().min(4096).max(4194304).default(1048576),
+  // Retention (ER-17, Confirmed PT Q18): logs and raw outputs 90 days, execution metadata 13 months. The PURGE is OFF by default
+  // (Open decision: the job); metadata deletion has its own, second switch.
+  EXECUTION_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  EXECUTION_ARTIFACT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  EXECUTION_METADATA_RETENTION_MONTHS: z.coerce.number().int().min(1).max(600).default(13),
+  EXECUTION_RETENTION_PURGE_ENABLED: z.enum(["true", "false"]).default("false"),
+  EXECUTION_RETENTION_PURGE_METADATA: z.enum(["true", "false"]).default("false"),
+  EXECUTION_RETENTION_PURGE_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(86400)
+    .default(3600),
+  EXECUTION_RETENTION_PURGE_BATCH_SIZE: z.coerce.number().int().min(1).max(5000).default(500),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -142,6 +162,21 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
           "the pipeline worker fetches code through the GitHub App while EXECUTION_ORCHESTRATOR_ENABLED=true",
       });
   }
+  if (e.EXECUTION_LOG_MAX_LINES_PER_TASK > e.EXECUTION_LOG_MAX_LINES)
+    executionProblems.push({
+      variable: "EXECUTION_LOG_MAX_LINES_PER_TASK",
+      message: "must not exceed EXECUTION_LOG_MAX_LINES",
+    });
+  if (e.EXECUTION_LOG_MAX_BYTES_PER_TASK > e.EXECUTION_LOG_MAX_BYTES)
+    executionProblems.push({
+      variable: "EXECUTION_LOG_MAX_BYTES_PER_TASK",
+      message: "must not exceed EXECUTION_LOG_MAX_BYTES",
+    });
+  if (e.EXECUTION_METADATA_RETENTION_MONTHS * 28 < e.EXECUTION_LOG_RETENTION_DAYS)
+    executionProblems.push({
+      variable: "EXECUTION_METADATA_RETENTION_MONTHS",
+      message: "must keep execution metadata at least as long as the logs",
+    });
   if (executionProblems.length > 0) throw new ConfigError(executionProblems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
@@ -201,6 +236,21 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       prepareRetryDelayMs: e.EXECUTION_PREPARE_RETRY_DELAY_MS,
       artifactStoreRoot: e.ARTIFACT_STORE_ROOT ?? null,
       maxResultItemsPerTask: e.EXECUTION_MAX_RESULT_ITEMS_PER_TASK,
+      logs: Object.freeze({
+        maxLinesPerExecution: e.EXECUTION_LOG_MAX_LINES,
+        maxBytesPerExecution: e.EXECUTION_LOG_MAX_BYTES,
+        maxLinesPerTask: e.EXECUTION_LOG_MAX_LINES_PER_TASK,
+        maxBytesPerTask: e.EXECUTION_LOG_MAX_BYTES_PER_TASK,
+      }),
+      retention: Object.freeze({
+        purgeEnabled: e.EXECUTION_RETENTION_PURGE_ENABLED === "true",
+        purgeMetadata: e.EXECUTION_RETENTION_PURGE_METADATA === "true",
+        purgeIntervalSeconds: e.EXECUTION_RETENTION_PURGE_INTERVAL_SECONDS,
+        batchSize: e.EXECUTION_RETENTION_PURGE_BATCH_SIZE,
+        logRetentionDays: e.EXECUTION_LOG_RETENTION_DAYS,
+        artifactRetentionDays: e.EXECUTION_ARTIFACT_RETENTION_DAYS,
+        metadataRetentionMonths: e.EXECUTION_METADATA_RETENTION_MONTHS,
+      }),
       archiveLimits: Object.freeze({
         maxBytes: e.EXECUTION_ARCHIVE_MAX_BYTES,
         maxEntries: e.EXECUTION_ARCHIVE_MAX_ENTRIES,

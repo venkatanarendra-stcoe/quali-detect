@@ -131,7 +131,7 @@ export function TenantsPage() {
       title="Tenant management"
       description="Customer organizations on the platform."
       scroll={false}
-      offset="7.5rem"
+      offset="4.5rem"
       actions={
         <PlatformPermissionGate
           permission="platform.tenant.create"

@@ -82,7 +82,7 @@ Style: clean, professional, data-dense enterprise SaaS, built with shadcn/ui and
 
 Severity colors: Critical #B91C1C, High #EA580C, Medium #D97706, Low #2563EB, Info #64748B — shown as soft pill badges with text labels. Success #16A34A, Running #0284C7, Failed #DC2626.
 
-App shell: a fixed top bar (64px) with the QmentisAI logo on the left, a global search / command palette (⌘K) in the center, and on the right a notifications bell and an account avatar menu (the account menu exists ONLY in the top bar). A fixed left sidebar (256px) with grouped navigation sections and small uppercase group labels. The sidebar has no profile area. Main content area has a page header (title, breadcrumb, primary action button on the right) above the content.
+App shell (amended 2026-11-16, owner decision, Confirmed: NO top bar): a fixed left sidebar (240px) with, top to bottom, the QmentisAI logo, a global search / command palette trigger (⌘K), the organization name (and in the Workspace layout "← All workspaces" plus the workspace switcher), a Notifications item with its unread badge, grouped navigation with small group labels, and the account area pinned at the bottom (avatar, name and email opening a menu: Account, Settings, Switch organization when more than one, Sign out). Main content area has a page header (title, breadcrumb, primary action button on the right) above the content.
 ```
 
 ---
@@ -100,8 +100,8 @@ The shell picks a layout from the URL (`useNavContext`).
 - Groups: **Workspace**, **Security**, **Workspace Administration**.
 - Repository details and `/repositories/connect?workspace=:id` use the layout of the repository's workspace.
 
-### 3.3 Top bar (both layouts)
-Logo · Command palette search · Notifications bell (badge count) · Account menu (Profile, Preferences, Theme, Sign out). No account area in the sidebar.
+### 3.3 Sidebar chrome (both layouts; amended 2026-11-16, Confirmed, owner decision)
+The top bar was removed. Sidebar, top to bottom: Logo · Search / command palette trigger (⌘K / Ctrl+K; lists only pages the navigation already shows, plus Account and Settings) · organization name (Organization layout) or organization name, "← All workspaces" and the Workspace switcher (Workspace layout) · **Notifications** item (opens the T-04 drawer; unread badge only for a positive count) · grouped navigation · **Account area pinned at the bottom**: avatar + name open a menu with **Account** (`/account`, read-only identity), **Settings** (`/account/settings`: **Appearance** = theme Light / Dark / System and the accent picker; **Preferences**), **Switch organization** (only when the user belongs to more than one) and **Sign out**. The menu is an ARIA `menu`: focus moves in, Escape closes, focus returns to the trigger. Account and Settings need no permission (the user's own pages) and are not navigation items. The content area uses the full viewport height; `AppPageLayout` keeps its sticky page header. Below 768 px the sidebar is a drawer opened from a 3rem strip (menu button + logo); Escape closes it.
 
 ---
 
@@ -201,7 +201,7 @@ Legend: ● visible · ◐ visible, read-only (actions hidden/disabled) · — h
 | T-01 | Sign in | `/login` | public | Confirmed (mock auth) |
 | T-02 | MFA verification | `/login/mfa` | public | Recommended |
 | T-03 | Account profile & preferences | `/account` | authenticated | Recommended |
-| T-04 | Notifications center (drawer) | top bar | authenticated | Recommended |
+| T-04 | Notifications center (drawer) | sidebar item | authenticated | Recommended |
 | T-05 | 403 / 404 / error states | — | — | Confirmed (behavior) |
 | T-06 | Organization Overview | `/overview` | `dashboard.view` | Confirmed |
 | T-07 | Workspaces list | `/workspaces` | `workspace.view` | Confirmed |
@@ -255,7 +255,7 @@ Each prompt is self-contained. Paste after the Global Design Brief.
 - Variants: Admin (all groups) and Developer (Main only).
 
 ```
-Using the QmentisAI design system, create the application shell in "Organization layout". Top bar 64px: QmentisAI logo left, centered search input "Search or jump to… ⌘K", right side notification bell with red count badge "3" and a circular avatar "QS" with a dropdown chevron. Left sidebar 256px, background #F8FAFC, header shows organization name "Acme Corp" with a small building icon. Group label "MAIN": Organization Overview (active, `--primary-tint` background, accent text and left 2px accent bar), Workspaces. Group label "ADMINISTRATION": Users & Groups, Integrations, Roles & Permissions, Organization Settings, Audit Logs. No profile area in the sidebar. Main area shows an empty page header "Organization Overview" with breadcrumb "Acme Corp / Overview".
+Using the QmentisAI design system, create the application shell in "Organization layout". No top bar. Left sidebar 240px, background #F8FAFC: QmentisAI logo at the top, below it a search field "Search or jump to… ⌘K", then the organization name "Acme Corp" with a small building icon and a "Notifications" item with a red count badge "3". The account area is pinned at the bottom of the sidebar: avatar "QS", name and email with an up/down chevron. Group label "MAIN": Organization Overview (active, `--primary-tint` background, accent text and left 2px accent bar), Workspaces. Group label "ADMINISTRATION": Users & Groups, Integrations, Roles & Permissions, Organization Settings, Audit Logs. Main area shows an empty page header "Organization Overview" with breadcrumb "Acme Corp / Overview".
 ```
 RBAC variant prompt:
 ```
@@ -264,7 +264,7 @@ Create the same Organization layout shell for a Developer user: the sidebar show
 
 ### T-00b — App shell, Workspace layout
 ```
-Using the QmentisAI design system, create the application shell in "Workspace layout". Same top bar. Left sidebar header: a small text link "← All workspaces", below it a workspace switcher button showing a colored square avatar "PA" and name "Payments API" with an up/down chevron; show the open dropdown listing 4 workspaces (Payments API ✓, Mobile App, Data Platform, Internal Tools) with a search field. Navigation groups: "WORKSPACE": Dashboard (active), Repositories, Pipelines, Executions. "SECURITY": Findings (badge "128"), Security Reviews (badge "12"), Approvals (badge "4"), Remediation, Policies, Reports. "WORKSPACE ADMINISTRATION": Members & Groups, Roles & Permissions, Integrations, Activity, Settings. No profile area in the sidebar.
+Using the QmentisAI design system, create the application shell in "Workspace layout". No top bar; the same sidebar chrome (logo, search, notifications, account area at the bottom). Left sidebar header: a small text link "← All workspaces", below it a workspace switcher button showing a colored square avatar "PA" and name "Payments API" with an up/down chevron; show the open dropdown listing 4 workspaces (Payments API ✓, Mobile App, Data Platform, Internal Tools) with a search field. Navigation groups: "WORKSPACE": Dashboard (active), Repositories, Pipelines, Executions. "SECURITY": Findings (badge "128"), Security Reviews (badge "12"), Approvals (badge "4"), Remediation, Policies, Reports. "WORKSPACE ADMINISTRATION": Members & Groups, Roles & Permissions, Integrations, Activity, Settings.
 ```
 RBAC variant: *Developer in workspace* → shows Dashboard, Repositories, Pipelines, Executions, Findings, Remediation, Members & Groups only.
 

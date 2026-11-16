@@ -194,7 +194,7 @@ export function ProvisionTenantPage() {
       title="Provision tenant"
       description="Create a customer organization and invite its first administrator."
       scroll={false}
-      offset="7.5rem"
+      offset="4.5rem"
     >
       <WizardLayout
         fill

@@ -67,7 +67,7 @@ export function useWorkspaceAssignments(workspaceId, params, { enabled = true } 
 
 /**
  * Refreshes everything a workspace change can affect: workspace lists/details/members/assignments, and the session
- * (`/me`), because the workspace switcher, top bar and navigation read the user's visible workspaces from it.
+ * (`/me`), because the workspace switcher, sidebar and navigation read the user's visible workspaces from it.
  */
 export function useRefreshWorkspaces() {
   const queryClient = useQueryClient();

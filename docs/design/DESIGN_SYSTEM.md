@@ -475,7 +475,7 @@ Stitch output is HTML and screenshots used as visual reference only. It is not p
 | Material Symbols icons | Lucide React |
 | Tailwind v3 via CDN, inline styles | Tailwind v4 CSS-first, tokens from §3 |
 
-What the approved render defines and should be reproduced: shell proportions (240 px sidebar, 48 px top bar), grouped sidebar with Geist sentence-case group labels, mint active-nav treatment (tint plus 2 px left bar), five equal metric cards on one line each, mint trend line with a neutral value callout, severity distribution bars on a dark track, dense 36 px table rows, outlined status chips, neutral progress bar, Geist everywhere except identifiers.
+What the approved render defines and should be reproduced: shell proportions (240 px sidebar; the 48 px top bar of that render was removed 2026-11-16 by owner decision, its contents now live in the sidebar), grouped sidebar with Geist sentence-case group labels, mint active-nav treatment (tint plus 2 px left bar), five equal metric cards on one line each, mint trend line with a neutral value callout, severity distribution bars on a dark track, dense 36 px table rows, outlined status chips, neutral progress bar, Geist everywhere except identifiers.
 
 ---
 

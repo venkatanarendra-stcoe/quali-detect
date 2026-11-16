@@ -5,7 +5,7 @@ const join = (...parts) => parts.filter(Boolean).join(" ");
 
 /**
  * Page frame for the Tenant Application: the page itself never scrolls. It fills the viewport below the app chrome
- * (`offset`, default 6rem = 3rem top bar + 3rem page padding, the same as `WizardLayout`; at least 24rem tall). The
+ * (`offset`, default 3rem = the 1.5rem `main` padding top and bottom; the app shell may add `--app-shell-extra` (the mobile menu strip), the same as `WizardLayout`; at least 24rem tall). The
  * header (breadcrumb slot, title, description, actions slot) stays put; ONLY the content region scrolls, with the thin
  * fading scrollbar of `scroll.css`. Make it a flex column that its child fills with `scroll={false}`, e.g. to host a
  * `DataTable height="fill"` or a `WizardLayout fill` that scroll internally.
@@ -20,7 +20,7 @@ export function AppPageLayout({
   description,
   breadcrumb,
   actions,
-  offset = "6rem",
+  offset = "3rem",
   scroll = true,
   className,
   contentClassName,
@@ -32,7 +32,7 @@ export function AppPageLayout({
     <div
       data-app-page=""
       className={join(
-        "flex h-[calc(100dvh-var(--app-page-offset))] min-h-[24rem] flex-col",
+        "flex h-[calc(100dvh-var(--app-page-offset)-var(--app-shell-extra,0rem))] min-h-[24rem] flex-col",
         className,
       )}
       style={{ "--app-page-offset": offset }}

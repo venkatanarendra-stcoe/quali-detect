@@ -101,7 +101,7 @@ export function TenantDetailPage() {
 
   if (detail.isPending)
     return (
-      <AppPageLayout title="Tenant" offset="7.5rem">
+      <AppPageLayout title="Tenant" offset="4.5rem">
         <LoadingState rows={4} label="Loading tenant" />
       </AppPageLayout>
     );
@@ -121,7 +121,7 @@ export function TenantDetailPage() {
     <AppPageLayout
       title={tenant.name}
       description={<span className="font-mono text-xs">{tenant.slug}</span>}
-      offset="7.5rem"
+      offset="4.5rem"
       actions={
         <>
           <TenantStatusChip status={tenant.status} />

@@ -127,7 +127,7 @@ export function PlatformAuditLogsPage() {
       title="Platform audit logs"
       description="Platform actions: tenant lifecycle, platform sign-in and administration. Entries cannot be changed or deleted."
       scroll={false}
-      offset="7.5rem"
+      offset="4.5rem"
     >
       <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3">
         <div className="w-52">

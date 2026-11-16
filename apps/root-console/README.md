@@ -9,7 +9,7 @@ pnpm --filter @qmentisai/root-console dev   # proxies /api to the API (VITE_DEV_
 ## What exists (foundation)
 
 - **Theme:** `@qmentisai/ui/root-theme.css` on top of the shared tokens: violet accent, always-dark sidebar, active only under `<html data-app="root">` (decision record in `docs/design/DESIGN_SYSTEM.md` §7; the violet values are Recommended until approved).
-- **Shell:** environment strip (`VITE_ENVIRONMENT`: development / staging / production), dark sidebar with the "QmentisAI Platform" header, top bar with a persistent PLATFORM chip and the account menu. No workspace switcher.
+- **Shell:** environment strip (`VITE_ENVIRONMENT`: development / staging / production), dark sidebar with the "QmentisAI Platform" header, search / command palette (⌘K), Notifications, the system-status indicator and the account area (no top bar since 2026-11-16; no accent picker). No workspace switcher.
 - **Sign-in:** platform login, then a **mandatory MFA screen** (mock verifier). The server withholds all platform data until the code is verified, so the screen cannot be skipped; route guards send MFA-pending visitors back to `/mfa`.
 - **Navigation:** `PLATFORM_NAV_GROUPS` in `@qmentisai/shared/platform`, evaluated by `evaluatePlatformNavigation` with `platform.*` permissions only; `implemented && permitted && route exists`; empty groups hidden.
 - **Separation from tenant code:** only `@qmentisai/shared/platform` may be imported from the shared package (ESLint `no-restricted-imports`); the production bundle contains no tenant or workspace permission keys.

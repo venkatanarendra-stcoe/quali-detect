@@ -59,7 +59,7 @@ Same as Tenant app: Inter / JetBrains Mono, 8px grid, 8px radius, shadcn/ui + Ta
 ```
 Design a desktop web application (1440px wide) called "QmentisAI Root Console" — the platform administration console used by the QmentisAI operator team to provision and manage customer tenants, plans, subscriptions, licenses, entitlements, quotas, platform users, the global integration catalog, feature flags, system health and audit. It is NOT used by customers.
 
-Style: professional, data-dense enterprise admin console built with shadcn/ui and Tailwind CSS conventions. A thin 32px environment strip at the very top in #020617 with small uppercase text "PLATFORM CONSOLE · PRODUCTION" and a violet dot. Below it a white 56px top bar with "QmentisAI Root" logo, global search "Search tenants, users, plans… ⌘K", a system-status indicator ("All systems operational" green dot), notifications bell and avatar menu. Left sidebar 256px with DARK background slate-900 (#0F172A), slate-300 text, active item slate-800 background with a 2px accent left bar (`#A78BFA`, design-system Root Console violet), small uppercase group labels in slate-500. Content area white with slate-200 (#E2E8F0) borders, 8px radius, minimal shadows. Primary color is the design-system Root Console violet (`#6D28D9` light / `#A78BFA` dark) for the primary button, active navigation, focus and links. Destructive red-600 (#DC2626). Font Inter, mono JetBrains Mono for IDs. Lucide-style icons.
+Style: professional, data-dense enterprise admin console built with shadcn/ui and Tailwind CSS conventions. A thin 32px environment strip at the very top in #020617 with small uppercase text "PLATFORM CONSOLE · PRODUCTION" and a violet dot. There is NO top bar (removed 2026-11-16, owner decision, Confirmed): the "QmentisAI Root" logo, global search "Search tenants, users, plans… ⌘K" and a Notifications item sit at the top of the sidebar, and the system-status indicator and the account area (avatar menu) sit at its bottom. Left sidebar 240px with DARK background slate-900 (#0F172A), slate-300 text, active item slate-800 background with a 2px accent left bar (`#A78BFA`, design-system Root Console violet), small uppercase group labels in slate-500. Content area white with slate-200 (#E2E8F0) borders, 8px radius, minimal shadows. Primary color is the design-system Root Console violet (`#6D28D9` light / `#A78BFA` dark) for the primary button, active navigation, focus and links. Destructive red-600 (#DC2626). Font Inter, mono JetBrains Mono for IDs. Lucide-style icons.
 
 Tenant lifecycle pills: Provisioning sky-600, Trial violet-600, Active green-600, Suspended amber-600, Deactivated red-600.
 ```
@@ -69,7 +69,7 @@ Tenant lifecycle pills: Provisioning sky-600, Trial violet-600, Active green-600
 ## 3. App shell (Recommended)
 
 - Environment strip (always visible; shows environment name — prevents acting in production by mistake).
-- Top bar: logo, global search, system status, notifications, account menu (Profile, MFA, Sign out). Account menu only in top bar.
+- No top bar (amended 2026-11-16, owner decision, Confirmed; the environment strip stays). Sidebar, top to bottom: logo, global search / command palette (⌘K), Notifications with unread badge, grouped navigation; at the bottom the system-status indicator and the **account area** (avatar + name open a menu: **Account**, **Settings** (Appearance = theme Light / Dark / System only; **the Root Console has no accent picker**; Preferences), **Sign out**). The sidebar keeps the violet / always-dark identity. The status indicator reports only what the console can prove (the API answers its public `/info` probe); per-service health is System monitoring (planned). Below 768 px the sidebar is a drawer opened from a 3rem strip.
 - **Support-access banner**: when an operator is inside an authorized tenant diagnostic session, a persistent amber banner shows tenant, scope, reason, time remaining and "End session" (Confirmed requirement: scoped, logged, auditable).
 - Sidebar: dark, grouped navigation; groups with no visible items are hidden.
 
@@ -182,7 +182,7 @@ Legend: ● full · ◐ read-only · — hidden
 
 ### R-00 — App shell
 ```
-Using the QmentisAI Root Console design system, create the application shell. 32px environment strip #020617 with "PLATFORM CONSOLE · PRODUCTION". 56px white top bar: "QmentisAI Root" logo, search "Search tenants, users, plans… ⌘K", status "All systems operational" with green dot, bell, avatar "SA". Dark sidebar (#0F172A) with groups: OVERVIEW (Platform Dashboard — active), TENANTS (Tenants, Support Diagnostics), COMMERCIAL (Plans, Subscriptions, Licenses, Entitlements & Quotas, Usage & Metering), CONFIGURATION (Integration Catalog, Feature Flags & Config), OPERATIONS (System Health, Jobs & Queues, Errors & Dead Letters), ADMINISTRATION (Platform Users, Platform Roles, Platform Audit Logs). Active item slate-800 background with violet-600 left bar.
+Using the QmentisAI Root Console design system, create the application shell. 32px environment strip #020617 with "PLATFORM CONSOLE · PRODUCTION". No top bar. Dark sidebar (#0F172A) with the "QmentisAI Root" logo, search "Search tenants, users, plans… ⌘K" and a bell item at the top, then groups: OVERVIEW (Platform Dashboard — active), TENANTS (Tenants, Support Diagnostics), COMMERCIAL (Plans, Subscriptions, Licenses, Entitlements & Quotas, Usage & Metering), CONFIGURATION (Integration Catalog, Feature Flags & Config), OPERATIONS (System Health, Jobs & Queues, Errors & Dead Letters), ADMINISTRATION (Platform Users, Platform Roles, Platform Audit Logs). Active item slate-800 background with violet-600 left bar. At the bottom of the sidebar: status "All systems operational" with green dot and the account area (avatar "SA", name, role).
 ```
 RBAC variant:
 ```
@@ -190,7 +190,7 @@ Same shell for a "Billing / Commercial Ops" user: sidebar shows OVERVIEW, TENANT
 ```
 Support-access banner variant:
 ```
-Same shell with a persistent amber-600 banner under the top bar: shield icon, "Support session active — Tenant: Acme Corp · Scope: read-only diagnostics · Reason: TKT-4821 · 38 min remaining · All actions are audited", and a button "End session".
+Same shell with a persistent amber-600 banner at the top of the content area (directly under the environment strip): shield icon, "Support session active — Tenant: Acme Corp · Scope: read-only diagnostics · Reason: TKT-4821 · 38 min remaining · All actions are audited", and a button "End session".
 ```
 
 ### R-01 / R-02 — Sign in & MFA

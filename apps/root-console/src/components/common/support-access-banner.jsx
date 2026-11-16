@@ -18,7 +18,7 @@ export function formatRemaining(ms) {
 
 /**
  * Tenant drill-in banner (docs/design/ROOT_CONSOLE_DESIGN.md §1): while a platform user views a tenant through a support
- * access grant, a bar under the top bar names the tenant, the stated reason and the time left. Grants are scoped,
+ * access grant, a bar at the top of the content area names the tenant, the stated reason and the time left. Grants are scoped,
  * time-limited, read-only by default and audited (docs/AUTHORIZATION.md §5.10). This component only PRESENTS a grant;
  * the server decides whether access exists, and it refuses requests the moment the grant expires.
  *

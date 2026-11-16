@@ -42,7 +42,9 @@ Update this file as implementation progresses. Use `Not Started`, `In Progress`,
 | Policies and governance | Not Started | |
 | Reporting and notifications | Not Started | |
 | Subscription and usage | Not Started | |
-| Account navigation entry (backlog, 2026-11-16) | Deferred | Add an Account entry to the central navigation in `@qmentisai/shared` (evaluated by the authorization engine, no permission needed for any authenticated user) so `/account` is reachable from the menu and not only by URL; the page already exists (Preferences tab, accent picker). Never check role names in UI code. |
+| Account navigation entry (backlog, 2026-11-16) | Completed (moot, 2026-11-16) | Superseded by the sidebar account area: Account and Settings are reachable from the account menu at the bottom of the sidebar (see the UI restructure entry below). They are the user's own pages and deliberately NOT navigation items in `@qmentisai/shared`. Original note: | Add an Account entry to the central navigation in `@qmentisai/shared` (evaluated by the authorization engine, no permission needed for any authenticated user) so `/account` is reachable from the menu and not only by URL; the page already exists (Preferences tab, accent picker). Never check role names in UI code. |
+
+- UI restructure item 1, top bar removed (2026-11-16, owner decision, Confirmed): both apps lose the top bar; logo, search / command palette (⌘K), Notifications (badge) and the account area (Account, Settings > Appearance / Preferences, Sign out) move into the sidebar; Root Console keeps the environment strip and violet sidebar, gains the system-status indicator in the sidebar and has no accent picker. New routes `/account` and `/account/settings` in both apps. Docs amended: FRONTEND_ARCHITECTURE, both wireframe specs, TENANT_APPLICATION_DESIGN, ROOT_CONSOLE_DESIGN, UX_GUIDELINES, DESIGN_SYSTEM, STITCH_WORKFLOW. Not yet built (no backend): a notifications feed (badge is wired to a hook that returns 0), per-service platform health, Preferences content beyond Appearance.
 
 ## Current sprint / task
 

@@ -7,6 +7,7 @@ import {
   PublicOnly,
   RequirePlatformAuth,
 } from "@/features/auth/index.js";
+import { AccountPage, SettingsPage } from "@/features/account/index.js";
 import { RequirePlatformPermission } from "@/features/authorization/index.js";
 import { AppLayout } from "./layouts/app-layout.jsx";
 import { LandingRedirect } from "./landing.jsx";
@@ -36,6 +37,9 @@ export function AppRouter() {
         <Route element={<RequirePlatformAuth />}>
           <Route element={<AppLayout />}>
             <Route index element={<LandingRedirect />} />
+            {/* Own account: any verified platform session, no permission. */}
+            <Route path="account" element={<AccountPage />} />
+            <Route path="account/settings" element={<SettingsPage />} />
             {PLATFORM_ROUTES.map((r) => (
               <Route
                 key={r.path}

@@ -39,8 +39,8 @@ Checklist before shipping a screen:
 | Region | Spec |
 |---|---|
 | Sidebar | 240 px, collapsible to 56 px (icons with tooltips). Background `--sidebar`, 1 px right border. Sections with 11 px uppercase labels in `--subtle-foreground`. |
-| Top bar | 48 px, `--background`, 1 px bottom border. Left: breadcrumb or workspace switcher (Tenant app only). Right: global search (⌘K / Ctrl+K), notifications, theme toggle (Light / Dark / System), user menu. |
-| Content | Max width fluid; padding 24 px. Content scrolls; sidebar and top bar are fixed. |
+| Top bar | **Removed 2026-11-16 (owner decision, Confirmed).** Its contents moved into the sidebar: logo and search / command palette (⌘K / Ctrl+K) at the top, workspace switcher under them (Tenant app), Notifications item with badge, account area pinned at the bottom (menu: Account, Settings > Appearance (theme, accent; tenant only) and Preferences, Sign out). Below 768 px a 3rem strip with the menu button opens the sidebar as a drawer. |
+| Content | Max width fluid; padding 24 px. Content scrolls; the sidebar is fixed. |
 | Page header | Breadcrumb, title (20/28), optional status chip, secondary actions, then the primary action at the far right. |
 
 ### 3.2 Page templates
@@ -204,7 +204,7 @@ Tenant Application primitives; the Root Console is unaffected unless it imports 
 
 - **`Combobox` / `MultiSelect`** replace native `<select>`. ARIA 1.2 combobox with `aria-activedescendant`; the listbox is rendered in a portal (position fixed, flips above when there is no room) so cards and `overflow-hidden` ancestors never clip it. Keys: arrows, Home/End, Enter, Escape (closes without closing an enclosing dialog), Tab, type-ahead (non-searchable), Backspace removes the last chip. Static `options`, local search, or async `loadOptions(query, { signal })` (debounced, loading / empty / error with Retry). Forwards `ref`; pass `invalid`, `aria-describedby`, `id`, `name`, `onBlur` from React Hook Form (`Controller` for the value).
 - **`ComboboxAddRow`** is the member/role picker: optional type select, searchable subject, optional role select, Add, and a removable result list (duplicates ignored, announced via a live region).
-- **`AppPageLayout`** fixes the page header (breadcrumb slot, title, description, actions slot) and fills the viewport below the top bar (`offset`, default 6 rem, same as `WizardLayout`): the page never scrolls, only the content region does. Use `scroll={false}` to host a `DataTable height="fill"` or `<WizardLayout fill>`.
+- **`AppPageLayout`** fixes the page header (breadcrumb slot, title, description, actions slot) and fills the viewport (`offset`, default 3 rem = page padding, plus the shell's `--app-shell-extra`; same as `WizardLayout`): the page never scrolls, only the content region does. Use `scroll={false}` to host a `DataTable height="fill"` or `<WizardLayout fill>`.
 - **`DataTable`** (TanStack Table v8): sticky column header, body scrolls inside the table (`height="fill"` or `maxHeight`), sorting header buttons with `aria-sort`, `onRowClick` rows focusable and activated with Enter/Space, slots for loading (8 skeleton rows), empty, error, unauthorized, and a "Load more" footer (`hasMore`/`onLoadMore`).
 - **Scrolling:** `@import "@qmentisai/ui/scroll.css"` (tenant-web entry only) enables `.qm-scroll`: thin scrollbar that is invisible when idle and fades in on hover, focus inside or scroll, plus smooth scrolling (disabled under `prefers-reduced-motion`). `AppPageLayout` and `DataTable` apply it; add the class to other tenant scroll containers.
 
@@ -230,4 +230,4 @@ Every tenant page renders inside `AppPageLayout` (`@qmentisai/ui`); the shell (`
 
 ### Root Console page frames and tables (2026-11-13)
 
-The Root Console uses the same primitives as the tenant frame above: shell `h-dvh overflow-hidden`, every page in `AppPageLayout offset="7.5rem"` (1.5 rem environment strip + 3 rem top bar + 3 rem padding), list pages as `AppPageLayout scroll={false}` + `QueryTable` (`DataTable height="fill"`), the wizard as `<WizardLayout fill>`, and `scroll.css` imported by its entry so `.qm-scroll` (smooth, thin fading scrollbar, reduced-motion aware) covers `main`, the content region, the table scroller and the sidebar. Details: `ROOT_CONSOLE_DESIGN.md` §5.
+The Root Console uses the same primitives as the tenant frame above: shell `h-dvh overflow-hidden`, every page in `AppPageLayout offset="4.5rem"` (1.5 rem environment strip + 3 rem padding), list pages as `AppPageLayout scroll={false}` + `QueryTable` (`DataTable height="fill"`), the wizard as `<WizardLayout fill>`, and `scroll.css` imported by its entry so `.qm-scroll` (smooth, thin fading scrollbar, reduced-motion aware) covers `main`, the content region, the table scroller and the sidebar. Details: `ROOT_CONSOLE_DESIGN.md` §5.

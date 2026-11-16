@@ -158,7 +158,7 @@ export function Stepper({
  *   children: import("react").ReactNode }} props
  *   Omit `title` when a surrounding `AppPageLayout` already shows the header (no second header is rendered).
  *   `actions` is the content of the bar: put the cancel control first and the Back/Next/Create group last.
- *   `offset` is a CSS length (default 6rem = 3rem top bar + 3rem page padding). `fill` (default false) makes the
+ *   `offset` is a CSS length (default 3rem = page padding, plus the shell's `--app-shell-extra`). `fill` (default false) makes the
  *   wizard fill its parent instead of the viewport, for use inside `AppPageLayout scroll={false}`.
  */
 export function WizardLayout({
@@ -174,7 +174,7 @@ export function WizardLayout({
   summary,
   summaryTitle = "Summary",
   actions,
-  offset = "6rem",
+  offset = "3rem",
   fill = false,
   children,
 }) {
@@ -185,7 +185,9 @@ export function WizardLayout({
       data-wizard-layout=""
       className={join(
         "flex flex-col",
-        fill ? "h-full min-h-0" : "h-[calc(100dvh-var(--wizard-offset))] min-h-[32rem]",
+        fill
+          ? "h-full min-h-0"
+          : "h-[calc(100dvh-var(--wizard-offset)-var(--app-shell-extra,0rem))] min-h-[32rem]",
       )}
       style={{ "--wizard-offset": offset }}
     >

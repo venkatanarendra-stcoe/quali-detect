@@ -18,7 +18,7 @@ export function DashboardPage() {
     <AppPageLayout
       title="Platform dashboard"
       description={`Signed in as ${me.platformUser.name} · ${me.role.name}`}
-      offset="7.5rem"
+      offset="4.5rem"
     >
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

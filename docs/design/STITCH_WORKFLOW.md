@@ -69,7 +69,7 @@ Observed on 2026-11-09:
 - Replacement generation is the approach that has worked: three replacement screens for Workspace details were generated and retrieved without any edit-persistence question. Two of the three `generate_screen_from_text` calls returned within the tool timeout; the others timed out and appeared later.
 - Dense, pixel-budgeted layout instructions made Stitch collapse tables into bordered row cards (no column headers) and stretch cards with empty gaps. Ask for real `<table>` elements with `<thead>`, forbid `justify-between`/`flex-1`, and give column widths sized for the content. Even with exact widths, a column can still truncate ("SCA, SBO…"); budget more width than the arithmetic suggests.
 - What worked for Repositories (first screen to pass the automatic workflow): explicit shell geometry, 'real <table> with <thead>', exact column widths with spare room, content-sized cards, and listing the interactive element types. The first generation had one Major defect (a non-focusable avatar `div`); one replacement fixed it.
-- Stitch changes the shell if the prompt is ambiguous (it moved the top bar above the sidebar). State the shell geometry explicitly every time.
+- **2026-11-16 (owner decision, Confirmed): the shell has no top bar; the geometry lines below that mention a 48px top bar are historical.** Stitch changes the shell if the prompt is ambiguous (it moved the top bar above the sidebar). State the shell geometry explicitly every time.
 - Never delete screens to tidy duplicates. Record them in the registry instead.
 - Approved screens are frozen. To iterate, generate a variant or a new screen and register it.
 

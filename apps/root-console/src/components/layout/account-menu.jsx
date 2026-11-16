@@ -1,12 +1,10 @@
-import { LogOut, Monitor, Moon, Sun } from "lucide-react";
-import { useUiStore } from "@/app/stores/ui-store.js";
+import { ChevronsUpDown, LogOut, Settings, UserRound } from "lucide-react";
+import { useNavigate } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.jsx";
@@ -21,45 +19,58 @@ const initials = (name) =>
     .map((part) => part[0].toUpperCase())
     .join("");
 
-/** The only account control (top bar): identity, platform role, theme, sign out. */
-export function AccountMenu() {
+/**
+ * Account area pinned at the bottom of the (dark) sidebar (owner decision 2026-11-16, replaces the top-bar account
+ * menu): avatar + name open a menu (Escape closes, focus returns to the trigger) with Account, Settings (Appearance:
+ * theme only, Root Console has no accent picker) and Sign out.
+ * @param {{ onNavigate?: () => void }} props
+ */
+export function AccountMenu({ onNavigate }) {
   const { me } = usePlatformSession();
   const { logout } = useAuthActions();
-  const theme = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
+  const navigate = useNavigate();
+  const go = (to) => () => {
+    navigate(to);
+    onNavigate?.();
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Account menu"
-          className="flex size-8 items-center justify-center rounded-sm bg-secondary text-xs font-semibold outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Account menu for ${me.platformUser.name}`}
+          className="flex w-full items-center gap-2.5 rounded-sm p-1.5 text-left outline-none hover:bg-sidebar-hover focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-sidebar-hover"
         >
-          {initials(me.platformUser.name)}
+          <span
+            aria-hidden="true"
+            className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground"
+          >
+            {initials(me.platformUser.name)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-sidebar-strong">
+              {me.platformUser.name}
+            </span>
+            <span className="block truncate text-xs text-sidebar-muted">{me.role.name}</span>
+          </span>
+          <ChevronsUpDown aria-hidden="true" className="size-4 shrink-0 text-sidebar-muted" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent side="top" align="start" className="w-60">
         <DropdownMenuLabel className="space-y-0.5">
           <span className="block text-sm font-medium text-foreground">{me.platformUser.name}</span>
           <span className="block truncate font-normal">{me.platformUser.email}</span>
+          <span className="block truncate font-normal">Platform role: {me.role.name}</span>
         </DropdownMenuLabel>
-        <DropdownMenuLabel>Platform role: {me.role.name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>Theme</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-          <DropdownMenuRadioItem value="light">
-            <Sun aria-hidden="true" />
-            Light
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="dark">
-            <Moon aria-hidden="true" />
-            Dark
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="system">
-            <Monitor aria-hidden="true" />
-            System
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+        <DropdownMenuItem onSelect={go("/account")}>
+          <UserRound aria-hidden="true" />
+          Account
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={go("/account/settings")}>
+          <Settings aria-hidden="true" />
+          Settings
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => logout.mutate()}>
           <LogOut aria-hidden="true" />

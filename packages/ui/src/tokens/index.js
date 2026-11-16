@@ -4,7 +4,7 @@
  */
 export const THEMES = Object.freeze(["light", "dark", "system"]);
 
-export const LAYOUT = Object.freeze({ sidebarWidth: 240, topbarHeight: 48 });
+export const LAYOUT = Object.freeze({ sidebarWidth: 240 });
 
 /** Severity levels in display order (colors: --sev-* tokens). */
 export const SEVERITIES = Object.freeze(["critical", "high", "medium", "low", "info"]);

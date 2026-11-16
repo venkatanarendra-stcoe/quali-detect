@@ -14,7 +14,7 @@ export function ComponentGalleryPage() {
     <AppPageLayout
       title="Component gallery"
       description="Development only. Static examples; no real grants exist yet."
-      offset="7.5rem"
+      offset="4.5rem"
     >
       <section aria-labelledby="g-env" className="mb-6 space-y-2">
         <h2 id="g-env" className="text-base font-semibold">

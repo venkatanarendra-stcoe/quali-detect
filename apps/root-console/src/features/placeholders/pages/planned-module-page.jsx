@@ -8,7 +8,7 @@ export function PlannedModulePage({
   description = "This area is planned and not available yet.",
 }) {
   return (
-    <AppPageLayout title={title} offset="7.5rem">
+    <AppPageLayout title={title} offset="4.5rem">
       <EmptyState icon={Hammer} title="Coming soon" description={description} />
     </AppPageLayout>
   );

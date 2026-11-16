@@ -13,7 +13,7 @@ Role names are those in `PROJECT_CONTEXT.md`: Admin, Manager, Lead, Security Ana
 Identical on every screen (see the approved dashboard).
 
 - **Sidebar (240 px):** Overview · *Engineering:* Workspaces, Repositories, Pipelines, Executions, Scan History · *Security:* Findings, Security Reviews, Approvals, Remediation, Policies, Reports · *Administration:* Users, Groups, Roles & Permissions, Integrations, Audit Logs · footer: Settings, Docs, user.
-- **Top bar (48 px):** workspace switcher, global search (⌘K), notifications, theme toggle, user avatar.
+- **No top bar** (removed 2026-11-16, owner decision, Confirmed): the sidebar holds the logo, global search (⌘K), organization / workspace switcher, Notifications with badge, and the account area at the bottom (Account, Settings > Appearance / Preferences, Sign out). Theme and accent live under Settings > Appearance.
 - **Counts** appear only on Findings, Security Reviews and Approvals (items needing action).
 - Hierarchy for breadcrumbs: Tenant / Workspace / Repository / Pipeline / Execution.
 - Settings opens a sub-navigation: Organization, Account, Authentication & SSO, Notifications, API & Developer, Usage & Consumption, Data Governance.

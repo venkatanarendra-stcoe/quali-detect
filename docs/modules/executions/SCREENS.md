@@ -7,7 +7,7 @@ Status: **Approved (2026-11-16)** with `SPEC.md` of this module (owner approval 
 | Id | Effect on the screens | Label |
 |---|---|---|
 | B12 / PTS C6 | No placeholder for a module that does not exist: no Findings tab, no "New findings" column, no Artifacts tab, no Analysis or Finding-normalization stages, no "Run manual scan" button (T-30 is a separate module later) | Confirmed |
-| B12 | Cursor pagination with a "Load more" footer; **no total counts** anywhere on these screens | Confirmed |
+| B12 | ~~Cursor pagination with a "Load more" footer; no total counts~~ **Amended 2026-11-16 (UI restructure item 2, owner decision, Confirmed): **numbered pages (first, previous, page numbers with ellipsis, next, last), a page-size select (25, 50, 100) and "Page X of Y · N executions"; the total appears only in the pager; `page` and `limit` in the URL; events keep cursor "Load more" | Confirmed |
 | PTS C4 | Workspace-nested routes; the wireframe route `/executions/:id` is an alias that redirects | Confirmed (C4), applied here Recommended |
 | PTS C3 | Disabled-action tooltips say the user lacks permission to run or cancel executions; the permission key is never shown | Confirmed |
 | PT §11 | Execution rows show `PR #214`, never the author login | Confirmed |
@@ -41,7 +41,7 @@ Status: **Approved (2026-11-16)** with `SPEC.md` of this module (owner approval 
 
 **Purpose:** all executions of the workspace, newest first, with live status. **Frame:** `AppPageLayout scroll={false}`, filter bar (`shrink-0`) above a `QueryTable` (`DataTable height="fill"`), as the Pipelines and Audit lists (UX_GUIDELINES "page frames and tables"). **Header:** title "Executions", description "Every run of every pipeline in this workspace." No header button (no "Run manual scan": T-30 is outside this module; the pipelines' "Run now" stays on the pipeline screens).
 
-**Filter bar (URL state, repeated unchanged on every "Load more" request):**
+**Filter bar (URL state, repeated unchanged on every page request):**
 
 | Filter | Control | Notes |
 |---|---|---|
@@ -67,7 +67,7 @@ Status: **Approved (2026-11-16)** with `SPEC.md` of this module (owner approval 
 
 Wireframe columns **not** shown: "New findings" (Findings module, C6). Sorting: only by requested time (newest first, explicit and visible, header button with `aria-sort`); no other sort exists in the API.
 
-**Pagination:** the footer is "Load more" (`hasMore`/`onLoadMore`), appends rows, **moves focus to the first new row and announces "25 more executions loaded"** in a polite live region; no page numbers, no "of N" anywhere. Page size 25 (limit 25/50/100 is a user choice in the footer menu).
+**Pagination (Amended 2026-11-16 (UI restructure item 2, owner decision, Confirmed): replaces "Load more"):** the footer is the shared `Pagination` (`@qmentisai/ui`): `nav` "Pagination", real buttons (first, previous, numbered pages with `aria-current="page"` and ellipses, next, last), "Rows per page" select (25/50/100) and "Page X of Y · N executions" in a polite live region. The URL carries `page` and `limit`; a filter, sort or size change returns to page 1; a page past the end is clamped to the last page (an empty list shows the empty state); the table scrolls to the top on a page change. Pages stop at 10 000 rows (API ceiling, §17.af of the SPEC) with a one-line note. Live updates: a hint for a visible row patches it; hints for rows not on the page show the "Refresh" bar, except on page 1 of an unfiltered newest-first list, which refreshes quietly.
 
 **Row actions by state and permission (default roles in section 7):**
 
@@ -152,7 +152,7 @@ A custom role without `execution.view` gets the no-permission state on the route
 
 - Tables: rows are focusable and activate with Enter/Space (the shared `DataTable` behaviour), inner links and the row menu keep working; clicks bubbling from portaled menus/dialogs do not open the row.
 - Dialogs: focus trapped, Escape closes without acting, focus returns to the control that opened it; the destructive confirm is not the default focus.
-- "Load more" is a real button; focus moves to the first new row and a polite message announces the count.
+- Pagination controls are real buttons in a `nav` named "Pagination"; the current page has `aria-current="page"`; the Events tab keeps its cursor "Load more" button (focus moves to the first new row, polite announcement).
 - Stage timeline and task cards: an ordered list and `aria-expanded` buttons; status text and icon are always present; the Running animation respects `prefers-reduced-motion`.
 - Logs panel: `role="log"`, not live-announced, keyboard scrollable, Follow is a toggle button with `aria-pressed`.
 - Tab order T-29: breadcrumb, header actions, timeline (not focusable), task cards, tab list, active panel. Colour contrast follows the existing tokens (status chips use the severity/status tokens, never the accent).

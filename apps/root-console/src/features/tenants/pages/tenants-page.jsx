@@ -1,7 +1,7 @@
 import { Building2, SearchX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppPageLayout } from "@qmentisai/ui";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { LinkButton } from "@/components/common/link-button.jsx";
 import { QueryTable } from "@/components/common/query-table.jsx";
 import { TenantStatusChip } from "@/components/common/tenant-status-chip.jsx";
@@ -10,10 +10,10 @@ import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { PlatformPermissionGate, useCanPlatform } from "@/features/authorization/index.js";
+import { useListParams } from "@/hooks/use-page-list.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { usePlans, useTenantList } from "../hooks/use-tenants.js";
 
-const PAGE_SIZE = 20; // rows per "Load more" request
 const date = (value) =>
   new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
@@ -22,12 +22,20 @@ const date = (value) =>
   });
 
 /**
- * R-04 Tenants: metadata and counts only (never tenant content). Search, status and plan filters, and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown. Provisioning needs `platform.tenant.create`.
+ * R-04 Tenants: metadata and counts only (never tenant content). Search, status and plan filters, and sorting live in the URL; rows page with numbered pagination (`page` and `limit` in the URL). Provisioning needs `platform.tenant.create`.
  */
 export function TenantsPage() {
   const can = useCanPlatform();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const {
+    searchParams: params,
+    update,
+    page,
+    pageSize,
+    setPage,
+    setPageSize,
+    reset,
+  } = useListParams();
   const qParam = params.get("q") ?? "";
   const status = params.get("status") ?? "";
   const plan = params.get("plan") ?? "";
@@ -36,16 +44,6 @@ export function TenantsPage() {
   const debounced = useDebouncedValue(search);
   const filtered = Boolean(qParam || status || plan);
 
-  const update = (next) =>
-    setParams(
-      (current) => {
-        const merged = new URLSearchParams(current);
-        for (const [key, value] of Object.entries(next))
-          value ? merged.set(key, value) : merged.delete(key);
-        return merged;
-      },
-      { replace: true },
-    );
   useEffect(() => {
     if (debounced.trim() !== qParam) update({ q: debounced.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the debounced text drives the URL
@@ -55,16 +53,18 @@ export function TenantsPage() {
   const planOptions = [
     ...new Map((plans.data ?? []).map((p) => [p.planKey, p.planName])).entries(),
   ];
-  const list = useTenantList({
-    q: qParam || undefined,
-    status: status || undefined,
-    plan: plan || undefined,
-    sort,
-    limit: PAGE_SIZE,
-  });
+  const list = useTenantList(
+    {
+      q: qParam || undefined,
+      status: status || undefined,
+      plan: plan || undefined,
+      sort,
+    },
+    { page, pageSize, setPage },
+  );
   const clear = () => {
     setSearch("");
-    setParams({}, { replace: true });
+    reset();
   };
   const columns = useMemo(
     () => [
@@ -204,9 +204,10 @@ export function TenantsPage() {
         getRowId={(t) => t.id}
         sort={sort}
         onSort={(s) => update({ sort: s === "name:asc" ? "" : s })}
-        hasMore={list.hasMore}
-        loadingMore={list.loadingMore}
-        onLoadMore={list.loadMore}
+        pagination={list.pagination}
+        onPage={setPage}
+        onPageSize={setPageSize}
+        noun="tenants"
         onRowClick={(t) => navigate(`/tenants/${t.id}`)}
         rowLabel={(t) => `Open ${t.name}`}
         emptyState={

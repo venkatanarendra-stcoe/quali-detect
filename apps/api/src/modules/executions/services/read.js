@@ -31,7 +31,7 @@ export function createExecutionReadService({ repository, logStore }) {
     /**
      * @param {{ tenantId: string, permissions: any }} actor
      * @param {any} query validated `listQuerySchema` output
-     * @returns {Promise<{ items: any[], pagination: { limit: number, nextCursor: string | null, hasMore: boolean } }>}
+     * @returns {Promise<{ items: any[], pagination: { limit: number, nextCursor: string | null, hasMore: boolean, page?: number, pageSize?: number, totalItems?: number, totalPages?: number } }>}
      */
     async list(actor, query) {
       const direction = query.sort[0].direction;
@@ -51,7 +51,7 @@ export function createExecutionReadService({ repository, logStore }) {
       const workspaceIds = actor.permissions.workspaces
         .map((w) => w.id)
         .filter((workspaceId) => inWorkspace(actor, "execution.view", workspaceId));
-      const page = await repository.listPage({
+      const filters = {
         tenantId: actor.tenantId,
         workspaceIds,
         workspaceId: query.workspaceId,
@@ -61,10 +61,19 @@ export function createExecutionReadService({ repository, logStore }) {
         triggerType: query.triggerType,
         from: query.from,
         to: query.to,
-        direction,
-        after: cursor.after ? { requestedAtKey: cursor.after[0], id: cursor.after[1] } : null,
-        limit: query.limit,
-      });
+      };
+      const numbered = query.page !== undefined;
+      const [page, totalItems] = await Promise.all([
+        repository.listPage({
+          ...filters,
+          direction,
+          after: cursor.after ? { requestedAtKey: cursor.after[0], id: cursor.after[1] } : null,
+          limit: query.limit,
+          offset: numbered ? (query.page - 1) * query.limit : 0,
+        }),
+        // the count uses the same filters and accessible workspaces; only numbered pages pay for it
+        numbered ? repository.countList(filters) : Promise.resolve(null),
+      ]);
       const ids = page.rows.map((r) => r.id);
       const rows = ids.length
         ? await repository.findExecutions({ tenantId: actor.tenantId, workspaceIds, ids })
@@ -100,7 +109,21 @@ export function createExecutionReadService({ repository, logStore }) {
         hasMore: page.hasMore,
         nextKey: last ? [last.requestedAtKey, last.id] : null,
       });
-      return { items, pagination: { limit: query.limit, ...next } };
+      return {
+        items,
+        pagination: {
+          limit: query.limit,
+          ...next,
+          ...(numbered
+            ? {
+                page: query.page,
+                pageSize: query.limit,
+                totalItems,
+                totalPages: Math.ceil(totalItems / query.limit),
+              }
+            : {}),
+        },
+      };
     },
 
     /** @param {any} actor @param {{ id: string, workspaceId: string }} ref the authorized scope of the route */

@@ -5,3 +5,4 @@ export { AppPageLayout } from "./app-page-layout.jsx";
 export { DataTable } from "./data-table.jsx";
 export { useScrollActivity } from "./use-scroll-activity.js";
 export { AuditTerminal, TerminalMessage, TerminalResult } from "./audit-terminal.jsx";
+export { Pagination, pageWindow, DEFAULT_PAGE_SIZES } from "./pagination.jsx";

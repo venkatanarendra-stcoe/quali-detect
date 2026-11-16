@@ -1542,6 +1542,178 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
   );
 
   check(
+    "EXE-069",
+    "numbered pages over HTTP (SPEC executions §17.ae amended 2026-11-16): ?page= returns page, pageSize, totalItems and totalPages; the total equals what the caller can list (a cursor walk of the same filters) and what the database holds for the caller's workspaces, never counting another tenant's executions or a hidden workspace; a hidden-workspace, foreign pipeline or foreign repository filter gives the same total 0 as a random UUID; filters and pages agree (the pages concatenate to the cursor walk and a page past the end is an empty 200 with the same total); a caller without execution.view gets total 0; cursor requests still carry no totals",
+    async () => {
+      const k = await exeWorld();
+      const problems = [];
+      const s = k.x.sessions;
+      // enough rows in the hidden workspace and the other tenant that a widened count would be visible
+      for (let i = 0; i < 6; i += 1) {
+        await k.make(k.pay, i % 2 ? "failed" : "queued");
+        await k.make(k.idn, "queued");
+        await k.make(k.edge, "queued");
+      }
+      const paged = (cookie, params = {}) =>
+        get(cookie, "/executions", { limit: 25, page: 1, ...params });
+      const walk = async (cookie, params = {}) => {
+        const ids = [];
+        let cursor;
+        let guard = 0;
+        do {
+          const r = await get(cookie, "/executions", { limit: 100, cursor, ...params });
+          ids.push(...idsOf(r.json.data));
+          cursor = r.json.meta.pagination.nextCursor;
+          guard += 1;
+        } while (cursor && guard < 60);
+        return ids;
+      };
+      const totalOf = (r) => r.json?.meta?.pagination?.totalItems;
+      // the manager sees one workspace: the total is that workspace's rows, not the tenant's
+      const own = await db().execution.count({
+        where: { tenantId: k.tenantA, workspaceId: k.x.PAY },
+      });
+      const hiddenRows = await db().execution.count({
+        where: { tenantId: k.tenantA, workspaceId: k.x.IDN },
+      });
+      const foreignRows = await db().execution.count({ where: { tenantId: k.tenantE } });
+      if (hiddenRows < 6 || foreignRows < 6)
+        problems.push("fixture: hidden or foreign rows missing");
+      const manager = await paged(s.manager);
+      const meta = manager.json?.meta?.pagination ?? {};
+      for (const key of ["page", "pageSize", "totalItems", "totalPages", "limit", "hasMore"])
+        if (meta[key] === undefined) problems.push(`numbered page misses ${key}`);
+      if (totalOf(manager) !== own)
+        problems.push(`manager total ${totalOf(manager)} is not the visible ${own}`);
+      if (meta.totalPages !== Math.ceil(own / 25) || meta.page !== 1 || meta.pageSize !== 25)
+        problems.push(`manager page block ${JSON.stringify(meta)}`);
+      const edge = await paged(s.edge);
+      if (totalOf(edge) !== foreignRows)
+        problems.push(`edge total ${totalOf(edge)} is not its own ${foreignRows}`);
+      const admin = await paged(s.admin);
+      const adminWalk = await walk(s.admin);
+      if (totalOf(admin) !== adminWalk.length)
+        problems.push(`admin total ${totalOf(admin)} differs from the list ${adminWalk.length}`);
+      if (totalOf(admin) < own + hiddenRows)
+        problems.push("the administrator's total misses a visible workspace");
+      if (adminWalk.some((id) => !id)) problems.push("fixture");
+      // pages concatenate to the walk, in order, with the right size on the last page
+      const pages = Math.ceil(adminWalk.length / 25);
+      const stitched = [];
+      for (let page = 1; page <= pages; page += 1) {
+        const r = await paged(s.admin, { page });
+        stitched.push(...idsOf(r.json.data));
+        if (page < pages && r.json.data.length !== 25) problems.push(`page ${page} is short`);
+        if (r.json.meta.pagination.page !== page) problems.push(`page ${page} reports another`);
+      }
+      if (!sameJson(stitched, adminWalk))
+        problems.push("numbered pages differ from the cursor walk");
+      const past = await paged(s.admin, { page: pages + 1 });
+      if (past.status !== 200 || past.json.data.length !== 0 || totalOf(past) !== adminWalk.length)
+        problems.push(`a page past the end answered ${past.status} / total ${totalOf(past)}`);
+      // filters and pages agree
+      for (const filter of [
+        { status: "failed" },
+        { status: "queued,failed" },
+        { pipelineId: k.pay.pipeline.id },
+        { workspaceId: k.x.PAY },
+        { triggerType: "push" },
+      ]) {
+        const expected = (await walk(s.admin, filter)).length;
+        const r = await paged(s.admin, filter);
+        if (totalOf(r) !== expected)
+          problems.push(`${JSON.stringify(filter)}: total ${totalOf(r)}, list ${expected}`);
+        const last = Math.max(1, Math.ceil(expected / 25));
+        const lastPage = await paged(s.admin, { ...filter, page: last });
+        if (lastPage.json.data.length !== expected - (last - 1) * 25)
+          problems.push(`${JSON.stringify(filter)}: last page has ${lastPage.json.data.length}`);
+      }
+      // a filter never widens the count
+      const unknown = await paged(s.manager, { workspaceId: MISSING() });
+      const probes = {
+        "hidden workspace": { workspaceId: k.x.IDN },
+        "pipeline of a hidden workspace": { pipelineId: k.idn.pipeline.id },
+        "repository of a hidden workspace": { repositoryId: k.idn.pipeline.repositoryId },
+        "pipeline of another tenant": { pipelineId: k.edge.pipeline.id },
+        "workspace of another tenant": { workspaceId: k.edge.pipeline.workspaceId },
+      };
+      for (const [label, params] of Object.entries(probes)) {
+        const r = await paged(s.manager, params);
+        if (totalOf(r) !== 0 || !sameJson(r.json.meta.pagination.totalPages, 0))
+          problems.push(`${label}: total ${totalOf(r)}`);
+        else if (
+          JSON.stringify(r.json.meta.pagination) !== JSON.stringify(unknown.json.meta.pagination)
+        )
+          problems.push(`${label} is distinguishable from an unknown id`);
+      }
+      // no execution.view anywhere: an empty page with total 0, never 403
+      const noExec = await edgeMember("noexec", ["workspace.view", "pipeline.view"]);
+      const none = await paged(noExec, { page: 2 });
+      if (none.status !== 200 || totalOf(none) !== 0 || none.json.data.length !== 0)
+        problems.push(`without execution.view: ${none.status} / ${totalOf(none)}`);
+      // cursor mode still counts nothing
+      const cursorMode = await get(s.admin, "/executions", { limit: 25 });
+      if (/totalItems|totalPages|"page"/.test(JSON.stringify(cursorMode.json.meta)))
+        problems.push("a cursor request carries totals");
+      return done(problems);
+    },
+  );
+
+  check(
+    "EXE-070",
+    "page and limit validation (SPEC executions §17.ae amended 2026-11-16): page is a positive integer; page with cursor is 400; page * limit above the ceiling of 10 000 is a stable 400 VALIDATION_FAILED while the ceiling itself and every shallower page answer 200; limit stays 25, 50 or 100; pageSize and identifiers are still refused; the cursor still works without page",
+    async () => {
+      const k = await exeWorld();
+      const problems = [];
+      const s = k.x.sessions;
+      for (const bad of ["0", "-1", "1.5", "x", "", "1e3"]) {
+        const r = await get(s.admin, "/executions", { page: bad });
+        if (r.status !== 400 || r.json?.error?.code !== "VALIDATION_FAILED")
+          problems.push(`page=${JSON.stringify(bad)} answered ${r.status}`);
+      }
+      for (const [page, limit] of [
+        [401, 25],
+        [201, 50],
+        [101, 100],
+        [1000000, 25],
+        [9007199254740991, 100],
+      ]) {
+        const r = await get(s.admin, "/executions", { page, limit });
+        if (r.status !== 400 || r.json?.error?.code !== "VALIDATION_FAILED")
+          problems.push(`page ${page} x ${limit} beyond the ceiling answered ${r.status}`);
+      }
+      for (const [page, limit] of [
+        [400, 25],
+        [200, 50],
+        [100, 100],
+        [1, 25],
+      ]) {
+        const r = await get(s.admin, "/executions", { page, limit });
+        if (r.status !== 200)
+          problems.push(`control: page ${page} x ${limit} answered ${r.status}`);
+      }
+      for (const params of [
+        { page: 1, limit: 26 },
+        { page: 1, pageSize: 25 },
+        { page: 1, tenantId: k.tenantE },
+        { page: 1, offset: 0 },
+      ]) {
+        const r = await get(s.admin, "/executions", params);
+        if (r.status !== 400) problems.push(`${JSON.stringify(params)} answered ${r.status}`);
+      }
+      const first = await get(s.admin, "/executions", { limit: 25 });
+      const cursor = first.json?.meta?.pagination?.nextCursor;
+      if (cursor) {
+        const both = await get(s.admin, "/executions", { limit: 25, cursor, page: 1 });
+        if (both.status !== 400) problems.push(`page with cursor answered ${both.status}`);
+        const next = await get(s.admin, "/executions", { limit: 25, cursor });
+        if (next.status !== 200) problems.push(`control: the cursor alone answered ${next.status}`);
+      }
+      return done(problems);
+    },
+  );
+
+  check(
     "EXE-068",
     "events and detail over HTTP (SPEC §8.1, §8.2): the history is oldest first by seq with cursor pages that concatenate to the whole list and holds no user id or details; the detail carries the tasks with their result summary, task counts, timings, the pipeline and repository labels, a shortened configuration hash, the requester only for manual and retry executions, resolutionEligible false for a failed run and rev; a cancel request shows in the cancel state",
     async () => {

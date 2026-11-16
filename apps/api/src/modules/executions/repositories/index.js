@@ -162,6 +162,9 @@ export function createExecutionsRepository({ db }) {
     /** One keyset page of execution ids (see `createExecutionReadRepository`). */
     listPage: (input, client = db) => reads.listPage(input, client),
 
+    /** Count of the same filtered, tenant-scoped, accessible-workspace set as `listPage` (numbered pages only). */
+    countList: (input, client = db) => reads.countList(input, client),
+
     /** The rows of one page, tenant scoped and restricted to the accessible workspaces. */
     findExecutions: ({ tenantId, workspaceIds, ids }, client = db) =>
       client.execution.findMany({

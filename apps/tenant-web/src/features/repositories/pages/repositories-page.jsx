@@ -1,7 +1,7 @@
 import { AppPageLayout } from "@qmentisai/ui";
 import { GitBranch, SearchX } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { LinkButton } from "@/components/common/link-button.jsx";
 import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
@@ -10,26 +10,34 @@ import { Input } from "@/components/ui/input.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { PermissionGate } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import { useListParams } from "@/hooks/use-page-list.js";
 import { useDebouncedValue } from "@/hooks/use-debounced-value.js";
 import { RepositoryRowActions } from "../components/repository-actions.jsx";
 import { RepositoryHealth } from "../components/repository-health.jsx";
-import { useRepositoryCursorList } from "../hooks/use-repositories.js";
+import { useRepositoryPageList } from "../hooks/use-repositories.js";
 
-const PAGE_SIZE = 20; // rows per "Load more" request
 const when = (value) =>
   value
     ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
     : "—";
 
 /**
- * T-22 Repositories (workspace). Filters and sort live in the URL; rows load with "Load more" (cursor), no totals are shown. The list only holds repositories of this
+ * T-22 Repositories (workspace). Filters and sort live in the URL; rows page with numbered pagination (`page` and `limit` in the URL). The list only holds repositories of this
  * workspace; a "Connect repository" action needs repository.connect there.
  */
 export function RepositoriesPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const can = useCan();
-  const [params, setParams] = useSearchParams();
+  const {
+    searchParams: params,
+    update,
+    page,
+    pageSize,
+    setPage,
+    setPageSize,
+    reset,
+  } = useListParams();
   const qParam = params.get("q") ?? "";
   const health = params.get("health") ?? "";
   const status = params.get("status") ?? "";
@@ -38,32 +46,24 @@ export function RepositoriesPage() {
   const debounced = useDebouncedValue(search);
   const filtered = Boolean(qParam || health || status);
 
-  const update = (next) =>
-    setParams(
-      (current) => {
-        const merged = new URLSearchParams(current);
-        for (const [key, value] of Object.entries(next))
-          value ? merged.set(key, value) : merged.delete(key);
-        return merged;
-      },
-      { replace: true },
-    );
   useEffect(() => {
     if (debounced.trim() !== qParam) update({ q: debounced.trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the debounced text drives the URL
   }, [debounced]);
 
-  const list = useRepositoryCursorList({
-    workspaceId,
-    q: qParam || undefined,
-    health: health || undefined,
-    status: status || undefined,
-    sort,
-    limit: PAGE_SIZE,
-  });
+  const list = useRepositoryPageList(
+    {
+      workspaceId,
+      q: qParam || undefined,
+      health: health || undefined,
+      status: status || undefined,
+      sort,
+    },
+    { page, pageSize, setPage },
+  );
   const clear = () => {
     setSearch("");
-    setParams({}, { replace: true });
+    reset();
   };
   const canConnect = can("repository.connect");
   const canSeePipelines = can("pipeline.view");
@@ -201,9 +201,10 @@ export function RepositoriesPage() {
         getRowId={(r) => r.id}
         sort={sort}
         onSort={(s) => update({ sort: s === "fullName:asc" ? "" : s })}
-        hasMore={list.hasMore}
-        loadingMore={list.loadingMore}
-        onLoadMore={list.loadMore}
+        pagination={list.pagination}
+        onPage={setPage}
+        onPageSize={setPageSize}
+        noun="repositories"
         onRowClick={(r) => navigate(`/workspaces/${r.workspaceId}/repositories/${r.id}`)}
         rowLabel={(r) => `Open ${r.fullName}`}
         emptyState={

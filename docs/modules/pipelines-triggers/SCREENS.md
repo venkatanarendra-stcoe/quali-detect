@@ -235,7 +235,7 @@ No deviation from §8 difference 2 (owner decision C6): last duration, success r
 
 **Wizard fix.** React warned "Received NaN for the `min` attribute" on the Execution controls step: `GET /pipelines/options` returns only the configurable limits (no `timeoutMinSeconds`, `scanTaskTimeoutMinSeconds`), so `Math.ceil(undefined / 60)` was NaN. The wizard now merges `DEFAULT_PIPELINE_LIMITS` from `@qmentisai/shared` under the API values (also used by client validation).
 
-### As built 2026-11-13: T-25 Load more, no totals (tenant UI item 4, owner brief)
+### As built 2026-11-13: T-25 Load more, no totals (tenant UI item 4, owner brief) - SUPERSEDED 2026-11-16 (UI restructure item 2, owner decision, Confirmed): T-25 and the T-24 Pipelines tab use numbered pages (`page` and `limit` in the URL) and the shared `Pagination`; the text below is the historical state
 
 T-25 and the T-24 Pipelines tab no longer show a total ("N pipelines") or the page-number pager. The first request has `limit=20` (tab: 20) and no cursor; the footer **Load more** fetches `cursor=meta.pagination.nextCursor` and appends rows (`useInfiniteQuery`), and disappears on the last page. Search, repository, trigger, state, Show deleted and sort stay in the URL and in the query key: any change resets the list to the first page and the cursor is never reused. `INVALID_CURSOR` (400) restarts from the first page with a toast. Focus moves to the first new row and a live region says "More rows loaded". Loading, empty, empty-by-filter (Clear filters), error and no-permission states are unchanged. This supersedes "paging unchanged" in the 2026-11-13 columns note above.
 

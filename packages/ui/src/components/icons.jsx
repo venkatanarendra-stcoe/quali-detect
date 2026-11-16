@@ -68,3 +68,25 @@ export const LockIcon = ({ className }) => (
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </Icon>
 );
+export const ChevronLeftIcon = ({ className }) => (
+  <Icon className={className}>
+    <path d="m15 18-6-6 6-6" />
+  </Icon>
+);
+export const ChevronRightIcon = ({ className }) => (
+  <Icon className={className}>
+    <path d="m9 18 6-6-6-6" />
+  </Icon>
+);
+export const ChevronsLeftIcon = ({ className }) => (
+  <Icon className={className}>
+    <path d="m11 17-5-5 5-5" />
+    <path d="m18 17-5-5 5-5" />
+  </Icon>
+);
+export const ChevronsRightIcon = ({ className }) => (
+  <Icon className={className}>
+    <path d="m6 17 5-5-5-5" />
+    <path d="m13 17 5-5-5-5" />
+  </Icon>
+);

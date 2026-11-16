@@ -1,3 +1,4 @@
+import { useListParams } from "@/hooks/use-page-list.js";
 import { Plus, Workflow } from "lucide-react";
 import { LinkButton } from "@/components/common/link-button.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
@@ -46,7 +47,12 @@ export function AddPipelineButton({ repository, variant = "default" }) {
 
 /** Pipelines tab of T-24: compact table of the repository's pipelines. */
 export function RepositoryPipelinesTab({ repository }) {
-  const query = useRepositoryPipelines(repository.id, { limit: 20, sort: "name:asc" });
+  const { page, pageSize, setPage, setPageSize } = useListParams();
+  const query = useRepositoryPipelines(
+    repository.id,
+    { sort: "name:asc" },
+    { page, pageSize, setPage },
+  );
   const can = useCan();
   const manage = can("pipeline.manage", { type: "workspace", workspaceId: repository.workspaceId });
   if (query.isPending) return <LoadingState rows={4} label="Loading pipelines" />;
@@ -65,9 +71,9 @@ export function RepositoryPipelinesTab({ repository }) {
       caption="Pipelines of this repository"
       items={query.data.items}
       showRepository={false}
-      hasMore={query.hasMore}
-      loadingMore={query.loadingMore}
-      onLoadMore={query.loadMore}
+      pagination={query.pagination}
+      onPage={setPage}
+      onPageSize={setPageSize}
     />
   );
 }

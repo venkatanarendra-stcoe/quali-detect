@@ -47,8 +47,8 @@ export function TerminalMessage({ title, icon = null, role, children }) {
  * readers; rows form a roving-tabindex set (one tab stop). ArrowUp/ArrowDown move between rows, Home/End jump to the
  * first/last, Enter or Space activates (`onRowActivate`). A single click activates too (after a 220 ms wait), but not while the user is selecting text (drag, double or triple click). `onRowActivate(row, rowElement)` also receives the row element so the opener can return focus to it.
  * The prompt line and the column header stay put while the rows scroll INSIDE the panel (thin fading scrollbar).
- * "Load more" is a real button styled as a `-- more --` line; after it appends rows, focus moves to the first new row
- * and "More rows loaded" is announced. State precedence: unauthorized > error > loading (no rows yet) > empty > rows.
+ * There is no "Load more": lists page with the shared numbered `Pagination`, rendered by the caller below the (always-dark)
+ * panel in the normal app theme (owner decision 2026-11-16). State precedence: unauthorized > error > loading (no rows yet) > empty > rows.
  * Colour never carries meaning alone: use `TerminalResult` (icon + label) for outcomes.
  *
  * @param {{ promptLabel: string, rows: Array<object>, columns: Array<{ id: string, header: string, width?: string,
@@ -56,7 +56,7 @@ export function TerminalMessage({ title, icon = null, role, children }) {
  *   getRowId: (row: any) => string, ariaLabel: string, command?: string, onRowActivate?: (row: any, element: HTMLElement) => void,
  *   selectedId?: string | null, rowLabel?: (row: any) => string, sort?: string, onSort?: (next: string) => void,
  *   loading?: boolean, error?: import("react").ReactNode, unauthorized?: import("react").ReactNode,
- *   empty?: import("react").ReactNode, hasMore?: boolean, loadingMore?: boolean, onLoadMore?: () => void,
+ *   empty?: import("react").ReactNode,
  *   className?: string }} props
  *   `promptLabel` is the prompt text (e.g. `acme@qmentisai:~$`); `command` is the muted text after it. `error`,
  *   `unauthorized` and `empty` are nodes (use `TerminalMessage`); passing `error`/`unauthorized` shows that state.
@@ -79,16 +79,11 @@ export function AuditTerminal({
   error,
   unauthorized,
   empty,
-  hasMore = false,
-  loadingMore = false,
-  onLoadMore,
   className,
 }) {
   const scrollRef = useRef(null);
   const bodyRef = useRef(null);
-  const awaiting = useRef(null); // row count when "more" was pressed
   const [active, setActive] = useState(0);
-  const [announcement, setAnnouncement] = useState("");
   useScrollActivity(scrollRef);
 
   const tabStop = Math.min(active, Math.max(rows.length - 1, 0));
@@ -99,17 +94,6 @@ export function AuditTerminal({
     setActive(next);
     els[next]?.focus();
   };
-
-  useEffect(() => {
-    const before = awaiting.current;
-    if (before === null || rows.length <= before) return undefined;
-    awaiting.current = null;
-    focusRow(before);
-    setAnnouncement("More rows loaded");
-    const timer = setTimeout(() => setAnnouncement(""), 3000);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the row count growing
-  }, [rows.length]);
 
   const clickTimer = useRef(null);
   useEffect(() => () => clearTimeout(clickTimer.current), []);
@@ -260,24 +244,6 @@ export function AuditTerminal({
               : null}
           </tbody>
         </table>
-      </div>
-      {body === "rows" && hasMore && onLoadMore ? (
-        <div className="qm-terminal-footer">
-          <button
-            type="button"
-            className="qm-terminal-more"
-            disabled={loadingMore}
-            onClick={() => {
-              awaiting.current = rows.length;
-              onLoadMore();
-            }}
-          >
-            {loadingMore ? "-- loading --" : "-- more --"}
-          </button>
-        </div>
-      ) : null}
-      <div className="sr-only" role="status" aria-live="polite">
-        {announcement}
       </div>
     </div>
   );

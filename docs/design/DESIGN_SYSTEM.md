@@ -420,6 +420,7 @@ Base components come from shadcn/ui. Product components below are built once and
 | `ProvenanceTag` | Small tag "AI-assisted" / "Human decision" with icon; mint is allowed here as the one highlight |
 | `EvidenceBlock` | Mono font, `--elevated` background, line numbers, secrets rendered as `••••` with a redaction label |
 | `DataTable` | TanStack Table, 36 px rows (32 compact), sticky header, hover `--elevated`, selected `--primary-tint` |
+| `Pagination` (2026-11-16, owner decision, replaces "Load more") | `nav` "Pagination": first, previous, numbered pages with ellipses, next, last (32 px buttons, `--border-strong`, `--secondary` fill), "Rows per page" select (25/50/100), "Page X of Y · N items" in `--muted-foreground`. The current page is the one filled `--primary` control (mint in the Tenant Application, violet in the Root Console), so it counts as the active-state use of the accent; every control has the focus ring |
 | `PageHeader` | Breadcrumb, title, status chip, actions (primary right-aligned) |
 | `EmptyState`, `ErrorState`, `UnauthorizedState`, `Skeleton` | Mandatory for every data view (AGENT_INSTRUCTIONS §7) |
 

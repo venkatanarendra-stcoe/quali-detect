@@ -36,7 +36,7 @@ export const executionRoutes = (controller, authz, policies) =>
         schema: {
           tags,
           summary:
-            "List executions in the workspaces the caller can see (cursor-paginated, no totals)",
+            "List executions in the workspaces the caller can see (cursor pages, or numbered pages with totals via ?page=)",
           querystring: listQuerySchema,
           response: { 200: responses.list },
         },

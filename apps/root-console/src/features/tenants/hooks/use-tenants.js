@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCursorList } from "@/hooks/use-cursor-list.js";
+import { usePageList } from "@/hooks/use-page-list.js";
 import { tenantsService } from "../services/tenants-service.js";
 
 export const tenantKeys = {
@@ -9,11 +9,13 @@ export const tenantKeys = {
   plans: ["platform", "plans"],
 };
 
-/** "Load more" tenant list; `params` are the filters, sort and `limit` (never a cursor or page). */
-export function useTenantList(params) {
-  return useCursorList({
+/** Numbered tenant list; `params` are the filters and sort, `paging` the URL page state of `useListParams`. */
+export function useTenantList(params, paging) {
+  return usePageList({
     queryKey: tenantKeys.list(params),
-    fetchPage: (cursor, signal) => tenantsService.list({ ...params, cursor }, { signal }),
+    fetchPage: ({ page, pageSize }, signal) =>
+      tenantsService.list({ ...params, page, pageSize }, { signal }),
+    ...paging,
   });
 }
 

@@ -1,6 +1,12 @@
-import { AppPageLayout, AuditTerminal, TerminalMessage, TerminalResult } from "@qmentisai/ui";
+import {
+  AppPageLayout,
+  AuditTerminal,
+  Pagination,
+  TerminalMessage,
+  TerminalResult,
+} from "@qmentisai/ui";
 import { useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useListParams } from "@/hooks/use-page-list.js";
 import { describeError, isApiError } from "@/lib/api/index.js";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
@@ -12,7 +18,6 @@ import { TENANT_AUDIT_ACTIONS } from "../constants/index.js";
 import { AuditEntrySheet } from "../components/audit-entry-sheet.jsx";
 import { useAuditLogs } from "../hooks/use-audit-logs.js";
 
-const PAGE_SIZE = 25; // rows per "Load more" request
 const when = (value) =>
   new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const startOfDay = (day) => new Date(`${day}T00:00:00`).toISOString();
@@ -81,14 +86,22 @@ const COLUMNS = [
 
 /**
  * T-19 Audit logs: the organization's audit log (needs `audit_log.view_all`; the API scopes it to the session's tenant).
- * Filters (actor, action, date range, result), and sorting live in the URL; rows load with "Load more" (cursor), no totals are shown. Rendered as the audit-log terminal; a row opens the detail sheet.
+ * Filters (actor, action, date range, result), and sorting live in the URL; rows page with numbered pagination (`page` and `limit` in the URL). Rendered as the audit-log terminal; a row opens the detail sheet.
  */
 export function AuditLogsPage() {
   const can = useCan();
   const { me } = useSession();
   const [openId, setOpenId] = useState(null);
   const originRef = useRef(null); // the row that opened the sheet; focus returns to it on close
-  const [params, setParams] = useSearchParams();
+  const {
+    searchParams: params,
+    update,
+    page,
+    pageSize,
+    setPage,
+    setPageSize,
+    reset,
+  } = useListParams();
   const action = params.get("action") ?? "";
   const result = params.get("result") ?? "";
   const actor = params.get("actor") ?? "";
@@ -97,26 +110,18 @@ export function AuditLogsPage() {
   const sort = params.get("sort") ?? "createdAt:desc";
   const filtered = Boolean(action || result || actor || from || to);
 
-  const update = (next) =>
-    setParams(
-      (current) => {
-        const merged = new URLSearchParams(current);
-        for (const [key, value] of Object.entries(next))
-          value ? merged.set(key, value) : merged.delete(key);
-        return merged;
-      },
-      { replace: true },
-    );
   const users = useUserSearch("", { enabled: can("user.view") });
-  const list = useAuditLogs({
-    action: action || undefined,
-    result: result || undefined,
-    actor: actor || undefined,
-    from: from ? startOfDay(from) : undefined,
-    to: to ? endOfDay(to) : undefined,
-    sort,
-    limit: PAGE_SIZE,
-  });
+  const list = useAuditLogs(
+    {
+      action: action || undefined,
+      result: result || undefined,
+      actor: actor || undefined,
+      from: from ? startOfDay(from) : undefined,
+      to: to ? endOfDay(to) : undefined,
+      sort,
+    },
+    { page, pageSize, setPage },
+  );
   const entries = list.data?.items ?? [];
   const opened = entries.find((e) => e.id === openId) ?? null;
   const forbidden =
@@ -124,7 +129,7 @@ export function AuditLogsPage() {
     isApiError(list.error) &&
     list.error.status === 403 &&
     list.error.code !== "TENANT_SUSPENDED";
-  const clear = () => setParams({}, { replace: true });
+  const clear = () => reset();
 
   return (
     <AppPageLayout
@@ -264,10 +269,19 @@ export function AuditLogsPage() {
             </TerminalMessage>
           )
         }
-        hasMore={list.hasMore}
-        loadingMore={list.loadingMore}
-        onLoadMore={list.loadMore}
       />
+      {list.pagination.totalItems > 0 ? (
+        <Pagination
+          className="mt-3 shrink-0"
+          page={list.pagination.page}
+          totalPages={list.pagination.totalPages}
+          totalItems={list.pagination.totalItems}
+          pageSize={list.pagination.pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemNoun="entries"
+        />
+      ) : null}
       <AuditEntrySheet entry={opened} onClose={() => setOpenId(null)} returnFocusTo={originRef} />
     </AppPageLayout>
   );

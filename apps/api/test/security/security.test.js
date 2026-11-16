@@ -49,7 +49,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 672;
+const EXPECTED_CHECKS = 677;
 const env = (name) => {
   const value = process.env[name];
   if (!value)

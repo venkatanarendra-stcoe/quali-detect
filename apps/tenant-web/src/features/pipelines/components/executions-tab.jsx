@@ -161,8 +161,8 @@ function SkippedEvents({ pipelineId }) {
 }
 
 /**
- * Executions tab of T-27: the executions of this pipeline (the same list component as T-28, filtered by the pipeline, cursor
- * "Load more", no totals) with a link to the workspace-wide list, then the Skipped events section (unchanged).
+ * Executions tab of T-27: the executions of this pipeline (the same list component as T-28, filtered by the pipeline, numbered
+ * pages) with a link to the workspace-wide list, then the Skipped events section (unchanged).
  */
 export function ExecutionsTab({ pipelineId, workspaceId }) {
   const can = useCan();

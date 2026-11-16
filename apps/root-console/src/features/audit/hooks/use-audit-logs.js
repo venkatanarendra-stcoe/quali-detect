@@ -1,12 +1,14 @@
-import { useCursorList } from "@/hooks/use-cursor-list.js";
+import { usePageList } from "@/hooks/use-page-list.js";
 import { auditService } from "../services/audit-service.js";
 
 export const auditKeys = { list: (params) => ["platform", "audit-logs", params] };
 
-/** "Load more" platform audit list; `params` are the filters, sort and `limit` (never a cursor or page). */
-export function useAuditLogs(params) {
-  return useCursorList({
+/** Numbered platform audit list; `params` are the filters and sort, `paging` the URL page state of `useListParams`. */
+export function useAuditLogs(params, paging) {
+  return usePageList({
     queryKey: auditKeys.list(params),
-    fetchPage: (cursor, signal) => auditService.list({ ...params, cursor }, { signal }),
+    fetchPage: ({ page, pageSize }, signal) =>
+      auditService.list({ ...params, page, pageSize }, { signal }),
+    ...paging,
   });
 }

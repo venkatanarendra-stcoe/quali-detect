@@ -1,34 +1,23 @@
-import { Button } from "@/components/ui/button.jsx";
+import { Pagination } from "@qmentisai/ui";
 import { cn } from "@/lib/cn.js";
 
-/** Previous/next controls with the item range. @param {{ pagination: object | null, onPage: (page: number) => void, className?: string }} props */
+/**
+ * Compact pager for small lists that keep their page in component state (webhook deliveries, allow list, repository
+ * picker): the shared numbered `Pagination` without a page-size select. Hidden when there is one page or none.
+ * @param {{ pagination: object | null, onPage: (page: number) => void, className?: string }} props
+ */
 export function Pager({ pagination, onPage, className }) {
   if (!pagination || pagination.totalPages <= 1) return null;
-  const { page, totalPages, totalItems } = pagination;
+  const { page, totalPages, totalItems, pageSize } = pagination;
   return (
-    <nav
-      aria-label="Pagination"
-      className={cn(
-        "flex items-center justify-between text-sm text-muted-foreground",
-        className ?? "mt-3",
-      )}
-    >
-      <span>
-        {totalItems} items · page {page} of {totalPages}
-      </span>
-      <div className="flex gap-2">
-        <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          Previous
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={page >= totalPages}
-          onClick={() => onPage(page + 1)}
-        >
-          Next
-        </Button>
-      </div>
-    </nav>
+    <div className={cn(className ?? "mt-3")}>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={pageSize ?? 0}
+        onPageChange={onPage}
+      />
+    </div>
   );
 }

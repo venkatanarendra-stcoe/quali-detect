@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
 import { pipelineKeys } from "@/features/pipelines/hooks/use-pipelines.js";
 import { useCursorList } from "@/hooks/use-cursor-list.js";
+import { usePageList } from "@/hooks/use-page-list.js";
 import { isActiveStatus } from "../constants/index.js";
 import { executionsService } from "../services/executions-service.js";
 
@@ -49,24 +50,35 @@ export const listInterval = (live, active) =>
 export const detailInterval = (live, status) =>
   status && isActiveStatus(status) ? (live ? 30_000 : 5_000) : false;
 
+/** The API shows at most this many rows to numbered pages (`page * limit`, docs/modules/executions/SPEC.md §17.ae). */
+export const MAX_LIST_WINDOW = 10000;
+
 /**
- * "Load more" list of executions (cursor, no totals). `params` are the filters, sort and `limit` (never a cursor).
+ * Numbered list of executions (`page` + `limit`, with totals). `params` are the filters and sort (no page, no limit);
+ * `paging` is the URL page state of `useListParams`. The reachable pages stop at `MAX_LIST_WINDOW` rows.
  * @param {string} workspaceId
  * @param {object} params
+ * @param {{ page: number, pageSize: number, setPage: Function }} paging
  * @param {{ live?: boolean, enabled?: boolean }} [options]
  */
-export function useExecutionList(workspaceId, params, { live = false, enabled = true } = {}) {
+export function useExecutionList(
+  workspaceId,
+  params,
+  paging,
+  { live = false, enabled = true } = {},
+) {
   const tenantId = useTenantId();
-  return useCursorList({
+  return usePageList({
     queryKey: executionKeys.list(tenantId, workspaceId, params),
-    fetchPage: (cursor, signal) =>
-      executionsService.list({ workspaceId, ...params, cursor }, { signal }),
+    fetchPage: ({ page, pageSize }, signal) =>
+      executionsService.list({ workspaceId, ...params, page, limit: pageSize }, { signal }),
+    maxPage: (pageSize) => Math.floor(MAX_LIST_WINDOW / pageSize),
     enabled,
     refetchInterval: (query) => {
-      const pages = query.state.data?.pages ?? [];
-      const active = pages.some((p) => p.items.some((e) => isActiveStatus(e.status)));
+      const active = (query.state.data?.items ?? []).some((e) => isActiveStatus(e.status));
       return listInterval(live, active);
     },
+    ...paging,
   });
 }
 

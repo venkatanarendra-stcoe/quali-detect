@@ -4537,6 +4537,47 @@ export function buildDalEntries() {
     },
   );
 
+  // Numbered pages (SPEC executions §17.ae amended 2026-11-16, DAL-289..): the count behind `total` and the page offset follow
+  // the same tenant and workspace rules as the page itself.
+  E("executions-api.countList", (c) => XA(c).countList({ tenantId: c.y, workspaceIds: [c.ws] }), {
+    control: (c) => XA(c).countList({ tenantId: c.x, workspaceIds: [c.ws] }),
+  });
+  E(
+    "executions-api.countList (a workspace set that does not contain the execution's workspace)",
+    (c) =>
+      XA(c).countList({ tenantId: c.x, workspaceIds: [c.pl.wsB], pipelineId: c.pl.pipeline.id }),
+    {
+      control: (c) =>
+        XA(c).countList({ tenantId: c.x, workspaceIds: [c.ws], pipelineId: c.pl.pipeline.id }),
+    },
+  );
+  E(
+    "executions-api.listPage (numbered page, offset 0 and 1)",
+    async (c) => {
+      const page = (offset) =>
+        XA(c).listPage({
+          tenantId: c.y,
+          workspaceIds: [c.ws],
+          direction: "desc",
+          limit: 25,
+          offset,
+        });
+      return [await page(0), await page(1)].flatMap((r) => r.rows);
+    },
+    {
+      control: async (c) =>
+        (
+          await XA(c).listPage({
+            tenantId: c.x,
+            workspaceIds: [c.ws],
+            direction: "desc",
+            limit: 25,
+            offset: 0,
+          })
+        ).rows,
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

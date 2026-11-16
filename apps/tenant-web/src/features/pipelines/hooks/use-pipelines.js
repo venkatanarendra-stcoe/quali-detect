@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
-import { useCursorList } from "@/hooks/use-cursor-list.js";
+import { usePageList } from "@/hooks/use-page-list.js";
 import { repositoryKeys } from "@/features/repositories/hooks/use-repositories.js";
 import { pipelinesService } from "../services/pipelines-service.js";
 
@@ -37,23 +37,24 @@ export const pipelineKeys = {
   decisions: (tenantId, id, params) => ["tenant", tenantId, "pipelines", "decisions", id, params],
 };
 
-/** "Load more" list of the Pipelines page; `params` are the filters, sort and `limit` (never a cursor or page). */
-export function usePipelineList(workspaceId, params) {
+/** Numbered list of the Pipelines page; `params` are the filters and sort, `paging` the URL page state of `useListParams`. */
+export function usePipelineList(workspaceId, params, paging) {
   const tenantId = useTenantId();
-  return useCursorList({
+  return usePageList({
     queryKey: pipelineKeys.list(tenantId, workspaceId, params),
-    fetchPage: (cursor, signal) =>
-      pipelinesService.list({ workspaceId, ...params, cursor }, { signal }),
+    fetchPage: ({ page, pageSize }, signal) =>
+      pipelinesService.list({ workspaceId, ...params, page, pageSize }, { signal }),
+    ...paging,
   });
 }
-/** "Load more" list of a repository's pipelines (T-24 tab). */
-export function useRepositoryPipelines(repositoryId, params, { enabled = true } = {}) {
+/** Numbered list of a repository's pipelines (T-24 tab). */
+export function useRepositoryPipelines(repositoryId, params, paging) {
   const tenantId = useTenantId();
-  return useCursorList({
+  return usePageList({
     queryKey: pipelineKeys.forRepository(tenantId, repositoryId, params),
-    fetchPage: (cursor, signal) =>
-      pipelinesService.listForRepository(repositoryId, { ...params, cursor }, { signal }),
-    enabled,
+    fetchPage: ({ page, pageSize }, signal) =>
+      pipelinesService.listForRepository(repositoryId, { ...params, page, pageSize }, { signal }),
+    ...paging,
   });
 }
 export function usePipelineOptions(workspaceId, { enabled = true } = {}) {

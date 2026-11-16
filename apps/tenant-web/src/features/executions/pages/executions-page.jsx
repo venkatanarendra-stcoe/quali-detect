@@ -4,7 +4,7 @@ import { ExecutionsList } from "../components/executions-list.jsx";
 
 /**
  * T-28 Executions: every run of every pipeline in the workspace, newest first. Filters, sort and page size live in the URL;
- * rows load with "Load more" (cursor, no totals). There is no header button: a manual scan is a separate module.
+ * rows page with numbered pagination (`page` and `limit` in the URL). There is no header button: a manual scan is a separate module.
  */
 export function ExecutionsPage() {
   const { workspaceId } = useParams();

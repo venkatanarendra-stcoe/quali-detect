@@ -7,7 +7,7 @@ const idem = (key) => (key ? { headers: { "Idempotency-Key": key } } : {});
 
 /** Executions API (SPEC §8.1). The tenant is the session's; no tenant id is ever sent. */
 export const executionsService = {
-  /** @returns {Promise<{ items: any[], pagination: object | null }>} no totals: cursor only */
+  /** @returns {Promise<{ items: any[], pagination: object | null }>} `page` + `limit` give totals; without `page` it is cursor-only */
   list: (params, { signal } = {}) => api.getPage("/executions", { query: params, signal }),
   get: (executionId, { signal } = {}) => api.get(`/executions/${executionId}`, { signal }),
   events: (executionId, params, { signal } = {}) =>

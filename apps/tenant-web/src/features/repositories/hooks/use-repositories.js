@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTenantId } from "@/features/auth/hooks/use-session.js";
-import { useCursorList } from "@/hooks/use-cursor-list.js";
+import { usePageList } from "@/hooks/use-page-list.js";
 import { integrationKeys } from "@/features/integrations/hooks/use-integrations.js";
 import { repositoriesService } from "../services/repositories-service.js";
 
@@ -30,12 +30,17 @@ export function useRepositoryList(params) {
     placeholderData: keepPreviousData,
   });
 }
-/** "Load more" list of the Repositories page; `params` are the filters, sort and `limit` (never a cursor or page). */
-export function useRepositoryCursorList(params) {
+/**
+ * Numbered list of the Repositories page; `params` are the filters and sort, `paging` the URL page state of
+ * `useListParams` (`page`, `pageSize`, `setPage`).
+ */
+export function useRepositoryPageList(params, paging) {
   const tenantId = useTenantId();
-  return useCursorList({
-    queryKey: [...repositoryKeys.all(tenantId), "cursor", params],
-    fetchPage: (cursor, signal) => repositoriesService.list({ ...params, cursor }, { signal }),
+  return usePageList({
+    queryKey: [...repositoryKeys.all(tenantId), "paged", params],
+    fetchPage: ({ page, pageSize }, signal) =>
+      repositoriesService.list({ ...params, page, pageSize }, { signal }),
+    ...paging,
   });
 }
 export function useRepository(repositoryId) {

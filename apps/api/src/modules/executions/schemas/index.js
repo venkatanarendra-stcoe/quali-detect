@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { createCursorOnlySchema, createSuccessSchema } from "@qmentisai/contracts";
+import { createSuccessSchema } from "@qmentisai/contracts";
+import { MAX_LIST_OFFSET } from "@qmentisai/db";
 import {
   EXECUTION_STATUS_VALUES,
   PIPELINE_TRIGGER_TYPES,
@@ -75,6 +76,7 @@ export const listQuerySchema = z
     to: isoInstant.optional(),
     sort: sortSchema(SORTABLE_FIELDS, [{ field: "requestedAt", direction: "desc" }]),
     cursor: cursor.optional(),
+    page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce
       .number()
       .int()
@@ -83,6 +85,18 @@ export const listQuerySchema = z
   })
   .strict()
   .superRefine((q, ctx) => {
+    if (q.page !== undefined && q.cursor !== undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["page"],
+        message: "page cannot be combined with cursor.",
+      });
+    else if (q.page !== undefined && q.page * q.limit > MAX_LIST_OFFSET)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["page"],
+        message: `page * limit is at most ${MAX_LIST_OFFSET}; narrow the filters to reach older executions.`,
+      });
     if (q.from && q.to) {
       if (q.to.getTime() <= q.from.getTime())
         ctx.addIssue({
@@ -244,10 +258,41 @@ const action = z.object({
   cancelMode: z.string().nullable(),
 });
 
+/**
+ * Pagination block of the list: the cursor fields always; the numbered-page fields (`page`, `pageSize`, `totalItems`,
+ * `totalPages`) only when the request used `page` (the count is not run for cursor requests, SPEC CF-10 amended).
+ */
+const listPagination = z.object({
+  limit: z.number().int().min(1),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
+  totalItems: z.number().int().min(0).optional(),
+  totalPages: z.number().int().min(0).optional(),
+});
+const cursorOnlyEnvelope = (item) =>
+  z.object({
+    success: z.literal(true),
+    data: z.array(item),
+    meta: z.object({
+      correlationId: z.string(),
+      pagination: z.object({
+        limit: z.number().int().min(1),
+        nextCursor: z.string().nullable(),
+        hasMore: z.boolean(),
+      }),
+    }),
+  });
+
 export const responses = Object.freeze({
-  list: createCursorOnlySchema(listItem),
+  list: z.object({
+    success: z.literal(true),
+    data: z.array(listItem),
+    meta: z.object({ correlationId: z.string(), pagination: listPagination }),
+  }),
   detail: createSuccessSchema(detail),
-  events: createCursorOnlySchema(event),
+  events: cursorOnlyEnvelope(event),
   logs: createSuccessSchema(
     z.object({
       lines: z.array(logLine),

@@ -165,10 +165,10 @@ export function executionColumns({ compact = false, sortable: canSort = true } =
 }
 
 /**
- * Executions table shared by T-28 and the pipeline tab: cursor "Load more" (no totals), sortable by requested time only,
+ * Executions table shared by T-28 and the pipeline tab: numbered pages (`pagination`, `onPage`, `onPageSize`), sortable by requested time only,
  * row click / Enter opens T-29, row menu by state and permission.
  * @param {{ query: object, compact?: boolean, sort?: string, onSort?: (next: string) => void, emptyState: any,
- *   caption: string, height?: "auto" | "fill", maxHeight?: string, hasMore: boolean, loadingMore: boolean, onLoadMore: () => void }} props
+ *   caption: string, height?: "auto" | "fill", maxHeight?: string, pagination: object, onPage: (page: number) => void, onPageSize: (size: number) => void, pageNote?: any }} props
  */
 export function ExecutionTable({ query, compact = false, sort, onSort, ...rest }) {
   const navigate = useNavigate();

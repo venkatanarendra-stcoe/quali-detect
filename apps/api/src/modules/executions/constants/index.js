@@ -28,3 +28,31 @@ export const RETRY_GATE_REASONS = Object.freeze([
 export const IN_FLIGHT_STATUSES = Object.freeze(["queued", "preparing", "running"]);
 
 export const QUOTA_PERIOD = (date = new Date()) => date.toISOString().slice(0, 7);
+
+export const API_PREFIX = "/api/v1";
+export const OPENAPI_TAG = "Executions";
+
+/** Page sizes of the execution list (SPEC §8.1: 25, 50 or 100; default 25). */
+export const LIST_LIMITS = Object.freeze([25, 50, 100]);
+export const DEFAULT_LIST_LIMIT = 25;
+/** Maximum `limit` of the events (history) and of the log lines. */
+export const MAX_EVENTS_LIMIT = 100;
+export const MAX_LOG_LIMIT = 500;
+export const DEFAULT_LOG_LIMIT = 200;
+/** Longest `from`..`to` window of the list (SPEC §8.1). */
+export const MAX_RANGE_DAYS = 400;
+
+export const LOG_LEVELS = Object.freeze(["debug", "info", "warn", "error"]);
+export const LOG_ORDERS = Object.freeze(["asc", "desc"]);
+/** The only sortable field of the list (`requestedAt`, ties by `id` in the same direction). */
+export const SORTABLE_FIELDS = Object.freeze(["requestedAt"]);
+
+/** Task statuses that count as "failed" in the list row's task summary. */
+export const FAILED_TASK_STATUSES = Object.freeze(["failed", "timed_out"]);
+
+/** Cursor kinds (part of every cursor's binding hash, so a cursor of one endpoint never works on another). */
+export const CURSOR_KINDS = Object.freeze({
+  LIST: "executions",
+  EVENTS: "execution-events",
+  LOGS: "execution-logs",
+});

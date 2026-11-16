@@ -73,6 +73,16 @@ await new Promise((resolve) => server.close(resolve));
 await close();
 
 // ---------------------------------------------------------------- 2. routes, audiences and permissions from the sources
+/**
+ * Route policies that wrap `authorize(...)` to add an audit entry on a denial. The permission cannot be read from their call
+ * site, so it is named here (the executions module's cancel and retry; the pipelines' `runPolicy` is left unlisted on purpose:
+ * the frozen baseline records it without a permission).
+ */
+const POLICY_PERMISSIONS = Object.freeze({
+  cancelPolicy: { permission: "execution.cancel", scope: "workspace" },
+  retryPolicy: { permission: "execution.run", scope: "workspace" },
+});
+
 function extractRoutes(moduleName) {
   const file = path.join(apiDir, "src/modules", moduleName, "routes/index.js");
   const src = read(file);
@@ -100,6 +110,8 @@ function extractRoutes(moduleName) {
     let scope = null;
     const ident = handler.match(/^(\w+)\s*,/)?.[1];
     if (ident && consts.has(ident)) ({ permission, scope } = consts.get(ident));
+    else if (/^policies\.(cancelPolicy|retryPolicy)\b/.test(handler))
+      ({ permission, scope } = POLICY_PERMISSIONS[handler.match(/^policies\.(\w+)/)[1]]);
     else if (/^authz\.context\b/.test(handler))
       scope = "collection (filtered to visible workspaces)";
     else if (/authorize\(\s*"([^"]+)"/.test(handler))

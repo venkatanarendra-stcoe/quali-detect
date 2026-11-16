@@ -1,4 +1,42 @@
-import { createExecutionCancellation, createExecutionRepository } from "@qmentisai/db";
+import {
+  createExecutionCancellation,
+  createExecutionReadRepository,
+  createExecutionRepository,
+} from "@qmentisai/db";
+
+/** Columns of an execution the DTOs read. NEVER the lease, the archive, the idempotency key or the correlation id. */
+const EXECUTION_COLUMNS = {
+  id: true,
+  workspaceId: true,
+  repositoryId: true,
+  pipelineId: true,
+  status: true,
+  statusReason: true,
+  triggerType: true,
+  triggerKey: true,
+  refType: true,
+  refName: true,
+  pullRequestNumber: true,
+  commitSha: true,
+  scanKind: true,
+  scanKindReason: true,
+  trust: true,
+  requestedAt: true,
+  startedAt: true,
+  finishedAt: true,
+  cancelRequestedAt: true,
+  retryOfExecutionId: true,
+};
+const DETAIL_COLUMNS = {
+  configVersionId: true,
+  configVersion: true,
+  configHash: true,
+  requestedByUserId: true,
+  baseRef: true,
+  deadlineAt: true,
+  cancelMode: true,
+  statusRev: true,
+};
 
 /**
  * Data access of the executions module's write side (SPEC executions part D). EVERY function carries the trusted `tenantId`
@@ -10,6 +48,7 @@ import { createExecutionCancellation, createExecutionRepository } from "@qmentis
 export function createExecutionsRepository({ db }) {
   const cancellation = createExecutionCancellation({ db });
   const executions = createExecutionRepository({ db });
+  const reads = createExecutionReadRepository({ db });
   return Object.freeze({
     transaction: (fn) => db.$transaction(fn),
 
@@ -110,5 +149,127 @@ export function createExecutionsRepository({ db }) {
 
     /** Appends a non-transition history row (`retry_requested`) for an execution of this tenant. */
     recordEvent: (input, client) => executions.recordEvent(input, client),
+
+    // ---- read side (part G). Every function carries the trusted tenant; children are also bound to their execution.
+
+    /** Id and workspace of an execution of this tenant (the scope resolver's and the denial audit's lookup). */
+    findRef: ({ tenantId, id }, client = db) =>
+      client.execution.findFirst({
+        where: { tenantId, id },
+        select: { id: true, workspaceId: true, pipelineId: true },
+      }),
+
+    /** One keyset page of execution ids (see `createExecutionReadRepository`). */
+    listPage: (input, client = db) => reads.listPage(input, client),
+
+    /** The rows of one page, tenant scoped and restricted to the accessible workspaces. */
+    findExecutions: ({ tenantId, workspaceIds, ids }, client = db) =>
+      client.execution.findMany({
+        where: { tenantId, workspaceId: { in: workspaceIds }, id: { in: ids } },
+        select: EXECUTION_COLUMNS,
+      }),
+
+    /** One execution by tenant, workspace (the scope the caller was authorized in) and id. */
+    findExecutionDetail: ({ tenantId, workspaceId, id }, client = db) =>
+      client.execution.findFirst({
+        where: { tenantId, workspaceId, id },
+        select: { ...EXECUTION_COLUMNS, ...DETAIL_COLUMNS },
+      }),
+
+    /** Pipeline names of a set of pipelines of this tenant (labels only). */
+    async findPipelineNames({ tenantId, pipelineIds }, client = db) {
+      if (pipelineIds.length === 0) return new Map();
+      const rows = await client.pipeline.findMany({
+        where: { tenantId, id: { in: pipelineIds } },
+        select: { id: true, name: true },
+      });
+      return new Map(rows.map((r) => [r.id, r.name]));
+    },
+
+    /** Repository full names of a set of repositories of this tenant (labels only). */
+    async findRepositoryNames({ tenantId, repositoryIds }, client = db) {
+      if (repositoryIds.length === 0) return new Map();
+      const rows = await client.repository.findMany({
+        where: { tenantId, id: { in: repositoryIds } },
+        select: { id: true, fullName: true },
+      });
+      return new Map(rows.map((r) => [r.id, r.fullName]));
+    },
+
+    /** Display names of members of this tenant. */
+    async findMemberNames({ tenantId, userIds }, client = db) {
+      if (userIds.length === 0) return new Map();
+      const rows = await client.tenantMembership.findMany({
+        where: { tenantId, userId: { in: userIds } },
+        select: { user: { select: { id: true, name: true } } },
+      });
+      return new Map(rows.map((r) => [r.user.id, r.user.name]));
+    },
+
+    /** Task status counts per execution for a page of executions (tenant scoped). */
+    async countTasksByStatus({ tenantId, executionIds }, client = db) {
+      if (executionIds.length === 0) return [];
+      return client.scanTask.groupBy({
+        by: ["executionId", "status"],
+        where: { tenantId, executionId: { in: executionIds } },
+        _count: { _all: true },
+      });
+    },
+
+    /** The tasks of one execution with their result summary, in catalog order (tenant and execution scoped). */
+    findTasks: ({ tenantId, executionId }, client = db) =>
+      client.scanTask.findMany({
+        where: { tenantId, executionId },
+        orderBy: { ordinal: "asc" },
+        select: {
+          id: true,
+          scanType: true,
+          status: true,
+          statusReason: true,
+          attempt: true,
+          maxAttempts: true,
+          engineId: true,
+          engineProfile: true,
+          startedAt: true,
+          finishedAt: true,
+          results: {
+            where: { tenantId, executionId },
+            orderBy: { attempt: "desc" },
+            take: 1,
+            select: { itemCount: true, severityCounts: true, truncated: true, completeness: true },
+          },
+        },
+      }),
+
+    /** The scan types the snapshot enabled (ids only; the configuration body never leaves the repository layer). */
+    async findEnabledScanTypes({ tenantId, pipelineId, configVersionId }, client = db) {
+      const version = await client.pipelineConfigVersion.findFirst({
+        where: { tenantId, pipelineId, id: configVersionId },
+        select: { config: true },
+      });
+      const scans = version?.config?.scans;
+      return scans && typeof scans === "object"
+        ? Object.entries(scans)
+            .filter(([, value]) => value?.enabled === true)
+            .map(([type]) => type)
+        : [];
+    },
+
+    /** The history of one execution, oldest first, strictly after `afterSeq` (one extra row tells whether more follow). */
+    findEvents: ({ tenantId, workspaceId, executionId, afterSeq, limit }, client = db) =>
+      client.executionEvent.findMany({
+        where: { tenantId, workspaceId, executionId, seq: { gt: afterSeq } },
+        orderBy: { seq: "asc" },
+        take: limit + 1,
+        select: {
+          seq: true,
+          at: true,
+          type: true,
+          fromStatus: true,
+          toStatus: true,
+          reason: true,
+          actorType: true,
+        },
+      }),
   });
 }

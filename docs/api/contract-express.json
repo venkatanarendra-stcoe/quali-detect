@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 109,
+  "operationCount": 115,
   "operations": [
     {
       "method": "GET",
@@ -199,6 +199,432 @@
         ]
       },
       "summary": "Sign out: revoke the session and clear the cookie (idempotent)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": "collection (filtered to visible workspaces)",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "pipelineId",
+          "repositoryId",
+          "status",
+          "triggerType",
+          "from",
+          "to",
+          "sort",
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, workspaceId, pipeline, repository, status, statusReason, triggerType, triggerKey, refType, refName, pullRequestNumber, commitSha, scanKind, scanKindReason, trust, requestedAt, startedAt, finishedAt, durationMs, taskSummary, cancelRequested, retryOfExecutionId }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List executions in the workspaces the caller can see (cursor-paginated, no totals)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{executionId}",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "executionId"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, workspaceId, pipeline, repository, status, statusReason, triggerType, triggerKey, refType, refName, pullRequestNumber, commitSha, scanKind, scanKindReason, trust, requestedAt, startedAt, finishedAt, durationMs, taskSummary, cancelRequested, retryOfExecutionId, configVersion, configHash, requestedBy, baseRef, deadlineAt, cancelRequestedAt, cancelMode, tasks, resolutionEligible, rev }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get an execution with its tasks, counts, timings and snapshot summary"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{executionId}/cancel",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": "execution.cancel",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "IDEMPOTENCY_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "executionId"
+        ],
+        "query": [],
+        "body": "{  }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ execution }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Cancel an execution: 200 when a queued one was cancelled, 202 when a request was recorded (mode comes from the snapshot)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{executionId}/events",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "executionId"
+        ],
+        "query": [
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ seq, at, type, fromStatus, toStatus, reason, actorType }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Status history of an execution, oldest first (cursor-paginated)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{executionId}/logs",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "executionId"
+        ],
+        "query": [
+          "order",
+          "afterSeq",
+          "cursor",
+          "taskId",
+          "level",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ lines, nextCursor, hasMore, truncated }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Log lines of an execution (redacted at write time; afterSeq or cursor)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{executionId}/retry",
+      "module": "executions",
+      "audience": "tenant",
+      "permission": "execution.run",
+      "permissionScope": "workspace",
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "IDEMPOTENCY_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "executionId"
+        ],
+        "query": [],
+        "body": "{  }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ execution }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Retry an execution as a NEW execution with the same snapshot and commit (Idempotency-Key is REQUIRED)"
     },
     {
       "method": "GET",

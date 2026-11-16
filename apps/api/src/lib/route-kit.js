@@ -11,7 +11,7 @@ const METHODS = Object.freeze(["get", "post", "put", "patch", "delete"]);
  * @property {{ audience: "public" | "user" | "tenant" | "platform" }} config REQUIRED. Who may call the route.
  * @property {import("express").RequestHandler | import("express").RequestHandler[]} [preHandler] authorization middleware, run after validation
  * @property {Record<string, any>} [schema] `params | querystring | body | headers` Zod schemas validate; `response`, `tags`, `summary`, `hide` document
- * @property {"auth" | "write" | "webhook"} [rateLimit] per-route rate limit profile (limits in configuration)
+ * @property {"auth" | "write" | "read" | "webhook"} [rateLimit] per-route rate limit profile (limits in configuration)
  * @property {{ limitBytes: number }} [webhook] public provider-webhook route: the RAW body is kept as a Buffer (`req.body`) so the handler can verify the signature before parsing; the global JSON parser skips these paths
  * @property {boolean} [idempotent] accept the optional `Idempotency-Key` header (creating or side-effect endpoints)
  *

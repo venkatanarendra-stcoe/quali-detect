@@ -228,28 +228,52 @@ export function createExecutionLogRepository({ db }) {
     },
 
     /**
-     * Lines of one execution after `afterSeq`, oldest first (keyset on `seq`), scoped by tenant, and by workspace and task when
-     * given. `nextAfterSeq` is the seq to pass next (null when the page is empty); `hasMore` says another page exists. The
+     * Lines of one execution in `seq` order (keyset on `seq`), scoped by tenant, and by workspace and task when given. `order`
+     * `asc` (default) returns the lines AFTER `afterSeq`, oldest first; `desc` returns the lines BEFORE `beforeSeq` (all when
+     * omitted), newest first (the tail). `level` keeps one level. `nextAfterSeq` is the `seq` of the last returned line, i.e. the
+     * position to continue from in the same order (null when the page is empty); `hasMore` says another page exists. The
      * `truncated` flag and `droppedLines` come from the counters of the scope (task when `taskId` is given, else execution).
-     * Another tenant's execution id answers an empty page with `found: false`.
-     * @param {{ tenantId: string, workspaceId?: string, executionId: string, taskId?: string, afterSeq?: number, limit?: number }} query
+     * Another tenant's execution id answers an empty page.
+     * @param {{ tenantId: string, workspaceId?: string, executionId: string, taskId?: string, afterSeq?: number, beforeSeq?: number, order?: "asc" | "desc", level?: string, limit?: number }} query
      * @param {any} [client]
      */
     async listLines(
-      { tenantId, workspaceId, executionId, taskId, afterSeq = 0, limit = 200 },
+      {
+        tenantId,
+        workspaceId,
+        executionId,
+        taskId,
+        afterSeq = 0,
+        beforeSeq,
+        order = "asc",
+        level,
+        limit = 200,
+      },
       client = db,
     ) {
       if (!Number.isInteger(afterSeq) || afterSeq < 0)
         throw new TypeError("afterSeq must be a non-negative integer");
+      if (beforeSeq !== undefined && (!Number.isInteger(beforeSeq) || beforeSeq < 1))
+        throw new TypeError("beforeSeq must be a positive integer");
+      if (order !== "asc" && order !== "desc") throw new TypeError("order must be asc or desc");
+      if (level !== undefined && !LEVELS.has(level)) throw new TypeError("unknown log level");
       const size = Math.min(Math.max(1, Math.floor(limit)), MAX_PAGE);
       const scope = Prisma.sql`l.tenant_id = ${tenantId}::uuid AND l.execution_id = ${executionId}::uuid
         ${workspaceId ? Prisma.sql`AND l.workspace_id = ${workspaceId}::uuid` : Prisma.empty}
-        ${taskId ? Prisma.sql`AND l.scan_task_id = ${taskId}::uuid` : Prisma.empty}`;
+        ${taskId ? Prisma.sql`AND l.scan_task_id = ${taskId}::uuid` : Prisma.empty}
+        ${level ? Prisma.sql`AND l.level = ${level}` : Prisma.empty}`;
+      const position =
+        order === "asc"
+          ? Prisma.sql`l.seq > ${afterSeq}::bigint`
+          : beforeSeq === undefined
+            ? Prisma.sql`TRUE`
+            : Prisma.sql`l.seq < ${beforeSeq}::bigint`;
+      const direction = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
       const rows = await client.$queryRaw`
         SELECT l.seq::int AS seq, l.scan_task_id AS "taskId", l.level, l.source, l.message, l.line_truncated AS "lineTruncated", l.at
         FROM execution_logs l
-        WHERE ${scope} AND l.seq > ${afterSeq}::bigint
-        ORDER BY l.seq
+        WHERE ${scope} AND ${position}
+        ORDER BY l.seq ${direction}
         LIMIT ${size + 1}`;
       const items = rows.slice(0, size);
       const [counter] = taskId

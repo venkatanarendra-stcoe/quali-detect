@@ -67,6 +67,7 @@ const dropExecution = async (db, id) => {
 function isEmpty(v) {
   if (v === null || v === undefined || v === 0 || v === false) return true;
   if (Array.isArray(v)) return v.every(isEmpty);
+  if (v instanceof Map) return v.size === 0;
   if (typeof v === "object") {
     if ("items" in v) return isEmpty(v.items) && !v.totalItems;
     if ("count" in v) return v.count === 0;
@@ -4368,6 +4369,171 @@ export function buildDalEntries() {
         });
         return AR(c).removeExecution({ tenantId: c.x, executionId: e.id });
       },
+    },
+  );
+
+  // Part G (SPEC executions §17.ae, DAL-274..): the read side of the executions API. Tenant Y presents tenant X's execution,
+  // pipeline, repository, task and workspace ids; every read answers nothing (a wrong workspace of the right tenant too).
+  const rows = (r) => (r.rows.length ? ["a page of another tenant's executions was returned"] : []);
+  E(
+    "executions-api.listPage",
+    (c) => XA(c).listPage({ tenantId: c.y, workspaceIds: [c.ws], direction: "desc", limit: 25 }),
+    {
+      verify: rows,
+      control: async (c) =>
+        (
+          await XA(c).listPage({
+            tenantId: c.x,
+            workspaceIds: [c.ws],
+            direction: "desc",
+            limit: 25,
+          })
+        ).rows,
+    },
+  );
+  E(
+    "executions-api.listPage (a workspace set that does not contain the execution's workspace)",
+    (c) =>
+      XA(c).listPage({
+        tenantId: c.x,
+        workspaceIds: [c.pl.wsB],
+        pipelineId: c.pl.pipeline.id,
+        direction: "asc",
+        limit: 25,
+      }),
+    {
+      verify: rows,
+      control: async (c) =>
+        (
+          await XA(c).listPage({
+            tenantId: c.x,
+            workspaceIds: [c.ws],
+            pipelineId: c.pl.pipeline.id,
+            direction: "asc",
+            limit: 25,
+          })
+        ).rows,
+    },
+  );
+  E("executions-api.findRef", (c) => XA(c).findRef({ tenantId: c.y, id: c.pl.runningId }), {
+    control: (c) => XA(c).findRef({ tenantId: c.x, id: c.pl.runningId }),
+  });
+  E(
+    "executions-api.findExecutions",
+    (c) => XA(c).findExecutions({ tenantId: c.y, workspaceIds: [c.ws], ids: [c.pl.runningId] }),
+    {
+      control: (c) =>
+        XA(c).findExecutions({ tenantId: c.x, workspaceIds: [c.ws], ids: [c.pl.runningId] }),
+    },
+  );
+  E(
+    "executions-api.findExecutions (a workspace set that does not contain the execution's)",
+    (c) => XA(c).findExecutions({ tenantId: c.x, workspaceIds: [c.pl.wsB], ids: [c.pl.runningId] }),
+    {
+      control: (c) =>
+        XA(c).findExecutions({ tenantId: c.x, workspaceIds: [c.ws], ids: [c.pl.runningId] }),
+    },
+  );
+  E(
+    "executions-api.findExecutionDetail",
+    (c) => XA(c).findExecutionDetail({ tenantId: c.y, workspaceId: c.ws, id: c.pl.runningId }),
+    {
+      control: (c) =>
+        XA(c).findExecutionDetail({ tenantId: c.x, workspaceId: c.ws, id: c.pl.runningId }),
+    },
+  );
+  E(
+    "executions-api.findExecutionDetail (the right tenant, another workspace)",
+    (c) => XA(c).findExecutionDetail({ tenantId: c.x, workspaceId: c.pl.wsB, id: c.pl.runningId }),
+    {
+      control: (c) =>
+        XA(c).findExecutionDetail({ tenantId: c.x, workspaceId: c.ws, id: c.pl.runningId }),
+    },
+  );
+  E(
+    "executions-api.findPipelineNames",
+    (c) => XA(c).findPipelineNames({ tenantId: c.y, pipelineIds: [c.pl.pipeline.id] }),
+    { control: (c) => XA(c).findPipelineNames({ tenantId: c.x, pipelineIds: [c.pl.pipeline.id] }) },
+  );
+  E(
+    "executions-api.findRepositoryNames",
+    (c) => XA(c).findRepositoryNames({ tenantId: c.y, repositoryIds: [c.repo.id] }),
+    { control: (c) => XA(c).findRepositoryNames({ tenantId: c.x, repositoryIds: [c.repo.id] }) },
+  );
+  E(
+    "executions-api.findMemberNames",
+    (c) => XA(c).findMemberNames({ tenantId: c.y, userIds: [c.uA] }),
+    { control: (c) => XA(c).findMemberNames({ tenantId: c.x, userIds: [c.uA] }) },
+  );
+  E(
+    "executions-api.countTasksByStatus",
+    (c) => XA(c).countTasksByStatus({ tenantId: c.y, executionIds: [c.pl.runningId] }),
+    { control: (c) => XA(c).countTasksByStatus({ tenantId: c.x, executionIds: [c.pl.runningId] }) },
+  );
+  E(
+    "executions-api.findTasks",
+    (c) => XA(c).findTasks({ tenantId: c.y, executionId: c.pl.runningId }),
+    { control: (c) => XA(c).findTasks({ tenantId: c.x, executionId: c.pl.runningId }) },
+  );
+  E(
+    "executions-api.findEvents",
+    (c) =>
+      XA(c).findEvents({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        executionId: c.pl.runningId,
+        afterSeq: 0,
+        limit: 10,
+      }),
+    {
+      control: (c) =>
+        XA(c).findEvents({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          executionId: c.pl.runningId,
+          afterSeq: 0,
+          limit: 10,
+        }),
+    },
+  );
+  E(
+    "executions-api.findEvents (the right tenant, another workspace)",
+    (c) =>
+      XA(c).findEvents({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        executionId: c.pl.runningId,
+        afterSeq: 0,
+        limit: 10,
+      }),
+    {
+      control: (c) =>
+        XA(c).findEvents({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          executionId: c.pl.runningId,
+          afterSeq: 0,
+          limit: 10,
+        }),
+    },
+  );
+  E(
+    "logs.listLines (newest first, level filter)",
+    (c) =>
+      LG(c).listLines({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        order: "desc",
+        level: "info",
+      }),
+    {
+      control: (c) =>
+        LG(c).listLines({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          order: "desc",
+          level: "info",
+        }),
     },
   );
 

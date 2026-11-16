@@ -56,6 +56,10 @@
     {
       "pattern": "(OpenAPI )?GET /api/v1/platform/tenants: (errorCodes differs|request differs|parameters)",
       "reason": "Cursor pagination on the Root Console tenant list (2026-11-13, owner decision, API_STANDARDS \"Cursor pagination\"): the opt-in query parameters cursor and limit, and the transport error code INVALID_CURSOR (400) for an invalid or foreign HMAC-signed cursor. Offset paging (page, pageSize) is unchanged; meta.pagination gains nextCursor and hasMore."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )(GET|POST) /api/v1/executions",
+      "reason": "New operations of the executions module (docs/modules/executions/SPEC.md §8.1, part G, 2026-11-16): list (GET /executions, cursor-only, no totals), detail, events (status history) and logs (GET /executions/{executionId}[/events|/logs]), cancel and retry (POST /executions/{executionId}/cancel|retry). Tenant audience; permissions execution.view / execution.cancel / execution.run (workspace scope via the execution's workspace); cancel and retry are rate limited (write profile) and accept Idempotency-Key, retry REQUIRES it; logs use the new read rate-limit profile. No route under /api/v1/platform. No artifact or separate task endpoint (tasks are embedded in the detail)."
     }
   ]
 }

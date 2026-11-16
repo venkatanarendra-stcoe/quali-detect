@@ -26,6 +26,9 @@ const envSchema = z.object({
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).max(100000).default(30),
   RATE_LIMIT_WRITE_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
   RATE_LIMIT_WRITE_MAX: z.coerce.number().int().min(1).max(100000).default(120),
+  // "read": authenticated polling reads that are cheap but unbounded in frequency (execution logs), per tenant + user.
+  RATE_LIMIT_READ_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
+  RATE_LIMIT_READ_MAX: z.coerce.number().int().min(1).max(1000000).default(300),
   RATE_LIMIT_WEBHOOK_WINDOW_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
   RATE_LIMIT_WEBHOOK_MAX: z.coerce.number().int().min(1).max(1000000).default(600),
   // Idempotency-Key: how long a stored response can be replayed.
@@ -306,6 +309,7 @@ export function loadConfig(env = process.env) {
           windowMs: e.RATE_LIMIT_WRITE_WINDOW_MS,
           max: e.RATE_LIMIT_WRITE_MAX,
         }),
+        read: Object.freeze({ windowMs: e.RATE_LIMIT_READ_WINDOW_MS, max: e.RATE_LIMIT_READ_MAX }),
         webhook: Object.freeze({
           windowMs: e.RATE_LIMIT_WEBHOOK_WINDOW_MS,
           max: e.RATE_LIMIT_WEBHOOK_MAX,

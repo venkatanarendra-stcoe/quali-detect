@@ -1,6 +1,7 @@
 import { auditLogsModule } from "./audit-logs/index.js";
 import { integrationsModule } from "./integrations/index.js";
 import { scmWebhooksModule } from "./scm-webhooks/index.js";
+import { executionsModule } from "./executions/index.js";
 import { pipelinesModule } from "./pipelines/index.js";
 import { repositoriesModule } from "./repositories/index.js";
 import { groupsModule } from "./groups/index.js";
@@ -34,5 +35,6 @@ export const modules = [
   scmWebhooksModule,
   repositoriesModule,
   pipelinesModule,
+  executionsModule,
   userPreferencesModule,
 ];

@@ -4,15 +4,15 @@ import { ERROR_CODES } from "@qmentisai/contracts";
 import { AppError } from "../errors/app-error.js";
 import { createHash } from "node:crypto";
 
-export const RATE_LIMIT_PROFILES = Object.freeze(["auth", "write", "webhook"]);
+export const RATE_LIMIT_PROFILES = Object.freeze(["auth", "write", "read", "webhook"]);
 
 /**
  * Per-route rate limiting (on top of the global per-IP limit). A route opts in with `rateLimit: "<profile>"`; limits come
  * from configuration (`RATE_LIMIT_<PROFILE>_*`). Every route gets its OWN counter, so a busy route cannot exhaust another.
  *
  * - "auth" (public sign-in endpoints) and "webhook": counted per client IP;
- * - "write" (authenticated create/side-effect endpoints): counted per tenant + user (per platform user on the platform
- *   surface), so one tenant's traffic never affects another's.
+ * - "write" (authenticated create/side-effect endpoints) and "read" (authenticated polling reads, execution logs): counted
+ *   per tenant + user (per platform user on the platform surface), so one tenant's traffic never affects another's.
  * Redis-backed when Redis is configured (shared across instances; the store is created on the first request, after the
  * lazy connection is up, and the limit fails OPEN with a warning if Redis is unreachable); in-process otherwise.
  * A refusal is `429 RATE_LIMITED` with `details.scope: "route"` and the standard `RateLimit`/`Retry-After` headers.
@@ -21,14 +21,14 @@ export const RATE_LIMIT_PROFILES = Object.freeze(["auth", "write", "webhook"]);
 export function createRouteLimiters({ config, infra, logger }) {
   const subjectOf = (profile, req) => {
     const principal = req.principal;
-    if (profile === "write" && principal?.tenant)
+    if ((profile === "write" || profile === "read") && principal?.tenant)
       return `t:${principal.tenant.id}:u:${principal.user.id}`;
-    if (profile === "write" && principal?.platform)
+    if ((profile === "write" || profile === "read") && principal?.platform)
       return `p:${principal.platform.platformUser.id}`;
     return `ip:${ipKeyGenerator(req.ip ?? "unknown")}`;
   };
 
-  /** @param {"auth" | "write" | "webhook"} profile @param {string} routeId e.g. "POST /api/v1/workspaces" */
+  /** @param {"auth" | "write" | "read" | "webhook"} profile @param {string} routeId e.g. "POST /api/v1/workspaces" */
   function forRoute(profile, routeId) {
     const limits = config.http.routeLimits[profile];
     if (!limits) throw new TypeError(`Unknown rate limit profile "${profile}".`);

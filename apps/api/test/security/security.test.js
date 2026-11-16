@@ -36,6 +36,7 @@ import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
 import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
 import { buildRealtimeWorld, REALTIME_CHECKS } from "./helpers/realtime-checks.js";
+import { buildExecHttpChecks } from "./helpers/exec-http-checks.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -48,7 +49,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 643;
+const EXPECTED_CHECKS = 672;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10370,6 +10371,21 @@ const schWorld = () =>
       async () => ({ status: 200, json: null, problems: await run(await realtimeWorld()) }),
       (r) => r.problems,
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Executions API (SPEC executions §8.1, §14.1 EXE-001..010 over HTTP, §17.ae, part G): list, detail, events, logs, cancel and
+// retry against the running API, over the Pipelines world (`pipWorld`).
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Executions: API (isolation, permissions, cursors, cancel, retry)");
+  for (const { id, name, run } of buildExecHttpChecks({
+    w: new Proxy({}, { get: (_t, key) => w[key] }),
+    db: suiteDb,
+    pipWorld,
+    KEY,
+  }))
+    add(id, name, { status: 200 }, run, (r) => r.problems);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

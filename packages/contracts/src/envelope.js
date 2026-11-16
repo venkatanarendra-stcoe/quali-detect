@@ -72,3 +72,25 @@ export function createCursorPaginatedSchema(itemSchema) {
     meta: z.object({ correlationId: z.string(), pagination: cursorPaginationMetaSchema }),
   });
 }
+
+/**
+ * Pagination block of a CURSOR-ONLY collection (no offset fields, no totals): `limit`, the opaque `nextCursor` (null on the last
+ * page) and `hasMore`. Used by lists that never count (docs/modules/executions/SPEC.md CF-10).
+ */
+export const cursorOnlyPaginationMetaSchema = z.object({
+  limit: z.number().int().min(1),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+});
+
+/**
+ * Envelope of a cursor-only collection of `itemSchema`.
+ * @param {import("zod").ZodTypeAny} itemSchema
+ */
+export function createCursorOnlySchema(itemSchema) {
+  return z.object({
+    success: z.literal(true),
+    data: z.array(itemSchema),
+    meta: z.object({ correlationId: z.string(), pagination: cursorOnlyPaginationMetaSchema }),
+  });
+}

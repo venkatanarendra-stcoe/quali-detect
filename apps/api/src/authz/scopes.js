@@ -78,3 +78,28 @@ export function pipelineScope(param = "pipelineId") {
     },
   });
 }
+
+/**
+ * Operations on one execution, identified by a route param. Loads the execution by id AND tenant and yields the scope of the
+ * workspace it lives in, so `execution.*` permissions are checked in that workspace. Only a minimal reference (`id`,
+ * `workspaceId`, `pipelineId`) is returned as the resource: services re-read what they need, and no row can leak through
+ * `req.authz`. An execution of another tenant, or that does not exist, resolves to null (404), exactly like one in a workspace
+ * the caller cannot see.
+ * @param {string} [param]
+ */
+export function executionScope(param = "executionId") {
+  return Object.freeze({
+    scopeType: "workspace",
+    async resolve(request, { tenantId, db }) {
+      const id = request.params?.[param];
+      if (typeof id !== "string") throw new NotFoundError();
+      const execution = await db.execution.findFirst({
+        where: { tenantId, id },
+        select: { id: true, workspaceId: true, pipelineId: true },
+      });
+      return execution
+        ? { scope: { type: "workspace", workspaceId: execution.workspaceId }, resource: execution }
+        : null;
+    },
+  });
+}

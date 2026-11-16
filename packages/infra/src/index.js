@@ -4,3 +4,6 @@ export * from "./redis/index.js";
 export * from "./rabbitmq/index.js";
 export * from "./secrets/index.js";
 export * from "./scm/index.js";
+export * from "./credential-guard.js";
+export * from "./archive/index.js";
+export * from "./storage/artifact-store.js";

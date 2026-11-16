@@ -18,6 +18,10 @@ export const QUEUE_NAMES = Object.freeze({
    * bound to the SCM events exchange with `PIPELINE_TRIGGERS_BINDINGS`; the `scm-events` queue and the producer are unchanged.
    */
   PIPELINE_TRIGGERS: "pipeline-triggers",
+  /** Hint events for Socket.IO (docs/modules/executions/SPEC.md §9.1, §9.3); consumed by the `realtime` worker (part F). */
+  REALTIME: "realtime",
+  /** Scan tasks of `untrusted_fork` executions: same handler as `scan`, separate consumers (SPEC ER-7, EQ-7b). */
+  SCAN_UNTRUSTED: "scan-untrusted",
 });
 
 /** Topic exchange for webhook-derived SCM events; routing key `scm.github.<event>` (SPEC Q11). */

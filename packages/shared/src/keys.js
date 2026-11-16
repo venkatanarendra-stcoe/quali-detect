@@ -104,3 +104,12 @@ export function buildTenantRoom({ tenantId, workspaceId }) {
   const base = `t:${requireTenantId(tenantId)}`;
   return workspaceId === undefined ? base : `${base}:w:${segment("workspaceId", workspaceId)}`;
 }
+
+/**
+ * Socket.IO room of one execution (SPEC §9.4): `t:<tenantId>:w:<workspaceId>:x:<executionId>`. Built by the server from the
+ * validated principal and the resolved resource ids, never from a client string.
+ * @param {{ tenantId: string, workspaceId: string, executionId: string }} input
+ */
+export function buildExecutionRoom({ tenantId, workspaceId, executionId }) {
+  return `${buildTenantRoom({ tenantId, workspaceId })}:x:${segment("executionId", executionId)}`;
+}

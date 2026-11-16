@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { childLogger } from "../../logging.js";
 import { parseJsonPreservingIds } from "./json.js";
 import { createAppJwt } from "./jwt.js";
@@ -195,9 +196,165 @@ export function createGitHubClient({
   const asUser = (userToken, method, path) =>
     request(method, `${api}${path}`, { auth: `Bearer ${userToken}` });
 
+  const FULL_NAME = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+  const COMMIT_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/i;
+  const apiOrigin = new URL(api).origin;
+  /** codeload redirect targets: the API's own origin (stub, GHES) or GitHub's archive hosts over https; never userinfo. */
+  const archiveHostAllowed = (url) =>
+    !url.username &&
+    !url.password &&
+    (url.origin === apiOrigin ||
+      (url.protocol === "https:" &&
+        (url.hostname === "codeload.github.com" ||
+          url.hostname.endsWith(".githubusercontent.com"))));
+
+  /**
+   * A source session for ONE repository (docs/modules/executions/SPEC.md §6.3, B4, EXEC-010): mints a FRESH installation
+   * token restricted to `contents: read` on that repository, holds it in this closure only (never cached, persisted, logged,
+   * returned or put in an error) and offers the two calls the fetch step needs. `close()` drops the token. The archive is
+   * always requested through the BASE repository by commit SHA (a fork pull request's head SHA is served by the base
+   * repository, spike §17.x) and the redirect to the archive host is followed WITHOUT the Authorization header.
+   * @param {{ externalInstallationId: string, fullName: string }} input
+   */
+  async function openSourceSession({ externalInstallationId, fullName }) {
+    if (!FULL_NAME.test(fullName ?? ""))
+      throw new GitHubApiError("Invalid repository name.", {
+        status: 400,
+        code: "invalid_repository",
+      });
+    const repositoryName = fullName.split("/")[1];
+    const { json } = await request(
+      "POST",
+      `${api}/app/installations/${encodeURIComponent(externalInstallationId)}/access_tokens`,
+      {
+        auth: `Bearer ${appJwt()}`,
+        body: { repositories: [repositoryName], permissions: { contents: "read" } },
+      },
+    );
+    if (!json?.token)
+      throw new GitHubApiError("GitHub returned no installation token.", { status: 502 });
+    let token = json.token;
+    const authorized = () => {
+      if (token === null)
+        throw new GitHubApiError("The source session is closed.", { code: "session_closed" });
+      return `Bearer ${token}`;
+    };
+    const baseHeaders = () => ({
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": apiVersion,
+      "User-Agent": "QmentisAI-GitHub-App",
+    });
+    const failure = async (response) => {
+      let message = `GitHub answered ${response.status}.`;
+      try {
+        message = JSON.parse(await response.text())?.message ?? message;
+      } catch {
+        /* keep the status message */
+      }
+      const delay = rateLimitDelayMs(response.status, response.headers, message, now);
+      return new GitHubApiError(
+        delay !== null ? "GitHub rate limit reached." : `GitHub answered ${response.status}.`,
+        {
+          status: response.status,
+          rateLimited: delay !== null,
+          retryAfterMs: delay ?? undefined,
+        },
+      );
+    };
+    const unreachable = (error) =>
+      new GitHubApiError(
+        `GitHub is unreachable (${error?.cause?.code ?? error?.name ?? "error"}).`,
+        {
+          code: "unreachable",
+        },
+      );
+
+    return Object.freeze({
+      /**
+       * The commit SHA a ref points at (ER-10), or null when the ref does not exist.
+       * @param {{ refType: "branch" | "tag", refName: string }} ref
+       * @returns {Promise<string | null>}
+       */
+      async resolveRef({ refType, refName }) {
+        const prefix = refType === "tag" ? "refs/tags" : "refs/heads";
+        const encoded = `${prefix}/${refName}`.split("/").map(encodeURIComponent).join("/");
+        let response;
+        try {
+          response = await fetchImpl(`${api}/repos/${fullName}/commits/${encoded}`, {
+            headers: { ...baseHeaders(), Authorization: authorized() },
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        } catch (error) {
+          throw unreachable(error);
+        }
+        if (response.status === 404 || response.status === 422) return null;
+        if (!response.ok) throw await failure(response);
+        const sha = parseJsonPreservingIds(await response.text())?.sha;
+        if (typeof sha !== "string" || !COMMIT_SHA.test(sha))
+          throw new GitHubApiError("GitHub returned no commit.", { status: 502 });
+        return sha.toLowerCase();
+      },
+
+      /**
+       * Opens the tar.gz archive of commit `sha` of the base repository as a Node stream. The caller bounds and stores it.
+       * @param {{ sha: string, signal?: AbortSignal, timeoutMs?: number }} input
+       * @returns {Promise<import("node:stream").Readable>}
+       */
+      async downloadArchive({ sha, signal, timeoutMs: downloadTimeoutMs = 300000 }) {
+        if (!COMMIT_SHA.test(sha ?? ""))
+          throw new GitHubApiError("Invalid commit.", { status: 400, code: "invalid_commit" });
+        const abort = signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(downloadTimeoutMs)])
+          : AbortSignal.timeout(downloadTimeoutMs);
+        let response;
+        try {
+          response = await fetchImpl(`${api}/repos/${fullName}/tarball/${sha}`, {
+            headers: { ...baseHeaders(), Authorization: authorized() },
+            redirect: "manual",
+            signal: abort,
+          });
+          if ([301, 302, 303, 307, 308].includes(response.status)) {
+            const location = response.headers.get("location");
+            await response.body?.cancel().catch(() => {});
+            let target;
+            try {
+              target = new URL(location ?? "", api);
+            } catch {
+              throw new GitHubApiError("GitHub redirected to an invalid location.", {
+                status: 502,
+              });
+            }
+            if (!archiveHostAllowed(target))
+              throw new GitHubApiError("GitHub redirected to an unexpected host.", {
+                status: 502,
+                code: "redirect_refused",
+              });
+            // NO Authorization header: the redirect URL is pre-signed and the token must never reach another host.
+            response = await fetchImpl(target, {
+              headers: { "User-Agent": "QmentisAI-GitHub-App" },
+              redirect: "manual",
+              signal: abort,
+            });
+          }
+        } catch (error) {
+          if (error instanceof GitHubApiError) throw error;
+          throw unreachable(error);
+        }
+        if (!response.ok || !response.body) throw await failure(response);
+        return Readable.fromWeb(response.body);
+      },
+
+      /** Drops the token. The session is unusable afterwards. */
+      close() {
+        token = null;
+      },
+    });
+  }
+
   return Object.freeze({
     provider: "github",
     tokenCache: tokens,
+    openSourceSession,
     /** URL where a user installs the App. No `state`: GitHub documents none on the setup redirect (spike D4). */
     buildInstallUrl: () => `${web}/apps/${encodeURIComponent(appSlug ?? "")}/installations/new`,
     /** GitHub authorize URL carrying OUR single-use state (documented for the web application flow). */

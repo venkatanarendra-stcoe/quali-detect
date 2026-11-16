@@ -1,11 +1,12 @@
 import { EventEmitter } from "node:events";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   PIPELINE_TRIGGERS_BINDINGS,
   QUEUE_NAMES,
   SCM_EVENTS_EXCHANGE,
   createEventEnvelope,
   createJobEnvelope,
+  parseMessage,
 } from "@qmentisai/contracts";
 import { createOutboxRepository } from "@qmentisai/db";
 import {
@@ -442,6 +443,271 @@ export const BROKER_CHECKS = [
         problems.push("the API publisher declared nothing at startup");
       for (const [who, snap] of Object.entries(snapshots))
         if (snap !== reference) problems.push(`${who} declared a different topology than the API`);
+      return problems;
+    },
+  },
+  {
+    id: "BRK-005",
+    name: "the shared topology contains the realtime and scan-untrusted queues (main, every retry tier, dead-letter queue) and every process that touches the broker declares them (API publisher, relay, a worker consumer of each); the relay publishes to them with mandatory confirms (both routed), and a publish nobody can route is never confirmed or marked sent",
+    async run(w) {
+      const problems = [];
+      const extra = [QUEUE_NAMES.REALTIME, QUEUE_NAMES.SCAN_UNTRUSTED];
+      for (const queue of extra)
+        if (!BROKER_TOPOLOGY.queues.some((q) => q.queue === queue))
+          problems.push(`the shared topology has no ${queue} queue`);
+      const reference = createFakeBroker();
+      const declarer = createPublisher({ connection: reference.connection, logger: quiet });
+      await declarer.declareTopology();
+      for (const queue of extra) {
+        const names = [mainQueueName(queue), deadLetterQueueName(queue)];
+        for (let tier = 1; tier < policy.maxAttempts; tier += 1)
+          names.push(`qmentis.${queue}.retry.${tier}`);
+        for (const name of names)
+          if (!reference.state.queues.has(name)) problems.push(`${name} is not declared`);
+      }
+      await declarer.close();
+      // a consumer of each declares the same topology
+      for (const queue of extra) {
+        const b = createFakeBroker();
+        const c = createConsumer({
+          connection: b.connection,
+          queue,
+          handler: async () => {},
+          logger: quiet,
+        });
+        await c.start();
+        if (b.snapshot() !== reference.snapshot())
+          problems.push(`a ${queue} consumer declared a different topology`);
+        await c.stop({ timeoutMs: 100 });
+      }
+      // the relay publishes real messages to both, mandatory with confirms
+      await parkOthers(w.db);
+      const tenant = await w.db.tenant.create({
+        data: { slug: `brk5-${rand()}`, name: "BRK-005" },
+      });
+      const ids = {
+        executionId: randomUUID(),
+        pipelineId: randomUUID(),
+        repositoryId: randomUUID(),
+        workspaceId: randomUUID(),
+        taskId: randomUUID(),
+      };
+      const status = createEventEnvelope({
+        messageId: `brk5-status-${rand()}`,
+        type: "pipeline.execution.status_changed",
+        schemaVersion: 1,
+        tenantId: tenant.id,
+        subject: { type: "execution", id: ids.executionId },
+        initiator: { type: "system", id: "suite" },
+        payload: {
+          executionId: ids.executionId,
+          workspaceId: ids.workspaceId,
+          pipelineId: ids.pipelineId,
+          status: "running",
+          rev: 2,
+        },
+      });
+      const task = createJobEnvelope({
+        messageId: `brk5-task-${rand()}`,
+        type: "scan.task.requested",
+        schemaVersion: 1,
+        tenantId: tenant.id,
+        taskId: ids.taskId,
+        initiator: { type: "system", id: "suite" },
+        payload: {
+          executionId: ids.executionId,
+          taskId: ids.taskId,
+          scanType: "sca",
+          attempt: 0,
+          pipelineId: ids.pipelineId,
+          repositoryId: ids.repositoryId,
+          workspaceId: ids.workspaceId,
+          trust: "untrusted_fork",
+          deadlineAt: null,
+        },
+      });
+      const broker = createFakeBroker();
+      const { publisher, relay } = await relayFor(w, broker);
+      await publisher.declareTopology();
+      await w.db.$transaction(async (tx) => {
+        await w.outbox.enqueue(tx, { queue: QUEUE_NAMES.REALTIME, message: status });
+        await w.outbox.enqueue(tx, { queue: QUEUE_NAMES.SCAN_UNTRUSTED, message: task });
+      });
+      await relay.runOnce();
+      if (broker.depth(mainQueueName(QUEUE_NAMES.REALTIME)) !== 1)
+        problems.push("the hint did not reach the realtime queue");
+      if (broker.depth(mainQueueName(QUEUE_NAMES.SCAN_UNTRUSTED)) !== 1)
+        problems.push("the task did not reach the scan-untrusted queue");
+      if (broker.depth(mainQueueName(QUEUE_NAMES.SCAN)) !== 0)
+        problems.push("an untrusted task reached the trusted scan queue");
+      for (const m of [status, task])
+        if ((await rowOf(w.db, m.messageId)).status !== "sent")
+          problems.push(`${m.type} was not marked sent`);
+      // unroutable: the queues are gone, the publish is returned, the row stays pending
+      broker.wipe();
+      const again = createEventEnvelope({ ...status, messageId: `brk5-again-${rand()}` });
+      await w.db.$transaction((tx) =>
+        w.outbox.enqueue(tx, { queue: QUEUE_NAMES.REALTIME, message: again }),
+      );
+      const lost = await relay.runOnce();
+      const row = await rowOf(w.db, again.messageId);
+      if (lost.sent !== 0 || row.status === "sent" || !row.lastError)
+        problems.push("an unroutable realtime publish was confirmed or marked sent");
+      await publisher.close();
+      await w.db.outboxMessage.updateMany({
+        where: { tenantId: tenant.id, status: "pending" },
+        data: { status: "dead" },
+      });
+      return problems;
+    },
+  },
+  {
+    id: "BRK-006",
+    name: "the execution message types are enforced by parseMessage at the producer and the consumer: each is accepted with its documented payload and refused for an unknown payload field, the wrong kind, a missing tenant on a tenant-scope type, or an out-of-enum value",
+    async run() {
+      const problems = [];
+      const id = () => randomUUID();
+      const base = { executionId: id(), pipelineId: id(), repositoryId: id(), workspaceId: id() };
+      const now = new Date().toISOString();
+      const samples = {
+        "pipeline.execution.started": [
+          "event",
+          { ...base, startedAt: now, taskCount: 4 },
+          { taskCount: 9 },
+        ],
+        "pipeline.execution.completed": [
+          "event",
+          {
+            ...base,
+            status: "partial",
+            statusReason: "tasks_incomplete",
+            scanKind: "full",
+            trust: "trusted",
+            refType: "branch",
+            refName: "main",
+            commitSha: "a".repeat(40),
+            pullRequestNumber: null,
+            configVersion: 1,
+            configHash: "h",
+            startedAt: now,
+            finishedAt: now,
+            cancelRequested: false,
+            resolutionEligible: false,
+            tasks: [],
+          },
+          { status: "cancelling" },
+        ],
+        "pipeline.execution.cancel_requested": [
+          "event",
+          {
+            executionId: base.executionId,
+            pipelineId: base.pipelineId,
+            requestedAt: now,
+            mode: "graceful",
+          },
+          { mode: "now" },
+        ],
+        "pipeline.execution.status_changed": [
+          "event",
+          {
+            executionId: base.executionId,
+            workspaceId: base.workspaceId,
+            pipelineId: base.pipelineId,
+            status: "running",
+            rev: 1,
+          },
+          { status: "cancelling" },
+        ],
+        "pipeline.execution.log_appended": [
+          "event",
+          { executionId: base.executionId, workspaceId: base.workspaceId, lastSeq: 3 },
+          { lastSeq: 0 },
+        ],
+        "scan.task.requested": [
+          "job",
+          {
+            executionId: base.executionId,
+            taskId: id(),
+            scanType: "sca",
+            attempt: 0,
+            pipelineId: base.pipelineId,
+            repositoryId: base.repositoryId,
+            workspaceId: base.workspaceId,
+            trust: "trusted",
+            deadlineAt: null,
+          },
+          { scanType: "dast" },
+        ],
+        "scan.task.completed": [
+          "event",
+          {
+            executionId: base.executionId,
+            taskId: id(),
+            scanType: "sca",
+            attempt: 0,
+            status: "succeeded",
+            resultId: null,
+          },
+          { status: "running" },
+        ],
+        "scan.task.status_changed": [
+          "event",
+          {
+            executionId: base.executionId,
+            taskId: id(),
+            workspaceId: base.workspaceId,
+            scanType: "sca",
+            status: "queued",
+            rev: 1,
+          },
+          { status: "weird" },
+        ],
+      };
+      const build = (type, kind, payload, over = {}) => ({
+        envelopeVersion: 1,
+        messageId: `brk6-${rand()}`,
+        type,
+        schemaVersion: 1,
+        tenantId: id(),
+        correlationId: "c",
+        occurredAt: now,
+        initiator: { type: "system", id: "suite" },
+        kind,
+        payload,
+        ...(kind === "event" ? { subject: { type: "execution", id: base.executionId } } : {}),
+        ...over,
+      });
+      const refuses = (label, raw) => {
+        try {
+          parseMessage(raw);
+          problems.push(`${label} was accepted`);
+        } catch {
+          /* refused */
+        }
+      };
+      for (const [type, [kind, payload, bad]] of Object.entries(samples)) {
+        try {
+          parseMessage(build(type, kind, payload));
+        } catch (error) {
+          problems.push(
+            `control: ${type} with its documented payload was refused (${error.message})`,
+          );
+        }
+        refuses(`${type} with an unknown field`, build(type, kind, { ...payload, token: "x" }));
+        refuses(
+          `${type} as the wrong kind`,
+          build(
+            type,
+            kind === "job" ? "event" : "job",
+            payload,
+            kind === "job"
+              ? { subject: { type: "execution", id: base.executionId } }
+              : { taskId: id() },
+          ),
+        );
+        refuses(`${type} without a tenant`, build(type, kind, payload, { tenantId: undefined }));
+        refuses(`${type} with an out-of-range value`, build(type, kind, { ...payload, ...bad }));
+      }
       return problems;
     },
   },

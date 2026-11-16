@@ -1,3 +1,4 @@
+import path from "node:path";
 import { readGitHubAppConfig } from "@qmentisai/infra";
 import { z } from "zod";
 
@@ -30,6 +31,32 @@ const envSchema = z.object({
   PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS: z.coerce.number().int().min(0).max(86400).default(120),
   // Same name and default as the API: the window of the per-slot jitter `hash(triggerId + slot) mod window` (both sides must agree).
   PIPELINE_SCHEDULE_JITTER_SECONDS: z.coerce.number().int().min(0).max(3600).default(300),
+  // Execution orchestrator (docs/modules/executions/SPEC.md part C). OFF BY DEFAULT (EXEC-026, EQ-7a): with the flag off the
+  // `pipeline` queue keeps its no-op handler and nothing claims a queued execution. All values are platform settings.
+  EXECUTION_ORCHESTRATOR_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Lease and heartbeat (ER-27): the database clock is the only clock; TTL must exceed 3 x heartbeat (checked below).
+  EXECUTION_HEARTBEAT_SECONDS: z.coerce.number().int().min(1).max(300).default(10),
+  EXECUTION_LEASE_TTL_SECONDS: z.coerce.number().int().min(4).max(3600).default(60),
+  // One setting for ER-9 (`EXECUTION_QUEUE_MAX_AGE_SECONDS`, accepted as an alias) and ER-31/ER-32.
+  EXECUTION_STALE_QUEUE_THRESHOLD_SECONDS: z.coerce.number().int().min(60).max(31536000).optional(),
+  EXECUTION_QUEUE_MAX_AGE_SECONDS: z.coerce.number().int().min(60).max(31536000).optional(),
+  EXECUTION_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(15),
+  EXECUTION_SWEEP_MAX_PER_TENANT_PER_TICK: z.coerce.number().int().min(1).max(100).default(5),
+  EXECUTION_SWEEP_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
+  EXECUTION_TASK_PARALLELISM: z.coerce.number().int().min(1).max(4).default(2),
+  EXECUTION_TASK_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(2),
+  EXECUTION_MAX_RECLAIMS: z.coerce.number().int().min(0).max(10).default(2),
+  EXECUTION_PREPARE_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  EXECUTION_PREPARE_RETRY_DELAY_MS: z.coerce.number().int().min(0).max(60000).default(1000),
+  // Archive hand-off: the fetch step stores the archive under this ABSOLUTE root (tenant and execution in every path, mode 0700).
+  ARTIFACT_STORE_ROOT: z.string().optional(),
+  EXECUTION_ARCHIVE_MAX_BYTES: z.coerce.number().int().min(1024).default(209715200),
+  EXECUTION_ARCHIVE_MAX_ENTRIES: z.coerce.number().int().min(1).default(100000),
+  EXECUTION_ARCHIVE_MAX_FILE_BYTES: z.coerce.number().int().min(1024).default(52428800),
+  EXECUTION_ARCHIVE_MAX_EXPANDED_BYTES: z.coerce.number().int().min(1024).default(1073741824),
+  EXECUTION_ARCHIVE_MAX_RATIO: z.coerce.number().int().min(2).max(10000).default(200),
+  EXECUTION_ARCHIVE_MAX_DEPTH: z.coerce.number().int().min(1).max(256).default(64),
+  EXECUTION_MAX_RESULT_ITEMS_PER_TASK: z.coerce.number().int().min(1).max(1000000).default(50000),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -53,7 +80,7 @@ export class ConfigError extends Error {
  * Validates the worker environment (fail fast). Pure: pass the environment explicitly.
  * @param {Record<string, string | undefined>} [env]
  */
-export function loadWorkerConfig(env = process.env) {
+export function loadWorkerConfig(env = process.env, { workerName } = {}) {
   const result = envSchema.safeParse(env);
   if (!result.success) {
     throw new ConfigError(
@@ -73,8 +100,49 @@ export function loadWorkerConfig(env = process.env) {
       { variable: "WORKER_RETRY_MAX_DELAY_MS", message: "must be >= WORKER_RETRY_BASE_DELAY_MS" },
     ]);
   }
-  const github = readGitHubAppConfig(env, { production: e.NODE_ENV === "production" });
+  // ER-5: the scan worker neither requires nor accepts GitHub App or SecretStore settings, so the process holds no credential
+  // handle at all (the variables may exist in a shared environment; this process never reads them).
+  const github =
+    workerName === "scan"
+      ? { enabled: false, problems: [], config: null }
+      : readGitHubAppConfig(env, { production: e.NODE_ENV === "production" });
   if (github.problems.length > 0) throw new ConfigError(github.problems);
+  const executionProblems = [];
+  if (e.EXECUTION_LEASE_TTL_SECONDS <= 3 * e.EXECUTION_HEARTBEAT_SECONDS)
+    executionProblems.push({
+      variable: "EXECUTION_LEASE_TTL_SECONDS",
+      message: "must be greater than 3 x EXECUTION_HEARTBEAT_SECONDS",
+    });
+  if (
+    e.EXECUTION_STALE_QUEUE_THRESHOLD_SECONDS !== undefined &&
+    e.EXECUTION_QUEUE_MAX_AGE_SECONDS !== undefined &&
+    e.EXECUTION_STALE_QUEUE_THRESHOLD_SECONDS !== e.EXECUTION_QUEUE_MAX_AGE_SECONDS
+  )
+    executionProblems.push({
+      variable: "EXECUTION_QUEUE_MAX_AGE_SECONDS",
+      message:
+        "is the same setting as EXECUTION_STALE_QUEUE_THRESHOLD_SECONDS; set one or make them equal",
+    });
+  const orchestratorEnabled = e.EXECUTION_ORCHESTRATOR_ENABLED === "true";
+  if (orchestratorEnabled) {
+    if (!e.DATABASE_URL)
+      executionProblems.push({
+        variable: "DATABASE_URL",
+        message: "required while EXECUTION_ORCHESTRATOR_ENABLED=true",
+      });
+    if (!e.ARTIFACT_STORE_ROOT || !path.isAbsolute(e.ARTIFACT_STORE_ROOT))
+      executionProblems.push({
+        variable: "ARTIFACT_STORE_ROOT",
+        message: "an absolute path is required while EXECUTION_ORCHESTRATOR_ENABLED=true",
+      });
+    if (workerName === "pipeline" && !github.enabled)
+      executionProblems.push({
+        variable: "GITHUB_APP_ENABLED",
+        message:
+          "the pipeline worker fetches code through the GitHub App while EXECUTION_ORCHESTRATOR_ENABLED=true",
+      });
+  }
+  if (executionProblems.length > 0) throw new ConfigError(executionProblems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
       { variable: "DATABASE_URL", message: "required (or REDIS_URL) for the idempotency store" },
@@ -115,6 +183,31 @@ export function loadWorkerConfig(env = process.env) {
         maxLatenessSeconds: e.PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS,
         onTimeGraceSeconds: e.PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS,
         jitterSeconds: e.PIPELINE_SCHEDULE_JITTER_SECONDS,
+      }),
+    }),
+    execution: Object.freeze({
+      enabled: orchestratorEnabled,
+      heartbeatSeconds: e.EXECUTION_HEARTBEAT_SECONDS,
+      leaseTtlSeconds: e.EXECUTION_LEASE_TTL_SECONDS,
+      staleThresholdSeconds:
+        e.EXECUTION_STALE_QUEUE_THRESHOLD_SECONDS ?? e.EXECUTION_QUEUE_MAX_AGE_SECONDS ?? 86400,
+      sweepIntervalSeconds: e.EXECUTION_SWEEP_INTERVAL_SECONDS,
+      maxPerTenantPerTick: e.EXECUTION_SWEEP_MAX_PER_TENANT_PER_TICK,
+      sweepBatchSize: e.EXECUTION_SWEEP_BATCH_SIZE,
+      taskParallelism: e.EXECUTION_TASK_PARALLELISM,
+      taskMaxAttempts: e.EXECUTION_TASK_MAX_ATTEMPTS,
+      maxReclaims: e.EXECUTION_MAX_RECLAIMS,
+      prepareMaxAttempts: e.EXECUTION_PREPARE_MAX_ATTEMPTS,
+      prepareRetryDelayMs: e.EXECUTION_PREPARE_RETRY_DELAY_MS,
+      artifactStoreRoot: e.ARTIFACT_STORE_ROOT ?? null,
+      maxResultItemsPerTask: e.EXECUTION_MAX_RESULT_ITEMS_PER_TASK,
+      archiveLimits: Object.freeze({
+        maxBytes: e.EXECUTION_ARCHIVE_MAX_BYTES,
+        maxEntries: e.EXECUTION_ARCHIVE_MAX_ENTRIES,
+        maxFileBytes: e.EXECUTION_ARCHIVE_MAX_FILE_BYTES,
+        maxTotalBytes: e.EXECUTION_ARCHIVE_MAX_EXPANDED_BYTES,
+        maxRatio: e.EXECUTION_ARCHIVE_MAX_RATIO,
+        maxDepth: e.EXECUTION_ARCHIVE_MAX_DEPTH,
       }),
     }),
     outbox: Object.freeze({

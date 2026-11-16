@@ -23,7 +23,43 @@ const linkInTenant = async (db, message) =>
     }),
   );
 
+/**
+ * Execution messages (docs/modules/executions/SPEC.md §9.1, EXEC-020): the execution must exist IN THE MESSAGE'S TENANT with
+ * exactly the pipeline, repository and workspace the payload states (and the envelope, when it states them too); for
+ * `scan.task.*` the task must belong to that execution in the tenant. A mismatch is `resource-not-in-tenant`.
+ */
+const STATED_CHAIN = ["pipelineId", "repositoryId", "workspaceId"];
+const executionInChain = async (db, message) => {
+  const { payload } = message;
+  for (const key of ["executionId", ...STATED_CHAIN])
+    if (message[key] !== undefined && payload[key] !== undefined && message[key] !== payload[key])
+      return false;
+  const where = { id: payload.executionId, tenantId: message.tenantId };
+  for (const key of STATED_CHAIN) if (payload[key] !== undefined) where[key] = payload[key];
+  return Boolean(await db.execution.findFirst({ where, select: { id: true } }));
+};
+const taskInChain = async (db, message) => {
+  if (!(await executionInChain(db, message))) return false;
+  const { payload } = message;
+  const where = {
+    id: payload.taskId,
+    tenantId: message.tenantId,
+    executionId: payload.executionId,
+  };
+  for (const key of STATED_CHAIN) if (payload[key] !== undefined) where[key] = payload[key];
+  if (payload.scanType !== undefined) where.scanType = payload.scanType;
+  return Boolean(await db.scanTask.findFirst({ where, select: { id: true } }));
+};
+
 const RESOURCE_CHECKS = {
+  "pipeline.execution.started": executionInChain,
+  "pipeline.execution.completed": executionInChain,
+  "pipeline.execution.cancel_requested": executionInChain,
+  "pipeline.execution.status_changed": executionInChain,
+  "pipeline.execution.log_appended": executionInChain,
+  "scan.task.requested": taskInChain,
+  "scan.task.completed": taskInChain,
+  "scan.task.status_changed": taskInChain,
   // The account an alert is about must exist, and a tenant account must belong to the tenant of the message.
   "identity.account.throttle_cap_reached": async (db, message) => {
     const { audience, accountId } = message.payload;
@@ -61,22 +97,9 @@ const RESOURCE_CHECKS = {
       ids.length
     );
   },
-  // A pipeline request: the pipeline must be in the tenant with the stated workspace and repository (composite chain), and the
-  // execution row must exist in the tenant for that pipeline (SPEC pipelines-triggers §9).
-  "pipeline.execution.requested": async (db, message) => {
-    const { pipelineId, workspaceId, repositoryId, executionId } = message.payload;
-    const pipeline = await db.pipeline.findFirst({
-      where: { id: pipelineId, tenantId: message.tenantId, workspaceId, repositoryId },
-      select: { id: true },
-    });
-    if (!pipeline) return false;
-    return Boolean(
-      await db.execution.findFirst({
-        where: { id: executionId, tenantId: message.tenantId, pipelineId },
-        select: { id: true },
-      }),
-    );
-  },
+  // A pipeline request (docs/modules/pipelines-triggers/SPEC.md §9): the execution must exist in the tenant with exactly the
+  // pipeline, repository and workspace the payload states (composite chain), and the envelope must agree with the payload.
+  "pipeline.execution.requested": executionInChain,
   "organization.workspace.created": async (db, message) =>
     Boolean(
       await db.workspace.findFirst({

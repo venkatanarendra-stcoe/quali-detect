@@ -16,7 +16,7 @@ import {
  * is set, else Redis), RabbitMQ connection, a consumer for the worker's
  * queue, and graceful shutdown on SIGINT/SIGTERM (stop consuming, wait for in-flight jobs up to the timeout, close
  * connections). A second signal exits immediately. Startup failures (bad config, unreachable broker) exit with code 1.
- * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean, requireTenant?: boolean}} ConsumerSpec
+ * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean | ((config: any) => boolean), requireTenant?: boolean}} ConsumerSpec
  * @param {ConsumerSpec & { name: string, additional?: ConsumerSpec[], onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options
  *   `handler` or `buildHandler` (when the handler needs the database or the config); `verifyOwnership` re-validates tenant and
  *   resource ownership against the database before the handler (needs DATABASE_URL); `additional` runs more consumers in the
@@ -36,7 +36,7 @@ export async function runWorker({
   const specs = [{ queue, handler, buildHandler, verifyOwnership, requireTenant }, ...additional];
   let config;
   try {
-    config = loadWorkerConfig();
+    config = loadWorkerConfig(process.env, { workerName: name });
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
     console.error(error.message);
@@ -44,7 +44,11 @@ export async function runWorker({
   }
 
   const logger = createWorkerLogger(config, name);
-  if (specs.some((spec) => spec.verifyOwnership) && !config.databaseUrl) {
+  const needsOwnership = (spec) =>
+    typeof spec.verifyOwnership === "function"
+      ? spec.verifyOwnership(config)
+      : spec.verifyOwnership;
+  if (specs.some(needsOwnership) && !config.databaseUrl) {
     console.error(
       "Invalid environment configuration:\n  - DATABASE_URL: required by this worker (ownership checks)",
     );
@@ -64,7 +68,7 @@ export async function runWorker({
       connection,
       queue: spec.queue,
       handler: spec.handler ?? spec.buildHandler({ db, config, logger }),
-      verify: spec.verifyOwnership ? createOwnershipVerifier({ db }) : undefined,
+      verify: needsOwnership(spec) ? createOwnershipVerifier({ db }) : undefined,
       logger,
       prefetch: config.prefetch,
       retryPolicy: config.retryPolicy,

@@ -237,6 +237,72 @@ export function createExecutionRepository({ db, entitlements }) {
     fenceExecution,
 
     /**
+     * Queued executions older than the stale threshold, oldest first (`FOR UPDATE ... SKIP LOCKED`). PLATFORM scan on purpose,
+     * identifiers only (ER-31): the first-enable sweep re-reads every row by tenant and id before it cancels it.
+     * @param {{ thresholdSeconds: number, limit?: number }} input
+     * @param {any} [client]
+     * @returns {Promise<Array<{ id: string, tenantId: string }>>}
+     */
+    async peekStaleQueued({ thresholdSeconds, limit = 50 }, client = db) {
+      const stale = seconds(thresholdSeconds, "thresholdSeconds");
+      return client.$queryRaw`
+        SELECT id, tenant_id AS "tenantId" FROM executions
+        WHERE status = 'queued' AND requested_at < now() - make_interval(secs => ${stale}::double precision)
+        ORDER BY requested_at, id LIMIT ${Math.max(1, Math.floor(limit))}
+        FOR UPDATE SKIP LOCKED`;
+    },
+
+    /**
+     * Pins the commit SHA once (null to value, ER-10), fenced by the lease. Returns the pinned SHA (the stored one when it was
+     * already set, so a resumed preparation is idempotent).
+     * @param {{ tenantId: string, executionId: string, leaseEpoch: number, commitSha: string }} input
+     * @param {any} [client]
+     */
+    async pinCommit({ tenantId, executionId, leaseEpoch, commitSha }, client = db) {
+      return withTransaction(client, async (tx) => {
+        await fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
+        await tx.$executeRaw`
+          UPDATE executions SET commit_sha = ${commitSha}, updated_at = now()
+          WHERE id = ${executionId}::uuid AND tenant_id = ${tenantId}::uuid AND commit_sha IS NULL`;
+        const row = await tx.execution.findFirst({
+          where: { id: executionId, tenantId },
+          select: { commitSha: true },
+        });
+        return row?.commitSha ?? null;
+      });
+    },
+
+    /**
+     * Records the archive facts once (null to value, only while preparing), fenced by the lease.
+     * @param {{ tenantId: string, executionId: string, leaseEpoch: number, sha256: string, bytes: number }} input
+     * @param {any} [client]
+     * @returns {Promise<boolean>} whether this call recorded them
+     */
+    async recordArchive({ tenantId, executionId, leaseEpoch, sha256, bytes }, client = db) {
+      return withTransaction(client, async (tx) => {
+        await fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
+        const count = await tx.$executeRaw`
+          UPDATE executions SET archive_sha256 = ${sha256}, archive_bytes = ${bytes}::bigint, updated_at = now()
+          WHERE id = ${executionId}::uuid AND tenant_id = ${tenantId}::uuid AND archive_sha256 IS NULL AND status = 'preparing'`;
+        return count === 1;
+      });
+    },
+
+    /**
+     * Seconds until the deadline and until the lease expires, by the DATABASE clock (a worker never uses its own).
+     * @param {{ tenantId: string, executionId: string }} input
+     * @param {any} [client]
+     * @returns {Promise<null | { secondsToDeadline: number | null, status: string, leaseEpoch: number, cancelRequestedAt: Date | null, cancelMode: string | null }>}
+     */
+    async readLifecycle({ tenantId, executionId }, client = db) {
+      const rows = await client.$queryRaw`
+        SELECT extract(epoch FROM (deadline_at - now()))::float AS "secondsToDeadline", status::text AS status, lease_epoch AS "leaseEpoch",
+               cancel_requested_at AS "cancelRequestedAt", cancel_mode::text AS "cancelMode"
+        FROM executions WHERE id = ${executionId}::uuid AND tenant_id = ${tenantId}::uuid`;
+      return rows[0] ?? null;
+    },
+
+    /**
      * A status change by compare-and-set (EXEC-003, ER-20): the statement matches only `from` (and, for `preparing`/`running`,
      * the held `leaseEpoch`), so of two racing terminal transitions exactly one wins and the loser changes nothing and records
      * nothing. A lease is cleared in the statement that makes the row terminal. The `transition` event row is written by the

@@ -20,6 +20,14 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
     codes: new Map(), // code -> { user:{id,login}, installationIds:[], orgRoles:{org:{role,state}} }
     userTokens: new Map(), // token -> code record
     installationTokens: new Map(), // token -> installation id
+    tokenScopes: new Map(), // token -> { installationId, repositories, permissions } (what the token was minted for)
+    mintedTokens: [], // every installation token handed out, in order (the suite proves none of them leaks)
+    refs: new Map(), // `${fullName}@${ref}` -> sha
+    archives: new Map(), // `${fullName}@${sha}` -> Buffer (tar.gz)
+    codeload: new Map(), // path -> Buffer
+    tarballRequests: [], // { fullName, sha, scoped, permissions }
+    codeloadRequests: [], // { hasAuthorization }
+    failures: [], // { match, status, times }: injected failures for the next matching requests
     deliveries: [], // { id, guid, status_code, redelivery, delivered_at, event, action, installation_id, body, headers }
     redeliveries: [],
     requests: [],
@@ -142,9 +150,41 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
           })),
         });
       if (path === "/__control/requests") return send(res, 200, { requests: state.requests });
+      if (path === "/__control/ref") {
+        state.refs.set(`${body.fullName}@${body.ref}`, body.sha);
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/__control/archive") {
+        state.archives.set(`${body.fullName}@${body.sha}`, Buffer.from(body.base64, "base64"));
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/__control/fail") {
+        state.failures.push({ match: body.match, status: body.status, times: body.times ?? 1 });
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/__control/source-calls")
+        return send(res, 200, {
+          tarballs: state.tarballRequests,
+          codeload: state.codeloadRequests,
+          minted: state.mintedTokens,
+        });
       if (path === "/__control/reset") {
-        for (const key of ["installations", "repos", "codes", "userTokens", "installationTokens"])
+        for (const key of [
+          "installations",
+          "repos",
+          "codes",
+          "userTokens",
+          "installationTokens",
+          "tokenScopes",
+          "refs",
+          "archives",
+          "codeload",
+        ])
           state[key].clear();
+        state.mintedTokens = [];
+        state.tarballRequests = [];
+        state.codeloadRequests = [];
+        state.failures = [];
         state.deliveries = [];
         state.redeliveries = [];
         state.requests = [];
@@ -203,10 +243,18 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       if (!state.installations.get(m[1])) return send(res, 404, { message: "Not Found" });
       const token = `ghs_stub_${randomBytes(12).toString("hex")}`;
       state.installationTokens.set(token, m[1]);
+      const requested = json();
+      const scope = {
+        installationId: m[1],
+        repositories: requested.repositories ?? null,
+        permissions: requested.permissions ?? null,
+      };
+      state.tokenScopes.set(token, scope);
+      state.mintedTokens.push({ token, ...scope });
       return send(res, 201, {
         token,
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
-        permissions: {},
+        permissions: requested.permissions ?? {},
       });
     }
     if (path === "/app/hook/deliveries" && req.method === "GET") {
@@ -253,6 +301,49 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
         })
         .catch(() => {});
       return send(res, 202, {});
+    }
+
+    // ------------------------------------------------------------ source endpoints (executions part C)
+    // The archive is served like GitHub does: the API answers 302 to a pre-signed "codeload" URL that needs NO Authorization.
+    if (path.startsWith("/__codeload/")) {
+      state.codeloadRequests.push({ hasAuthorization: Boolean(req.headers.authorization) });
+      const body = state.codeload.get(path);
+      if (!body) return send(res, 404, { message: "Not Found" });
+      res.writeHead(200, { "content-type": "application/x-gzip", "content-length": body.length });
+      return res.end(body);
+    }
+    const injected = state.failures.find((f) => path.includes(f.match) && f.times > 0);
+    if (injected && path.startsWith("/repos/")) {
+      injected.times -= 1;
+      return send(res, injected.status, { message: "injected failure" });
+    }
+    const tokenScope = state.tokenScopes.get(bearer(req));
+    const sourceMatch = /^\/repos\/([^/]+\/[^/]+)\/(tarball|commits)\/(.+)$/.exec(path);
+    if (sourceMatch && req.method === "GET") {
+      const [, fullName, kind, rest] = sourceMatch;
+      const name = fullName.split("/")[1];
+      if (!tokenScope) return send(res, 401, { message: "Bad credentials" });
+      // a token restricted to other repositories, or without contents access, sees nothing (like GitHub: 404)
+      const allowed =
+        (!tokenScope.repositories || tokenScope.repositories.includes(name)) &&
+        (!tokenScope.permissions || tokenScope.permissions.contents === "read");
+      if (!allowed) return send(res, 404, { message: "Not Found" });
+      if (kind === "commits") {
+        const sha = state.refs.get(`${fullName}@${decodeURIComponent(rest)}`);
+        return sha ? send(res, 200, { sha }) : send(res, 404, { message: "Not Found" });
+      }
+      state.tarballRequests.push({
+        fullName,
+        sha: rest,
+        scoped: Boolean(tokenScope.repositories),
+        permissions: tokenScope.permissions,
+      });
+      const archive = state.archives.get(`${fullName}@${rest}`);
+      if (!archive) return send(res, 404, { message: "Not Found" });
+      const target = `/__codeload/${randomBytes(8).toString("hex")}`;
+      state.codeload.set(target, archive);
+      res.writeHead(302, { location: `http://${req.headers.host}${target}` });
+      return res.end();
     }
 
     // ------------------------------------------------------------ installation-token endpoints

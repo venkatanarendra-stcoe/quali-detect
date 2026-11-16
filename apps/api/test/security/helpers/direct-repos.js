@@ -8,9 +8,11 @@ import {
   createEntitlementRepository,
   createExecutionIdempotency,
   createExecutionRepository,
+  createScanTaskRepository,
   executionStepKey,
 } from "@qmentisai/db";
 import { NonRetryableError, createOutbox } from "@qmentisai/infra";
+import { driveExecution } from "./execution-db.js";
 import { createAuthzRepository } from "../../../src/authz/repository.js";
 import { createGroupRepository } from "../../../src/modules/groups/repositories/index.js";
 import { createAuditLogRepository } from "../../../src/modules/audit-logs/repositories/index.js";
@@ -440,6 +442,50 @@ export async function buildDalWorld(db) {
   await db.$executeRaw`
     UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-lost-worker',
       lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '200 milliseconds' WHERE id = ${exExpired.id}::uuid`;
+  // orchestrator fixtures (part C, DAL-235..): a queued task and a running task (its lease expires by the time the entries run) of
+  // the running execution, a result of the running task, and a stale queued request
+  const taskBase = {
+    tenantId: X.id,
+    workspaceId: plRunning.workspaceId,
+    repositoryId: plRunning.repositoryId,
+    pipelineId: plRunning.pipelineId,
+    executionId: plRunning.id,
+    ordinal: 0,
+    engineId: "dal",
+    engineProfile: "dal",
+    severityThreshold: "low",
+    timeoutSeconds: 60,
+  };
+  const taskRunning = await db.scanTask.create({
+    data: { ...taskBase, scanType: "sca", status: "queued" },
+  });
+  await db.$executeRaw`
+    UPDATE scan_tasks SET status = 'running', lease_owner = 'dal-task-worker', heartbeat_at = now(), lease_expires_at = now() + interval '200 milliseconds'
+    WHERE id = ${taskRunning.id}::uuid`;
+  const taskQueued = await db.scanTask.create({
+    data: { ...taskBase, scanType: "sbom", ordinal: 1, status: "queued" },
+  });
+  await db.scanResult.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: taskBase.workspaceId,
+      repositoryId: taskBase.repositoryId,
+      pipelineId: taskBase.pipelineId,
+      executionId: plRunning.id,
+      scanTaskId: taskRunning.id,
+      attempt: 0,
+      scanType: "sca",
+      engineId: "dal",
+      engineVersion: "1",
+      completeness: "complete",
+    },
+  });
+  await db.execution.create({
+    data: executionData({
+      concurrencyGroup: "manual:ex-stale",
+      requestedAt: new Date(Date.now() - 500 * 86400_000),
+    }),
+  });
   await new Promise((resolve) => setTimeout(resolve, 400));
   // the schedule handler's fixtures (part E): one due schedule trigger, one without a planned time, and the request of a slot
   const plSchedule = await db.pipelineTrigger.create({
@@ -512,6 +558,8 @@ export async function buildDalWorld(db) {
     runningId: plRunning.id,
     exQueuedId: exQueued.id,
     exExpiredId: exExpired.id,
+    taskRunningId: taskRunning.id,
+    taskQueuedId: taskQueued.id,
     decisionId: plDecision.id,
     pushEvent: plPushEvent,
     pushExecution: plPushExecution,
@@ -678,6 +726,7 @@ export async function buildDalWorld(db) {
     users: createUserRepository({ db }),
     preferences: createUserPreferenceRepository({ db }),
     executions: createExecutionRepository({ db }),
+    tasks: createScanTaskRepository({ db }),
     executionIdempotency: createExecutionIdempotency({ db }),
     workspaceMembers: createWorkspaceMemberRepository({ db }),
     workspaces: createWorkspaceRepository({ db }),
@@ -3525,6 +3574,295 @@ export function buildDalEntries() {
           observedEpoch: 1,
           leaseTtlSeconds: 60,
         }),
+    },
+  );
+
+  // ----- scan tasks, attempts and results (part C, DAL-235..): the task helpers of @qmentisai/db and the orchestrator's execution
+  // helpers. Tenant Y presents tenant X's running execution and tasks; controls use scratch rows of X so they cannot disturb later entries.
+  const TK = (c) => c.repos.tasks;
+  const scratch = async (c, taskStatus) => {
+    const e = await c.db.execution.create({
+      data: c.pl.executionData({ concurrencyGroup: `scratch-${rand()}` }),
+    });
+    await driveExecution(c.db, e.id, taskStatus === "preparing" ? "preparing" : "running");
+    if (taskStatus === "preparing") return { e };
+    const task = await c.db.scanTask.create({
+      data: {
+        tenantId: c.x,
+        workspaceId: e.workspaceId,
+        repositoryId: e.repositoryId,
+        pipelineId: e.pipelineId,
+        executionId: e.id,
+        scanType: "sca",
+        ordinal: 0,
+        status: taskStatus === "pending" ? "pending" : "queued",
+        engineId: "dal",
+        engineProfile: "dal",
+        severityThreshold: "low",
+        timeoutSeconds: 60,
+      },
+    });
+    if (taskStatus === "running")
+      await c.db
+        .$executeRaw`UPDATE scan_tasks SET status = 'running', lease_owner = 'dal-task-worker', heartbeat_at = now(), lease_expires_at = now() + interval '1 hour' WHERE id = ${task.id}::uuid`;
+    return { e, task };
+  };
+  const fenceRefused = () => ["the fence accepted another tenant's execution"];
+  E(
+    "executions.peekStaleQueued (platform scan: identifiers only)",
+    (c) => EX(c).peekStaleQueued({ thresholdSeconds: 400 * 86400, limit: 10000 }),
+    {
+      verify: (rows) =>
+        rows.filter((r) => Object.keys(r).sort().join() !== "id,tenantId").length
+          ? ["a peek row carries more than identifiers"]
+          : [],
+      control: async (c) =>
+        (await EX(c).peekStaleQueued({ thresholdSeconds: 400 * 86400, limit: 10000 })).length,
+    },
+  );
+  E(
+    "executions.readLifecycle",
+    (c) => EX(c).readLifecycle({ tenantId: c.y, executionId: c.pl.runningId }),
+    {
+      control: (c) => EX(c).readLifecycle({ tenantId: c.x, executionId: c.pl.runningId }),
+    },
+  );
+  E(
+    "executions.pinCommit",
+    (c) =>
+      EX(c).pinCommit({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        leaseEpoch: 1,
+        commitSha: "c".repeat(40),
+      }),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) =>
+        EX(c).pinCommit({
+          tenantId: c.x,
+          executionId: (await scratch(c, "running")).e.id,
+          leaseEpoch: 1,
+          commitSha: "c".repeat(40),
+        }),
+    },
+  );
+  E(
+    "executions.recordArchive",
+    (c) =>
+      EX(c).recordArchive({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        leaseEpoch: 1,
+        sha256: "d".repeat(64),
+        bytes: 5,
+      }),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) =>
+        EX(c).recordArchive({
+          tenantId: c.x,
+          executionId: (await scratch(c, "preparing")).e.id,
+          leaseEpoch: 1,
+          sha256: "d".repeat(64),
+          bytes: 5,
+        }),
+    },
+  );
+  E("tasks.listTasks", (c) => TK(c).listTasks({ tenantId: c.y, executionId: c.pl.runningId }), {
+    control: (c) => TK(c).listTasks({ tenantId: c.x, executionId: c.pl.runningId }),
+  });
+  E("tasks.listResults", (c) => TK(c).listResults({ tenantId: c.y, executionId: c.pl.runningId }), {
+    control: (c) => TK(c).listResults({ tenantId: c.x, executionId: c.pl.runningId }),
+  });
+  E(
+    "tasks.listExpiredTaskLeases",
+    (c) => TK(c).listExpiredTaskLeases({ tenantId: c.y, executionId: c.pl.runningId }),
+    {
+      control: (c) => TK(c).listExpiredTaskLeases({ tenantId: c.x, executionId: c.pl.runningId }),
+    },
+  );
+  E(
+    "tasks.createTasks",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).createTasks(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, tasks: [] },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) =>
+        inTx(c, async (tx) =>
+          TK(c).createTasks(
+            {
+              tenantId: c.x,
+              executionId: (await scratch(c, "preparing")).e.id,
+              leaseEpoch: 1,
+              tasks: [],
+            },
+            tx,
+          ),
+        ),
+    },
+  );
+  E(
+    "tasks.queuePending",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).queuePending(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, limit: 2 },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "pending");
+        return inTx(c, (tx) =>
+          TK(c).queuePending({ tenantId: c.x, executionId: e.id, leaseEpoch: 1, limit: 2 }, tx),
+        );
+      },
+    },
+  );
+  E(
+    "tasks.closeOutTasks",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).closeOutTasks(
+          {
+            tenantId: c.y,
+            executionId: c.pl.runningId,
+            leaseEpoch: 1,
+            runningTo: "cancelled",
+            pendingTo: "cancelled",
+            reason: "dal",
+            errorClass: "cancelled",
+            errorCode: "dal",
+          },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "running");
+        return inTx(c, (tx) =>
+          TK(c).closeOutTasks(
+            {
+              tenantId: c.x,
+              executionId: e.id,
+              leaseEpoch: 1,
+              runningTo: "cancelled",
+              pendingTo: "cancelled",
+              reason: "dal",
+              errorClass: "cancelled",
+              errorCode: "dal",
+            },
+            tx,
+          ),
+        );
+      },
+    },
+  );
+  E(
+    "tasks.claimTask",
+    (c) =>
+      TK(c).claimTask({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        taskId: c.pl.taskQueuedId,
+        attempt: 0,
+        workerId: "intruder",
+        leaseTtlSeconds: 60,
+      }),
+    {
+      control: async (c) => {
+        const { e, task } = await scratch(c, "queued");
+        return TK(c).claimTask({
+          tenantId: c.x,
+          executionId: e.id,
+          taskId: task.id,
+          attempt: 0,
+          workerId: "dal-task-worker",
+          leaseTtlSeconds: 60,
+        });
+      },
+    },
+  );
+  E(
+    "tasks.renewTaskLease",
+    (c) =>
+      TK(c).renewTaskLease({
+        tenantId: c.y,
+        taskId: c.pl.taskRunningId,
+        attempt: 0,
+        workerId: "dal-task-worker",
+        leaseTtlSeconds: 60,
+      }),
+    {
+      verify: notRenewed,
+      control: (c) =>
+        TK(c).renewTaskLease({
+          tenantId: c.x,
+          taskId: c.pl.taskRunningId,
+          attempt: 0,
+          workerId: "dal-task-worker",
+          leaseTtlSeconds: 60,
+        }),
+    },
+  );
+  E(
+    "tasks.finishTask",
+    (c) =>
+      TK(c).finishTask({
+        tenantId: c.y,
+        taskId: c.pl.taskRunningId,
+        attempt: 0,
+        status: "failed",
+        reason: "dal",
+      }),
+    {
+      verify: (r) => (r.finished ? ["finished another tenant's task"] : []),
+      control: async (c) => {
+        const { task } = await scratch(c, "running");
+        return TK(c).finishTask({
+          tenantId: c.x,
+          taskId: task.id,
+          attempt: 0,
+          status: "failed",
+          reason: "dal",
+        });
+      },
+    },
+  );
+  E(
+    "tasks.requeueTask",
+    (c) =>
+      TK(c).requeueTask({
+        tenantId: c.y,
+        taskId: c.pl.taskRunningId,
+        attempt: 0,
+        errorClass: "transient",
+        errorCode: "dal",
+      }),
+    {
+      control: async (c) => {
+        const { task } = await scratch(c, "running");
+        return TK(c).requeueTask({
+          tenantId: c.x,
+          taskId: task.id,
+          attempt: 0,
+          errorClass: "transient",
+          errorCode: "dal",
+        });
+      },
     },
   );
 

@@ -179,6 +179,184 @@ export const MESSAGE_TYPES = Object.freeze({
       trust: z.enum(["trusted", "untrusted_fork"]),
     }),
   }),
+  // ---- Executions and scan orchestration (docs/modules/executions/SPEC.md §9.1). IDS, ENUMS AND SHORT VALIDATED STRINGS ONLY: no
+  // token, URL with credentials, source text, commit message, PR title, log text or secret ever travels (ADR-009, ER-5). Every
+  // payload is STRICT: an unknown field is a contract violation at the producer and at the consumer.
+  "pipeline.execution.started": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        pipelineId: uuid,
+        repositoryId: uuid,
+        workspaceId: uuid,
+        startedAt: z.string().datetime(),
+        taskCount: z.number().int().min(0).max(4),
+      })
+      .strict(),
+  }),
+  /** The single terminal event of an execution (CF-4): every outcome, one message (`execution-completed-<executionId>`). */
+  "pipeline.execution.completed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        pipelineId: uuid,
+        repositoryId: uuid,
+        workspaceId: uuid,
+        status: z.enum(["succeeded", "failed", "partial", "cancelled", "timed_out"]),
+        statusReason: z
+          .string()
+          .regex(/^[a-z][a-z_:]{0,63}$/)
+          .nullable(),
+        scanKind: z.enum(["full", "incremental"]),
+        trust: z.enum(["trusted", "untrusted_fork"]),
+        refType: z.enum(["branch", "tag", "pull_request"]),
+        refName: z.string().min(1).max(255),
+        commitSha: z.string().max(64).nullable(),
+        pullRequestNumber: z.number().int().min(1).nullable(),
+        configVersion: z.number().int().min(1),
+        configHash: z.string().min(1).max(128),
+        startedAt: z.string().datetime().nullable(),
+        finishedAt: z.string().datetime(),
+        cancelRequested: z.boolean(),
+        resolutionEligible: z.boolean(),
+        tasks: z
+          .array(
+            z
+              .object({
+                taskId: uuid,
+                scanType: z.enum(["sca", "sbom", "sast", "secrets"]),
+                status: z.enum([
+                  "pending",
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "timed_out",
+                  "cancelled",
+                  "skipped",
+                ]),
+                resultId: uuid.nullable(),
+                itemCount: z.number().int().min(0),
+                completeness: z.enum(["complete", "incomplete"]).nullable(),
+              })
+              .strict(),
+          )
+          .max(4),
+      })
+      .strict(),
+  }),
+  /** Wake-up only; the `cancel_*` columns of the execution are the signal (SPEC §9.1; the handler is part D). */
+  "pipeline.execution.cancel_requested": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        pipelineId: uuid,
+        requestedAt: z.string().datetime(),
+        mode: z.enum(["graceful", "immediate"]),
+      })
+      .strict(),
+  }),
+  /** Hint for Socket.IO and nothing else (`execution-status-<executionId>-<rev>`). */
+  "pipeline.execution.status_changed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        workspaceId: uuid,
+        pipelineId: uuid,
+        status: z.enum([
+          "queued",
+          "preparing",
+          "running",
+          "succeeded",
+          "failed",
+          "partial",
+          "cancelled",
+          "timed_out",
+        ]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  /** Hint (part E emits it, at most one per task per interval); never the lines. */
+  "pipeline.execution.log_appended": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({ executionId: uuid, workspaceId: uuid, lastSeq: z.number().int().min(1) })
+      .strict(),
+  }),
+  /** One scan task attempt for the `scan` / `scan-untrusted` queue. The worker loads engine, archive key, thresholds and exclusions FROM THE DATABASE. */
+  "scan.task.requested": Object.freeze({
+    kind: "job",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        taskId: uuid,
+        scanType: z.enum(["sca", "sbom", "sast", "secrets"]),
+        attempt: z.number().int().min(0).max(9),
+        pipelineId: uuid,
+        repositoryId: uuid,
+        workspaceId: uuid,
+        trust: z.enum(["trusted", "untrusted_fork"]),
+        deadlineAt: z.string().datetime().nullable(),
+      })
+      .strict(),
+  }),
+  /** Wake-up for the aggregator; the truth is the task row. */
+  "scan.task.completed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        taskId: uuid,
+        scanType: z.enum(["sca", "sbom", "sast", "secrets"]),
+        attempt: z.number().int().min(0).max(9),
+        status: z.enum(["succeeded", "failed", "timed_out", "cancelled"]),
+        resultId: uuid.nullable(),
+      })
+      .strict(),
+  }),
+  "scan.task.status_changed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        taskId: uuid,
+        workspaceId: uuid,
+        scanType: z.enum(["sca", "sbom", "sast", "secrets"]),
+        status: z.enum([
+          "pending",
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "cancelled",
+          "skipped",
+        ]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
   /** Scheduler tick: the handler selects due schedule triggers (SPEC §6.4). Platform job, naturally idempotent per slot. */
   "pipeline.schedules.due_requested": Object.freeze({
     kind: "job",

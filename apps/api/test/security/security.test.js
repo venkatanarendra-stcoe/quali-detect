@@ -29,6 +29,8 @@ import { STATE_CHECKS, buildStateWorld } from "./helpers/repo-state.js";
 import { BROKER_CHECKS, buildBrokerWorld } from "./helpers/broker-topology.js";
 import { buildPipelineDbWorld, PIPDB_CHECKS } from "./helpers/pipeline-db.js";
 import { buildExecutionDbWorld, driveExecution, EXECDB_CHECKS } from "./helpers/execution-db.js";
+import { buildOrchestratorWorld } from "./helpers/orchestrator.js";
+import { ORCH_CHECKS } from "./helpers/orchestrator-checks.js";
 import {
   DAY_FIRES,
   NEXT_FIRES,
@@ -41,7 +43,7 @@ import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 541;
+const EXPECTED_CHECKS = 575;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10309,6 +10311,35 @@ const schWorld = () =>
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// 19. Executions: the orchestrator against the GitHub stub (ADR-008 area 10, SPEC executions §14.1, part C): the real
+//     orchestrator, scan task handler, ownership verifier and outbox run in process against the disposable database, the local
+//     GitHub stub (installation tokens, archive by SHA behind a 302) and a deterministic test engine; tenant isolation of the
+//     worker (ownership and claim re-validation), credential absence, lease reclaim and fencing, the stale-queue guarantee, the
+//     single completed event and resolutionEligible. Fixtures and checks live in helpers/orchestrator*.js. LAST on purpose: the
+//     group creates many tenants (the platform tenant list checks walk them) and its first-enable sweep cancels every older
+//     queued row of the database.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Executions: orchestrator against the GitHub stub");
+  const orchWorld = () =>
+    once("orchestrator", () =>
+      buildOrchestratorWorld(suiteDb(), {
+        stubUrl: STUB,
+        clientId: env("SECURITY_GITHUB_CLIENT_ID"),
+        privateKey: env("SECURITY_GITHUB_PRIVATE_KEY"),
+      }),
+    );
+  for (const { id, name, run } of ORCH_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await orchWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 const allChecks = groups.flatMap((g) => g.checks);
 
 /** @param {{ status: number, json: any }} response @param {Expected} expected @param {string} where */
@@ -10340,6 +10371,7 @@ function assertResponse(response, expected, where) {
 
 describe("security regression suite", () => {
   after(async () => {
+    (await memo.get("orchestrator")?.catch(() => null))?.cleanup?.();
     await secretDb?.$disconnect();
   });
   before(async () => {

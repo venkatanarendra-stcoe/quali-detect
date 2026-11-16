@@ -58,6 +58,20 @@ export function createWorkspaceService({ repository, audit, entitlements, outbox
       return toPage({ items: page.items.map(toWorkspaceDto), totalItems: page.totalItems }, query);
     },
 
+    /**
+     * Organization overview data (`GET /overview`, `dashboard.view`, tenant scope, Admin-only in the default bundles).
+     * Counts only what the caller can see; the caller's permission set decides the workspaces, never the request.
+     * @param {any} actor
+     */
+    async overview(actor) {
+      const visibleIds = visibleWorkspaceIds(actor.permissions);
+      const accessibleWorkspaces =
+        visibleIds.length === 0
+          ? 0
+          : await repository.countVisibleActive({ tenantId: actor.tenantId, visibleIds });
+      return { accessibleWorkspaces };
+    },
+
     /** @param {any} actor @param {{ name: string, description?: string | null, businessUnit?: string | null, ownerUserId?: string }} input */
     async create(actor, input) {
       const ownerUserId = input.ownerUserId ?? actor.userId;

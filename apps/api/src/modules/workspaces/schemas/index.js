@@ -12,6 +12,12 @@ export const listWorkspacesQuerySchema = createCollectionQuerySchema({
   filters: { status: z.enum(["active", "archived"]).optional(), q: searchText },
 });
 
+/** `GET /overview`: no parameters (a client-supplied tenant or workspace id is a 400, never ignored). */
+export const overviewQuerySchema = z.object({}).strict();
+export const overviewResponseSchema = createSuccessSchema(
+  z.object({ accessibleWorkspaces: z.number().int().nonnegative() }),
+);
+
 export const createWorkspaceBodySchema = z
   .object({
     name: text(120),

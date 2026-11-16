@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 115,
+  "operationCount": 116,
   "operations": [
     {
       "method": "GET",
@@ -2025,6 +2025,59 @@
         ]
       },
       "summary": "Tenants the user can switch to"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/overview",
+      "module": "workspaces",
+      "audience": "tenant",
+      "permission": "dashboard.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ accessibleWorkspaces }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Organization overview data (tenant-scope dashboard.view; Admin-only in the default bundles)"
     },
     {
       "method": "GET",

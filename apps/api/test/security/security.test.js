@@ -46,10 +46,11 @@ import {
   runPlanFixtures,
 } from "./helpers/schedule-fixtures.js";
 import { buildPaginationChecks } from "./helpers/pagination.js";
+import { buildOverviewChecks } from "./helpers/overview-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 677;
+const EXPECTED_CHECKS = 692;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10295,6 +10296,23 @@ const schWorld = () =>
     S,
     once,
     db: suiteDb,
+  }))
+    add(id, name, expected, run, verify);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 17b. Organization overview is Admin-only (docs/AUTHORIZATION.md decision 30, OVR-001..015): GET /overview needs the
+//      tenant-scope dashboard.view, which only the Admin built-in bundle holds. Per-role checks assign each built-in role at
+//      TENANT scope to a seeded user (where a tenant-scope key would otherwise become effective); helpers/overview-checks.js.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Organization overview: Admin-only dashboard.view");
+  for (const { id, name, expected, run, verify } of buildOverviewChecks({
+    S,
+    once,
+    db: suiteDb,
+    withRole,
+    loginAs,
   }))
     add(id, name, expected, run, verify);
 }

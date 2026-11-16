@@ -19,6 +19,7 @@ import { useSession } from "@/features/auth/hooks/use-session.js";
 import { PermissionGate } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { useTotal } from "@/features/directory/hooks/use-directory.js";
+import { useOverview } from "../hooks/use-overview.js";
 import { useWorkspaceList } from "@/features/workspaces/hooks/use-workspaces.js";
 
 const SHOWN = 12;
@@ -58,22 +59,22 @@ export function OverviewPage() {
   const can = useCan();
   const canSeeUsers = can("user.view");
   const list = useWorkspaceList({ pageSize: SHOWN, sort: "name:asc" });
-  const active = useWorkspaceList({ status: "active", pageSize: 1 });
+  const overview = useOverview();
   const archived = useWorkspaceList({ status: "archived", pageSize: 1 });
   const members = useTotal("users", { status: "active" }, { enabled: canSeeUsers });
   const invited = useTotal("users", { status: "invited" }, { enabled: canSeeUsers });
   const groups = useTotal("groups", {}, { enabled: can("group.view") });
   const total = list.data?.pagination?.totalItems ?? 0;
 
+  // The server decides (GET /overview needs dashboard.view); the UI guard above is for usability only.
   const workspaceTile = {
-    isPending: active.isPending,
-    isError: active.isError,
-    isSuccess: active.isSuccess,
-    data: active.data?.pagination?.totalItems ?? 0,
-    refetch: active.refetch,
+    isPending: overview.isPending,
+    isError: overview.isError,
+    isSuccess: overview.isSuccess,
+    data: overview.data?.accessibleWorkspaces ?? 0,
+    refetch: overview.refetch,
   };
   const archivedTile = {
-    ...workspaceTile,
     isPending: archived.isPending,
     isError: archived.isError,
     isSuccess: archived.isSuccess,

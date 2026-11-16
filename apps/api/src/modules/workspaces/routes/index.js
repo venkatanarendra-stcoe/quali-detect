@@ -1,6 +1,8 @@
 import { OPENAPI_TAG } from "../constants/index.js";
 import {
   createWorkspaceBodySchema,
+  overviewQuerySchema,
+  overviewResponseSchema,
   listWorkspacesQuerySchema,
   updateWorkspaceBodySchema,
   workspaceListResponseSchema,
@@ -33,6 +35,21 @@ export const workspaceRoutes = (controller, authz) =>
         },
       },
       controller.list,
+    );
+    app.get(
+      "/overview",
+      {
+        config,
+        preHandler: authz.authorize("dashboard.view"),
+        schema: {
+          tags: tag,
+          summary:
+            "Organization overview data (tenant-scope dashboard.view; Admin-only in the default bundles)",
+          querystring: overviewQuerySchema,
+          response: { 200: overviewResponseSchema },
+        },
+      },
+      controller.overview,
     );
     app.post(
       "/workspaces",

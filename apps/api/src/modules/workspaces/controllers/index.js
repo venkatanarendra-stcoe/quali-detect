@@ -8,6 +8,7 @@ export function createWorkspaceController({ service }) {
       const { items, pagination } = await service.list(actorFrom(request), request.query);
       return reply.paginated(items, pagination);
     },
+    overview: async (request, reply) => reply.success(await service.overview(actorFrom(request))),
     create: async (request, reply) =>
       reply.code(201).success(await service.create(actorFrom(request), request.body)),
     get: async (request, reply) => reply.success(toWorkspaceDto(request.authz.resource)),

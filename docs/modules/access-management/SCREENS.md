@@ -4,7 +4,7 @@ Status: **Implemented 2026-11-11** (`apps/tenant-web`, `apps/root-console`, `app
 
 | ID | Screen | Route | Route permission | Data |
 |---|---|---|---|---|
-| T-06 | Organization overview | `/overview` | `dashboard.view` | `GET /workspaces` (counts and cards), `GET /users`, `GET /groups` for tiles the user may see |
+| T-06 | Organization overview (Admin only since 2026-11-17, Confirmed; the route answers 403 to every other caller) | `/overview` | `dashboard.view` | `GET /overview` (active workspaces tile; needs `dashboard.view`), `GET /workspaces` (cards, archived count), `GET /users`, `GET /groups` for tiles the user may see |
 | T-07 | Workspaces list | `/workspaces` | `workspace.view` in any workspace | `GET /workspaces` (search, status, sort, page in the URL) |
 | T-08 | Create workspace | `/workspaces/new` | `workspace.create` | `POST /workspaces`, then `POST /workspaces/{id}/role-assignments` per grant |
 | T-40 | Members & groups | `/workspaces/{id}/members` | `workspace.view` | `GET …/members`, `GET …/role-assignments`, `POST/DELETE …` |

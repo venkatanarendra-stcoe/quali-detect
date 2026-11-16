@@ -101,7 +101,7 @@ The application shell (`apps/tenant-web/src/app/layouts/app-layout.jsx`) chooses
 
 | Group | Item | Route | Permission (tenant scope) |
 |---|---|---|---|
-| Main | Organization Overview | `/overview` | `dashboard.view` |
+| Main | Organization Overview (**Admin only**: `dashboard.view` is in the Admin bundle only, 2026-11-17, Confirmed) | `/overview` | `dashboard.view` |
 | Main | Workspaces | `/workspaces`, `/workspaces/new` | `workspace.view` (held in some workspace) |
 | Administration | Users & Groups | `/users`, `/groups` | `tenant_user.view` |
 | Administration | Integrations | `/integrations` | `integration.view` |

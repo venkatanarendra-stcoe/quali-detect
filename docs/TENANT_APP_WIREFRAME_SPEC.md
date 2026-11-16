@@ -156,8 +156,9 @@ Legend: ● visible · ◐ visible, read-only (actions hidden/disabled) · — h
 
 | Nav item | Admin | Manager | Lead | Security Analyst | Dev Lead | Developer | Guest/Viewer |
 |---|---|---|---|---|---|---|---|
-| Org Overview | ● | ● | ● | ● | ● | ● | ◐ |
+| Org Overview (Admin only, 2026-11-17, Confirmed; `dashboard.view`) | ● | — | — | — | — | — | — |
 | Workspaces | ● | ● | ● | ● | ● | ● | ◐ |
+| Account (own page, no permission; 2026-11-17) | ● | ● | ● | ● | ● | ● | ● |
 | **Administration group** | ● | — | — | — | — | — | — |
 | WS Dashboard | ● | ● | ● | ● | ● | ● | ◐ |
 | Repositories | ● | ● | ◐ | ◐ | ● | ◐ | ◐ |
@@ -259,7 +260,7 @@ Using the QmentisAI design system, create the application shell in "Organization
 ```
 RBAC variant prompt:
 ```
-Create the same Organization layout shell for a Developer user: the sidebar shows only the "MAIN" group (Organization Overview, Workspaces). The ADMINISTRATION group is completely absent, with no empty space or locked items.
+Create the same Organization layout shell for a Developer user: the sidebar shows the "MAIN" group with only Workspaces (Organization Overview is Admin-only since 2026-11-17) and the "YOU" group (Account, Sign out). The ADMINISTRATION group is completely absent, with no empty space or locked items.
 ```
 
 ### T-00b — App shell, Workspace layout

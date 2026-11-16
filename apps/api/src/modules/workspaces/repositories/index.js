@@ -26,6 +26,9 @@ export function createWorkspaceRepository({ db }) {
       ]);
       return { items, totalItems };
     },
+    /** Number of non-archived workspaces of the tenant among `visibleIds` (the id filter is never dropped). */
+    countVisibleActive: ({ tenantId, visibleIds }, client = db) =>
+      client.workspace.count({ where: { tenantId, id: { in: visibleIds }, status: "active" } }),
     findById: ({ tenantId, id }, client = db) =>
       client.workspace.findFirst({ where: { tenantId, id }, include }),
     countActive: ({ tenantId }, client = db) =>

@@ -29,7 +29,7 @@ Rules:
 
 1. **Permissions are `resource.action` ids** from one registry (`permissions.js`). Components never check role names.
 2. **Two scopes.** `tenant` permissions (e.g. `workspace.create`, `tenant_user.manage`) come only from the tenant role. `workspace` permissions are evaluated per workspace from active assignments in that workspace.
-3. **Only the tenant Admin is tenant-wide** for workspace permissions (every workspace). A tenant Manager, Lead, etc. gets only the tenant-scope permissions of its role (Manager: `dashboard.view`, `workspace.create` only; no tenant administration) and reaches data only through assignments. This **replaces** the earlier prototype rule that treated Manager as tenant-wide (deviation, see section 8).
+3. **Only the tenant Admin is tenant-wide** for workspace permissions (every workspace). A tenant Manager, Lead, etc. gets only the tenant-scope permissions of its role (Manager: `workspace.create` only since 2026-11-17, when `dashboard.view` became Admin-only, see docs/AUTHORIZATION.md decision 30; no tenant administration) and reaches data only through assignments. This **replaces** the earlier prototype rule that treated Manager as tenant-wide (deviation, see section 8).
 4. **Workspace Admin is not tenant Admin.** A workspace Admin assignment grants every workspace-scope permission in that workspace only.
 5. **Group membership alone grants nothing.** Only a group that holds a workspace role assignment produces an assignment for its members (seed: *Release Engineers* has no assignment).
 6. **Inactive grants are ignored:** non-`active` assignments and non-`active` users (suspended, invited) get no permissions and cannot sign in.
@@ -59,7 +59,7 @@ Tenant-scope columns apply to the tenant role; workspace-scope columns apply per
 
 | Permission | Scope | Admin | Manager | Lead | Security Analyst | Dev Lead | Developer | Guest / Viewer | Auditor |
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `dashboard.view` | tenant | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dashboard.view` | tenant | ✓ | | | | | | | |
 | `workspace.view` | workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `workspace.create` | tenant | ✓ | ✓ |  |  |  |  |  |  |
 | `workspace.update` | workspace | ✓ | ✓ |  |  |  |  |  |  |

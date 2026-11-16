@@ -5,6 +5,8 @@ import { permissionKeysByScope } from "./permissions.js";
  * A role is one list of keys: tenant-scope keys only count for tenant-scope assignments, workspace-scope keys count in
  * every workspace for a tenant-scope assignment and in the one workspace for a workspace-scope assignment.
  * Decision 5: the Admin bundle does not include `approval.approve` / `approval.reject`.
+ * Decision 30 (owner, 2026-11-17): `dashboard.view` (the Organization Overview) belongs to the Admin bundle ONLY; no
+ * other built-in role lists it. Workspace dashboards are gated by `workspace.view` and are unaffected.
  * @typedef {{ key: string, name: string, description: string, permissions: ReadonlyArray<string> }} RoleDefinition
  */
 
@@ -52,7 +54,6 @@ export const BUILT_IN_ROLES = Object.freeze([
     "Manager",
     "Manages workspaces, repositories and pipelines; takes no security decisions.",
     [
-      "dashboard.view",
       "workspace.create",
       "directory.search",
       ...READ,
@@ -87,7 +88,6 @@ export const BUILT_IN_ROLES = Object.freeze([
     "Lead",
     "Approves or rejects true/false positive decisions and operates pipelines.",
     [
-      "dashboard.view",
       ...READ,
       "workspace.view_activity",
       "repository.sync",
@@ -114,7 +114,6 @@ export const BUILT_IN_ROLES = Object.freeze([
     "Security Analyst",
     "Reviews findings and records true/false positive decisions.",
     [
-      "dashboard.view",
       ...READ,
       "workspace.view_activity",
       "finding.comment",
@@ -124,7 +123,6 @@ export const BUILT_IN_ROLES = Object.freeze([
     ],
   ),
   role("dev_lead", "Dev Lead", "Manages repositories and drives remediation.", [
-    "dashboard.view",
     ...READ,
     "workspace.view_activity",
     "repository.connect",
@@ -141,13 +139,12 @@ export const BUILT_IN_ROLES = Object.freeze([
     "finding.remediate",
   ]),
   role("developer", "Developer", "Remediates findings assigned to them.", [
-    "dashboard.view",
     ...READ,
     "finding.comment",
     "remediation.view",
     "finding.remediate",
   ]),
-  role("viewer", "Guest / Viewer", "Read-only access.", ["dashboard.view", ...READ]),
+  role("viewer", "Guest / Viewer", "Read-only access.", [...READ]),
 ]);
 
 /** Platform roles (Root Console). Only Super Admin and Support exist (docs/AUTHORIZATION.md §5.5). @type {ReadonlyArray<Readonly<RoleDefinition>>} */

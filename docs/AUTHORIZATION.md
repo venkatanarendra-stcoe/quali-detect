@@ -113,7 +113,7 @@ Legend: A Admin, M Manager, L Lead, SA Security Analyst, DL Dev Lead, Dev Develo
 
 | Key | Meaning | A | M | L | SA | DL | Dev | V |
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `dashboard.view` | Open the tenant overview (data limited to accessible workspaces) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dashboard.view` | Open the Organization Overview (`GET /overview`, data limited to accessible workspaces). **Admin only** (decision 30, Confirmed 2026-11-17); still grantable to a custom role | ✓ | | | | | | |
 | `workspace.create` | Create workspaces | ✓ | ✓ | | | | | |
 | `directory.search` | Minimal user/group lookup (name only) for pickers | ✓ | ✓ | | | | | |
 | `user.view` / `user.manage` | List tenant users / invite, change, deactivate | ✓ | | | | | | |
@@ -436,6 +436,7 @@ Status: **Resolved** = the owner's decision in the 2026-11-11 review; **Confirme
 
 | 28 | Who may set a pipeline's fork policy (Pipelines and triggers module, Q6) | Confirmed (owner, 2026-11-12) | New workspace-scope key `pipeline.manage_fork_policy`, default bundles Admin (automatic: every workspace key except the approval decisions) and Lead. Manager and Dev Lead hold `pipeline.manage` but not this key. Changing the fork policy to anything other than `skip` needs this key; every change is audited (`pipeline.fork_policy_changed`). Catalog 85 keys (16 tenant, 40 workspace, 29 platform); bundle sizes Admin 54, Manager 34, Lead 26, Security Analyst 13, Dev Lead 21, Developer 11, Viewer 8. The earlier "catalog 82 keys" figure in §16 is a dated historical note. |
 | 29 | `pipeline.delete` semantics (conflict C1 of the Pipelines spec) | Confirmed (owner, 2026-11-12) | Soft delete: history, configuration versions and findings remain; the §5.4 wording "destroys execution/finding history association" is replaced. |
+| 30 | Organization Overview is Admin-only (owner decision, 2026-11-17; revises the 2026-11-11 default that gave every built-in role `dashboard.view`) | Confirmed (owner, 2026-11-17) | The tenant-scope key `dashboard.view` is in the Admin built-in bundle only (Manager, Lead, Security Analyst, Dev Lead, Developer and Guest/Viewer no longer hold it). The Organization Overview nav item and `GET /api/v1/overview` need it: a holder-less caller gets **403** on the route (a visible surface the caller may not use, §5.9) and no navigation item; foreign or hidden resources keep their 404. Workspace dashboards (`workspace.view`) are unchanged. The catalog is unchanged: a tenant Admin may still grant `dashboard.view` to a **custom role** explicitly (§5.6), and custom roles never gain it implicitly. Built-in bundles are global rows (`roles.kind = built_in`, `role_permissions`) re-synced by the seed; migration `20261117100000_overview_admin_only` deletes the key from the six non-Admin built-in bundles of an already-seeded database (idempotent, custom roles untouched). Covered by `OVR-001..015`. |
 
 Still genuinely open (configurable values, do not guess): the progressive-throttling parameters (Q24), the deactivation retention window and the effect of its expiry (Q25), and tenant-user MFA policy. Nothing blocks implementation.
 

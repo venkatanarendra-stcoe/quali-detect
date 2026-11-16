@@ -292,12 +292,13 @@ export function createExecutionRepository({ db, entitlements }) {
      * Seconds until the deadline and until the lease expires, by the DATABASE clock (a worker never uses its own).
      * @param {{ tenantId: string, executionId: string }} input
      * @param {any} [client]
-     * @returns {Promise<null | { secondsToDeadline: number | null, status: string, leaseEpoch: number, cancelRequestedAt: Date | null, cancelMode: string | null }>}
+     * @returns {Promise<null | { secondsToDeadline: number | null, status: string, leaseEpoch: number, cancelRequestedAt: Date | null, cancelMode: string | null, cancelGraceSecondsLeft: number | null }>}
      */
     async readLifecycle({ tenantId, executionId }, client = db) {
       const rows = await client.$queryRaw`
         SELECT extract(epoch FROM (deadline_at - now()))::float AS "secondsToDeadline", status::text AS status, lease_epoch AS "leaseEpoch",
-               cancel_requested_at AS "cancelRequestedAt", cancel_mode::text AS "cancelMode"
+               cancel_requested_at AS "cancelRequestedAt", cancel_mode::text AS "cancelMode",
+               extract(epoch FROM (cancel_grace_until - now()))::float AS "cancelGraceSecondsLeft"
         FROM executions WHERE id = ${executionId}::uuid AND tenant_id = ${tenantId}::uuid`;
       return rows[0] ?? null;
     },

@@ -94,19 +94,6 @@ export function createPipelineService({
     conflict("Enable at least one scan type and one trigger first.", REASONS.PIPELINE_INCOMPLETE, {
       missing,
     });
-  const release = async (tx, tenantId, rows) => {
-    for (const row of rows)
-      if (row.quotaConsumed > 0 && row.quotaPeriod)
-        await entitlements.releaseQuota(
-          {
-            tenantId,
-            quotaKey: QUOTA_KEYS.SCANS_MONTHLY,
-            amount: row.quotaConsumed,
-            periodKey: row.quotaPeriod,
-          },
-          tx,
-        );
-  };
   const loadLive = async (tenantId, id, workspaceId, tx) =>
     assertLive(await repository.findPipeline({ tenantId, id, workspaceId }, tx));
   const currentConfigOf = async (tenantId, pipeline, tx) => {
@@ -689,7 +676,6 @@ export function createPipelineService({
           { tenantId: actor.tenantId, pipelineId: live.id, reason: "pipeline_deleted" },
           tx,
         );
-        await release(tx, actor.tenantId, cancelled);
         await repository.deleteTriggers({ tenantId: actor.tenantId, pipelineId: live.id }, tx);
         await repository.update(
           {
@@ -828,7 +814,6 @@ export function createPipelineService({
               },
               tx,
             );
-            await release(tx, actor.tenantId, superseded);
             for (const row of superseded)
               await audit.tenant.record(
                 entry(actor, AUDIT_ACTIONS.EXECUTION_CANCELLED_SUPERSEDED, pipeline, {

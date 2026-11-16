@@ -61,6 +61,11 @@ const envSchema = z.object({
     .default(3600),
   PIPELINE_MAX_SCHEDULES_PER_PIPELINE: z.coerce.number().int().min(0).max(20).default(3),
   PIPELINE_SCHEDULE_JITTER_SECONDS: z.coerce.number().int().min(0).max(3600).default(300),
+  // Executions (docs/modules/executions/SPEC.md part D): the grace period of a graceful cancel (PT §5.8, ER-14), how long the
+  // holder waits for aborted attempts after an immediate cancel, and how many retries may follow one original (EQ-2d).
+  PIPELINE_CANCEL_GRACE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+  EXECUTION_ABORT_GRACE_SECONDS: z.coerce.number().int().min(0).max(600).default(10),
+  EXECUTION_RETRY_CHAIN_MAX: z.coerce.number().int().min(1).max(20).default(5),
   // Secret storage (ADR-009). Off unless a feature needs it. The "env" key provider (master key from the environment) is
   // for DEVELOPMENT only and is refused in production; the KMS and Vault adapters are not implemented yet.
   SECRETS_ENABLED: booleanFlag.optional(),
@@ -318,6 +323,11 @@ export function loadConfig(env = process.env) {
         scheduleJitterSeconds: e.PIPELINE_SCHEDULE_JITTER_SECONDS,
         pipelinesMaxPerRepository: e.PIPELINES_MAX_PER_REPOSITORY,
       }),
+    }),
+    executions: Object.freeze({
+      cancelGraceSeconds: e.PIPELINE_CANCEL_GRACE_SECONDS,
+      abortGraceSeconds: e.EXECUTION_ABORT_GRACE_SECONDS,
+      retryChainMax: e.EXECUTION_RETRY_CHAIN_MAX,
     }),
     // Secrets: never log or return. Unset outside production = random per-process secret (see the schema comment).
     cursor: Object.freeze({

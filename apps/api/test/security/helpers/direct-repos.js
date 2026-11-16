@@ -7,6 +7,7 @@ import {
   createTenantRepository,
   createEntitlementRepository,
   createExecutionIdempotency,
+  createExecutionCancellation,
   createExecutionRepository,
   createScanTaskRepository,
   executionStepKey,
@@ -19,6 +20,7 @@ import { createAuditLogRepository } from "../../../src/modules/audit-logs/reposi
 import { createIdentityRepository } from "../../../src/modules/identity/repositories/index.js";
 import { createIntegrationRepository } from "../../../src/modules/integrations/repositories/index.js";
 import { createPlatformTenantRepository } from "../../../src/modules/platform-tenants/repositories/index.js";
+import { createExecutionsRepository } from "../../../src/modules/executions/index.js";
 import { createPipelineCounts } from "../../../src/modules/pipelines/index.js";
 import { createPipelineRepository } from "../../../src/modules/pipelines/repositories/index.js";
 import { pipelineScope } from "../../../src/authz/scopes.js";
@@ -439,6 +441,14 @@ export async function buildDalWorld(db) {
   const exExpired = await db.execution.create({
     data: executionData({ concurrencyGroup: "manual:ex-expired" }),
   });
+  // part D: a retry of the pipeline's execution (a chain of length one) for the retry-depth walk of the API repository
+  const exRetry = await db.execution.create({
+    data: executionData({
+      concurrencyGroup: "manual:ex-retry",
+      retryOfExecutionId: plExecution.id,
+      idempotencyKey: `dal-retry-${rand(6)}`,
+    }),
+  });
   await db.$executeRaw`
     UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-lost-worker',
       lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '200 milliseconds' WHERE id = ${exExpired.id}::uuid`;
@@ -558,6 +568,7 @@ export async function buildDalWorld(db) {
     runningId: plRunning.id,
     exQueuedId: exQueued.id,
     exExpiredId: exExpired.id,
+    exRetryId: exRetry.id,
     taskRunningId: taskRunning.id,
     taskQueuedId: taskQueued.id,
     decisionId: plDecision.id,
@@ -726,6 +737,8 @@ export async function buildDalWorld(db) {
     users: createUserRepository({ db }),
     preferences: createUserPreferenceRepository({ db }),
     executions: createExecutionRepository({ db }),
+    executionCancel: createExecutionCancellation({ db }),
+    executionsApi: createExecutionsRepository({ db }),
     tasks: createScanTaskRepository({ db }),
     executionIdempotency: createExecutionIdempotency({ db }),
     workspaceMembers: createWorkspaceMemberRepository({ db }),
@@ -3863,6 +3876,276 @@ export function buildDalEntries() {
           errorCode: "dal",
         });
       },
+    },
+  );
+
+  // ----- cancel and retry (docs/modules/executions/SPEC.md part D, DAL-249..): the shared cancel functions of @qmentisai/db, the
+  // task cancel of the lease holder and the write-side repository of the API's executions module. Tenant Y presents tenant X's ids.
+  const CN = (c) => c.repos.executionCancel;
+  const XA = (c) => c.repos.executionsApi;
+  const notCancelled = (r) =>
+    r.cancelled || r.quotaReleased ? ["cancelled another tenant's execution"] : [];
+  E(
+    "executions-cancel.cancelQueued",
+    (c) =>
+      CN(c).cancelQueued({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        reason: "user_cancelled",
+        actor: { type: "user", userId: c.uA },
+      }),
+    {
+      verify: notCancelled,
+      control: async (c) =>
+        CN(c).cancelQueued({
+          tenantId: c.x,
+          executionId: (await freshQueued(c, "scratch-cancel")).id,
+          reason: "user_cancelled",
+        }),
+    },
+  );
+  E(
+    "executions-cancel.requestCancel",
+    (c) =>
+      CN(c).requestCancel({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        userId: c.uA,
+        mode: "immediate",
+        graceSeconds: 5,
+      }),
+    {
+      verify: (r) =>
+        r.recorded ? ["recorded a cancel request on another tenant's execution"] : [],
+      control: async (c) =>
+        CN(c).requestCancel({
+          tenantId: c.x,
+          executionId: (await scratch(c, "preparing")).e.id,
+          userId: c.uA,
+          mode: "graceful",
+          graceSeconds: 5,
+        }),
+    },
+  );
+  E(
+    "tasks.cancelUnstarted",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).cancelUnstarted(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, reason: "user_cancelled" },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) =>
+        inTx(c, async (tx) =>
+          TK(c).cancelUnstarted(
+            {
+              tenantId: c.x,
+              executionId: (await scratch(c, "queued")).e.id,
+              leaseEpoch: 1,
+              reason: "user_cancelled",
+            },
+            tx,
+          ),
+        ),
+    },
+  );
+  E(
+    "executions-api.findExecution",
+    (c) => XA(c).findExecution({ tenantId: c.y, id: c.pl.exQueuedId }),
+    { control: (c) => XA(c).findExecution({ tenantId: c.x, id: c.pl.exQueuedId }) },
+  );
+  E(
+    "executions-api.findPipelineContext",
+    (c) =>
+      XA(c).findPipelineContext({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+        pipelineId: c.pl.pipeline.id,
+      }),
+    {
+      control: (c) =>
+        XA(c).findPipelineContext({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+        }),
+    },
+  );
+  E(
+    "executions-api.findSnapshot",
+    (c) => XA(c).findSnapshot({ tenantId: c.y, pipelineId: c.pl.pipeline.id, id: c.pl.versionId }),
+    {
+      control: (c) =>
+        XA(c).findSnapshot({ tenantId: c.x, pipelineId: c.pl.pipeline.id, id: c.pl.versionId }),
+    },
+  );
+  E(
+    "executions-api.findExecutionByKey",
+    async (c) => {
+      const row = await c.db.execution.findUnique({ where: { id: c.pl.exQueuedId } });
+      return XA(c).findExecutionByKey({
+        tenantId: c.y,
+        pipelineId: c.pl.pipeline.id,
+        idempotencyKey: row.idempotencyKey,
+      });
+    },
+    {
+      control: async (c) => {
+        const row = await c.db.execution.findUnique({ where: { id: c.pl.exQueuedId } });
+        return XA(c).findExecutionByKey({
+          tenantId: c.x,
+          pipelineId: c.pl.pipeline.id,
+          idempotencyKey: row.idempotencyKey,
+        });
+      },
+    },
+  );
+  E(
+    "executions-api.retryDepth",
+    (c) =>
+      XA(c).retryDepth({
+        tenantId: c.y,
+        pipelineId: c.pl.pipeline.id,
+        executionId: c.pl.exRetryId,
+        limit: 5,
+      }),
+    {
+      control: (c) =>
+        XA(c).retryDepth({
+          tenantId: c.x,
+          pipelineId: c.pl.pipeline.id,
+          executionId: c.pl.exRetryId,
+          limit: 5,
+        }),
+    },
+  );
+  E(
+    "executions-api.countExecutions",
+    (c) =>
+      XA(c).countExecutions({
+        tenantId: c.y,
+        pipelineId: c.pl.pipeline.id,
+        statuses: ["queued", "running"],
+        concurrencyGroup: "manual:ex-queued",
+      }),
+    {
+      control: (c) =>
+        XA(c).countExecutions({
+          tenantId: c.x,
+          pipelineId: c.pl.pipeline.id,
+          statuses: ["queued", "running"],
+          concurrencyGroup: "manual:ex-queued",
+        }),
+    },
+  );
+  E(
+    "executions-api.createExecution",
+    (c) =>
+      XA(c).createExecution({
+        ...c.pl.executionData({ idempotencyKey: `dal-create-${rand()}` }),
+        tenantId: c.y,
+      }),
+    {
+      // the composite foreign keys refuse a row whose chain belongs to another tenant
+      mayThrow: true,
+      verify: () => ["created an execution under another tenant's pipeline"],
+      control: async (c) => {
+        const row = await XA(c).createExecution(
+          c.pl.executionData({
+            idempotencyKey: `dal-create-${rand()}`,
+            concurrencyGroup: "scratch-create",
+          }),
+        );
+        return row.id;
+      },
+    },
+  );
+  E(
+    "executions-api.cancelQueuedInGroup",
+    (c) =>
+      XA(c).cancelQueuedInGroup({
+        tenantId: c.y,
+        pipelineId: c.pl.pipeline.id,
+        concurrencyGroup: "manual:ex-queued",
+        reason: "superseded",
+      }),
+    {
+      control: async (c) => {
+        await freshQueued(c, "scratch-group");
+        return XA(c).cancelQueuedInGroup({
+          tenantId: c.x,
+          pipelineId: c.pl.pipeline.id,
+          concurrencyGroup: "scratch-group",
+          reason: "superseded",
+        });
+      },
+    },
+  );
+  E(
+    "executions-api.cancelQueued",
+    (c) =>
+      XA(c).cancelQueued({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        reason: "user_cancelled",
+        actor: { type: "user", userId: c.uA },
+      }),
+    {
+      verify: notCancelled,
+      control: async (c) =>
+        XA(c).cancelQueued({
+          tenantId: c.x,
+          executionId: (await freshQueued(c, "scratch-api-cancel")).id,
+          reason: "user_cancelled",
+        }),
+    },
+  );
+  E(
+    "executions-api.requestCancel",
+    (c) =>
+      XA(c).requestCancel({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        userId: c.uA,
+        mode: "graceful",
+        graceSeconds: 5,
+      }),
+    {
+      verify: (r) =>
+        r.recorded ? ["recorded a cancel request on another tenant's execution"] : [],
+      control: async (c) =>
+        XA(c).requestCancel({
+          tenantId: c.x,
+          executionId: (await scratch(c, "preparing")).e.id,
+          userId: c.uA,
+          mode: "immediate",
+          graceSeconds: 5,
+        }),
+    },
+  );
+  E(
+    "executions-api.recordEvent",
+    (c) =>
+      XA(c).recordEvent({
+        tenantId: c.y,
+        executionId: c.pl.exQueuedId,
+        type: "retry_requested",
+        actor: { type: "user", userId: c.uA },
+      }),
+    {
+      control: (c) =>
+        XA(c).recordEvent({
+          tenantId: c.x,
+          executionId: c.pl.exQueuedId,
+          type: "retry_requested",
+          actor: { type: "user", userId: c.uA },
+        }),
     },
   );
 

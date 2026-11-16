@@ -80,6 +80,13 @@ export const AUDIT_ACTIONS = Object.freeze({
   EXECUTION_SKIPPED: "execution.skipped",
   EXECUTION_CANCELLED_SUPERSEDED: "execution.cancelled_superseded",
   EXECUTION_CANCELLED_PR_CLOSED: "execution.cancelled_pr_closed",
+  // Cancel and retry of an execution (docs/modules/executions/SPEC.md part D, §14.1 EXE-007). Metadata: ids, status, mode and
+  // reason codes; never log text, never a secret.
+  EXECUTION_CANCEL_REQUESTED: "execution.cancel_requested",
+  EXECUTION_CANCEL_DENIED: "execution.cancel_denied",
+  EXECUTION_CANCELLED: "execution.cancelled",
+  EXECUTION_RETRY_REQUESTED: "execution.retry_requested",
+  EXECUTION_RETRY_DENIED: "execution.retry_denied",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

@@ -1,3 +1,4 @@
+import { createExecutionCancellation } from "@qmentisai/db";
 import { compareKeys, findKeysetPage, keyTerms } from "../../../lib/keyset.js";
 import { toPrismaPaging } from "../../../lib/query.js";
 import {
@@ -72,6 +73,8 @@ const PIPELINE_INCLUDE = Object.freeze({
  * @param {{ db: any }} deps
  */
 export function createPipelineRepository({ db }) {
+  // The shared cancel (SPEC executions part D): CAS `queued -> cancelled` plus the quota release, once, in the caller's transaction.
+  const cancellation = createExecutionCancellation({ db });
   /** The latest execution request of each pipeline (one per pipeline). */
   const lastRequested = ({ tenantId, pipelineIds }, client = db) =>
     pipelineIds.length === 0
@@ -347,7 +350,7 @@ export function createPipelineRepository({ db }) {
       }),
     /**
      * Cancels the queued requests of a pipeline (optionally of one concurrency group) with a conditional update per row and
-     * returns exactly what was cancelled, with the quota to give back.
+     * returns exactly what was cancelled; the quota unit is already given back (once) by the shared cancel.
      * @returns {Promise<Array<{ id: string, quotaPeriod: string | null, quotaConsumed: number }>>}
      */
     async cancelQueued({ tenantId, pipelineId, concurrencyGroup, reason }, client = db) {
@@ -362,16 +365,11 @@ export function createPipelineRepository({ db }) {
       });
       const cancelled = [];
       for (const row of rows) {
-        const done = await client.execution.updateMany({
-          where: { id: row.id, tenantId, pipelineId, status: "queued" },
-          data: {
-            status: "cancelled",
-            statusReason: reason,
-            // the caller gives the unit back in this transaction; recording it here keeps "released once" visible on the row
-            ...(row.quotaConsumed > 0 ? { quotaReleasedAt: new Date() } : {}),
-          },
-        });
-        if (done.count === 1) cancelled.push(row);
+        const done = await cancellation.cancelQueued(
+          { tenantId, executionId: row.id, reason },
+          client,
+        );
+        if (done.cancelled) cancelled.push({ ...row, quotaReleased: done.quotaReleased });
       }
       return cancelled;
     },

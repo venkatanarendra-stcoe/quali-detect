@@ -104,7 +104,8 @@ export function createScanTaskRepository({ db }) {
     /**
      * The task claim of the scan worker: compare-and-set `queued -> running` for exactly this attempt, only while the
      * execution is `running`, with the task lease, a deadline of `min(now + task timeout, execution deadline)` and the attempt
-     * row, in one transaction. Returns null when someone else holds it, the attempt is stale or the execution is not running.
+     * row, in one transaction. Returns null when someone else holds it, the attempt is stale, the execution is not running or
+     * a cancel was requested for it (ER-14: no task starts after the request; the holder cancels the unstarted tasks).
      * @param {{ tenantId: string, executionId: string, taskId: string, attempt: number, workerId: string, leaseTtlSeconds: number }} input
      * @param {any} [client]
      */
@@ -121,7 +122,7 @@ export function createScanTaskRepository({ db }) {
           FROM executions e
           WHERE t.id = ${taskId}::uuid AND t.tenant_id = ${tenantId}::uuid AND t.execution_id = ${executionId}::uuid
             AND t.status = 'queued' AND t.attempt = ${attempt}::int
-            AND e.tenant_id = t.tenant_id AND e.id = t.execution_id AND e.status = 'running'
+            AND e.tenant_id = t.tenant_id AND e.id = t.execution_id AND e.status = 'running' AND e.cancel_requested_at IS NULL
           RETURNING t.id, t.tenant_id AS "tenantId", t.workspace_id AS "workspaceId", t.repository_id AS "repositoryId", t.pipeline_id AS "pipelineId",
             t.execution_id AS "executionId", t.scan_type::text AS "scanType", t.attempt, t.max_attempts AS "maxAttempts", t.engine_id AS "engineId",
             t.engine_profile AS "engineProfile", t.severity_threshold AS "severityThreshold", t.timeout_seconds AS "timeoutSeconds",
@@ -239,8 +240,9 @@ export function createScanTaskRepository({ db }) {
 
     /**
      * A retry (ER-13): closes the superseded attempt row FIRST, then raises the attempt by one and puts the task back to
-     * `queued`, in one transaction. Only while `attempt + 1 < max_attempts`. Returns the new attempt, or null when the attempt
-     * is not the task's running one or no attempt is left.
+     * `queued`, in one transaction. Only while `attempt + 1 < max_attempts` and no cancel was requested for the execution (the
+     * safe point between attempts, ER-14). Returns the new attempt, or null when the attempt is not the task's running one, no
+     * attempt is left or the execution is being cancelled.
      * @param {{ tenantId: string, taskId: string, attempt: number, errorClass: "transient" | "lease_expired", errorCode: string }} input
      * @param {any} [client]
      * @returns {Promise<null | { attempt: number, task: { id: string, executionId: string, scanType: string, workspaceId: string, statusRev: number } }>}
@@ -249,6 +251,9 @@ export function createScanTaskRepository({ db }) {
       return withTransaction(client, async (tx) => {
         const task = await lockRunning(tx, { tenantId, taskId, attempt });
         if (!task || attempt + 1 >= task.maxAttempts) return null;
+        const cancelling = await tx.$queryRaw`
+          SELECT 1 FROM executions WHERE tenant_id = ${tenantId}::uuid AND id = ${task.executionId}::uuid AND cancel_requested_at IS NOT NULL`;
+        if (cancelling.length > 0) return null;
         await closeAttempt(tx, task, { status: "failed", errorClass, errorCode });
         await tx.$executeRaw`
           UPDATE scan_tasks SET status = 'queued', attempt = ${attempt + 1}::int, lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = now()
@@ -264,6 +269,21 @@ export function createScanTaskRepository({ db }) {
           },
         };
       });
+    },
+
+    /**
+     * A cancel request was recorded: the tasks that have not started (`pending`, `queued`) become `cancelled` so none starts
+     * (ER-14, both modes). Running tasks are not touched here. Fenced by the lease, replay-safe (a second call finds none).
+     * @param {{ tenantId: string, executionId: string, leaseEpoch: number, reason: string }} input
+     * @param {any} tx The caller's TRANSACTION client.
+     * @returns {Promise<Array<{ id: string, scanType: string, statusRev: number }>>}
+     */
+    async cancelUnstarted({ tenantId, executionId, leaseEpoch, reason }, tx) {
+      await executions.fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
+      return tx.$queryRaw`
+        UPDATE scan_tasks SET status = 'cancelled', status_reason = ${reason}, updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND execution_id = ${executionId}::uuid AND status IN ('pending', 'queued')
+        RETURNING id, scan_type::text AS "scanType", status_rev AS "statusRev"`;
     },
 
     /**

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   LeaseLostError,
   createEntitlementRepository,
+  createExecutionCancellation,
   createEntitlementService,
   createExecutionRepository,
   createOrchestratorMarkerRepository,
@@ -15,7 +16,7 @@ import {
   TransientError,
   inspectTarGz,
 } from "@qmentisai/infra";
-import { aggregateTaskOutcome, isResolutionEligible } from "@qmentisai/shared";
+import { aggregateTaskOutcome, cancelWaitDecision, isResolutionEligible } from "@qmentisai/shared";
 import { CONFIG_SCHEMA, UUID } from "../pipeline/execution-request.js";
 import { auditSystem } from "../scm/audit.js";
 import {
@@ -36,6 +37,8 @@ class PrepareFailure extends Error {
     this.code = code;
   }
 }
+/** A cancel request was seen at a safe point of the preparation (SPEC ER-14, ER-18). */
+class CancelRequested extends Error {}
 /** The archive recorded by a previous holder is missing or does not match: a half-done side effect (ER-29). */
 class WorkerLost extends Error {}
 
@@ -67,6 +70,7 @@ export function createOrchestrator({
   const id = workerId ?? `pipeline-${process.pid}-${randomBytes(3).toString("hex")}`;
   const log = logger?.child ? logger.child({ component: "execution-orchestrator" }) : logger;
   const repo = createExecutionRepository({ db });
+  const cancellation = createExecutionCancellation({ db });
   const tasksRepo = createScanTaskRepository({ db });
   const markers = createOrchestratorMarkerRepository({ db });
   const entitlements = createEntitlementService({
@@ -92,17 +96,21 @@ export function createOrchestrator({
     });
   const ownIt = (row, epoch) => {
     owned.get(row.id)?.controller.abort();
+    owned.get(row.id)?.cancelController.abort();
     const entry = {
       tenantId: row.tenantId,
       executionId: row.id,
       epoch,
       controller: new AbortController(),
+      // aborted when a cancel request is seen while preparing: stops the fetch at once (the lease is still ours)
+      cancelController: new AbortController(),
     };
     owned.set(row.id, entry);
     return entry;
   };
   const forget = (executionId) => {
     owned.get(executionId)?.controller.abort();
+    owned.get(executionId)?.cancelController.abort();
     owned.delete(executionId);
   };
 
@@ -114,21 +122,17 @@ export function createOrchestrator({
    */
   async function cancelQueued(client, row, reason) {
     return withTransaction(client, async (tx) => {
-      const done = await repo.transitionExecution(
+      const done = await cancellation.cancelQueued(
         {
           tenantId: row.tenantId,
           executionId: row.id,
-          from: "queued",
-          to: "cancelled",
           reason,
-          releaseQuota: true,
           actor: { type: "system" },
           correlationId: row.correlationId ?? undefined,
-          eventDetails: { reason },
         },
         tx,
       );
-      if (!done.transitioned) return { cancelled: false };
+      if (!done.cancelled) return { cancelled: false };
       const expired = reason === "queue_expired" || reason === "expired_stale";
       await audit(tx, row, expired ? AUDIT.EXPIRED : AUDIT.CANCELLED, {
         reason,
@@ -136,13 +140,7 @@ export function createOrchestrator({
         to: "cancelled",
         quotaReleased: done.quotaReleased,
       });
-      await producer.statusChanged(
-        tx,
-        row,
-        "cancelled",
-        done.execution.statusRev,
-        row.correlationId,
-      );
+      await producer.statusChanged(tx, row, "cancelled", done.statusRev, row.correlationId);
       return { cancelled: true, quotaReleased: done.quotaReleased };
     });
   }
@@ -470,6 +468,14 @@ export function createOrchestrator({
   async function prepareOnce(row, entry, signal) {
     const { tenantId } = row;
     const epoch = entry.epoch;
+    // Safe points of the preparation (ER-14): a cancel request recorded for a preparing execution ends it `cancelled` with
+    // the unit given back (no scan started), at the start, after each side effect and, last, inside the transaction that
+    // would start the tasks.
+    const assertNotCancelled = async (client = db) => {
+      const lifecycle = await repo.readLifecycle({ tenantId, executionId: row.id }, client);
+      if (lifecycle?.cancelRequestedAt) throw new CancelRequested();
+    };
+    await assertNotCancelled();
     const { cfg, fullName, installationId } = await loadPrepareContext(row);
     const types = enabledScanTypes(cfg);
     if (types.length === 0) throw new PrepareFailure("config_invalid");
@@ -497,6 +503,7 @@ export function createOrchestrator({
         });
       }
       signal.throwIfAborted();
+      await assertNotCancelled();
       // archive (ER-29 step table): a recorded archive must still be on disk and match; otherwise fetch from the pinned SHA
       if (row.archiveSha256) {
         if ((await store.sha256(ref)) !== row.archiveSha256) throw new WorkerLost("archive");
@@ -522,6 +529,7 @@ export function createOrchestrator({
         });
       }
       signal.throwIfAborted();
+      await assertNotCancelled();
     } finally {
       session?.close();
     }
@@ -540,6 +548,8 @@ export function createOrchestrator({
         { tenantId, executionId: row.id, leaseEpoch: epoch, tasks: specs },
         tx,
       );
+      // createTasks holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
+      await assertNotCancelled(tx);
       const done = await repo.transitionExecution(
         {
           tenantId,
@@ -583,7 +593,11 @@ export function createOrchestrator({
       Math.floor((lifecycle?.secondsToDeadline ?? DEFAULT_DEADLINE_SECONDS) * 1000),
     );
     const deadline = AbortSignal.timeout(ms);
-    const signal = AbortSignal.any([entry.controller.signal, deadline]);
+    const signal = AbortSignal.any([
+      entry.controller.signal,
+      entry.cancelController.signal,
+      deadline,
+    ]);
     for (let attempt = 1; ; attempt += 1) {
       try {
         await prepareOnce(row, entry, signal);
@@ -602,6 +616,19 @@ export function createOrchestrator({
             reason: "execution_deadline",
           });
           return { outcome: done.lost ? "lost" : "timed_out" };
+        }
+        if (error instanceof CancelRequested || entry.cancelController.signal.aborted) {
+          // cancel honoured during preparation: no scan started, so the unit goes back (SPEC 6.1, 5.9)
+          const done = await terminalize({
+            row,
+            epoch: entry.epoch,
+            from: "preparing",
+            to: "cancelled",
+            reason: "user_cancelled",
+            release: true,
+            details: { step: "preparing", decision: "cancel" },
+          });
+          return { outcome: done.lost ? "lost" : "cancelled" };
         }
         if (error instanceof WorkerLost) {
           const done = await failPrepare(row, entry.epoch, "worker_lost", {
@@ -732,8 +759,82 @@ export function createOrchestrator({
   }
 
   /**
-   * One pass over a running execution this process holds: cancel (part D hook), deadline, dead scan workers, dispatch, and
-   * the aggregation when every task is finished. Idempotent: every write is a compare-and-set.
+   * Ends a running execution whose tasks are all finished by table 5.4. A task that ended at the EXECUTION's deadline makes
+   * the execution `timed_out`; its result and the results of the finished tasks stay (B5).
+   */
+  function finishNaturally(row, epoch, tasks) {
+    const outcome = aggregateTaskOutcome(tasks);
+    if (
+      outcome.status !== "succeeded" &&
+      tasks.some((t) => t.statusReason === "execution_deadline")
+    )
+      return terminalize({
+        row,
+        epoch,
+        from: "running",
+        to: "timed_out",
+        reason: "execution_deadline",
+      });
+    return terminalize({ row, epoch, from: "running", to: outcome.status, reason: outcome.reason });
+  }
+
+  /**
+   * Honours a cancel request of a RUNNING execution at a safe point (SPEC ER-14, ER-18; both modes): nothing starts any more
+   * (pending and queued tasks become `cancelled`, a claim and a retry attempt are refused by the database), tasks that are
+   * mid-run are aborted by their scan worker at once (`immediate`) or when the grace period ends (`graceful`), results already
+   * ingested stay, and the execution becomes `cancelled` as soon as no attempt is running or the grace has passed (a hung
+   * attempt is then closed out). If no task was cancelled by the request (everything had already finished) the natural
+   * outcome of table 5.4 stands and the request stays recorded on the row.
+   */
+  async function honourCancel(entry, row, lifecycle) {
+    const { tenantId, executionId, epoch } = entry;
+    await withTransaction(db, async (tx) => {
+      const moved = await tasksRepo.cancelUnstarted(
+        { tenantId, executionId, leaseEpoch: epoch, reason: "user_cancelled" },
+        tx,
+      );
+      for (const task of moved)
+        await producer.taskStatusChanged(
+          tx,
+          row,
+          { taskId: task.id, scanType: task.scanType, status: "cancelled", rev: task.statusRev },
+          row.correlationId,
+        );
+    });
+    for (const task of await tasksRepo.listExpiredTaskLeases({ tenantId, executionId }))
+      await recoverTask(row, epoch, task);
+    const tasks = await tasksRepo.listTasks({ tenantId, executionId });
+    const running = tasks.filter((t) => t.status === "running" || t.status === "queued").length;
+    if (
+      cancelWaitDecision({ graceSecondsLeft: lifecycle.cancelGraceSecondsLeft, running }) === "wait"
+    )
+      return { waiting: true };
+    const cancelledByRequest =
+      running > 0 ||
+      tasks.some((t) => t.status === "cancelled" && t.statusReason === "user_cancelled");
+    if (!cancelledByRequest) return finishNaturally(row, epoch, tasks);
+    return terminalize({
+      row,
+      epoch,
+      from: "running",
+      to: "cancelled",
+      reason: "user_cancelled",
+      closeOut: {
+        runningTo: "cancelled",
+        pendingTo: "cancelled",
+        reason: "user_cancelled",
+        errorClass: "cancelled",
+        errorCode: "user_cancelled",
+      },
+      details: { mode: lifecycle.cancelMode, decision: "cancel", graceElapsed: running > 0 },
+    });
+  }
+
+  /**
+   * One pass over a running execution this process holds: cancel (ER-14), deadline, dead scan workers, dispatch, and the
+   * aggregation when every task is finished. Idempotent: every write is a compare-and-set. The execution deadline is a hard
+   * limit and wins over a cancel that is still waiting for its grace period; a cancel is honoured first when the lease is
+   * reclaimed (ER-29 order).
    */
   async function drive(entry) {
     const { tenantId, executionId, epoch } = entry;
@@ -741,53 +842,14 @@ export function createOrchestrator({
     if (!lifecycle || lifecycle.leaseEpoch !== epoch || lifecycle.status !== "running")
       return forget(executionId);
     const row = await repo.findExecution({ tenantId, executionId });
-    if (lifecycle.cancelRequestedAt) {
-      // TODO(part D): graceful mode (grace window, no new task starts) and aborting running attempts; here the request is
-      // honoured at once. No route can set the cancel columns until part D.
-      return terminalize({
-        row,
-        epoch,
-        from: "running",
-        to: "cancelled",
-        reason: "user_cancelled",
-        closeOut: {
-          runningTo: "cancelled",
-          pendingTo: "cancelled",
-          reason: "user_cancelled",
-          errorClass: "cancelled",
-          errorCode: "user_cancelled",
-        },
-      });
-    }
+    const pastDeadline = lifecycle.secondsToDeadline !== null && lifecycle.secondsToDeadline <= 0;
+    if (lifecycle.cancelRequestedAt && !pastDeadline) return honourCancel(entry, row, lifecycle);
     for (const task of await tasksRepo.listExpiredTaskLeases({ tenantId, executionId }))
       await recoverTask(row, epoch, task);
     const tasks = await tasksRepo.listTasks({ tenantId, executionId });
     const inFlight = tasks.filter((t) => t.status === "queued" || t.status === "running").length;
     const pending = tasks.filter((t) => t.status === "pending").length;
-    const pastDeadline = lifecycle.secondsToDeadline !== null && lifecycle.secondsToDeadline <= 0;
-    if (inFlight === 0 && pending === 0) {
-      // every task is finished: aggregate (table 5.4). A task that ended at the EXECUTION's deadline makes the execution
-      // `timed_out`; its result and the results of the finished tasks stay (B5).
-      const outcome = aggregateTaskOutcome(tasks);
-      if (
-        outcome.status !== "succeeded" &&
-        tasks.some((t) => t.statusReason === "execution_deadline")
-      )
-        return terminalize({
-          row,
-          epoch,
-          from: "running",
-          to: "timed_out",
-          reason: "execution_deadline",
-        });
-      return terminalize({
-        row,
-        epoch,
-        from: "running",
-        to: outcome.status,
-        reason: outcome.reason,
-      });
-    }
+    if (inFlight === 0 && pending === 0) return finishNaturally(row, epoch, tasks);
     if (pastDeadline)
       return terminalize({
         row,
@@ -1041,8 +1103,31 @@ export function createOrchestrator({
           "Lease lost; stopping work on this execution",
         );
         forget(entry.executionId);
+        continue;
       }
+      // safe point: a cancel request recorded while this execution is still preparing stops the fetch (ER-14)
+      const lifecycle = await repo.readLifecycle({
+        tenantId: entry.tenantId,
+        executionId: entry.executionId,
+      });
+      if (lifecycle?.status === "preparing" && lifecycle.cancelRequestedAt)
+        entry.cancelController.abort();
     }
+  }
+
+  /**
+   * A cancel request reached an execution this process holds: a preparing one stops its fetch at the next safe point (the
+   * cancel signal), a running one gets a drive pass now. The database row is read again; the message is never the authority.
+   */
+  async function onCancelRequested(entry) {
+    const lifecycle = await repo.readLifecycle({
+      tenantId: entry.tenantId,
+      executionId: entry.executionId,
+    });
+    if (!lifecycle || lifecycle.leaseEpoch !== entry.epoch) return forget(entry.executionId); // the lease is lost
+    if (!lifecycle.cancelRequestedAt) return;
+    if (lifecycle.status === "preparing") entry.cancelController.abort();
+    else if (lifecycle.status === "running") await drive(entry);
   }
 
   /**
@@ -1060,8 +1145,13 @@ export function createOrchestrator({
     } else if (envelope.type === "scan.task.completed") {
       const entry = owned.get(executionId);
       if (entry && entry.tenantId === tenantId) await drive(entry);
+    } else if (envelope.type === "pipeline.execution.cancel_requested") {
+      // A wake-up only: the cancel columns are the signal and the lease holder honours them (ER-14). A process that does not
+      // hold the lease does nothing; the holder's heartbeat and tick find the request anyway.
+      const entry = owned.get(executionId);
+      if (entry && entry.tenantId === tenantId) await onCancelRequested(entry);
+      context?.log?.info?.({ type: envelope.type }, "Cancel wake-up handled");
     } else {
-      // pipeline.execution.cancel_requested: TODO(part D) honour the request; the cancel columns are the signal.
       context?.log?.info?.({ type: envelope.type }, "Wake-up acknowledged");
     }
   }

@@ -13,7 +13,7 @@ import {
   extractTarGz,
   redactCredentialText,
 } from "@qmentisai/infra";
-import { matchGlob } from "@qmentisai/shared";
+import { matchGlob, shouldAbortAttempt } from "@qmentisai/shared";
 import { z } from "zod";
 import { CONFIG_SCHEMA } from "../pipeline/execution-request.js";
 import { ARCHIVE_NAME, CONTROL_CHARS } from "./constants.js";
@@ -206,6 +206,28 @@ export function createScanTaskHandler({
       () => abort.abort(new Error("task_deadline")),
       Math.max(1, task.secondsToDeadline * 1000),
     );
+    // Safe point (ER-14): the cancel request is read from the database, never from a message. `immediate` aborts this attempt
+    // at once, `graceful` when the grace period is over; the abort is cooperative (the adapter's AbortSignal) and the partial
+    // result is kept. Polled faster than the heartbeat so a cancel is honoured promptly.
+    const cancelPoll = setInterval(
+      () => {
+        executions
+          .readLifecycle({ tenantId, executionId })
+          .then((lifecycle) => {
+            if (
+              lifecycle?.cancelRequestedAt &&
+              shouldAbortAttempt({
+                mode: lifecycle.cancelMode,
+                requested: true,
+                graceSecondsLeft: lifecycle.cancelGraceSecondsLeft,
+              })
+            )
+              abort.abort(new Error("user_cancelled"));
+          })
+          .catch(() => {});
+      },
+      Math.min(ex.heartbeatSeconds * 1000, 1000),
+    );
     const workDir = await mkdtemp(path.join(tmpRoot, "qm-scan-"));
     const collected = [];
     let outcome;
@@ -290,6 +312,22 @@ export function createScanTaskHandler({
         : String(error?.message ?? error);
       if (leaseLost || reasonText === "lease_lost") {
         outcome = null; // zombie: not ours any more, write nothing
+      } else if (reasonText === "user_cancelled") {
+        const normalized = normalizeItems(collected, ex.maxResultItemsPerTask);
+        outcome = {
+          status: "cancelled",
+          reason: "user_cancelled",
+          errorClass: "cancelled",
+          errorCode: "user_cancelled",
+          result: {
+            engineId: task.engineId,
+            engineVersion: engines.get(task.scanType, task.engineId)?.version ?? "unknown",
+            completeness: "incomplete",
+            truncated: normalized.truncated,
+            severityCounts: normalized.severityCounts,
+            items: normalized.items,
+          },
+        };
       } else if (reasonText === "task_deadline") {
         const normalized = normalizeItems(collected, ex.maxResultItemsPerTask);
         outcome = {
@@ -332,6 +370,7 @@ export function createScanTaskHandler({
       }
     } finally {
       clearInterval(beat);
+      clearInterval(cancelPoll);
       clearTimeout(deadline);
       await rm(workDir, { recursive: true, force: true }).catch(() => {});
     }

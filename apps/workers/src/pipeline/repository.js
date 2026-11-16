@@ -1,3 +1,5 @@
+import { createExecutionCancellation } from "@qmentisai/db";
+
 /**
  * Data access of the pipeline trigger router (docs/modules/pipelines-triggers/SPEC.md §6.2, §7). EVERY function carries the
  * trusted `tenantId` in its `where` (the tenant of the message is only trusted after the repository row proves it), and
@@ -6,6 +8,9 @@
  * @param {{ db: any }} deps
  */
 export function createRouterRepository({ db }) {
+  // The shared cancel (SPEC executions part D): the compare-and-set `queued -> cancelled` AND the quota release, once, in the
+  // caller's transaction, whoever cancels.
+  const cancellation = createExecutionCancellation({ db });
   return Object.freeze({
     /**
      * The repository of an event with the state of its workspace and tenant: the single source for the lifecycle gates.
@@ -99,7 +104,7 @@ export function createRouterRepository({ db }) {
 
     /**
      * Cancels the queued requests of one concurrency group with a conditional update per row and returns exactly what was
-     * cancelled, with the quota to give back.
+     * cancelled; the quota unit is already given back (once) by the shared cancel.
      * @returns {Promise<Array<{ id: string, quotaPeriod: string | null, quotaConsumed: number }>>}
      */
     async cancelQueued({ tenantId, pipelineId, concurrencyGroup, reason }, client = db) {
@@ -109,16 +114,11 @@ export function createRouterRepository({ db }) {
       });
       const cancelled = [];
       for (const row of rows) {
-        const done = await client.execution.updateMany({
-          where: { id: row.id, tenantId, pipelineId, status: "queued" },
-          data: {
-            status: "cancelled",
-            statusReason: reason,
-            // the caller gives the unit back in this transaction; recording it here keeps "released once" visible on the row
-            ...(row.quotaConsumed > 0 ? { quotaReleasedAt: new Date() } : {}),
-          },
-        });
-        if (done.count === 1) cancelled.push(row);
+        const done = await cancellation.cancelQueued(
+          { tenantId, executionId: row.id, reason },
+          client,
+        );
+        if (done.cancelled) cancelled.push({ ...row, quotaReleased: done.quotaReleased });
       }
       return cancelled;
     },
@@ -129,7 +129,7 @@ export function createRouterRepository({ db }) {
      * every other request (other numbers, push, schedule, manual) are never selected, and the conditional update per row
      * keeps a row that started in the meantime. Only requests caused by an SCM event received at or before `receivedUntil`
      * (the closed event's own receipt time) are cancelled, so a redelivery of an old closed message never cancels a run
-     * requested after a reopen. Returns exactly what was cancelled, with the quota to give back.
+     * requested after a reopen. Returns exactly what was cancelled; the quota unit is already given back (once) by the shared cancel.
      * @returns {Promise<Array<{ id: string, triggerKey: string, quotaPeriod: string | null, quotaConsumed: number }>>}
      */
     async cancelQueuedForPullRequest(
@@ -170,16 +170,11 @@ export function createRouterRepository({ db }) {
       const cancelled = [];
       for (const row of rows) {
         if (!early.has(row.scmEventId)) continue;
-        const done = await client.execution.updateMany({
-          where: { id: row.id, tenantId, workspaceId, repositoryId, pipelineId, status: "queued" },
-          data: {
-            status: "cancelled",
-            statusReason: reason,
-            // the caller gives the unit back in this transaction; recording it here keeps "released once" visible on the row
-            ...(row.quotaConsumed > 0 ? { quotaReleasedAt: new Date() } : {}),
-          },
-        });
-        if (done.count === 1) cancelled.push(row);
+        const done = await cancellation.cancelQueued(
+          { tenantId, executionId: row.id, reason },
+          client,
+        );
+        if (done.cancelled) cancelled.push({ ...row, quotaReleased: done.quotaReleased });
       }
       return cancelled;
     },

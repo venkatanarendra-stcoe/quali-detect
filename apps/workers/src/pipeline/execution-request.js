@@ -177,16 +177,6 @@ export function createExecutionRequestWriter({ db, clock = () => new Date() }) {
       );
       supersededCount = superseded.length;
       for (const row of superseded) {
-        if (row.quotaConsumed > 0 && row.quotaPeriod)
-          await entitlements.releaseQuota(
-            {
-              tenantId: ctx.tenantId,
-              quotaKey: QUOTA_KEYS.SCANS_MONTHLY,
-              amount: row.quotaConsumed,
-              periodKey: row.quotaPeriod,
-            },
-            tx,
-          );
         await auditSystem(tx, {
           tenantId: ctx.tenantId,
           action: AUDIT.CANCELLED_SUPERSEDED,
@@ -291,16 +281,6 @@ export function createExecutionRequestWriter({ db, clock = () => new Date() }) {
     );
     if (cancelled.length === 0) return { outcome: "pr_closed_nothing_queued", cancelled: 0 };
     for (const row of cancelled) {
-      if (row.quotaConsumed > 0 && row.quotaPeriod)
-        await entitlements.releaseQuota(
-          {
-            tenantId: ctx.tenantId,
-            quotaKey: QUOTA_KEYS.SCANS_MONTHLY,
-            amount: row.quotaConsumed,
-            periodKey: row.quotaPeriod,
-          },
-          tx,
-        );
       await auditSystem(tx, {
         tenantId: ctx.tenantId,
         action: AUDIT.CANCELLED_PR_CLOSED,

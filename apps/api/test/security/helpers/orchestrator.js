@@ -117,7 +117,7 @@ const ENGINE_SECRET = "AKIAIOSFODNN7EXAMPLE";
 
 /**
  * The deterministic test engine. It reads `qm-test.json` from the ROOT of the archive (a data file; it is parsed, never
- * executed) to behave: `{ fail: [types], transientOnce: [types], slow: [types], transientAlways: [types] }`. Static: it lists
+ * executed) to behave: `{ fail: [types], transientOnce: [types], slow: [types], transientAlways: [types], delay: {type: ms}, delayThenTransient: {type: ms} }`. Static: it lists
  * the files it was given and reports one item per scan type.
  */
 function testEngine(world, scanType) {
@@ -177,6 +177,29 @@ function testEngine(world, scanType) {
         throw new EngineError("engine_busy", "transient");
       if (script.transientOnce?.includes(scanType) && context.attempt === 0)
         throw new EngineError("engine_busy", "transient");
+      // `delay: { type: ms }` finishes normally after the wait; `delayThenTransient: { type: ms }` waits, then fails transiently
+      // (both end early, with the abort reason, when the task is cancelled or times out)
+      const wait = (ms) =>
+        new Promise((resolve, reject) => {
+          if (signal.aborted) return reject(signal.reason);
+          const timer = setTimeout(resolve, ms);
+          signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        });
+      if (script.delay?.[scanType]) await wait(script.delay[scanType]);
+      if (script.delayThenTransient?.[scanType]) {
+        await wait(script.delayThenTransient[scanType]);
+        throw new EngineError("engine_busy", "transient");
+      }
+      // `deaf: [types]` ignores the abort signal and keeps working for `deafMs` (a hung engine): only the holder can end it
+      if (script.deaf?.includes(scanType))
+        await new Promise((resolve) => setTimeout(resolve, script.deafMs ?? 4000));
       if (script.slow?.includes(scanType)) {
         emit(item);
         await new Promise((resolve, reject) => {

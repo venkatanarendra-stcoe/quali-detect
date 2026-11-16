@@ -2,9 +2,7 @@ import {
   Archive,
   Ban,
   CircleCheck,
-  CircleDot,
   CircleSlash,
-  Clock,
   GitBranch,
   GitPullRequest,
   Hand,
@@ -116,22 +114,6 @@ export const EFFECTIVE_STATES = Object.freeze({
   deleted: { label: "Deleted", tone: "neutral", icon: Trash2, reason: null },
 });
 
-/** Statuses of an execution request. Reserved statuses (later modules) render neutrally. */
-export const EXECUTION_STATUSES = Object.freeze({
-  queued: { label: "Queued", tone: "neutral", icon: Clock },
-  blocked: { label: "Blocked", tone: "warning", icon: Ban },
-  skipped: { label: "Skipped", tone: "neutral", icon: CircleSlash },
-  cancelled: { label: "Cancelled", tone: "neutral", icon: CircleSlash },
-});
-export const executionStatus = (status) =>
-  EXECUTION_STATUSES[status] ?? {
-    label: String(status)
-      .replace(/_/g, " ")
-      .replace(/^./, (c) => c.toUpperCase()),
-    tone: "neutral",
-    icon: CircleDot,
-  };
-
 /** Human labels of the trigger decision reason codes (SPEC §7.8). */
 export const DECISION_REASONS = Object.freeze({
   fork_policy_skip: "Fork pull request, policy is Do not run",
@@ -148,18 +130,6 @@ export const SOURCE_LABELS = Object.freeze({
   schedule_slot: "Schedule slot",
   manual: "Manual run",
 });
-
-/** Why a request was blocked or skipped (`statusReason`). Unknown codes fall back to the code in words. */
-export const STATUS_REASONS = Object.freeze({
-  ...DECISION_REASONS,
-  superseded: "Replaced by a newer request",
-  pipeline_deleted: "The pipeline was deleted",
-  quota_exceeded: "The monthly scan quota is used up",
-  concurrency_skipped: "Another request was already in flight",
-  queue_full: "The queue is full",
-});
-export const reasonText = (code) =>
-  code ? (STATUS_REASONS[code] ?? String(code).replace(/_/g, " ")) : null;
 
 /** Dry-run no_match and policy reasons. */
 export const DRY_RUN_REASONS = Object.freeze({

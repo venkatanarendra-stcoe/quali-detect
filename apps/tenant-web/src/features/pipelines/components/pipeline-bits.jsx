@@ -1,119 +1,9 @@
-import { Check, Copy } from "lucide-react";
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.jsx";
-import {
-  EFFECTIVE_STATES,
-  SCAN_SHORT,
-  TRIGGER_ICONS,
-  TRIGGER_LABELS,
-  executionStatus,
-} from "../constants/index.js";
+import { ExecutionStatusChip, TimeAgo } from "@/features/executions/components/execution-bits.jsx";
+import { EFFECTIVE_STATES, SCAN_SHORT, TRIGGER_ICONS, TRIGGER_LABELS } from "../constants/index.js";
 import { describeCron } from "../schemas/index.js";
 import { DEFAULT_BRANCH_TOKEN, PIPELINE_SCAN_TYPES } from "@qmentisai/shared";
-
-const RTF = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-const UNITS = [
-  ["year", 31_536_000],
-  ["month", 2_592_000],
-  ["day", 86_400],
-  ["hour", 3600],
-  ["minute", 60],
-];
-
-/** Relative time ("3 hours ago", "in 2 days"). @param {string | Date} value */
-export function relativeTime(value) {
-  const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
-  for (const [unit, size] of UNITS)
-    if (Math.abs(seconds) >= size) return RTF.format(Math.round(seconds / size), unit);
-  return Math.abs(seconds) < 45 ? "just now" : RTF.format(Math.round(seconds / 60), "minute");
-}
-/**
- * Locale date and time. `dateStyle`/`timeStyle` cannot be combined with `timeZoneName` in `Intl`, so a request for the zone
- * name is expanded to explicit fields.
- */
-export function absoluteTime(value, options = { dateStyle: "medium", timeStyle: "short" }) {
-  const { timeStyle, ...rest } = options;
-  delete rest.dateStyle;
-  const resolved = rest.timeZoneName
-    ? {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        ...(timeStyle === "medium" ? { second: "2-digit" } : {}),
-        ...rest,
-      }
-    : options;
-  return new Date(value).toLocaleString(undefined, resolved);
-}
-
-/** Relative time with the absolute time (and the UTC instant) as a tooltip. @param {{ value?: string | null }} props */
-export function TimeAgo({ value }) {
-  if (!value) return <span className="text-muted-foreground">—</span>;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="cursor-default rounded-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <time dateTime={value}>{relativeTime(value)}</time>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {absoluteTime(value, { dateStyle: "medium", timeStyle: "medium" })}
-        <br />
-        <span className="font-mono">{new Date(value).toISOString()}</span>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-/** Mono identifier, truncated in the middle when long, full value in a tooltip, optional copy button. */
-export function Identifier({ value, max = 12, copy = false, label = "value" }) {
-  const [copied, setCopied] = useState(false);
-  if (!value) return <span className="text-muted-foreground">—</span>;
-  const shown = value.length > max * 2 + 1 ? `${value.slice(0, max)}…${value.slice(-max)}` : value;
-  return (
-    <span className="inline-flex items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="cursor-default rounded-sm font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {shown}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="font-mono break-all">{value}</TooltipContent>
-      </Tooltip>
-      {copy ? (
-        <button
-          type="button"
-          aria-label={`Copy ${label}`}
-          onClick={() => {
-            navigator.clipboard?.writeText(value).then(
-              () => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              },
-              () => {},
-            );
-          }}
-          className="flex size-5 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {copied ? (
-            <Check aria-hidden="true" className="size-3" />
-          ) : (
-            <Copy aria-hidden="true" className="size-3" />
-          )}
-        </button>
-      ) : null}
-    </span>
-  );
-}
 
 /** Derived effective state as an outlined chip with icon and text; the reason is the tooltip. */
 export function EffectiveStateChip({ state }) {
@@ -138,17 +28,6 @@ export function EffectiveStateChip({ state }) {
       </TooltipTrigger>
       <TooltipContent>{entry.reason}</TooltipContent>
     </Tooltip>
-  );
-}
-
-/** Status chip of an execution request. Reserved statuses of later modules render neutrally. */
-export function ExecutionStatusChip({ status }) {
-  const { label, tone, icon: Icon } = executionStatus(status);
-  return (
-    <Badge tone={tone}>
-      <Icon aria-hidden="true" />
-      {label}
-    </Badge>
   );
 }
 

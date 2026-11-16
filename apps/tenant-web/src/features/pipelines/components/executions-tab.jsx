@@ -1,123 +1,20 @@
-import { History, ListX } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { ListX } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
 import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Label } from "@/components/ui/label.jsx";
 import { Select } from "@/components/ui/select.jsx";
-import { SOURCE_LABELS, TRIGGER_ICONS, TRIGGER_LABELS, reasonText } from "../constants/index.js";
-import { usePipelineExecutions, useTriggerDecisions } from "../hooks/use-pipelines.js";
-import { ExecutionStatusChip, Identifier, TimeAgo, absoluteTime } from "./pipeline-bits.jsx";
-
-function triggerSummary(e) {
-  if (e.triggerType === "pull_request")
-    return e.pullRequestNumber ? `PR #${e.pullRequestNumber}` : "Pull request";
-  if (e.triggerType === "push") return `push to ${e.refName}`;
-  if (e.triggerType === "schedule") return "schedule";
-  return "manual run";
-}
-
-const requestColumns = [
-  {
-    id: "status",
-    header: "Status",
-    cell: ({ row: { original: e } }) => {
-      const why = reasonText(e.statusReason);
-      return (
-        <>
-          <ExecutionStatusChip status={e.status} />
-          {why ? <div className="mt-1 text-xs text-muted-foreground">{why}</div> : null}
-        </>
-      );
-    },
-  },
-  {
-    id: "trigger",
-    header: "Trigger",
-    cell: ({ row: { original: e } }) => {
-      const Icon = TRIGGER_ICONS[e.triggerType];
-      return (
-        <span className="inline-flex items-center gap-1.5">
-          {Icon ? <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" /> : null}
-          {triggerSummary(e)}
-        </span>
-      );
-    },
-  },
-  {
-    id: "ref",
-    header: "Ref",
-    cell: ({ row: { original: e } }) => (
-      <span className="font-mono text-xs break-all">{e.refName}</span>
-    ),
-  },
-  {
-    id: "commit",
-    header: "Commit",
-    cell: ({ row: { original: e } }) => (
-      <Identifier value={e.commitSha} max={7} copy label="commit SHA" />
-    ),
-  },
-  {
-    id: "scan",
-    header: "Scan",
-    cell: ({ row: { original: e } }) => (
-      <>
-        {e.scanKind === "full" ? "Full" : "Incremental"}
-        {e.trust === "untrusted_fork" ? (
-          <Badge tone="warning" className="ml-1">
-            Untrusted fork
-          </Badge>
-        ) : null}
-      </>
-    ),
-  },
-  {
-    id: "requested",
-    header: "Requested",
-    cell: ({ row: { original: e } }) => <TimeAgo value={e.requestedAt} />,
-  },
-];
-
-/** Requests: the minimal list of execution requests (queued rows; later statuses render neutrally). */
-function Requests({ pipelineId }) {
-  const [params, setParams] = useSearchParams();
-  const page = Math.max(1, Number(params.get("xpage")) || 1);
-  const query = usePipelineExecutions(pipelineId, { page, pageSize: 10 });
-  const setPage = (p) =>
-    setParams(
-      (cur) => {
-        const next = new URLSearchParams(cur);
-        p > 1 ? next.set("xpage", String(p)) : next.delete("xpage");
-        return next;
-      },
-      { replace: true },
-    );
-  return (
-    <section aria-labelledby="requests-h" className="mb-8">
-      <h3 id="requests-h" className="mb-2 text-sm font-semibold">
-        Requests
-      </h3>
-      <QueryTable
-        caption="Execution requests"
-        query={query}
-        columns={requestColumns}
-        getRowId={(e) => e.id}
-        height="auto"
-        maxHeight="22rem"
-        pagination={query.data?.pagination}
-        onPage={setPage}
-        emptyState={
-          <EmptyState
-            icon={History}
-            title="No requests yet"
-            description="Requests appear when a trigger fires or someone runs the pipeline."
-          />
-        }
-      />
-    </section>
-  );
-}
+import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import {
+  Identifier,
+  TimeAgo,
+  absoluteTime,
+} from "@/features/executions/components/execution-bits.jsx";
+import { ExecutionsList } from "@/features/executions/components/executions-list.jsx";
+import { reasonText } from "@/features/executions/constants/index.js";
+import { SOURCE_LABELS, TRIGGER_ICONS, TRIGGER_LABELS } from "../constants/index.js";
+import { useTriggerDecisions } from "../hooks/use-pipelines.js";
 
 function SlotTime({ value }) {
   if (!value) return <span className="text-muted-foreground">—</span>;
@@ -263,11 +160,38 @@ function SkippedEvents({ pipelineId }) {
   );
 }
 
-/** Executions tab of T-27: Requests and Skipped events. Later modules add detail links. */
-export function ExecutionsTab({ pipelineId }) {
+/**
+ * Executions tab of T-27: the executions of this pipeline (the same list component as T-28, filtered by the pipeline, cursor
+ * "Load more", no totals) with a link to the workspace-wide list, then the Skipped events section (unchanged).
+ */
+export function ExecutionsTab({ pipelineId, workspaceId }) {
+  const can = useCan();
+  const showAll = can("execution.view", { type: "workspace", workspaceId });
   return (
     <>
-      <Requests pipelineId={pipelineId} />
+      <section aria-labelledby="executions-h" className="mb-8">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
+          <h3 id="executions-h" className="text-sm font-semibold">
+            Executions
+          </h3>
+          {showAll ? (
+            <Link
+              className="text-sm underline-offset-2 hover:underline"
+              to={`/workspaces/${workspaceId}/executions?pipeline=${pipelineId}`}
+            >
+              View all executions
+            </Link>
+          ) : null}
+        </div>
+        <ExecutionsList
+          workspaceId={workspaceId}
+          pipelineId={pipelineId}
+          compact
+          height="auto"
+          maxHeight="30rem"
+          caption="Executions of this pipeline"
+        />
+      </section>
       <SkippedEvents pipelineId={pipelineId} />
     </>
   );

@@ -10,11 +10,11 @@ import { isApiError } from "@/lib/api/index.js";
  * Totals in the response are deliberately not exposed. An `INVALID_CURSOR` answer (stale or foreign cursor) restarts the
  * list from its first page with a toast.
  * @param {{ queryKey: unknown[], fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<{ items: any[], pagination: any }>,
- *   enabled?: boolean }} options
+ *   enabled?: boolean, refetchInterval?: number | false | ((query: any) => number | false) }} options
  * @returns {{ data: { items: any[] } | undefined, isPending: boolean, isError: boolean, error: unknown, refetch: () => void,
  *   hasMore: boolean, loadingMore: boolean, loadMore: () => void }} a query-like object `QueryTable` understands
  */
-export function useCursorList({ queryKey, fetchPage, enabled = true }) {
+export function useCursorList({ queryKey, fetchPage, enabled = true, refetchInterval = false }) {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey,
@@ -22,6 +22,7 @@ export function useCursorList({ queryKey, fetchPage, enabled = true }) {
     initialPageParam: undefined,
     getNextPageParam: (last) => last.pagination?.nextCursor ?? undefined,
     enabled,
+    refetchInterval,
   });
   const { error, isFetchNextPageError } = query;
   const invalidCursor = isApiError(error) && error.code === "INVALID_CURSOR";

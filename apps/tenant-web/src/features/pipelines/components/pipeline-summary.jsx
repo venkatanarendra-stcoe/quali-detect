@@ -2,7 +2,8 @@ import { Badge } from "@/components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.jsx";
 import { TRIGGER_ICONS, TRIGGER_LABELS } from "../constants/index.js";
 import { usePipelineVersion } from "../hooks/use-pipelines.js";
-import { absoluteTime, ScanChips, triggerText } from "./pipeline-bits.jsx";
+import { absoluteTime } from "@/features/executions/components/execution-bits.jsx";
+import { ScanChips, triggerText } from "./pipeline-bits.jsx";
 
 function Metric({ title, children }) {
   return (

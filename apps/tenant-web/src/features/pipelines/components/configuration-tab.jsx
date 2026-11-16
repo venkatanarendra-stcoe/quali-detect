@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label.jsx";
 import { Select } from "@/components/ui/select.jsx";
 import { usePipelineVersion, usePipelineVersions } from "../hooks/use-pipelines.js";
 import { ConfigDiff, ConfigView } from "./config-view.jsx";
-import { Identifier, TimeAgo } from "./pipeline-bits.jsx";
+import { Identifier, TimeAgo } from "@/features/executions/components/execution-bits.jsx";
 
 /** Version summary of a list row: `changeSummary` is a list of PATHS only (never values). */
 function summaryText(s) {

@@ -13,7 +13,7 @@ import { usePipelineVersion, usePublishConfig } from "../hooks/use-pipelines.js"
 import { newIdempotencyKey } from "../services/pipelines-service.js";
 import { actionMessage } from "./pipeline-actions.jsx";
 import { DryRunDialog } from "./dry-run-dialog.jsx";
-import { TimeAgo, absoluteTime } from "./pipeline-bits.jsx";
+import { TimeAgo, absoluteTime } from "@/features/executions/components/execution-bits.jsx";
 import { TriggerDetails } from "./config-view.jsx";
 
 /**

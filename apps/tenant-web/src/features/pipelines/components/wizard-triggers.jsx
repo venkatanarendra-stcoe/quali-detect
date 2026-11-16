@@ -14,7 +14,7 @@ import {
   scheduleTrigger,
 } from "../constants/index.js";
 import { describeCron, previewFires } from "../schemas/index.js";
-import { absoluteTime } from "./pipeline-bits.jsx";
+import { absoluteTime } from "@/features/executions/components/execution-bits.jsx";
 import {
   Field,
   PatternListField,

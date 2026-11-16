@@ -19,17 +19,16 @@ import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { DisabledWithReason } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
+import {
+  Identifier,
+  TimeAgo,
+  absoluteTime,
+} from "@/features/executions/components/execution-bits.jsx";
 import { ConfigurationTab } from "../components/configuration-tab.jsx";
 import { DryRunDialog } from "../components/dry-run-dialog.jsx";
 import { ExecutionsTab } from "../components/executions-tab.jsx";
 import { DeletePipelineDialog, PipelineEnabledSwitch } from "../components/pipeline-actions.jsx";
-import {
-  EffectiveStateChip,
-  Identifier,
-  LastRequest,
-  TimeAgo,
-  absoluteTime,
-} from "../components/pipeline-bits.jsx";
+import { EffectiveStateChip, LastRequest } from "../components/pipeline-bits.jsx";
 import { PipelineSummary } from "../components/pipeline-summary.jsx";
 import { RunDialog } from "../components/run-dialog.jsx";
 import { TriggersTab } from "../components/triggers-tab.jsx";
@@ -249,7 +248,7 @@ function Detail({ pipeline }) {
         </ScrollTabsContent>
         <ScrollTabsContent value="executions">
           {access.canViewExecutions ? (
-            <ExecutionsTab pipelineId={pipeline.id} />
+            <ExecutionsTab pipelineId={pipeline.id} workspaceId={pipeline.workspaceId} />
           ) : (
             <UnauthorizedState />
           )}

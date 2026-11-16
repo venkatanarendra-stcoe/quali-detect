@@ -42,7 +42,7 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
     item("dashboard", "workspace.view", "workspace", true),
     item("repositories", "repository.view", "workspace", true),
     item("pipelines", "pipeline.view", "workspace", true),
-    item("executions", "execution.view", "workspace", false),
+    item("executions", "execution.view", "workspace", true),
   ]),
   group("security", [
     item("findings", "finding.view", "workspace", false),

@@ -1,4 +1,5 @@
 import { AuditLogsPage } from "@/features/audit/index.js";
+import { ExecutionDetailPage, ExecutionsPage } from "@/features/executions/index.js";
 import {
   GitHubCallbackPage,
   GitHubSetupPage,
@@ -161,6 +162,17 @@ export const WORKSPACE_ROUTES = [
     path: "pipelines/:pipelineId/edit",
     permission: "pipeline.manage",
     element: <PipelineWizardPage mode="edit" />,
+  },
+  {
+    itemId: "executions",
+    path: "executions",
+    permission: "execution.view",
+    element: <ExecutionsPage />,
+  },
+  {
+    path: "executions/:executionId",
+    permission: "execution.view",
+    element: <ExecutionDetailPage />,
   },
   {
     itemId: "policies",

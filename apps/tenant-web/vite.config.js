@@ -14,7 +14,11 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
       proxy: {
-        "/api": { target: env.VITE_DEV_API_TARGET || "http://localhost:3000", changeOrigin: false },
+        "/api": {
+          target: env.VITE_DEV_API_TARGET || "http://localhost:3000",
+          changeOrigin: false,
+          ws: true, // the Socket.IO realtime channel (/api/v1/socket.io) goes through the same proxy
+        },
       },
     },
   };

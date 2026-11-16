@@ -9,6 +9,7 @@ import {
 } from "@/features/auth/index.js";
 import { AccountPage } from "@/features/account/index.js";
 import { RequirePermission } from "@/features/authorization/index.js";
+import { ExecutionAliasRedirect } from "@/features/executions/index.js";
 import { PipelineAliasRedirect } from "@/features/pipelines/index.js";
 import { ConnectAliasRedirect, RepositoryAliasRedirect } from "@/features/repositories/index.js";
 import { WorkspaceScope } from "@/features/workspaces/index.js";
@@ -57,6 +58,11 @@ export function AppRouter() {
               <Route
                 path="pipelines/:pipelineId/edit"
                 element={<PipelineAliasRedirect kind="edit" />}
+              />
+              <Route path="executions" element={<ExecutionAliasRedirect kind="list" />} />
+              <Route
+                path="executions/:executionId"
+                element={<ExecutionAliasRedirect kind="detail" />}
               />
               <Route path="workspaces/:workspaceId" element={<WorkspaceScope />}>
                 <Route index element={<Navigate to="dashboard" replace />} />

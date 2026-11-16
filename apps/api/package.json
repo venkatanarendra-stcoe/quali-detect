@@ -33,11 +33,13 @@
     "pino": "catalog:",
     "pino-http": "catalog:",
     "rate-limit-redis": "catalog:",
+    "socket.io": "4.8.3",
     "swagger-ui-express": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@qmentisai/config": "workspace:*",
-    "eslint": "catalog:"
+    "eslint": "catalog:",
+    "socket.io-client": "4.8.3"
   }
 }

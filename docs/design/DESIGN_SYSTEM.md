@@ -174,7 +174,7 @@ Severity charts use the severity tokens, not chart tokens. Distinguish series by
 | rose | light | `#de1b53` | `#ffffff` | `#c31849` | `#cc194c` | `#fce8ee` | 4.79 | 5.92 | 5.51 / 4.84 / 4.70 | 4.45 / 4.79 | 343° |
 | rose | dark | `#f5668e` | `#15090d` | `#f88caa` | `#f5668e` | `#27181f` | 6.66 | 8.66 | 6.31 / 5.91 / 5.80 | 6.77 / 6.31 | 343° |
 
-Every pair passes (lowest text pair 4.70, lowest ring pair 4.38). Light values are 600/700-level and darker for amber, orange, rose and cyan so that white text reaches 4.5; dark values are lighter equivalents with a near-black, hue-tinted foreground. The values are **derived** (none were supplied) and **Recommended** for visual sign-off.
+Every pair passes (lowest text pair 4.70, lowest ring pair 4.38). Light values are 600/700-level and darker for amber, orange, rose and cyan so that white text reaches 4.5; dark values are lighter equivalents with a near-black, hue-tinted foreground. The values were derived here (none were supplied) and are **Confirmed (owner, visual sign-off 2026-11-16)** for the eight non-mint accents; mint is unchanged.
 
 ---
 

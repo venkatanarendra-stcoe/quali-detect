@@ -94,7 +94,7 @@ None. A cosmetic preference emits no event and no outbox row.
 
 Out of scope for this module; the UI agent applies `accent` (colour values from `packages/ui`) and may offer a picker in the user's account settings. Loading, error and unauthorized states follow the usual data-view rules. Suggested: read once after sign-in, write on change with an optimistic update.
 
-**As built (2026-11-13):** the palette values live in `packages/ui/src/accents.css` (`html[data-accent]`, mint = no override, Root Console ignores it) with measured contrast in `docs/design/DESIGN_SYSTEM.md` §2.5; `AccentProvider` and the picker are in `apps/tenant-web/src/features/account` (route `/account`, Preferences tab; no navigation entry yet because `@qmentisai/shared` navigation has none). The derived colour values are **Recommended** until visual sign-off.
+**As built (2026-11-13):** the palette values live in `packages/ui/src/accents.css` (`html[data-accent]`, mint = no override, Root Console ignores it) with measured contrast in `docs/design/DESIGN_SYSTEM.md` §2.5; `AccentProvider` and the picker are in `apps/tenant-web/src/features/account` (route `/account`, Preferences tab; no navigation entry yet because `@qmentisai/shared` navigation has none). The derived colour values are **Confirmed (owner, visual sign-off 2026-11-16)**.
 
 ## 11. Security and privacy
 

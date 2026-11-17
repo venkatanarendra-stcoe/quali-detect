@@ -12,6 +12,7 @@ import { platformTenantsModule } from "./platform-tenants/index.js";
 import { roleAssignmentsModule } from "./role-assignments/index.js";
 import { rolesModule } from "./roles/index.js";
 import { systemModule } from "./system/index.js";
+import { tenantAiSettingsModule } from "./tenant-ai-settings/index.js";
 import { userPreferencesModule } from "./user-preferences/index.js";
 import { usersModule } from "./users/index.js";
 import { workspaceMembersModule } from "./workspace-members/index.js";
@@ -37,4 +38,5 @@ export const modules = [
   pipelinesModule,
   executionsModule,
   userPreferencesModule,
+  tenantAiSettingsModule,
 ];

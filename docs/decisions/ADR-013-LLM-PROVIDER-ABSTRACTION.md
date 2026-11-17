@@ -1,6 +1,6 @@
 # ADR-013: LLM provider abstraction (LLMProvider, adapters, framework choice)
 
-- **Status:** **Approved** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Nothing here is implemented yet.
+- **Status:** **Approved** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Part B (the `LLMProvider` layer, the three adapters, the deployment configuration, the platform-secret names and the consent gate) is implemented; the harness (section 3) is not yet (see "As built, part B" below).
 - **Date:** 2026-11-17
 - **Decision owners:** Product owner (decision); Claude Code (proposal)
 - **Relation to existing documents:** the open item "AI provider/model selection: provider-independent abstraction recommended" in `docs/decisions/OPEN_DECISIONS.md`; ADR-001 (JavaScript only), ADR-002 (modular monolith and separate workers), ADR-009 (SecretStore and PlatformSecretProvider), ADR-011 (envelopes); `docs/technical/SECURITY_GUIDELINES.md` "Repository and AI safety".
@@ -74,6 +74,18 @@ Each call returns token usage; the caller stores it in its own record (the decis
 3. **Configuration:** deployment-level provider in v1 (`LLM_PROVIDER`, `LLM_MODEL`, `LLM_OLLAMA_BASE_URL`); keys through the platform secret provider (`llm.anthropic.api_key`, `llm.openai.api_key`) and, for any future tenant key, the tenant SecretStore; never logged. No default model name in code.
 4. **Data-egress consent (decided):** an external provider (Anthropic, OpenAI) is **disabled for a tenant until an explicit, audited tenant consent setting is on**. A local Ollama is allowed by default. Without consent the caller runs without a model (floor-only for scan decisioning). The consent is stored in `tenant_llm_settings` (SPEC scan-decisioning 7.2a), changed through an audited route, and **enforced inside `resolveLLMProvider({ purpose, tenantId })`**, which returns `null` for an external provider without consent, so no caller can bypass it. A security-suite check (`DEC-S10`) proves an external provider is never called without consent.
 5. **Bounds for the first caller:** 20 s and 3 turns (scan decisioning).
+
+## As built, part B (2026-11-17)
+
+Implemented in `packages/infra/src/llm/` (server-only, exported from `@qmentisai/infra`); details and what is not verified are in `docs/modules/scan-decisioning/SPEC.md` section 17.b.
+
+- **Return shape of `resolveLLMProvider` (refines section 1 and decision 4).** The text above says the function "returns `null`". As built it returns `{ provider, status }`, a `Promise<{ provider: LLMProvider | null, status: "ok" | "not_configured" | "consent_required" | "key_missing" }>`, so a caller can record WHY there is no model (agent status `not_configured` or `consent_required`) without a second lookup. `provider === null` is still the only "no model" signal. The call is `resolveLLMProvider({ purpose, tenantId, config, secrets, consent, fetchImpl?, logger? })`: `consent.isExternalAllowed(tenantId)` is injected (backed by `tenant_llm_settings`, loaded by tenant id only) and is called INSIDE the function before any adapter exists; an external provider is also re-checked immediately before every request, so a consent turned off while a provider object is held, or while a call waits for a concurrency slot, still stops the request.
+- **Errors.** `LLMError` with the codes `timeout`, `aborted`, `transport`, `http_status`, `invalid_response`, `not_configured`; it never carries headers, keys, prompts or response bodies.
+- **Configuration reader.** `readLLMConfig(env, { production })` uses plain validation (like `readGitHubAppConfig`) because `packages/infra` has no Zod dependency and ADR-013 allows no new dependency; Zod stays at the API boundaries. Problems name the variable and the rule, never a value. The API validates the variables at startup through it; the workers will in the part that wires the agent.
+- **Keys.** Platform secret names `llm.anthropic.api_key` and `llm.openai.api_key` (environment variables `LLM_ANTHROPIC_API_KEY`, `LLM_OPENAI_API_KEY`, or the `_FILE` variants, development only); a missing key resolves to `key_missing`. The startup check for a worker that will call a provider is the exported `missingLLMKeyProblems`; the API does not call the model and does not need a key.
+- **Tool results** go back as one `user` message built by `toolResultMessage(name, output)`.
+- **Concurrency cap.** A per-process semaphore (`LLM_MAX_CONCURRENT_CALLS`) wraps `complete`; waiting honours the caller's `AbortSignal`.
+- **Harness (section 3).** Not part of part B; it follows in the part that builds the agent.
 
 ## Alternatives considered
 

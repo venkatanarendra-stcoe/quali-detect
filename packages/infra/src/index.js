@@ -11,3 +11,4 @@ export * from "./storage/artifact-ref.js";
 export * from "./storage/log-redaction.js";
 export * from "./storage/log-store.js";
 export * from "./storage/postgres-artifact-store.js";
+export * from "./llm/index.js";

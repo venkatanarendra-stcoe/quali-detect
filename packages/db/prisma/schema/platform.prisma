@@ -83,6 +83,7 @@ model Tenant {
   outbox              OutboxMessage[]
   scmLinks            ScmInstallationLink[]
   integrationSettings TenantIntegrationSettings?
+  llmSettings         TenantLlmSettings?
   repositories        Repository[]
   scmEvents           ScmEvent[]
   processed           ProcessedMessage[]

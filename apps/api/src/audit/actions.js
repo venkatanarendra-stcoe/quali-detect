@@ -87,6 +87,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   EXECUTION_CANCELLED: "execution.cancelled",
   EXECUTION_RETRY_REQUESTED: "execution.retry_requested",
   EXECUTION_RETRY_DENIED: "execution.retry_denied",
+  // Tenant data-egress consent for an external LLM provider (docs/modules/scan-decisioning/SPEC.md 7.2a). Metadata: previous and new value only.
+  TENANT_LLM_CONSENT_CHANGED: "tenant.llm_consent_changed",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

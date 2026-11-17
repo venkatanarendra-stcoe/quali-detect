@@ -15,6 +15,7 @@ const CREDENTIAL_VALUES = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
+  /\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}/,
   /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i,
   /[?&](?:access_token|token|X-Amz-Signature|sig)=[^&\s]{6,}/i,
 ];

@@ -54,6 +54,10 @@
       "reason": "New operations of the user-preferences module (docs/modules/user-preferences/SPEC.md §8, 2026-11-13, owner decision): the signed-in user's own interface preferences (accent colour) in the active tenant. Tenant audience, no permission, no id in path/body/query, PUT rate-limited (write profile)."
     },
     {
+      "pattern": "(extra operation: |OpenAPI: extra )(GET|PUT) /api/v1/settings/ai",
+      "reason": "New operations of the tenant-ai-settings module (docs/modules/scan-decisioning/SPEC.md 7.2a and 17.b, ADR-013, owner decisions AP-6 and AP-7, 2026-11-17): the organization's audited data-egress consent for an external AI provider. Tenant audience; GET needs tenant_settings.view, PUT needs tenant_settings.manage (existing keys, Admin bundle), strict body { externalConsent }, PUT rate-limited (write profile); the tenant comes from the session only."
+    },
+    {
       "pattern": "(OpenAPI )?GET /api/v1/platform/tenants: (errorCodes differs|request differs|parameters)",
       "reason": "Cursor pagination on the Root Console tenant list (2026-11-13, owner decision, API_STANDARDS \"Cursor pagination\"): the opt-in query parameters cursor and limit, and the transport error code INVALID_CURSOR (400) for an invalid or foreign HMAC-signed cursor. Offset paging (page, pageSize) is unchanged; meta.pagination gains nextCursor and hasMore."
     },

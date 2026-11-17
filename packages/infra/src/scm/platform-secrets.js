@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 /**
  * PlatformSecretProvider (ADR-009 amendment): named PLATFORM-level secrets that belong to no tenant, such as the GitHub App
- * private key, client secret and webhook secret. They are never stored in the database; the tenant SecretStore is unchanged
+ * private key, client secret and webhook secret, and the hosted LLM provider keys. They are never stored in the database; the tenant SecretStore is unchanged
  * and is not used for them. Providers: environment (development, optionally `<NAME>_FILE` for a mounted file) and KMS/Vault
  * (production; adapters not implemented yet, so production refuses the environment provider at startup).
  *
@@ -17,6 +17,9 @@ export const PLATFORM_SECRET_VARIABLES = Object.freeze({
   "github.app.private_key": "GITHUB_APP_PRIVATE_KEY",
   "github.app.client_secret": "GITHUB_APP_CLIENT_SECRET",
   "github.app.webhook_secret": "GITHUB_APP_WEBHOOK_SECRET",
+  // LLM provider keys (ADR-013): platform-level, never in the database, never tenant-supplied.
+  "llm.anthropic.api_key": "LLM_ANTHROPIC_API_KEY",
+  "llm.openai.api_key": "LLM_OPENAI_API_KEY",
 });
 
 /**

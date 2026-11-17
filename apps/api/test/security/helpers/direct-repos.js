@@ -5,6 +5,7 @@ import {
   createScmRestoreRepository,
   createSecretRepository,
   createTenantRepository,
+  createTenantLlmSettingsRepository,
   createEntitlementRepository,
   createExecutionIdempotency,
   createExecutionCancellation,
@@ -211,6 +212,15 @@ export async function buildDalWorld(db) {
   });
   await db.tenantIntegrationSettings.create({
     data: { tenantId: X.id, allowWorkspaceLinking: false, updatedByUserId: uA.id },
+  });
+  // tenant X has consented to an external AI provider (docs/modules/scan-decisioning/SPEC.md 7.2a, DAL-299..301)
+  await db.tenantLlmSettings.create({
+    data: {
+      tenantId: X.id,
+      externalConsent: true,
+      updatedByUserId: uA.id,
+      consentChangedAt: new Date(),
+    },
   });
   const repoData = (n, extra = {}) => ({
     tenantId: X.id,
@@ -785,6 +795,7 @@ export async function buildDalWorld(db) {
     webhooks: createWebhookRepository({ db }),
     users: createUserRepository({ db }),
     preferences: createUserPreferenceRepository({ db }),
+    llmSettings: createTenantLlmSettingsRepository({ db }),
     executions: createExecutionRepository({ db }),
     executionCancel: createExecutionCancellation({ db }),
     executionsApi: createExecutionsRepository({ db }),
@@ -854,6 +865,7 @@ async function snapshot(c) {
     db.scmWorkspaceLink.findMany({ where: tenant }),
     db.scmWorkspaceLinkRepository.findMany({ where: tenant }),
     db.tenantIntegrationSettings.findMany({ where: tenant }),
+    db.tenantLlmSettings.findMany({ where: tenant }),
     db.repository.findMany({ where: tenant }),
     db.scmEvent.findMany({ where: tenant }),
     db.scmWebhookDelivery.findMany({ where: tenant }),
@@ -4670,6 +4682,37 @@ export function buildDalEntries() {
   E("realtime.findMembership", (c) => RTM(c).findMembership({ tenantId: c.y, userId: c.uA }), {
     control: (c) => RTM(c).findMembership({ tenantId: c.x, userId: c.uA }),
   });
+
+  // ----- tenant LLM settings (docs/modules/scan-decisioning/SPEC.md 7.2a, DAL-299..301): the row is reached by the tenant id only.
+  // X consented (true); every call presents tenant Y, which has no row and must read false / null and never see X's value.
+  const LS = (c) => c.repos.llmSettings;
+  E("llm-settings.getExternalConsent", (c) => LS(c).getExternalConsent({ tenantId: c.y }), {
+    control: (c) => LS(c).getExternalConsent({ tenantId: c.x }),
+  });
+  E("llm-settings.findSettings", (c) => LS(c).findSettings({ tenantId: c.y }), {
+    control: (c) => LS(c).findSettings({ tenantId: c.x }),
+  });
+  E(
+    "llm-settings.setExternalConsent",
+    (c) =>
+      c.db.$transaction((tx) =>
+        LS(c).setExternalConsent({ tenantId: c.y, enabled: true, userId: c.uA }, tx),
+      ),
+    {
+      // creates the row under the tenant it was given (Y); the previous value reported is Y's (false), never X's (true)
+      verify: (r, c) => [
+        ...(r.row?.tenantId === c.y
+          ? []
+          : ["the row was not created under the tenant it was given"]),
+        ...(r.previous === false ? [] : ["the previous value came from another tenant"]),
+      ],
+      cleanup: (c) => c.db.tenantLlmSettings.deleteMany({ where: { tenantId: c.y } }),
+      control: (c) =>
+        c.db.$transaction((tx) =>
+          LS(c).setExternalConsent({ tenantId: c.x, enabled: false, userId: c.uA }, tx),
+        ),
+    },
+  );
 
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,

@@ -48,10 +48,11 @@ import {
 } from "./helpers/schedule-fixtures.js";
 import { buildPaginationChecks } from "./helpers/pagination.js";
 import { buildOverviewChecks } from "./helpers/overview-checks.js";
+import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 708;
+const EXPECTED_CHECKS = 727;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10309,6 +10310,23 @@ const schWorld = () =>
 {
   const add = group("Organization overview: Admin-only dashboard.view");
   for (const { id, name, expected, run, verify } of buildOverviewChecks({
+    S,
+    once,
+    db: suiteDb,
+    withRole,
+    loginAs,
+  }))
+    add(id, name, expected, run, verify);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 17c. LLM data-egress consent (docs/modules/scan-decisioning/SPEC.md 7.2a and 14.1, ADR-013, DEC-S10*, DEC-S11*): the gate inside
+//      resolveLLMProvider (an external provider is never built or called without the tenant's audited consent) and the route
+//      family GET/PUT /settings/ai. Local stub servers count the requests; helpers/llm-consent-checks.js.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("LLM consent gate and tenant AI settings");
+  for (const { id, name, expected, run, verify } of buildLlmConsentChecks({
     S,
     once,
     db: suiteDb,

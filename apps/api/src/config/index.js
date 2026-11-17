@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { SecretConfigError, parseMasterKey, readGitHubAppConfig } from "@qmentisai/infra";
+import {
+  SecretConfigError,
+  parseMasterKey,
+  readGitHubAppConfig,
+  readLLMConfig,
+} from "@qmentisai/infra";
 import { PACKAGE_INFO } from "./package-info.js";
 
 const booleanFlag = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -293,6 +298,9 @@ export function loadConfig(env = process.env) {
   // GitHub App settings are validated by the shared reader (also used by the workers); secrets are not read here.
   const github = readGitHubAppConfig(env, { production });
   problems.push(...github.problems);
+  // LLM assistant (ADR-013): the API only needs to know whether and what kind of provider is configured (never a key).
+  const llm = readLLMConfig(env, { production });
+  problems.push(...llm.problems);
   if (problems.length > 0) throw new ConfigError(problems);
   const mockEnabled = e.MOCK_AUTH_ENABLED ?? !production;
   return Object.freeze({
@@ -320,6 +328,7 @@ export function loadConfig(env = process.env) {
     github: github.enabled
       ? Object.freeze({ enabled: true, ...github.config })
       : Object.freeze({ enabled: false }),
+    llm: llm.config,
     secrets: Object.freeze({
       enabled: e.SECRETS_ENABLED ?? false,
       provider: e.SECRET_KEY_PROVIDER,

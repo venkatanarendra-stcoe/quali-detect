@@ -27,6 +27,9 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
     codeload: new Map(), // path -> Buffer
     tarballRequests: [], // { fullName, sha, scoped, permissions }
     codeloadRequests: [], // { hasAuthorization }
+    compares: new Map(), // `${fullName}@${base}...${head}` -> fixture of the compare endpoint (change detection)
+    pullFiles: new Map(), // `${fullName}#${number}` -> fixture of the pull-request files endpoint
+    changeCalls: [], // { kind, fullName, url, authorization, tokenScope }: what the change-detection endpoints were asked
     failures: [], // { match, status, times }: injected failures for the next matching requests
     deliveries: [], // { id, guid, status_code, redelivery, delivered_at, event, action, installation_id, body, headers }
     redeliveries: [],
@@ -162,6 +165,17 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
         state.failures.push({ match: body.match, status: body.status, times: body.times ?? 1 });
         return send(res, 200, { ok: true });
       }
+      if (path === "/__control/compare") {
+        // fixture: { fullName, base, head, files: [...GitHub file objects...], override?: any, delayMs?: number }
+        state.compares.set(`${body.fullName}@${body.base}...${body.head}`, body);
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/__control/pull-files") {
+        // fixture: { fullName, number, files: [...], override?: any, delayMs?: number }
+        state.pullFiles.set(`${body.fullName}#${body.number}`, body);
+        return send(res, 200, { ok: true });
+      }
+      if (path === "/__control/change-calls") return send(res, 200, { calls: state.changeCalls });
       if (path === "/__control/source-calls")
         return send(res, 200, {
           tarballs: state.tarballRequests,
@@ -169,6 +183,9 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
           minted: state.mintedTokens,
         });
       if (path === "/__control/reset") {
+        state.compares.clear();
+        state.pullFiles.clear();
+        state.changeCalls = [];
         for (const key of [
           "installations",
           "repos",
@@ -318,6 +335,81 @@ export async function startGitHubStub({ publicKeyPem, clientId, clientSecret }) 
       return send(res, injected.status, { message: "injected failure" });
     }
     const tokenScope = state.tokenScopes.get(bearer(req));
+    // ------------------------------------------------------------ change detection (scan decisioning, part C)
+    // `GET /repos/{r}/compare/{base}...{head}` (contents:read; the file list is capped at 300 like GitHub) and
+    // `GET /repos/{r}/pulls/{n}/files` (pull_requests:read; at most 3000 files, 100 per page, `Link: rel="next"`). Every file is
+    // returned the way GitHub does it: with a `patch`, a blob/raw/contents URL and a sha, which the adapter must drop.
+    const compareMatch = /^\/repos\/([^/]+\/[^/]+)\/compare\/([0-9a-f]+)\.\.\.([0-9a-f]+)$/.exec(
+      path,
+    );
+    const pullFilesMatch = /^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)\/files$/.exec(path);
+    if ((compareMatch || pullFilesMatch) && req.method === "GET") {
+      const fullName = (compareMatch ?? pullFilesMatch)[1];
+      const name = fullName.split("/")[1];
+      state.changeCalls.push({
+        kind: compareMatch ? "compare" : "pull_files",
+        fullName,
+        url: req.url,
+        authorization: req.headers.authorization ?? null,
+        tokenScope: tokenScope ?? null,
+      });
+      if (!tokenScope) return send(res, 401, { message: "Bad credentials" });
+      if (tokenScope.repositories && !tokenScope.repositories.includes(name))
+        return send(res, 404, { message: "Not Found" });
+      const decorate = (file) => ({
+        sha: "b".repeat(40),
+        blob_url: `https://github.com/${fullName}/blob/${"c".repeat(40)}/${file.filename}`,
+        raw_url: `https://github.com/${fullName}/raw/${"c".repeat(40)}/${file.filename}`,
+        contents_url: `${url.origin}/repos/${fullName}/contents/${file.filename}`,
+        changes: (file.additions ?? 0) + (file.deletions ?? 0),
+        patch: file.patch ?? `@@ -1 +1 @@ PATCH-HUNK-MARKER ${file.filename}`,
+        ...file,
+      });
+      const fixture = compareMatch
+        ? state.compares.get(`${fullName}@${compareMatch[2]}...${compareMatch[3]}`)
+        : state.pullFiles.get(`${fullName}#${pullFilesMatch[2]}`);
+      if (compareMatch && !(tokenScope.permissions?.contents === "read"))
+        return send(res, 404, { message: "Not Found" });
+      if (pullFilesMatch && tokenScope.permissions?.pull_requests !== "read")
+        return send(res, 403, { message: "Resource not accessible by integration" });
+      if (!fixture) return send(res, 404, { message: "Not Found" });
+      if (fixture.delayMs) await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
+      if (fixture.redirect) {
+        // a renamed repository: GitHub answers 301 to another URL; the adapter must refuse it (and never forward the token)
+        res.writeHead(301, { location: `http://${req.headers.host}/__codeload/redirected` });
+        return res.end();
+      }
+      if (fixture.override !== undefined) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(
+          typeof fixture.override === "string"
+            ? fixture.override
+            : JSON.stringify(fixture.override),
+        );
+      }
+      const files = fixture.files ?? [];
+      if (compareMatch)
+        return send(res, 200, {
+          status: "ahead",
+          ahead_by: 1,
+          behind_by: 0,
+          total_commits: 1,
+          files: files.slice(0, 300).map(decorate),
+        });
+      const perPage = Math.min(Number(url.searchParams.get("per_page") ?? 30), 100);
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const capped = files.slice(0, 3000);
+      const slice = capped.slice((page - 1) * perPage, page * perPage);
+      return send(
+        res,
+        200,
+        slice.map(decorate),
+        page * perPage < capped.length
+          ? { link: `<${url.origin}${path}?per_page=${perPage}&page=${page + 1}>; rel="next"` }
+          : {},
+      );
+    }
+
     const sourceMatch = /^\/repos\/([^/]+\/[^/]+)\/(tarball|commits)\/(.+)$/.exec(path);
     if (sourceMatch && req.method === "GET") {
       const [, fullName, kind, rest] = sourceMatch;

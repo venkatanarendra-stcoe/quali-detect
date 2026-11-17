@@ -9,3 +9,4 @@ export * from "./platform-permissions.js";
 export * from "./pipelines/index.js";
 export * from "./preferences.js";
 export * from "./executions/index.js";
+export * from "./scan-decisioning/index.js";

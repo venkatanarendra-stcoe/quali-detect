@@ -3,6 +3,7 @@ import { childLogger } from "../../logging.js";
 import { parseJsonPreservingIds } from "./json.js";
 import { createAppJwt } from "./jwt.js";
 import { GitHubApiError, rateLimitDelayMs } from "./errors.js";
+import { CHANGED_FILE_LIMITS, parseCompareResponse, parsePullFilesPage } from "./changed-files.js";
 import { createInstallationTokenCache } from "./token-cache.js";
 
 /**
@@ -92,7 +93,7 @@ export function createGitHubClient({
   }
 
   /** Low-level request. `auth` is the full Authorization value (never logged). */
-  async function request(method, url, { auth, body, form } = {}) {
+  async function request(method, url, { auth, body, form, signal } = {}) {
     const headers = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": apiVersion,
@@ -111,7 +112,9 @@ export function createGitHubClient({
           : body !== undefined
             ? JSON.stringify(body)
             : undefined,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       // Network failure or timeout: no status, treated as transient by toRetryable().
@@ -209,6 +212,28 @@ export function createGitHubClient({
           url.hostname.endsWith(".githubusercontent.com"))));
 
   /**
+   * Mints a FRESH installation token restricted to ONE repository and to exactly `permissions` (never cached, never logged).
+   * The caller holds it in a closure or a local variable only.
+   * @param {string} externalInstallationId @param {string} fullName @param {Record<string, "read" | "write">} permissions @param {AbortSignal} [signal]
+   * @returns {Promise<string>}
+   */
+  async function mintRepositoryToken(externalInstallationId, fullName, permissions, signal) {
+    const repositoryName = fullName.split("/")[1];
+    const { json } = await request(
+      "POST",
+      `${api}/app/installations/${encodeURIComponent(externalInstallationId)}/access_tokens`,
+      {
+        auth: `Bearer ${appJwt()}`,
+        body: { repositories: [repositoryName], permissions },
+        signal,
+      },
+    );
+    if (typeof json?.token !== "string" || json.token === "")
+      throw new GitHubApiError("GitHub returned no installation token.", { status: 502 });
+    return json.token;
+  }
+
+  /**
    * A source session for ONE repository (docs/modules/executions/SPEC.md §6.3, B4, EXEC-010): mints a FRESH installation
    * token restricted to `contents: read` on that repository, holds it in this closure only (never cached, persisted, logged,
    * returned or put in an error) and offers the two calls the fetch step needs. `close()` drops the token. The archive is
@@ -222,18 +247,9 @@ export function createGitHubClient({
         status: 400,
         code: "invalid_repository",
       });
-    const repositoryName = fullName.split("/")[1];
-    const { json } = await request(
-      "POST",
-      `${api}/app/installations/${encodeURIComponent(externalInstallationId)}/access_tokens`,
-      {
-        auth: `Bearer ${appJwt()}`,
-        body: { repositories: [repositoryName], permissions: { contents: "read" } },
-      },
-    );
-    if (!json?.token)
-      throw new GitHubApiError("GitHub returned no installation token.", { status: 502 });
-    let token = json.token;
+    let token = await mintRepositoryToken(externalInstallationId, fullName, {
+      contents: "read",
+    });
     const authorized = () => {
       if (token === null)
         throw new GitHubApiError("The source session is closed.", { code: "session_closed" });
@@ -351,10 +367,245 @@ export function createGitHubClient({
     });
   }
 
+  const MAX_RESPONSE_BYTES = 33554432; // 32 MiB: a page of 100 files with patches stays well below
+  /** The permissions of the change-detection token (SPEC scan-decisioning CD-3, 17.a): minted for this step only. */
+  const CHANGE_DETECTION_PERMISSIONS = Object.freeze({
+    contents: "read",
+    pull_requests: "read",
+    metadata: "read",
+  });
+
+  /** Reads a response body as text, refusing more than MAX_RESPONSE_BYTES. @returns {Promise<string | null>} */
+  async function readBounded(response) {
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    if (!response.body) return "";
+    const chunks = [];
+    let size = 0;
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  }
+
+  /**
+   * The changed-file list of an incremental execution (docs/modules/scan-decisioning/SPEC.md 5.2, 17.a). FAIL CLOSED: the answer
+   * is `complete` only when the whole list was read and every item validated; a failure, a truncation or anything malformed is
+   * `truncated` / `unavailable` with NO file list, so the caller selects every enabled scan type (never a partial list).
+   *
+   * Push: `GET /repos/{r}/compare/{base}...{head}` (contents:read); GitHub lists at most 300 files, so 300 or more is
+   * truncated. A missing, all-zero or malformed base is `unavailable` WITHOUT calling GitHub (a new branch). Pull request (same
+   * repository AND fork): `GET /repos/{r}/pulls/{n}/files` on the BASE repository (pull_requests:read), page by page, at most
+   * min(`maxPages`, 30) pages of 100; 3000 files or more, or more pages beyond the bound, is truncated. Any 404/403/429/5xx, a
+   * network error, an abort, non-JSON, a wrong shape or an invalid item is `unavailable`.
+   *
+   * The token is a FRESH installation token restricted to this one repository (contents, pull_requests, metadata: read), kept in
+   * memory for this call only: never cached, logged, returned, put in an error, a URL or a message. The `patch` and every other
+   * field except path, previous path, status and the two counts are dropped before anything is returned or logged. Never throws.
+   * @param {{
+   *   externalInstallationId: string,
+   *   repository: { fullName: string },
+   *   kind: "push" | "pull_request",
+   *   baseSha?: string | null,
+   *   headSha?: string | null,
+   *   pullRequestNumber?: number | null,
+   *   maxFiles?: number,
+   *   maxPages?: number,
+   *   signal?: AbortSignal,
+   * }} input
+   * @returns {Promise<{
+   *   status: "complete" | "truncated" | "unavailable",
+   *   source: "github_compare" | "github_pull_files",
+   *   files: Array<{ path: string, previousPath: string | null, status: string, additions: number, deletions: number }>,
+   *   reason: string | null,
+   * }>}
+   */
+  async function listChangedFiles({
+    externalInstallationId,
+    repository,
+    kind,
+    baseSha,
+    headSha,
+    pullRequestNumber,
+    maxFiles = CHANGED_FILE_LIMITS.pullMaxFiles,
+    maxPages = CHANGED_FILE_LIMITS.pullMaxPages,
+    signal,
+  }) {
+    const source = kind === "pull_request" ? "github_pull_files" : "github_compare";
+    const result = (status, reason, files = []) => ({
+      status,
+      source,
+      files: status === "complete" ? files : [],
+      reason,
+    });
+    const unavailable = (reason) => result("unavailable", reason);
+    const fullName = repository?.fullName;
+    if (kind !== "push" && kind !== "pull_request") return unavailable("unsupported_kind");
+    if (typeof fullName !== "string" || !FULL_NAME.test(fullName))
+      return unavailable("invalid_repository");
+    if (typeof externalInstallationId !== "string" || externalInstallationId === "")
+      return unavailable("invalid_installation");
+    const fileBound = Number.isSafeInteger(maxFiles) && maxFiles > 0 ? maxFiles : 0;
+    if (fileBound === 0) return unavailable("invalid_bounds");
+    let path;
+    if (kind === "push") {
+      // Checked BEFORE any request: a new branch (all zeros) or a missing base is `unavailable` without calling GitHub.
+      if (typeof baseSha !== "string" || baseSha === "") return unavailable("base_missing");
+      if (/^0+$/.test(baseSha)) return unavailable("base_all_zeros");
+      if (!COMMIT_SHA.test(baseSha) || typeof headSha !== "string" || !COMMIT_SHA.test(headSha))
+        return unavailable("invalid_sha");
+      path = `/repos/${fullName}/compare/${baseSha}...${headSha}`;
+    } else {
+      if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1)
+        return unavailable("invalid_pull_request");
+      path = `/repos/${fullName}/pulls/${pullRequestNumber}/files`;
+    }
+    if (signal?.aborted) return unavailable("aborted");
+
+    const pageBound = Math.max(
+      1,
+      Math.min(
+        Number.isSafeInteger(maxPages) && maxPages > 0 ? maxPages : 1,
+        CHANGED_FILE_LIMITS.pullMaxPages,
+      ),
+    );
+    const reasonOf = (status, headers, message) => {
+      if (rateLimitDelayMs(status, headers, message, now) !== null) return "rate_limited";
+      if (status === 404) return "not_found";
+      if (status === 401 || status === 403) return "access_denied";
+      if (status >= 500) return "server_error";
+      return "unexpected_status";
+    };
+    const started = now();
+    let outcome;
+    try {
+      outcome = await serial(externalInstallationId, async () => {
+        let token = await mintRepositoryToken(
+          externalInstallationId,
+          fullName,
+          CHANGE_DETECTION_PERMISSIONS,
+          signal,
+        );
+        try {
+          /** One GET: `{ json, headers }`, or `{ failure: reason }`. The token goes in the Authorization header only. */
+          const get = async (url) => {
+            let response;
+            try {
+              response = await fetchImpl(url, {
+                headers: {
+                  Accept: "application/vnd.github+json",
+                  "X-GitHub-Api-Version": apiVersion,
+                  "User-Agent": "QmentisAI-GitHub-App",
+                  Authorization: `Bearer ${token}`,
+                },
+                redirect: "error",
+                signal: signal
+                  ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+                  : AbortSignal.timeout(timeoutMs),
+              });
+            } catch {
+              return { failure: signal?.aborted ? "aborted" : "unreachable" };
+            }
+            let text;
+            try {
+              text = await readBounded(response);
+            } catch {
+              return { failure: signal?.aborted ? "aborted" : "unreachable" };
+            }
+            if (!response.ok) {
+              let message = "";
+              try {
+                message = String(JSON.parse(text ?? "")?.message ?? "");
+              } catch {
+                /* the body is only consulted for a rate-limit hint */
+              }
+              return { failure: reasonOf(response.status, response.headers, message) };
+            }
+            if (text === null) return { failure: "response_too_large" };
+            let json;
+            try {
+              json = JSON.parse(text);
+            } catch {
+              return { failure: "invalid_response" };
+            }
+            return { json, headers: response.headers };
+          };
+
+          if (kind === "push") {
+            const answer = await get(`${api}${path}`);
+            if (answer.failure) return unavailable(answer.failure);
+            const parsed = parseCompareResponse(answer.json, fileBound);
+            if (!parsed.ok) return unavailable("invalid_response");
+            return parsed.truncated
+              ? result("truncated", "compare_file_cap")
+              : result("complete", null, parsed.files);
+          }
+
+          const files = [];
+          const limit = Math.min(fileBound, CHANGED_FILE_LIMITS.pullMaxFiles);
+          for (let page = 1; page <= pageBound; page += 1) {
+            if (signal?.aborted) return unavailable("aborted");
+            const answer = await get(
+              `${api}${path}?per_page=${CHANGED_FILE_LIMITS.pullPageSize}&page=${page}`,
+            );
+            if (answer.failure) return unavailable(answer.failure);
+            const parsed = parsePullFilesPage(answer.json);
+            if (!parsed.ok) return unavailable("invalid_response");
+            files.push(...parsed.files);
+            if (files.length >= limit) return result("truncated", "file_cap");
+            const more =
+              parsed.files.length === CHANGED_FILE_LIMITS.pullPageSize ||
+              hasNextPage(answer.headers);
+            if (!more) return result("complete", null, files);
+            if (page === pageBound) return result("truncated", "page_bound");
+          }
+          return result("truncated", "page_bound");
+        } finally {
+          token = null;
+        }
+      });
+    } catch (error) {
+      outcome = unavailable(
+        signal?.aborted
+          ? "aborted"
+          : error instanceof GitHubApiError
+            ? error.rateLimited
+              ? "rate_limited"
+              : error.code === "unreachable"
+                ? "unreachable"
+                : "token_unavailable"
+            : "internal_error",
+      );
+    }
+    log.debug(
+      {
+        source,
+        status: outcome.status,
+        reason: outcome.reason,
+        files: outcome.files.length,
+        durationMs: now() - started,
+      },
+      "Changed files read",
+    );
+    return outcome;
+  }
+
   return Object.freeze({
     provider: "github",
     tokenCache: tokens,
     openSourceSession,
+    listChangedFiles,
     /** URL where a user installs the App. No `state`: GitHub documents none on the setup redirect (spike D4). */
     buildInstallUrl: () => `${web}/apps/${encodeURIComponent(appSlug ?? "")}/installations/new`,
     /** GitHub authorize URL carrying OUR single-use state (documented for the web application flow). */

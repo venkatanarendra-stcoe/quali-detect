@@ -79,6 +79,12 @@ const envSchema = z.object({
     .max(86400)
     .default(3600),
   EXECUTION_RETENTION_PURGE_BATCH_SIZE: z.coerce.number().int().min(1).max(5000).default(500),
+  // Scan decisioning (docs/modules/scan-decisioning/SPEC.md 5.2, 5.3, 17.c). NOT WIRED YET: the orchestrator does not call the
+  // decision until part E. The diff bounds stay at or below the documented GitHub limits (compare 300, pull-request files 3000).
+  SCAN_DECISION_SECRETS_RULE: z.enum(["any_change", "strict"]).default("any_change"),
+  SCAN_DECISION_MAX_CHANGED_FILES: z.coerce.number().int().min(1).max(3000).default(3000),
+  SCAN_DECISION_MAX_PAGES: z.coerce.number().int().min(1).max(30).default(30),
+  SCAN_DECISION_SAMPLE_PATHS: z.coerce.number().int().min(0).max(100).default(20),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -270,6 +276,12 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
         maxRatio: e.EXECUTION_ARCHIVE_MAX_RATIO,
         maxDepth: e.EXECUTION_ARCHIVE_MAX_DEPTH,
       }),
+    }),
+    scanDecision: Object.freeze({
+      secretsRule: e.SCAN_DECISION_SECRETS_RULE,
+      maxChangedFiles: e.SCAN_DECISION_MAX_CHANGED_FILES,
+      maxPages: e.SCAN_DECISION_MAX_PAGES,
+      samplePaths: e.SCAN_DECISION_SAMPLE_PATHS,
     }),
     outbox: Object.freeze({
       batchSize: e.OUTBOX_BATCH_SIZE,

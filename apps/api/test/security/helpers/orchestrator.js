@@ -277,6 +277,18 @@ export async function buildOrchestratorWorld(db, github) {
     getClientSecret: () => "unused",
     logger,
   });
+  /** A GitHub client against the stub with its own logger and optional `fetch` (change-detection checks capture what it logs). */
+  w.makeGitHub = ({ logger: clientLogger = logger, fetch: fetchImpl } = {}) =>
+    createGitHubClient({
+      apiBaseUrl: github.stubUrl,
+      webBaseUrl: github.stubUrl,
+      apiVersion: "2026-03-10",
+      clientId: github.clientId,
+      getPrivateKey: () => github.privateKey,
+      getClientSecret: () => "unused",
+      logger: clientLogger,
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    });
   w.store = createLocalArtifactStore({ root: storeRoot });
   w.registry = ({ idempotent = true } = {}) => {
     const registry = createEngineRegistry();

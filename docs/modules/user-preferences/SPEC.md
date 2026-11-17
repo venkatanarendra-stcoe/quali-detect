@@ -2,10 +2,12 @@
 
 **Status:** Implemented (2026-11-13)
 **Owner:** Platform (owner decision of 2026-11-13: a proper module, not browser storage)
-**Last updated:** 2026-11-13
+**Last updated:** 2026-11-17 (default workspace and landing withdrawn, owner decision, Confirmed)
 **Related ADRs:** ADR-003 (tenant isolation), ADR-007 (Express 5, route kit), ADR-008 (security suite)
 
 Labels follow `docs/README.md`: everything below is **Confirmed** (the owner's decision and instructions of 2026-11-13) unless a line says **Recommended** or **Open**.
+
+> **Withdrawn 2026-11-17 (owner decision, Confirmed):** the briefly specified default-workspace preference (`defaultWorkspaceId`, requirements UP-006..008, the `default_workspace_id` column, `GET /me/landing`, checks `PREF-014..018`, `LAND-001..008`, `DAL-292`) was removed. The module is back to the single accent preference. Post-login landing is a client-side rule on permissions (docs/AUTHORIZATION.md decision 31). Migration `20261117120000_drop_user_preferences_default_workspace` drops the column; the earlier migration stays in history. UP-006..008 are intentionally unused.
 
 ## 1. Purpose
 

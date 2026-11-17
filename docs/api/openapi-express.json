@@ -47329,16 +47329,10 @@
                             "orange",
                             "rose"
                           ]
-                        },
-                        "defaultWorkspaceId": {
-                          "type": "string",
-                          "nullable": true,
-                          "format": "uuid"
                         }
                       },
                       "required": [
-                        "accent",
-                        "defaultWorkspaceId"
+                        "accent"
                       ]
                     },
                     "meta": {
@@ -47614,11 +47608,6 @@
                       "orange",
                       "rose"
                     ]
-                  },
-                  "defaultWorkspaceId": {
-                    "type": "string",
-                    "nullable": true,
-                    "format": "uuid"
                   }
                 },
                 "additionalProperties": false
@@ -47656,16 +47645,10 @@
                             "orange",
                             "rose"
                           ]
-                        },
-                        "defaultWorkspaceId": {
-                          "type": "string",
-                          "nullable": true,
-                          "format": "uuid"
                         }
                       },
                       "required": [
-                        "accent",
-                        "defaultWorkspaceId"
+                        "accent"
                       ]
                     },
                     "meta": {
@@ -47911,297 +47894,6 @@
           },
           "429": {
             "description": "Too many attempts (RATE_LIMITED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/me/landing": {
-      "get": {
-        "tags": [
-          "User preferences"
-        ],
-        "summary": "Where I land after sign-in: my default workspace if I can still access it, else the overview (holders of dashboard.view), else my first workspace, else nothing",
-        "security": [
-          {
-            "tenantSession": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "target": {
-                          "type": "string",
-                          "enum": [
-                            "workspace",
-                            "overview",
-                            "none"
-                          ]
-                        },
-                        "workspaceId": {
-                          "type": "string",
-                          "nullable": true,
-                          "format": "uuid"
-                        }
-                      },
-                      "required": [
-                        "target",
-                        "workspaceId"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "data",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation failed (VALIDATION_FAILED / BAD_REQUEST)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid session (UNAUTHENTICATED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not permitted or tenant not active (FORBIDDEN, TENANT_SUSPENDED, ROLE_ESCALATION, ENTITLEMENT_REQUIRED, QUOTA_EXCEEDED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "details": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "nullable": true
-                          }
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "meta": {
-                      "type": "object",
-                      "properties": {
-                        "correlationId": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "correlationId"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "success",
-                    "error",
-                    "meta"
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or not visible to the caller (RESOURCE_NOT_FOUND)",
             "content": {
               "application/json": {
                 "schema": {

@@ -26,6 +26,55 @@ const qs = (params) =>
 const idsOf = (items) => items.map((i) => i.id);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * Every route of the executions API with the authorization the router must wire (`permission` null is the collection, which is
+ * filtered to the workspaces the caller can see). The router is enumerated against this list by `EXE-073`, and the item routes
+ * below are built from it, so a route cannot be added without a runner here and the checks that go with it.
+ */
+export const ROUTE_MANIFEST = Object.freeze([
+  { label: "list", method: "GET", path: "/executions", permission: null, handler: "list" },
+  {
+    label: "detail",
+    method: "GET",
+    path: "/executions/:executionId",
+    permission: "execution.view",
+    handler: "get",
+  },
+  {
+    label: "events",
+    method: "GET",
+    path: "/executions/:executionId/events",
+    permission: "execution.view",
+    handler: "events",
+  },
+  {
+    label: "logs",
+    method: "GET",
+    path: "/executions/:executionId/logs",
+    permission: "execution.view",
+    handler: "logs",
+    rateLimit: "read",
+  },
+  {
+    label: "cancel",
+    method: "POST",
+    path: "/executions/:executionId/cancel",
+    permission: "execution.cancel",
+    handler: "cancel",
+    rateLimit: "write",
+    idempotent: true,
+  },
+  {
+    label: "retry",
+    method: "POST",
+    path: "/executions/:executionId/retry",
+    permission: "execution.run",
+    handler: "retry",
+    rateLimit: "write",
+    idempotent: true,
+  },
+]);
+
 /** Keys each DTO may carry. A key outside these lists is a leak (the allow-list is independent of the mapper). */
 export const LIST_KEYS = [
   "id",
@@ -138,13 +187,19 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       headers: key ? { "idempotency-key": key } : {},
       ...(body === undefined ? {} : { body }),
     });
-  const itemRoutes = (cookie, id) => [
-    { label: "detail", run: () => get(cookie, `/executions/${id}`) },
-    { label: "events", run: () => get(cookie, `/executions/${id}/events`) },
-    { label: "logs", run: () => get(cookie, `/executions/${id}/logs`) },
-    { label: "cancel", run: () => cancel(cookie, id) },
-    { label: "retry", run: () => retry(cookie, id) },
-  ];
+  const itemRoutes = (cookie, id) => {
+    const runners = {
+      detail: () => get(cookie, `/executions/${id}`),
+      events: () => get(cookie, `/executions/${id}/events`),
+      logs: () => get(cookie, `/executions/${id}/logs`),
+      cancel: () => cancel(cookie, id),
+      retry: () => retry(cookie, id),
+    };
+    return ROUTE_MANIFEST.filter((r) => r.label !== "list").map((r) => {
+      if (!runners[r.label]) throw new Error(`the route manifest has no runner for ${r.label}`);
+      return { label: r.label, run: runners[r.label] };
+    });
+  };
 
   // ---------------------------------------------------------------------------------------------------------------------
   // World

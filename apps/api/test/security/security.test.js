@@ -33,6 +33,7 @@ import { buildOrchestratorWorld } from "./helpers/orchestrator.js";
 import { ORCH_CHECKS } from "./helpers/orchestrator-checks.js";
 import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
 import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
+import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
 import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
 import { buildRealtimeWorld, REALTIME_CHECKS } from "./helpers/realtime-checks.js";
@@ -50,7 +51,7 @@ import { buildOverviewChecks } from "./helpers/overview-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 692;
+const EXPECTED_CHECKS = 707;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10358,6 +10359,7 @@ const schWorld = () =>
     ...CANCEL_RETRY_CHECKS,
     ...SBOM_CHECKS,
     ...STORE_CHECKS,
+    ...PART_I_CHECKS,
   ])
     add(
       id,

@@ -11,7 +11,7 @@ import {
   NonRetryableError,
   assertNoCredentials,
   extractTarGz,
-  redactCredentialText,
+  redactLogText,
 } from "@qmentisai/infra";
 import { matchGlob, shouldAbortAttempt } from "@qmentisai/shared";
 import { z } from "zod";
@@ -22,8 +22,9 @@ import { createTaskLogWriter, resolveLogStore } from "./task-log.js";
 import { createMessageProducer } from "./messages.js";
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
-const clean = (value, max) =>
-  redactCredentialText(String(value).replace(CONTROL_CHARS, "")).slice(0, max);
+// The same redaction as the LogStore (whole private-key blocks, Authorization headers, password pairs, and the whole text
+// replaced when a credential shape survives): `redactCredentialText` alone leaves the body of a key block behind.
+const clean = (value, max) => redactLogText(String(value).replace(CONTROL_CHARS, "")).slice(0, max);
 
 /** One normalized item (SPEC §7.4): locator facts only, no finding identity, no secret value. */
 const itemSchema = z.object({
@@ -293,7 +294,7 @@ export function createScanTaskHandler({
           log: (level, message) => {
             log?.[["debug", "info", "warn", "error"].includes(level) ? level : "info"]?.(
               { taskId, attempt },
-              redactCredentialText(clean(message, 500)),
+              clean(message, 500),
             );
             taskLog.log(level, message);
           },

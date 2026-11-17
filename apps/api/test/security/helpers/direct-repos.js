@@ -23,6 +23,7 @@ import { createIdentityRepository } from "../../../src/modules/identity/reposito
 import { createIntegrationRepository } from "../../../src/modules/integrations/repositories/index.js";
 import { createPlatformTenantRepository } from "../../../src/modules/platform-tenants/repositories/index.js";
 import { createExecutionsRepository } from "../../../src/modules/executions/index.js";
+import { createRealtimeRepository } from "../../../src/realtime/repository.js";
 import { createPipelineCounts } from "../../../src/modules/pipelines/index.js";
 import { createPipelineRepository } from "../../../src/modules/pipelines/repositories/index.js";
 import { pipelineScope } from "../../../src/authz/scopes.js";
@@ -358,6 +359,18 @@ export async function buildDalWorld(db) {
     where: { id: pl.id },
     data: { currentVersion: 1, currentVersionId: plVersion.id },
   });
+  // part I (DAL-292..): a second version with scans enabled, so findEnabledScanTypes has something to find for the owner
+  const plScansVersion = await db.pipelineConfigVersion.create({
+    data: {
+      tenantId: X.id,
+      pipelineId: pl.id,
+      version: 2,
+      schemaVersion: 1,
+      config: { schemaVersion: 1, triggers: [], scans: { sast: { enabled: true } } },
+      configHash: "b".repeat(64),
+      createdByUserId: uA.id,
+    },
+  });
   const plTrigger = await db.pipelineTrigger.create({
     data: {
       tenantId: X.id,
@@ -598,6 +611,7 @@ export async function buildDalWorld(db) {
     wsB: wsB.id,
     pipeline: pl,
     versionId: plVersion.id,
+    scansVersionId: plScansVersion.id,
     triggerId: plTrigger.id,
     executionId: plExecution.id,
     runningId: plRunning.id,
@@ -774,6 +788,7 @@ export async function buildDalWorld(db) {
     executions: createExecutionRepository({ db }),
     executionCancel: createExecutionCancellation({ db }),
     executionsApi: createExecutionsRepository({ db }),
+    realtime: createRealtimeRepository({ db }),
     tasks: createScanTaskRepository({ db }),
     logs: createExecutionLogRepository({ db }),
     artifacts: createExecutionArtifactRepository({ db }),
@@ -4577,6 +4592,84 @@ export function buildDalEntries() {
         ).rows,
     },
   );
+
+  // ----- part I (DAL-292..): the remaining tenant-scoped functions of the execution module that had no entry of their own
+  // right tenant, wrong workspace / wrong repository: the parent chain of the pipeline context is checked on its own
+  E(
+    "executions-api.findPipelineContext (wrong workspace)",
+    (c) =>
+      XA(c).findPipelineContext({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+        pipelineId: c.pl.pipeline.id,
+      }),
+    {
+      control: (c) =>
+        XA(c).findPipelineContext({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+        }),
+    },
+  );
+  E(
+    "executions-api.findPipelineContext (wrong repository)",
+    (c) =>
+      XA(c).findPipelineContext({
+        tenantId: c.x,
+        workspaceId: c.ws,
+        repositoryId: c.repo2.id,
+        pipelineId: c.pl.pipeline.id,
+      }),
+    {
+      control: (c) =>
+        XA(c).findPipelineContext({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+        }),
+    },
+  );
+  E(
+    "executions-api.findEnabledScanTypes",
+    (c) =>
+      XA(c).findEnabledScanTypes({
+        tenantId: c.y,
+        pipelineId: c.pl.pipeline.id,
+        configVersionId: c.pl.scansVersionId,
+      }),
+    {
+      control: (c) =>
+        XA(c).findEnabledScanTypes({
+          tenantId: c.x,
+          pipelineId: c.pl.pipeline.id,
+          configVersionId: c.pl.scansVersionId,
+        }),
+    },
+  );
+  lockEntry(
+    "executions-api.lockPipeline (key scoped by tenant and pipeline, the same key as the pipelines API)",
+    (c) => (tx, tenantId) => XA(c).lockPipeline({ tenantId, pipelineId: pipe(c).id }, tx),
+    (c) => (tenantId) => `pipeline:${tenantId}:${pipe(c).id}`,
+  );
+  const RTM = (c) => c.repos.realtime;
+  E("realtime.findExecution", (c) => RTM(c).findExecution({ tenantId: c.y, id: c.pl.runningId }), {
+    control: (c) => RTM(c).findExecution({ tenantId: c.x, id: c.pl.runningId }),
+  });
+  E(
+    "realtime.findTask",
+    (c) => RTM(c).findTask({ tenantId: c.y, executionId: c.pl.runningId, id: c.pl.taskRunningId }),
+    {
+      control: (c) =>
+        RTM(c).findTask({ tenantId: c.x, executionId: c.pl.runningId, id: c.pl.taskRunningId }),
+    },
+  );
+  E("realtime.findMembership", (c) => RTM(c).findMembership({ tenantId: c.y, userId: c.uA }), {
+    control: (c) => RTM(c).findMembership({ tenantId: c.x, userId: c.uA }),
+  });
 
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,

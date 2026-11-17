@@ -35,14 +35,14 @@ const BASE_ENTRIES = [
   { name: "src", dir: true },
   { name: "src/a.js", content: "console.log(1)\n" },
 ];
-const withScript = (obj) => [
+export const withScript = (obj) => [
   ...BASE_ENTRIES,
   { name: "qm-test.json", content: JSON.stringify(obj) },
 ];
-const currentPeriod = () => new Date().toISOString().slice(0, 7);
-const CTX = { log: { info() {}, warn() {}, error() {} }, attempt: 1 };
+export const currentPeriod = () => new Date().toISOString().slice(0, 7);
+export const CTX = { log: { info() {}, warn() {}, error() {} }, attempt: 1 };
 
-const attemptOf = async (fn) => {
+export const attemptOf = async (fn) => {
   try {
     return { value: await fn() };
   } catch (error) {
@@ -50,13 +50,13 @@ const attemptOf = async (fn) => {
   }
 };
 /** Whether every promise settles within `ms` (a handler that never returns is a failure, not a hang of the suite). */
-const within = (promises, ms) =>
+export const within = (promises, ms) =>
   Promise.race([Promise.all(promises).then(() => true), sleep(ms).then(() => false)]);
 const reasonOf = (r) => r.error?.details?.reason ?? null;
 const isNotFound = (r) => r.error?.statusCode === 404 && r.error?.code === "RESOURCE_NOT_FOUND";
 
 /** The service under test, wired like the module will be (real audit, outbox and entitlements over the disposable database). */
-function serviceOf(w, over = {}) {
+export function serviceOf(w, over = {}) {
   return createExecutionService({
     repository: createExecutionsRepository({ db: w.db }),
     audit: createAuditService({ db: w.db, logger: w.logger }),
@@ -67,16 +67,17 @@ function serviceOf(w, over = {}) {
     config: { cancelGraceSeconds: 30, abortGraceSeconds: 30, retryChainMax: 5, ...over },
   });
 }
-const actorOf = (tree, user = tree.user) => ({
+export const actorOf = (tree, user = tree.user) => ({
   tenantId: tree.tenant.id,
   userId: user.id,
   requestId: randomUUID(),
   ip: "127.0.0.1",
 });
 /** An orchestrator whose lease does not expire while a scenario waits for a slow task. */
-const orchestratorOf = (w, opts) => w.orchestrator({ EXECUTION_LEASE_TTL_SECONDS: "60" }, opts);
+export const orchestratorOf = (w, opts) =>
+  w.orchestrator({ EXECUTION_LEASE_TTL_SECONDS: "60" }, opts);
 
-async function until(fn, ms = 20000) {
+export async function until(fn, ms = 20000) {
   const start = Date.now();
   for (;;) {
     const value = await fn();
@@ -86,7 +87,7 @@ async function until(fn, ms = 20000) {
   }
 }
 /** Hands the pending task jobs of a tenant to the scan handler WITHOUT waiting for them; returns the running promises. */
-async function startTasks(w, tree, scan) {
+export async function startTasks(w, tree, scan) {
   const rows = await w.db.outboxMessage.findMany({
     where: {
       tenantId: tree.tenant.id,
@@ -114,7 +115,7 @@ async function startTasks(w, tree, scan) {
   return started;
 }
 /** Delivers the `pipeline.execution.cancel_requested` wake-up of an execution to the orchestrator (the broker's job). */
-async function deliverCancelWakeup(w, tree, e, orch) {
+export async function deliverCancelWakeup(w, tree, e, orch) {
   const rows = (
     await w.db.outboxMessage.findMany({
       where: {
@@ -135,7 +136,7 @@ async function deliverCancelWakeup(w, tree, e, orch) {
   }
   return rows.length;
 }
-const tasksOf = (w, e) =>
+export const tasksOf = (w, e) =>
   w.db.scanTask.findMany({ where: { executionId: e.id }, orderBy: { ordinal: "asc" } });
 const attemptsOf = (w, e) =>
   w.db.scanTaskAttempt.findMany({
@@ -150,7 +151,7 @@ const countRows = async (w, tree) => ({
 });
 const sameCounts = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /** Finishes the executions of a scenario cleanly so none keeps a lease another check could reclaim. */
-async function settle(w, tree, orchs, scan) {
+export async function settle(w, tree, orchs, scan) {
   for (let round = 0; round < 6; round += 1) {
     for (const orch of orchs) await w.pump(tree, { orch, scan });
     const open = await w.db.execution.count({

@@ -121,10 +121,10 @@ Order guarantee (Recommended): the decision record, the `decision_completed` eve
 | Rule | Text |
 |---|---|
 | CD-1 | Only for `scan_kind = incremental`. The base is `executions.base_sha` (push `before`, PR base) and the head is the pinned `commit_sha`. Both are already stored by the router and the fetch step |
-| CD-2 | Source (Open, spike): the GitHub **compare** API for pushes and same-repository PRs, the **pull-request files** API for PRs (including fork PRs, where the head lives in another repository). Whether both work on a **private base repository** with the App's current permissions (Metadata, Contents, Pull requests: read; repositories-github SPEC D5), their pagination and file limits, and how a new branch (`before` all zeros), a force push (unreachable `before`) and a tag push behave must be **verified live before implementation** |
+| CD-2 | Source (**settled by the part A spike, 17.a**): the GitHub **compare** API for pushes and same-repository PRs, the **pull-request files** API for PRs (including fork PRs, where the head lives in another repository). Whether both work on a **private base repository** with the App's current permissions (Metadata, Contents, Pull requests: read; repositories-github SPEC D5), their pagination and file limits, and how a new branch (`before` all zeros), a force push (unreachable `before`) and a tag push behave must be **verified live before implementation** |
 | CD-3 | The token is the same repository-scoped installation token minted by the fetch step, used in the worker, in memory only, **never** in the scan context, a message, a log, an event or the decision record |
 | CD-4 | Fetched per file: path, previous path (rename), status (`added`, `modified`, `removed`, `renamed`, `copied`, `changed`), additions and deletions counts. **The patch text is discarded at the adapter** and never stored or sent anywhere |
-| CD-5 | Bounds: at most `SCAN_DECISION_MAX_CHANGED_FILES` (Recommended 3000) files and `SCAN_DECISION_MAX_PAGES` API pages. Over a bound, or any API error, empty or unparsable answer, or a base that is not reachable: `diff_status = truncated` or `unavailable` and the floor becomes **all enabled** (DEC-009). Never a partial list treated as complete |
+| CD-5 | Bounds: compare lists at most **300** files (documented and enforced by GitHub, 17.a): 300 or more means truncated; pull-request files are read at most 30 pages of 100 (3000); at most `SCAN_DECISION_MAX_CHANGED_FILES` (Recommended 3000) files and `SCAN_DECISION_MAX_PAGES` API pages. Over a bound, or any API error, empty or unparsable answer, or a base that is not reachable: `diff_status = truncated` or `unavailable` and the floor becomes **all enabled** (DEC-009). Never a partial list treated as complete |
 | CD-6 | The snapshot's `exclusions.paths` are applied to the list. If every changed file is excluded the changed set is empty (zero-scan case, section 5.6) |
 | CD-7 | Repository content, file names, branch names and every string from the API are **untrusted data**: validated by Zod, length-capped, control characters stripped, never executed, never interpolated into an instruction |
 
@@ -309,7 +309,7 @@ Scope stays the safety properties, not the rule table: a mapping of changed file
 
 | Id | Question | Recommendation |
 |---|---|---|
-| OQ-1 | **Diff source** (GitHub compare versus pull-request files versus a base archive diff), limits, new branch, force push, tag, private base, fork PR | Spike first (section 16, part A). Recommend compare for push and PR files for PRs; fail closed to the full floor |
+| OQ-1 | **Diff source** (GitHub compare versus pull-request files versus a base archive diff), limits, new branch, force push, tag, private base, fork PR | **Settled by the part A spike (17.a):** compare for pushes (300-file cap), pull-request files for all PRs including forks (3000-file cap), failures and 404 map to the full floor |
 | OQ-2 | **Secrets rule** | **Decided (AP-2):** default `any_change`, configurable to `strict` (definition in 5.3; confirm on review) |
 | OQ-3 | **Zero-scan outcome** | **Decided (AP-3):** option A with the quota unit **refunded** |
 | OQ-4 | **LLM framework** | **Decided (AP-4, ADR-013 Approved):** in-house loop, `fetch` adapters, no new dependency |
@@ -327,7 +327,7 @@ Scope stays the safety properties, not the rule table: a mapping of changed file
 ## 16. Implementation notes (plan, Recommended)
 
 Parts, one commit each, all gates after each, report per part:
-- **A. Spike (no code in the product):** verify compare and PR-files on a private base repository for push, same-repository PR and fork PR with the installation token and the current App permissions; record limits, pagination, new branch, force push; confirm the fork PR path. Update OQ-1.
+- **A. Spike (no code in the product; DONE 2026-11-17, section 17.a):** verify compare and PR-files on a private base repository for push, same-repository PR and fork PR with the installation token and the current App permissions; record limits, pagination, new branch, force push; confirm the fork PR path. Update OQ-1.
 - **B. Floor and records:** shared pure floor function and classifier in `@qmentisai/shared`; migration for `scan_decisions` and its guards; repository functions with tenant scope; DTO mapper; contract snapshot.
 - **C. Change detection adapter:** in `packages/infra` GitHub client (new methods, patch discarded), bounds, fail-closed mapping.
 - **D. Orchestrator integration:** the `preparing` flow of section 5.1, the one-transaction task creation from `final`, reclaim rules, zero-scan outcome per decision, `decision_started/completed` events, the hint message.
@@ -339,3 +339,38 @@ Verification items for part B: ordinal gaps in `scan_tasks`; whether the `execut
 
 ## Related documents
 `docs/modules/executions/SPEC.md` (5.3, 5.4, 6.3, 6.4, 17.ab, 17.ai), `docs/modules/pipelines-triggers/SPEC.md` (scan kind, exclusions, fork policy), `docs/modules/repositories-github/SPEC.md` (App permissions), `docs/decisions/ADR-009-INTEGRATION-CREDENTIAL-STORAGE.md`, `docs/decisions/ADR-013-LLM-PROVIDER-ABSTRACTION.md` (Proposed), `docs/technical/SECURITY_GUIDELINES.md` (Repository and AI safety), `docs/decisions/OPEN_DECISIONS.md`.
+
+## 17. What I verified (built facts and spikes relied on)
+
+### 17.a Part A spike: changed-file list from the GitHub API on a PRIVATE base repository (2026-11-17)
+
+Run against `STCOE-TESTING/qm-test-2-renamed` (private) with an installation token minted for the one repository, in the agent's process only (no token printed or stored), from the executions of the live test (push before and after, same-repository PR #4, fork PR #5). The calls and their answers:
+
+| # | Call | Result |
+|---|---|---|
+| 1 | token mint with `contents: read`, `pull_requests: read`, `metadata: read` | `201`, the three permissions granted, repository selection `selected`; the App already holds all three |
+| 2 | `GET /repos/{r}/compare/{before}...{after}` (latest push) | `200`, `status ahead`, 1 file `modified package.json +2/-1`; keys `sha, filename, status, additions, deletions, changes, blob_url, raw_url, contents_url, patch` (**`patch` is present**: the adapter must discard it); no `Link` header when the list fits one page |
+| 3 | same with `per_page=1&page=1` | `200`, the file list is still returned whole on page 1 (files are not paginated by `per_page`); a `rel="first"` Link only |
+| 4 | `GET /repos/{r}/pulls/4/files?per_page=100` (same-repository PR) | `200`, 1 file `modified package.json +3/-1`; no Link header for one page; `page=2` is `200` with an empty list and a `rel="prev"/"last"/"first"` Link |
+| 5 | `GET /repos/{r}/compare/{base}...{head}` for PR #4 | `200`, same single file as the PR-files call |
+| 6 | `GET /repos/{r}/pulls/5/files?per_page=100` (**fork PR**) | `200`, 1 file `added package.json +33/-0`, from the **base** repository with the base installation token |
+| 7 | `GET /repos/{r}/compare/{base_sha}...{fork_head_sha}` on the **base** repository | `200`, `status diverged`, ahead 1, behind 6, the same 1 file: a fork head SHA is addressable inside the base repository's network (consistent with the Executions spike, SPEC executions 17.x) |
+| 8 | compare with `before` = 40 zeros (**new branch**) | **`404 Not Found`** |
+| 9 | compare with an unreachable `before` (random SHA, **force push**) | **`404 Not Found`** |
+| 10 | compare of a SHA with itself | `200`, `identical`, 0 files (an empty-commit push) |
+| 11 | PR files with a token holding **only `contents: read`** | **`403 Resource not accessible by integration`** |
+| 12 | compare with a token holding only `contents: read` | `200` |
+| 13 | rate limit | the installation token starts at 5000 per hour (`x-ratelimit-remaining 4998` after the mint and first call); the spike used 14 calls |
+
+Documentation read (quotes from the pages; page 2 only through a model-extracted summary of the unread tail, so its limits are **unverified verbatim**):
+- `https://docs.github.com/en/rest/commits/commits?apiVersion=2022-11-28#compare-two-commits` (verbatim): "The list of changed files is only shown on the first page of results, and it includes up to 300 changed files for the entire comparison."; "limited to 250 commits" when called without paging; `per_page` "max 100", default 30; basehead "BASE...HEAD", and "USERNAME:BASE...USERNAME:HEAD" for refs in a fork of the same network; `patch`: "Diffs with binary data will have no patch property." The page states no token permission and does not say what happens to files beyond 300.
+- `https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28#list-pull-requests-files` (summary only): "Responses include a maximum of 3000 files."; `per_page` default 30, max 100; status values `added, removed, modified, renamed, copied, changed, unchanged`; `previous_filename` optional. The Pull requests permission is not stated on the page; the live `403` in row 11 shows it is required.
+
+**Conclusions (design unchanged; two numbers corrected):**
+1. **Source (settles OQ-1):** pushes use **compare** (`contents: read`); pull requests, **same-repository and fork alike**, use **pull-request files** (`pull_requests: read`, paginated, base repository, base installation token). Both work on a private base repository with the permissions the App already has. No new App permission is needed.
+2. **The compare file list is capped at 300**, not 3000 as CD-5 assumed. Rule: if a compare answer holds **300 or more files**, treat the list as **truncated** (fail closed, all enabled types). The pull-request files list is read page by page (`per_page=100`, at most 30 pages = the documented 3000); a full 3000 means truncated. `SCAN_DECISION_MAX_CHANGED_FILES` stays a bound below these.
+3. **New branch (`before` all zeros), force push (unreachable `before`) and any `404`/`403`/`5xx`** are not errors of the run: they map to `diff_status unavailable` and the **full floor** (DEC-009). No attempt is made to guess a merge base in v1.
+4. An **empty change** (`identical`, 0 files, or all files excluded) is the zero-scan case (5.6).
+5. Manual and scheduled executions that are `incremental` have no `base_sha`: `unavailable`, full floor. Full runs never call the API.
+6. The `patch` property is returned on every file: the adapter keeps only `filename`, `previous_filename`, `status`, `additions`, `deletions` and drops the rest in the same function that parses the response, before anything is logged or stored.
+7. Not tested (stays a risk until the live test of part G): a PR or compare with more than 300 files, a binary or renamed file, a deleted fork, a rate-limit `403`/`429`.

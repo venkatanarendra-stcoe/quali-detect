@@ -20,6 +20,7 @@
   },
   "scripts": {
     "lint": "eslint .",
+    "dev": "node scripts/dev.js",
     "start:pipeline": "node --env-file-if-exists=.env src/pipeline/main.js",
     "dev:pipeline": "node --watch --env-file-if-exists=.env src/pipeline/main.js",
     "start:analysis": "node --env-file-if-exists=.env src/analysis/main.js",

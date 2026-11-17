@@ -4,16 +4,8 @@ import { api } from "@/lib/api/index.js";
 export const PREFERENCES_KEY = Object.freeze(["account", "preferences"]);
 
 export const preferencesService = {
-  /** @returns {Promise<{ accent: string, defaultWorkspaceId: string | null }>} */
+  /** @returns {Promise<{ accent: string }>} */
   get: ({ signal } = {}) => api.get("/me/preferences", { signal }),
-  /**
-   * @param {{ accent?: string, defaultWorkspaceId?: string | null }} patch
-   * @returns {Promise<{ accent: string, defaultWorkspaceId: string | null }>} the stored preferences
-   */
+  /** @param {{ accent?: string }} patch @returns {Promise<{ accent: string }>} the stored preferences */
   update: (patch) => api.put("/me/preferences", patch),
-  /**
-   * Where to land after sign-in, decided by the server from the CURRENT permissions (never from this client's cache).
-   * @returns {Promise<{ target: "workspace" | "overview" | "none", workspaceId: string | null }>}
-   */
-  landing: ({ signal } = {}) => api.get("/me/landing", { signal }),
 };

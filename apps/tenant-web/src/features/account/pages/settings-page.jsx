@@ -10,8 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.jsx";
-import { Label } from "@/components/ui/label.jsx";
-import { Select } from "@/components/ui/select.jsx";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { ScrollTabs, ScrollTabsContent } from "@/components/ui/scroll-tabs.jsx";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
@@ -19,7 +17,6 @@ import { ThemePicker } from "../components/theme-picker.jsx";
 import { AccentPicker } from "../components/accent-picker.jsx";
 import { AccentPreview } from "../components/accent-preview.jsx";
 import { ACCENT_LABELS } from "../constants/accents.js";
-import { usePermissions } from "@/features/authorization/hooks/use-permissions.js";
 import { usePreferences, useUpdatePreferences } from "../hooks/use-preferences.js";
 
 function AppearanceForm({ saved }) {
@@ -105,87 +102,17 @@ function AppearanceTab() {
   return <AppearanceForm saved={preferences.data.accent} />;
 }
 
-/**
- * Default workspace: where you land after signing in. The choices are ONLY the workspaces you can access right now (the
- * workspaces of your permission set from `GET /me`); the server validates the choice again on save and at every sign-in, and
- * the preference never grants access. Nothing chosen = the standard landing.
- */
-function DefaultWorkspaceCard({ saved }) {
-  const { workspaces } = usePermissions();
-  const [draft, setDraft] = useState(null); // null = nothing changed yet (shows the saved value)
-  const update = useUpdatePreferences({ successMessage: "Default workspace saved." });
-  const chosen = draft ?? saved ?? "";
-  const dirty = chosen !== (saved ?? "");
-  const save = () =>
-    update.mutate(
-      { defaultWorkspaceId: chosen === "" ? null : chosen },
-      { onSuccess: () => setDraft(null) },
-    );
-
+function PreferencesTab() {
   return (
-    <Card className="max-w-xl">
+    <Card>
       <CardHeader>
-        <CardTitle id="default-workspace-heading">Default workspace</CardTitle>
+        <CardTitle>Preferences</CardTitle>
         <CardDescription>
-          The workspace dashboard you land on after signing in. If you lose access to it, or leave
-          this empty, you land on the organization overview (administrators) or on your first
-          workspace.
+          Personal options such as notification delivery and time zone are planned. Appearance
+          (theme and accent colour) is on the Appearance tab.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="default-workspace">Workspace</Label>
-          <Select
-            id="default-workspace"
-            value={chosen}
-            onChange={(event) => setDraft(event.target.value)}
-            disabled={update.isPending}
-          >
-            <option value="">No default (standard landing)</option>
-            {workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </Select>
-          {workspaces.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              You do not have access to any workspace yet.
-            </p>
-          ) : null}
-        </div>
-        <Button disabled={!dirty || update.isPending} onClick={save}>
-          Save
-        </Button>
-      </CardContent>
     </Card>
-  );
-}
-
-function PreferencesTab() {
-  const preferences = usePreferences();
-  if (preferences.isPending)
-    return (
-      <div role="status" aria-busy="true" className="space-y-3">
-        <span className="sr-only">Loading preferences…</span>
-        <Skeleton className="h-40 w-full" />
-      </div>
-    );
-  if (preferences.isError)
-    return <QueryErrorState error={preferences.error} onRetry={() => preferences.refetch()} />;
-  return (
-    <div className="space-y-6">
-      <DefaultWorkspaceCard saved={preferences.data.defaultWorkspaceId} />
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>More preferences</CardTitle>
-          <CardDescription>
-            Notification delivery and time zone are planned. Appearance (theme and accent colour) is
-            on the Appearance tab.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    </div>
   );
 }
 

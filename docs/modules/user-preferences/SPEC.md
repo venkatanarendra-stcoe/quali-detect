@@ -2,7 +2,7 @@
 
 **Status:** Implemented (2026-11-13)
 **Owner:** Platform (owner decision of 2026-11-13: a proper module, not browser storage)
-**Last updated:** 2026-11-17 (default workspace and landing, owner decision, Confirmed)
+**Last updated:** 2026-11-13
 **Related ADRs:** ADR-003 (tenant isolation), ADR-007 (Express 5, route kit), ADR-008 (security suite)
 
 Labels follow `docs/README.md`: everything below is **Confirmed** (the owner's decision and instructions of 2026-11-13) unless a line says **Recommended** or **Open**.
@@ -14,7 +14,7 @@ Store small, per-user interface preferences on the server so they follow the use
 ## 2. Scope
 
 ### In scope
-- `GET /api/v1/me/preferences` and `PUT /api/v1/me/preferences` for the signed-in user in the active tenant, and (2026-11-17) `GET /api/v1/me/landing`: the post-login landing target, decided at request time.
+- `GET /api/v1/me/preferences` and `PUT /api/v1/me/preferences` for the signed-in user in the active tenant.
 - The accent palette keys and the default in `@qmentisai/shared` (`ACCENT_KEYS`, `accentKeySchema`, `DEFAULT_ACCENT`).
 - Table `user_preferences`, repository, DTO mapper, OpenAPI, security checks `PREF-001..013`, `DAL-222..223`.
 
@@ -42,9 +42,6 @@ Nobody can read or write another user's preferences: the API has no input that n
 | UP-003 | `accent` must be one of `ACCENT_KEYS`; anything else is 400. | Must | Implemented |
 | UP-004 | The body is strict: an unknown field (including `userId`, `tenantId`) is 400; an empty body is 400. A query string with any parameter is 400. | Must | Implemented |
 | UP-005 | User and tenant come only from the authenticated session. | Must | Implemented |
-| UP-006 | `defaultWorkspaceId` (nullable) is a preference of the signed-in user in the active tenant. `PUT` accepts a workspace uuid or `null` (clears). A workspace the caller cannot see, one of another tenant and one that does not exist all answer the same 404 `RESOURCE_NOT_FOUND`. | Must | Implemented (2026-11-17) |
-| UP-007 | The default workspace NEVER grants access. It is validated on write and AGAIN at every use (`GET /me/landing`, `GET /me/preferences`) against the caller's current visible workspaces. A stale default (access removed, workspace deleted) is silently ignored: `GET /me/preferences` reads null, the landing falls back, and the stored row is NOT auto-cleared (it applies again if access returns). | Must | Implemented (2026-11-17) |
-| UP-008 | `GET /me/landing` returns `{ target, workspaceId }`: (1) `workspace` + the default, if still accessible; (2) `overview` if the caller holds the tenant-scope `dashboard.view` (a permission, never a role name; Admin-only by default, AUTHORIZATION decision 30); (3) `workspace` + the first accessible workspace (active first, by name); (4) `none`. It never contains a name, count or any workspace the caller cannot see. | Must | Implemented (2026-11-17) |
 
 ## 5. Business rules
 
@@ -70,7 +67,6 @@ Table `user_preferences` (migration `20261113220000_user_preferences`), model `U
 | `tenant_id` | uuid, not null | |
 | `user_id` | uuid, not null | |
 | `accent` | text, null | null = default applies. Key from `ACCENT_KEYS`; validated by the API, not by a DB CHECK (see below). |
-| `default_workspace_id` | uuid, null | (2026-11-17, migration `20261117110000_user_preferences_default_workspace`) The landing workspace. Composite foreign key `(tenant_id, default_workspace_id)` -> `workspaces(tenant_id, id)` `ON DELETE SET NULL (default_workspace_id)` `ON UPDATE CASCADE`: the pointer can only reference a workspace of the row's own tenant, and deleting the workspace clears only the pointer (the column list matters: a plain SET NULL would also null `tenant_id`, which is NOT NULL, and fail; needs PostgreSQL 15+). Prisma cannot model the column-list action, so the schema has the scalar only (like `scmEventId`). |
 | `created_at`, `updated_at` | timestamptz | |
 
 - Unique `(tenant_id, user_id)`: one row per membership; the repository addresses the row only through this key.
@@ -84,13 +80,11 @@ Table `user_preferences` (migration `20261113220000_user_preferences`), model `U
 
 Both: audience **tenant** (session cookie; tenant from the session only), no permission, no path parameter, query string must be empty.
 
-`GET /api/v1/me/preferences` -> 200 `{ success: true, data: { accent, defaultWorkspaceId }, meta: { correlationId } }` (`defaultWorkspaceId` is the stored default only while the caller can still see that workspace, else `null`).
+`GET /api/v1/me/preferences` -> 200 `{ success: true, data: { accent }, meta: { correlationId } }`.
 
-`PUT /api/v1/me/preferences` (rate limit: `write` profile) — body `{ "accent"?: "<key>", "defaultWorkspaceId"?: "<uuid>" | null }`, strict, at least one field -> 200 with the same DTO as GET (the stored values). Idempotent by nature (the same body gives the same state and answer), so no `Idempotency-Key`.
+`PUT /api/v1/me/preferences` (rate limit: `write` profile) — body `{ "accent": "<key>" }`, strict, at least one field -> 200 with the same DTO as GET (the stored values). Idempotent by nature (the same body gives the same state and answer), so no `Idempotency-Key`.
 
-Errors (standard envelope): 400 `VALIDATION_FAILED` (unknown field, empty body, accent outside the palette, any query parameter), 401 `UNAUTHENTICATED` (no session, or a platform session: the tenant and platform routers are separate), 403 `TENANT_SUSPENDED` / `TENANT_CONTEXT_REQUIRED`, 404 `RESOURCE_NOT_FOUND` (membership vanished, or a `defaultWorkspaceId` that is not a workspace the caller can see in the active tenant: foreign, hidden and missing are indistinguishable), 429 `RATE_LIMITED`.
-
-`GET /api/v1/me/landing` (audience tenant, no permission, empty query) -> 200 `{ success: true, data: { target: "workspace" | "overview" | "none", workspaceId: <uuid> | null }, meta }`. Computed from the caller's CURRENT permissions on every request (never cached, never stored). The client follows it: `workspace` -> `/workspaces/:id/dashboard`, `overview` -> `/overview`, `none` -> the "No access yet" empty state (the Workspaces list route is itself gated by `workspace.view`, so redirecting there would only produce a 403 page).
+Errors (standard envelope): 400 `VALIDATION_FAILED` (unknown field, empty body, accent outside the palette, any query parameter), 401 `UNAUTHENTICATED` (no session, or a platform session: the tenant and platform routers are separate), 403 `TENANT_SUSPENDED` / `TENANT_CONTEXT_REQUIRED`, 404 `RESOURCE_NOT_FOUND` (membership vanished), 429 `RATE_LIMITED`.
 
 ## 9. Events and asynchronous work
 
@@ -123,12 +117,8 @@ Standard request logs with correlation id, `tenantId` and `userId` bound by the 
 - [x] Palette keys, `DEFAULT_ACCENT = "mint"` and a Zod enum in `@qmentisai/shared`.
 - [x] Migration and model with the composite tenant-safe key and unique `(tenant_id, user_id)`.
 - [x] `GET`/`PUT /me/preferences` as above, in OpenAPI; `pnpm contract:snapshot` diff is exactly the two operations (accepted in `parity-accepted.json`).
-- [x] Security checks: `PREF-001` no session, `PREF-002` no session PUT writes nothing, `PREF-003` platform session, `PREF-004` defaults and no row on read, `PREF-005` saved under own tenant/user, `PREF-006` idempotent, `PREF-007` out-of-palette accents, `PREF-008` all palette keys, `PREF-009` forged body fields, `PREF-010` forged query/header, `PREF-011` two users of one tenant, `PREF-012` two tenants, `PREF-013` suspended tenant; `DAL-222` find and `DAL-223` upsert with another tenant's id; (2026-11-17) `PREF-014..018` default workspace (saved and cleared, foreign/hidden/missing indistinguishable 404, validation, tenant isolation incl. the database refusing a cross-tenant pointer, a forged pointer never grants access), `LAND-001..008` landing (401, platform session and forged query, Admin precedence, non-Admin never Overview, stale default falls back identically and is not cleared, deleted workspace never errors, nothing accessible, no hidden workspace in any answer), `DAL-292` the tenant-scoped workspace lookup; one control (a viewer, no special permission, reads and writes).
+- [x] Security checks: `PREF-001` no session, `PREF-002` no session PUT writes nothing, `PREF-003` platform session, `PREF-004` defaults and no row on read, `PREF-005` saved under own tenant/user, `PREF-006` idempotent, `PREF-007` out-of-palette accents, `PREF-008` all palette keys, `PREF-009` forged body fields, `PREF-010` forged query/header, `PREF-011` two users of one tenant, `PREF-012` two tenants, `PREF-013` suspended tenant; `DAL-222` find and `DAL-223` upsert with another tenant's id; one control (a viewer, no special permission, reads and writes).
 - [x] `pnpm test:security`, lint, build, parity pass (see PROGRESS_TRACKER).
-
-## 14b. Mutation sweep of the default workspace (2026-11-17)
-
-Hand mutations, each killed by the suite: the use-time access check removed from `landing` (`PREF-018`, `LAND-005`, `LAND-008`); the write-time visibility check removed from `update` (`PREF-015`); the tenant filter removed from `findWorkspaceInTenant` (`DAL-292`); the stale default masked no longer in `toPreferencesDto` (`LAND-005`, `PREF-018`).
 
 ## 15. Open questions
 

@@ -10,22 +10,13 @@ export function createUserPreferenceRepository({ db }) {
       client.userPreference.findUnique({ where: { tenantId_userId: { tenantId, userId } } }),
     /**
      * Creates or updates the user's row with the supplied fields only (atomic, idempotent).
-     * @param {{ tenantId: string, userId: string, data: { accent?: string, defaultWorkspaceId?: string | null } }} input
+     * @param {{ tenantId: string, userId: string, data: { accent?: string } }} input
      */
     upsert: ({ tenantId, userId, data }, client = db) =>
       client.userPreference.upsert({
         where: { tenantId_userId: { tenantId, userId } },
         create: { ...data, tenantId, userId },
         update: data,
-      }),
-    /**
-     * A workspace of THIS tenant by id (never by id alone); null when it does not exist in the tenant.
-     * @param {{ tenantId: string, workspaceId: string }} scope
-     */
-    findWorkspaceInTenant: ({ tenantId, workspaceId }, client = db) =>
-      client.workspace.findFirst({
-        where: { tenantId, id: workspaceId },
-        select: { id: true, status: true },
       }),
   });
 }

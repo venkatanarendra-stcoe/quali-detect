@@ -308,11 +308,6 @@ model UserPreference {
   userId    String   @map("user_id") @db.Uuid
   /// Key from ACCENT_KEYS in @qmentisai/shared; validated by the API, unknown stored values read as the default.
   accent    String?
-  /// The workspace the user lands on after sign-in (nullable). Only a preference: it never grants access and is re-validated
-  /// against the caller's visible workspaces at every use. The composite foreign key (tenant_id, default_workspace_id) ->
-  /// workspaces(tenant_id, id) ON DELETE SET NULL (default_workspace_id) is written in the migration (Prisma cannot model a
-  /// column-list SET NULL, so there is no relation here, like scmEventId); it keeps the pointer inside the row's own tenant.
-  defaultWorkspaceId String? @map("default_workspace_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

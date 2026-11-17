@@ -1,6 +1,6 @@
 # Module specification: Scan decisioning (Analysis and Scan Decisioning, workflow steps 4 and 5)
 
-**Status:** **Proposed (2026-11-17), for owner review. Nothing is implemented.** Written from the owner brief of 2026-11-17 (the hybrid design below), the closed Executions module (`docs/modules/executions/SPEC.md`, section 17.ai) and the documents named in section 13. Labels follow the repository rule: **Confirmed** = stated by the owner in the 2026-11-17 brief or already Confirmed elsewhere; **Recommended** = my proposal, not binding; **Open** = needs the owner. Nothing Recommended or Open is promoted.
+**Status:** **Approved (2026-11-17)** by the owner, with the decisions in the next section ("Decisions applied at approval"). Implementation follows the parts of section 16, one commit per part. Nothing is implemented yet at the time of this edit. Written from the owner brief of 2026-11-17 (the hybrid design below), the closed Executions module (`docs/modules/executions/SPEC.md`, section 17.ai) and the documents named in section 13. Labels follow the repository rule: **Confirmed** = stated by the owner in the 2026-11-17 brief or already Confirmed elsewhere; **Recommended** = my proposal, not binding; **Open** = needs the owner. Nothing Recommended or Open is promoted.
 
 Module order position: items 8 and 9 of `docs/modules/README.md` (repository analysis and scan orchestration), the part that sits **between the source fetch and the start of the scans**. The false-positive / AI advisory agent is **not** in this module (Findings module, section 2).
 
@@ -22,7 +22,19 @@ Module order position: items 8 and 9 of `docs/modules/README.md` (repository ana
 | D12 | Screen: T-29 gets an **"Analysis and decision"** section: change summary, floor versus agent-added per scan type with reasons, provider and model used, and a note when it fell back to floor-only |
 | D13 | The FP / AI advisory agent stays **out of scope** (Findings module) but **reuses the `LLMProvider` of ADR-013** |
 
-Open by the owner's list (section 15): diff source (spike), Secrets rule (strict versus safe), zero-scan outcome, LLM framework (ADR-013), whether to call the agent for trivial changes (cost), per-tenant provider configuration, agent timeout value.
+## Decisions applied at approval (Confirmed, owner, 2026-11-17)
+
+| Id | Decision | Effect on this spec |
+|---|---|---|
+| AP-1 | All flagged design choices approved: fail-closed diff, no agent call when the floor already holds every enabled type, `interrupted` and floor-only on reclaim, whole-output-or-nothing, paths only, one transaction, the decision embedded in `GET /executions/{id}` | sections 5.1 to 5.7, 8 |
+| AP-2 | **Secrets rule:** default `any_change`, configurable to `strict`. Names replace the earlier proposal `candidate_files`. `strict` is defined in 5.3 (my reading of the brief; the definition is isolated in one constant and one table row so it is cheap to change on review) | 5.3, OQ-2 |
+| AP-3 | **Zero-scan:** the execution ends `succeeded` with the reason `no_applicable_scans`; `resolutionEligible` is forced `false`; the quota unit is **refunded** (no scan started); the `status_reason` CHECK constraint is updated to allow this one reason on `succeeded` | 5.6, FT-4, DEC-013, DEC-S09 |
+| AP-4 | **ADR-013 approved:** in-house bounded tool-calling loop, `fetch` adapters (Ollama, Anthropic, OpenAI), **no new dependency** (no langgraphjs, no Vercel AI SDK, no Python service); keys through the SecretStore / platform secret provider, never logged | ADR-013 |
+| AP-5 | **Agent bounds:** 20 s overall, 3 turns. **Fork pull requests are floor-only in v1** (`skipped_fork` is a rule, not an option). Not called when the floor already holds every enabled type | 5.4, AG-1, AG-4 |
+| AP-6 | **Data-egress consent:** an external provider (Anthropic, OpenAI) is disabled for a tenant until an **explicit, audited tenant consent setting** is on; a local Ollama is allowed by default; without consent the tenant runs floor-only (or Ollama-only if the deployment provider is Ollama). A security check proves an external provider is never called for a tenant without consent | 5.4 AG-9, 7.5, 11 SD-6, 14.1 `DEC-S10` |
+| AP-7 | **ADR-008 scope is extended** for `DEC-S01..S09` (and `DEC-S10`, `DEC-S11`); the floor file-to-scan rules are exercised in the module's **live test** (feature behaviour, not the suite) | 14.1, 16 part G |
+
+Open by the owner's list at the time of writing (section 15; AP-2 to AP-6 above resolved most of them): diff source (spike), Secrets rule (strict versus safe), zero-scan outcome, LLM framework (ADR-013), whether to call the agent for trivial changes (cost), per-tenant provider configuration, agent timeout value.
 
 ## 1. Purpose
 
@@ -70,9 +82,9 @@ Rules: a user without `execution.view`, or in another tenant or workspace, gets 
 | DEC-008 | A reclaim of the lease reuses the persisted decision; if the previous holder died while the agent call was in flight, the new holder does **not** call the agent again (agent status `interrupted`, floor only) | Must | Confirmed (D9); the `interrupted` detail **Recommended** |
 | DEC-009 | Change detection failing, truncated or unavailable makes the floor **all enabled types** (fail closed); the scan kind of the execution is not changed | Must | Recommended |
 | DEC-010 | The decision never receives, stores or sends credentials, file contents, patch text, commit messages, PR titles or user data | Must | Confirmed (D11) |
-| DEC-011 | `untrusted_fork` executions: the diff uses the installation token outside the scan; the scan context is unchanged (no credentials); whether the agent runs for forks is Open (recommended: floor only in v1) | Must | Confirmed (D10); agent for forks **Open** |
+| DEC-011 | `untrusted_fork` executions: the diff uses the installation token outside the scan; the scan context is unchanged (no credentials); the agent is **never called** for forks in v1 (`skipped_fork`) | Must | Confirmed (D10, AP-5) |
 | DEC-012 | The execution detail DTO carries the decision; T-29 renders it (section 10) | Must | Confirmed (D12) |
-| DEC-013 | The zero-scan outcome (nothing applicable) is defined and visible (section 5.6) | Must | **Open** (recommendation: `succeeded` with the reason `no_applicable_scans`) |
+| DEC-013 | The zero-scan outcome (nothing applicable) is `succeeded` / `no_applicable_scans`, quota refunded once, `resolutionEligible = false` (section 5.6) | Must | Confirmed (AP-3) |
 
 ## 5. Business rules
 
@@ -124,29 +136,30 @@ File classes (by path, no content read): **manifest** (`package.json`, `package-
 |---|---|---|
 | FL-1 | `sbom`, `sca` | any manifest file changed, **in any status** (a removed dependency file changes the inventory) |
 | FL-2 | `sast` | any **code** file added, modified or renamed (a removed code file alone does not add SAST) |
-| FL-3 | `secrets` | Secrets rule `any_change` (default): at least one file added, modified or renamed, of any class. Rule `candidate_files`: at least one added, modified or renamed file that is not **docs** and not an image or other binary class |
+| FL-3 | `secrets` | Secrets rule `any_change` (**default**): at least one file added, modified or renamed, of any class. Rule `strict`: at least one changed file of **any status, removals included** (a removal-only change is not a zero-scan case for Secrets) |
 | FL-4 | all enabled types | change detection failed, truncated or unavailable (DEC-009) |
 | FL-5 | (full run) all enabled types | `scan_kind = full`, no diff, no agent call needed |
 | FL-6 | nothing | the changed set is empty (after exclusions): zero-scan case |
 
 Then **floor = rules intersected with the enabled types**. A rule that names a type the pipeline has not enabled adds nothing. The catalog order `sbom, sca, sast, secrets` is kept for the task ordinals.
 
-The two Secrets modes are **named by effect** because the brief's words "strict / safe" are ambiguous (Open, section 15): `any_change` is the safe default for detection, `candidate_files` trades coverage for fewer runs. Setting: `SCAN_DECISION_SECRETS_RULE` (platform, default `any_change`).
+The two Secrets modes are `any_change` (default) and `strict` (AP-2). The owner's words were "default any_change, configurable to strict"; `strict` is defined here as the **wider** mode (removals count too) and this definition is the one thing to confirm on review. Setting: `SCAN_DECISION_SECRETS_RULE` (platform, default `any_change`).
 
 ### 5.4 The agent (D5, D6; harness Recommended)
 
 | Rule | Text |
 |---|---|
-| AG-1 | **Called only if** a provider resolves AND at least one enabled type is outside the floor AND the execution is not excluded by the fork rule (Open) AND the trivial-change rule (Open) does not skip it. Otherwise agent status is `not_configured`, `nothing_to_add`, `skipped_fork` or `skipped_trivial` |
+| AG-1 | **Called only if** a provider resolves AND at least one enabled type is outside the floor AND the execution is not an `untrusted_fork` AND the tenant has the consent the provider needs (AG-9). Otherwise agent status is `not_configured`, `nothing_to_add`, `skipped_fork` or `consent_required`. (`skipped_trivial` is not used in v1: the only trivial-change rule is `nothing_to_add`) |
 | AG-2 | Context (one JSON object, passed as **data**, with a fixed system prompt that says so): scan kind and reason, the enabled-not-in-floor types, the floor types with their rule ids, counts by file class, counts by status, total additions and deletions, and up to `SCAN_DECISION_CONTEXT_PATHS` (Recommended 100) changed paths, each length-capped and passed through the credential-shape redaction. **Never**: file contents, patches, commit messages, PR titles or bodies, branch names of forks, author names, tokens, tenant, user or workspace names or ids |
 | AG-3 | Tools: one tool `request_scan({ scanType, reason })` per **addable** type (enabled and not in the floor). The agent has **no other tool**: no repository read, no network, no shell. A call to a name outside the offered tools is invalid output |
-| AG-4 | Loop (Recommended): at most `SCAN_DECISION_MAX_TURNS` (3) provider calls, temperature 0 where the provider supports it, `max_output_tokens` bounded, one overall timeout `SCAN_DECISION_AGENT_TIMEOUT_SECONDS` (Open value, Recommended 20 s) bound to an `AbortSignal` that a cancel request also fires |
+| AG-4 | Loop (Recommended): at most `SCAN_DECISION_MAX_TURNS` (**3, Confirmed AP-5**) provider calls, temperature 0 where the provider supports it, `max_output_tokens` bounded, one overall timeout `SCAN_DECISION_AGENT_TIMEOUT_SECONDS` (**20 s, Confirmed AP-5**, platform setting) bound to an `AbortSignal` that a cancel request also fires |
 | AG-5 | Validation (Zod, strict): `additions[]` of `{ scanType in the addable set, reason: string 1..300 }`, unique types, plus an optional `summary` string up to 1000 chars; unknown keys, a type outside the addable set, a duplicate, an over-long string or non-text output make the **entire** output invalid. It is never partially applied (a partially trusted answer from an injected prompt is not trusted) |
 | AG-6 | Accepted reasons and summary are model-written **untrusted text**: redacted for credential shapes, stripped of control characters, stored as plain text, rendered as text only (never HTML or Markdown), labelled with the provider and model |
 | AG-7 | The raw prompt and raw response are **not stored** (Recommended; retention of prompts is Open). Stored: the validated structured output, provider id, model, token usage, latency, agent status |
+| AG-9 | **Consent gate (AP-6).** Before any provider call the worker resolves the tenant's consent from the database (`tenant_llm_settings`, loaded by tenant id, never from a message). Provider kinds: `ollama` = local, needs no consent; `anthropic` and `openai` = external, need `externalConsent = true`. No consent for an external provider: **no call** is made, agent status `consent_required`, floor only. The gate lives in the provider resolution (`resolveLLMProvider`), not only in the caller, so no other caller can bypass it |
 | AG-8 | Prompt-injection posture: the worst a hostile file name or any injected instruction can do is add a scan the pipeline already enabled (cost), or fail validation (floor only). It cannot remove a floor scan, add a disabled type, change the scan kind, read other data or call anything else. Safety does not depend on the model behaving |
 
-Agent status values: `not_configured`, `nothing_to_add`, `skipped_trivial`, `skipped_fork`, `ok` (output valid, zero or more additions), `timeout`, `error` (provider failure or abort), `invalid_output`, `interrupted` (DEC-008), `cancelled` (the execution was cancelled during the call). All but `ok` mean **floor only**.
+Agent status values: `not_configured`, `nothing_to_add`, `consent_required`, `skipped_fork`, `ok` (output valid, zero or more additions), `timeout`, `error` (provider failure or abort), `invalid_output`, `interrupted` (DEC-008), `cancelled` (the execution was cancelled during the call). All but `ok` mean **floor only**.
 
 ### 5.5 Final task set and the Executions rules it touches (D7, D10)
 
@@ -155,21 +168,13 @@ Agent status values: `not_configured`, `nothing_to_add`, `skipped_trivial`, `ski
 | FT-1 | `final = floor union validated additions`, restricted to the enabled types, ordered by the catalog |
 | FT-2 | Tasks are created **only for `final`** (amends SPEC executions ER-11, which creates one per enabled type). A type in `final` without an engine becomes an `unsupported` task as today (SPEC executions §17.ab). A type **not** in `final` has **no task row**; it appears on T-29 from the decision record as "Not selected" with its reason |
 | FT-3 | Aggregation (SPEC executions 5.4) is computed over the **created** tasks. A run whose enabled types are not all in `final` is **not** `partial` for that reason: not selected is not a failure. `resolutionEligible` is unchanged in practice: a full run's floor is every enabled type, and incremental runs are never eligible |
-| FT-4 | Quota: unchanged. One unit per execution, taken at request time; the decision step does not change it |
+| FT-4 | Quota: unchanged (one unit per execution, taken at request time) **except** the zero-scan case, where the unit is refunded once (5.6) |
 | FT-5 | The scan context, queues (`scan` versus `scan-untrusted`) and credentials rules of SPEC executions ER-5 and ER-7 are unchanged; the decision adds nothing to a task message |
 | FT-6 | The `ordinal` of a task is its catalog position. Gaps are expected (for example SAST without SBOM). Whether a database constraint assumes contiguous ordinals is **to verify in part B** |
 
-### 5.6 The zero-scan outcome (DEC-013, Open)
+### 5.6 The zero-scan outcome (DEC-013, **decided: AP-3**)
 
-When `final` is empty (an empty or fully excluded change set, or a floor of nothing and no additions), no task exists. Options:
-
-| Option | Behaviour | Trade-off |
-|---|---|---|
-| A (**Recommended**, the owner's lean) | Execution ends **`succeeded`** with the reason **`no_applicable_scans`**, `taskCounts` all zero, `resolutionEligible = false`, one `decision_completed` event, quota unit **kept** | Clear to users ("nothing to scan"); needs the `executions` CHECK that today forbids a reason on `succeeded` to allow this one reason, or the reason to live on the decision record and DTO only |
-| B | `succeeded` with no reason; the decision record and T-29 say "no applicable scans" | No schema change; the reason is less visible in lists and API filters |
-| C | `skipped` with `no_applicable_scans` (the enum value and reason column already exist) | No schema change; but `skipped` today means policy skips from the router, and users may read it as "did not run" |
-
-Quota refund for a zero-scan run is **Open** (Recommended: keep the unit; refunds add a second release path and the decision step did run). Findings: a zero-scan run emits `resolutionEligible = false`.
+When `final` is empty (an empty or fully excluded change set, or a floor of nothing and no additions) no task exists and **no scan started**. The execution ends **`succeeded`** with the status reason **`no_applicable_scans`**, `taskCounts` all zero, `resolutionEligible = false` (forced, whatever the scan kind), one `decision_completed` event, and the quota unit **refunded exactly once** (the same compare-and-set release as the other pre-scan endings, SPEC executions ER-26 / "failed before fetch"). Implementation notes (part E): (a) the migration updates the `executions_status_reason_check` so that `succeeded` may carry this one reason (the check today requires a reason for exactly the statuses blocked, skipped, cancelled, failed, partial and timed out), and the DTO, T-28 chip text and filters show "Succeeded: no scan applied"; (b) the path is `preparing -> running -> succeeded` inside the one transaction (two events, the same lease epoch) unless the database guard already allows `preparing -> succeeded`, to be verified in part E; no state-machine change is made without a contradiction report; (c) the completed event carries `resolutionEligible: false`.
 
 ### 5.7 Reclaim and resume (D9)
 
@@ -205,7 +210,7 @@ One row per execution, insert-once. Composite tenant-safe foreign key `(tenant_i
 | `diff_source` | `none` (full run), `github_compare`, `github_pull_files`, `unavailable` |
 | `diff_status` | `not_needed`, `complete`, `truncated`, `unavailable` |
 | `changed_total`, `change_summary` (jsonb) | counts by class and status, additions, deletions, up to N sample paths per class, **no patch text**; redacted |
-| `secrets_rule` | `any_change` or `candidate_files` |
+| `secrets_rule` | `any_change` or `strict` |
 | `floor` (jsonb) | `[{ scanType, ruleIds[] }]` |
 | `agent_status` | the values of 5.4 |
 | `agent_provider`, `agent_model` | text, null when no call was made |
@@ -217,6 +222,10 @@ One row per execution, insert-once. Composite tenant-safe foreign key `(tenant_i
 | `decided_at` | timestamp |
 
 DB-level guards (Recommended): `final_types` contains every `floor` type; every `agent_additions` type is absent from `floor`; strict lengths; credential-shape CHECK on the text columns (as for `execution_logs`).
+
+### 7.2a New table `tenant_llm_settings` (Recommended, part B)
+
+One row per tenant (created on first change; absence means no consent). Columns: `tenant_id` (primary key and foreign key, `ON DELETE RESTRICT`), `external_consent` boolean default false, `updated_by_user_id`, `updated_at`, `consent_changed_at`. Read by tenant id only. Changed through `PUT /settings/ai` (permission `tenant_settings.manage`, the existing key; read with `tenant_settings.view`), in one transaction with an **audit entry** (`tenant.llm_consent_changed`, actor, previous and new value, no other data). Every change, on or off, is audited. A tenant with the setting off or absent never has an external provider called (AG-9). A new tenant-owned route family: ADR-008 checks `DEC-S11` (section 14.1).
 
 ### 7.3 Events
 `execution_events`: `decision_started` (marker, empty details) and `decision_completed` (details: `floor`, `added`, `final`, `agentStatus`, `provider`, `model`, `summary`, `diffStatus`, `changedTotal`). No raw repository content, no secrets, no prompts. Bounded size.
@@ -247,7 +256,7 @@ T-29 gets the section described in `SCREENS.md` of this module. The execution li
 | SD-3 | **Bounded tools.** One tool per addable type, no read, no network, no shell (SECURITY_GUIDELINES "Do not grant AI agents unrestricted tools", Confirmed) |
 | SD-4 | **No credentials anywhere.** The installation token exists only in the diff call; it is not in the context, the prompt, the provider request, the record, an event, a log, a message or an error. Provider keys come only from the secret store (ADR-009, ADR-013) and are never logged |
 | SD-5 | **Tenant isolation.** The decision loads the execution by tenant, workspace, repository and pipeline; the provider request carries no tenant, user, workspace or repository identifiers or names; no model memory, conversation state or response cache is shared between tenants or executions; the record and event carry the composite tenant keys |
-| SD-6 | **Data egress consent (Open).** File paths of a private repository leave the deployment when an external provider (Anthropic, OpenAI) is used. Recommended: an external provider is used for a tenant only if the deployment allows it **and** the tenant has accepted it; a local Ollama needs no consent. Until decided, external providers must not be enabled for real tenant data |
+| SD-6 | **Data egress consent (Confirmed, AP-6).** File paths of a private repository leave the deployment when an external provider (Anthropic, OpenAI) is used. An external provider is used for a tenant only if the deployment configures it **and** the tenant has an explicit, audited consent (7.2a); a local Ollama needs no consent. Without consent: floor only |
 | SD-7 | **Cost abuse.** Fork pull requests and many small pushes can multiply model calls. Bounds: skip when nothing is addable, a per-process concurrency cap `SCAN_DECISION_MAX_CONCURRENT_CALLS`, the timeout, and the Open rule for forks and trivial changes |
 | SD-8 | **Provenance.** Model output is shown with provider and model and labelled as model-written (SECURITY_GUIDELINES "Record evidence and provenance", Confirmed) |
 | SD-9 | **SSRF.** The Ollama base URL is deployment configuration, never tenant-supplied, in v1 (ADR-013) |
@@ -277,7 +286,7 @@ Internal: Executions (the `preparing` state, tasks, aggregation, events, T-29), 
 - [ ] The checks of 14.1 pass in `pnpm test:security`; ADR-008, the suite README, OpenAPI, the contract snapshot, `PROGRESS_TRACKER.md` and the Executions SPEC are updated.
 - [ ] The verification spike of section 16 was run on a private base repository.
 
-### 14.1 Security-suite additions (Recommended; needs the owner's approval to extend ADR-008 scope, area 17)
+### 14.1 Security-suite additions (Confirmed, AP-7: ADR-008 scope extended, area 17)
 
 Scope stays the safety properties, not the rule table: a mapping of changed files to scan types is feature behaviour and is verified by review and the live test, not by the suite. Prefix `DEC-` (HTTP and worker behaviour), `DECDB-` (database integrity, in process), continuing `DAL-`.
 
@@ -291,27 +300,29 @@ Scope stays the safety properties, not the rule table: a mapping of changed file
 | DEC-S06 | **Tenant scope.** The decision loads and stores by tenant and the composite keys; another tenant's decision is a `404` over HTTP; the provider request holds no tenant, workspace, repository or user identifiers; no cross-tenant cache |
 | DEC-S07 | **Fail closed on change detection.** A failing, truncated or unreachable diff yields the all-enabled floor |
 | DEC-S08 | **Atomicity.** Decision row, event and tasks are one unit under a forced failure; a zombie holder writes none |
-| DEC-S09 | **Zero-scan** per the decided outcome, including quota and `resolutionEligible = false` |
+| DEC-S09 | **Zero-scan:** `succeeded` / `no_applicable_scans`, the quota unit refunded exactly once (also under concurrent reclaim and cancel), `resolutionEligible = false`, no task created |
+| DEC-S10 | **Consent gate.** An external provider is never called for a tenant without consent (setting absent, off, or turned off between runs), for any caller of `resolveLLMProvider`; a local provider needs none; the stub records zero calls; turning consent on and off is audited |
+| DEC-S11 | **Consent route family** (`GET/PUT /settings/ai`): tenant isolation, `404`/`403` by permission, no cross-tenant read or write, audit atomic with the change |
 | DECDB-01 | Immutability and the table guards of 7.2; `DAL-` entries for every new repository function (the suite's "every function has a check" rule) |
 
-## 15. Open questions (each with a recommendation; none promoted)
+## 15. Open questions and how the approval settled them
 
 | Id | Question | Recommendation |
 |---|---|---|
 | OQ-1 | **Diff source** (GitHub compare versus pull-request files versus a base archive diff), limits, new branch, force push, tag, private base, fork PR | Spike first (section 16, part A). Recommend compare for push and PR files for PRs; fail closed to the full floor |
-| OQ-2 | **Secrets rule** `strict` versus `safe` (the brief's words) | Default `any_change`; offer `candidate_files`; confirm the intended meaning of the two names |
-| OQ-3 | **Zero-scan outcome** | Option A (section 5.6), quota unit kept |
-| OQ-4 | **LLM framework** | ADR-013 (Proposed): in-house bounded tool-calling loop over `LLMProvider`, no separate Python service; owner decides |
-| OQ-5 | **Call the agent for trivial changes?** | Always skip when nothing is addable (DEC-006). A further rule (for example docs-only, or fewer than N files) is Open; Recommended: no extra rule in v1, measure first |
-| OQ-6 | **Per-tenant provider configuration** | Deployment-level provider in v1; tenant override and tenant keys later through ADR-013 and the tenant SecretStore, with the consent flag of SD-6 |
-| OQ-7 | **Agent timeout value** | 20 s overall, 3 turns, platform settings; tune after the live test |
-| OQ-8 | Agent for **fork PRs** | Floor only in v1 (attacker-controlled names, cost abuse); revisit |
+| OQ-2 | **Secrets rule** | **Decided (AP-2):** default `any_change`, configurable to `strict` (definition in 5.3; confirm on review) |
+| OQ-3 | **Zero-scan outcome** | **Decided (AP-3):** option A with the quota unit **refunded** |
+| OQ-4 | **LLM framework** | **Decided (AP-4, ADR-013 Approved):** in-house loop, `fetch` adapters, no new dependency |
+| OQ-5 | **Call the agent for trivial changes?** | **Decided (AP-5):** skip only when the floor already holds every enabled type; no other trivial-change rule in v1 |
+| OQ-6 | **Per-tenant provider configuration** | Deployment-level provider in v1; the per-tenant **consent** is built (AP-6); a tenant-chosen provider or key stays later (ADR-013) |
+| OQ-7 | **Agent timeout value** | **Decided (AP-5):** 20 s, 3 turns, platform settings |
+| OQ-8 | Agent for **fork PRs** | **Decided (AP-5):** floor only in v1 |
 | OQ-9 | Patch hunks or file excerpts for the agent | No in v1 (secrets, cost, injection surface); revisit only with a redaction design |
 | OQ-10 | Prompt and response retention | Not stored; structured output only |
 | OQ-11 | Per-pipeline controls (agent on or off, Secrets rule) in the pipeline editor | Later, as an additive optional field of the strict pipeline configuration schema; a pipelines-module change |
 | OQ-12 | Does a retry reuse the original's decision? | No, a new execution decides again |
 | OQ-13 | Usage metering or quota for model calls | A usage record only in v1; quota later with the commercial plan decisions |
-| OQ-14 | ADR-008 scope extension for section 14.1 | Approve as area 17 coverage |
+| OQ-14 | ADR-008 scope extension for section 14.1 | **Decided (AP-7):** approved as area 17 coverage |
 
 ## 16. Implementation notes (plan, Recommended)
 
@@ -322,7 +333,7 @@ Parts, one commit each, all gates after each, report per part:
 - **D. Orchestrator integration:** the `preparing` flow of section 5.1, the one-transaction task creation from `final`, reclaim rules, zero-scan outcome per decision, `decision_started/completed` events, the hint message.
 - **E. LLM layer and agent harness:** after ADR-013 is decided: `LLMProvider` in `packages/infra`, adapters, the harness, Zod schemas, redaction, limits, hostile-stub tests in the suite scope of 14.1.
 - **F. API and T-29:** detail DTO, the "Analysis and decision" section.
-- **G. Suite, mutation sweep over the new tenant-scoped functions, live test** (private base repository, push, same-repository PR, fork PR, no-provider, provider timeout, reclaim during decision), results recorded in the tracker.
+- **G. Suite (`DEC-S01..S11`, ADR-008 area 17), mutation sweep over the new tenant-scoped functions, live test** that also exercises the floor file-to-scan rules (package.json-only, source-only, docs-only, mixed, removal-only, fork PR, no-provider, consent off and on) (private base repository, push, same-repository PR, fork PR, no-provider, provider timeout, reclaim during decision), results recorded in the tracker.
 
 Verification items for part B: ordinal gaps in `scan_tasks`; whether the `executions` CHECK on `status_reason` needs the zero-scan amendment; the exact home of `SCAN_DECISION_*` settings (worker config schema, same pattern as `EXECUTION_*`).
 

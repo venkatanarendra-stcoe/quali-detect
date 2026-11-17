@@ -1,6 +1,6 @@
 # Screens: scan decisioning (T-29 "Analysis and decision")
 
-Status: **Proposed (2026-11-17), for owner review.** Nothing is built. This module adds **one section to T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and changes nothing else on that screen, on T-28 or on navigation. Labels: **Confirmed** = the owner's 2026-11-17 brief; **Recommended** = my proposal; **Open** = needs the owner.
+Status: **Approved (2026-11-17)** with the SPEC of this module (owner approval). Nothing is built yet. This module adds **one section to T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and changes nothing else on that screen, on T-28 or on navigation. Labels: **Confirmed** = the owner's 2026-11-17 brief; **Recommended** = my proposal; **Open** = needs the owner.
 
 ## Decisions applied from the brief
 
@@ -23,7 +23,7 @@ One sentence, plain text, built from facts, never from model text:
 - full run: "Full scan: every enabled scan type was selected."
 - incremental, diff complete: "Incremental scan: 12 files changed (3 dependency files, 7 source files, 2 other). 3 of 4 enabled scan types were selected."
 - incremental, diff truncated or unavailable: "Incremental scan: the list of changed files could not be read completely, so every enabled scan type was selected." (icon + text)
-- zero scans (Open, per the decided outcome): "No scan applied to these changes."
+- zero scans: "No scan applied to these changes." (status chip "Succeeded", reason "No scan applied"; no task cards)
 
 ### 2.2 Change summary
 A compact definition list (not a table): changed files total; by class (dependency files, source files, configuration, documentation, other) with counts; by status (added, modified, removed, renamed) with counts; lines added and removed. Under "Show changed paths" (a disclosure, closed by default): up to 20 sample paths per class, **mono**, copyable, text only. A note when truncated: "Showing a sample; the full list is not stored." The list never contains file contents or patches (the API has none).
@@ -53,8 +53,8 @@ Shown instead of (or above) the assistant block whenever `agent.status` is not `
 |---|---|
 | `not_configured` | "The analysis assistant is not configured. The required scans for these changes were selected." |
 | `nothing_to_add` | "The assistant was not needed: every enabled scan type was already required." |
-| `skipped_trivial` | "The assistant was skipped for this small change." (Open: only if that rule is adopted) |
-| `skipped_fork` | "The assistant is not used for pull requests from forks. The required scans were selected." (Open: only if the fork rule is adopted) |
+| `consent_required` | "The analysis assistant is turned off for your organization. The required scans for these changes were selected." |
+| `skipped_fork` | "The assistant is not used for pull requests from forks. The required scans were selected." |
 | `timeout` | "The assistant did not answer in time. The required scans were selected." |
 | `error` | "The assistant was unavailable. The required scans were selected." |
 | `invalid_output` | "The assistant's answer was not usable and was ignored. The required scans were selected." |
@@ -71,6 +71,10 @@ When `status = ok` and there are no additions: "The assistant reviewed the chang
 - **Stage timeline:** unchanged stages; the sub-line described in section 1.
 - **Logs tab:** the existing execution log gets decision lines (info level, ids and counts only), for example "analysis: 12 changed files, required scan types sbom, sca, secrets" and "analysis: assistant not configured".
 
+## 3b. Consent switch (tenant Settings, small addition, Recommended placement)
+
+A card **"Analysis assistant"** on the existing tenant Settings page (visible with `tenant_settings.view`, editable with `tenant_settings.manage`): a switch "Allow external AI providers to receive file names of your repositories" (default off) with the explanation "When off, your scans are chosen by fixed rules only, unless this platform uses a local model. File names and change counts, never file contents, are sent. Changes are recorded in the audit log." Shows who changed it and when. Turning it on asks for confirmation. Loading, error and no-permission states follow the Settings page. The switch is shown only when the deployment has an external provider configured (otherwise the card says the assistant is not configured).
+
 ## 4. States
 
 | State | Behaviour |
@@ -80,7 +84,7 @@ When `status = ok` and there are no additions: "The assistant reviewed the chang
 | Preparing, not decided yet | card with the text "Analysis in progress." and an indeterminate indicator; no percentage (the API provides none) |
 | Error | the page-level error handling of T-29 applies (retry plus correlation id); the card has no separate error state |
 | No permission / hidden / other tenant | the page-level states of T-29; the card never renders |
-| Zero scans | summary line per 2.1 and an empty-style note in 2.3 ("No scan applied to these changes."); Open until decided |
+| Zero scans | summary line per 2.1 and an empty-style note in 2.3 ("No scan applied to these changes."); the scan unit was returned |
 | Narrow (1280) | change summary and assistant block stack; the table keeps all four columns with the Reason wrapping |
 
 ## 5. Realtime
@@ -96,4 +100,4 @@ All seven default roles on the section (visible with `execution.view`, absent ot
 1. Placement as a card between Facts and Task cards, versus a new **Analysis** tab (Recommended: card; a tab hides a result the user needs at a glance).
 2. The label "Analysis assistant" and the chip wording "Added by assistant" (product naming; no "AI" claim beyond what the block says).
 3. Whether sample paths are shown at all (they are stored only as a capped, redacted sample; SPEC OQ and section 7.2).
-4. The wording for the zero-scan case once the outcome is decided.
+4. Where the consent switch lives in the tenant Settings screen (the SPEC adds `GET/PUT /settings/ai`; the toggle is a small card on the existing Settings page, section 3b below).

@@ -1,6 +1,6 @@
 # ADR-013: LLM provider abstraction (LLMProvider, adapters, framework choice)
 
-- **Status:** **Proposed** (2026-11-17). **Not accepted.** The owner decides section "Decision needed" below. Nothing here is implemented.
+- **Status:** **Approved** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Nothing here is implemented yet.
 - **Date:** 2026-11-17
 - **Decision owners:** Product owner (decision); Claude Code (proposal)
 - **Relation to existing documents:** the open item "AI provider/model selection: provider-independent abstraction recommended" in `docs/decisions/OPEN_DECISIONS.md`; ADR-001 (JavaScript only), ADR-002 (modular monolith and separate workers), ADR-009 (SecretStore and PlatformSecretProvider), ADR-011 (envelopes); `docs/technical/SECURITY_GUIDELINES.md` "Repository and AI safety".
@@ -35,14 +35,14 @@ The stack rules apply: JavaScript ES Modules only, no separate service language,
 - Adapters: `ollama` (local HTTP API), `anthropic` (Messages API), `openai` (chat completions with tools). Adding another vendor is a new adapter file plus a registry entry; no caller change.
 - Output of the adapter is **never trusted**: callers validate with Zod (the decision agent's schema is in its SPEC).
 
-### 2. Configuration and secrets
+### 2. Configuration and secrets (the consent row is decided, see Decisions above)
 
 | Level | Where | Contents |
 |---|---|---|
 | Deployment (v1) | environment, validated by Zod at startup | `LLM_PROVIDER` (`none` default, `ollama`, `anthropic`, `openai`), `LLM_MODEL`, `LLM_OLLAMA_BASE_URL`, timeouts and concurrency caps. **No default model name is baked in code.** |
 | Provider API keys | `PlatformSecretProvider` names `llm.anthropic.api_key`, `llm.openai.api_key` (ADR-009 section on platform secrets); never in the database in v1 | read at call time, never cached in logs or errors |
-| Tenant override (**Open**, later) | tenant settings plus the tenant `SecretStore` for a tenant's own key | tenant-selected provider and model, **and** the consent flag below |
-| Data-egress consent (**Open**) | tenant setting | an external provider (Anthropic, OpenAI) is used for a tenant only if the deployment allows it and the tenant has accepted that repository-derived metadata (for example file paths) is sent to that provider; a local Ollama needs none |
+| Tenant provider or key (**Open**, later) | tenant settings plus the tenant `SecretStore` | a tenant-chosen provider, model or key; not in v1 |
+| Data-egress consent (**decided**) | table `tenant_llm_settings` (`external_consent`, audited) | an external provider (Anthropic, OpenAI) is used for a tenant only if the deployment configures it and the tenant consented that repository-derived metadata (file paths, never contents) is sent; a local Ollama needs none |
 
 Rules: keys are never logged (the existing redaction paths cover the field names), never in a message, event, DTO or error text, never in a URL; the Ollama base URL is deployment configuration, **never tenant-supplied in v1** (SSRF); outbound calls go only to the configured host over TLS for hosted providers; a startup check refuses a hosted provider without its key, and `LLM_PROVIDER=none` or an unresolvable provider means "absent".
 
@@ -59,7 +59,7 @@ A small module `packages/infra/src/llm/harness.js` (Recommended): a bounded loop
 | C. Vercel AI SDK (`ai` and provider packages) | JS provider abstraction and tool loop | ready adapters and tool calling | a dependency set per provider; its abstractions still need our bounds, redaction and secret handling; version churn |
 | D. A separate Python service (for example LangGraph in Python) | out-of-process agent service | rich ecosystem | **Rejected**: violates ADR-001 (JavaScript only) and ADR-002 (no new deployable), adds a network hop, a second runtime and a second place where secrets and tenant context must be enforced |
 
-**Recommendation: A for v1.** Re-evaluate B or C only if the Findings agent becomes genuinely multi-step with durable state and branching; the `LLMProvider` interface is the seam that would let them be adopted behind it without touching callers. **NO separate Python service in any case.**
+**Decided: A for v1 (owner, 2026-11-17).** Re-evaluate B or C only if the Findings agent becomes genuinely multi-step with durable state and branching; the `LLMProvider` interface is the seam that would let them be adopted behind it without touching callers. **NO separate Python service in any case.**
 
 Dependency note if A is chosen: **no new dependency** (Node's `fetch`, existing Zod). If C or official vendor SDKs are chosen instead, each package is pinned and justified in the PR as `docs/technical/CODING_STANDARDS.md` requires.
 
@@ -67,13 +67,13 @@ Dependency note if A is chosen: **no new dependency** (Node's `fetch`, existing 
 
 Each call returns token usage; the caller stores it in its own record (the decision record has `agent_usage`). A platform-level **concurrency cap** and per-call limits are settings. Usage metering to the usage worker and any quota for model calls are **Open** (commercial plan decisions).
 
-## Decision needed (owner)
+## Decisions (owner, 2026-11-17)
 
-1. **Framework:** A (Recommended), B or C. (D is excluded.)
-2. **Initial providers to build:** all three adapters, or Ollama first and one hosted provider (Recommended: Ollama and Anthropic first, OpenAI after, since the interface makes the third cheap).
-3. **Tenant override and consent:** deployment-level only in v1 (Recommended), or tenant-level now.
-4. **External-provider policy:** confirm that no external provider is enabled for real tenant data until the consent rule exists.
-5. **Default models:** operators set `LLM_MODEL`; no default is baked in (Recommended).
+1. **Framework: option A.** An in-house bounded tool-calling loop over `LLMProvider` with `fetch`-based adapters. **No new dependency**: no langgraphjs, no Vercel AI SDK, no vendor SDK, and no Python service.
+2. **Providers:** the interface with adapters for local **Ollama**, **Anthropic** and **OpenAI**.
+3. **Configuration:** deployment-level provider in v1 (`LLM_PROVIDER`, `LLM_MODEL`, `LLM_OLLAMA_BASE_URL`); keys through the platform secret provider (`llm.anthropic.api_key`, `llm.openai.api_key`) and, for any future tenant key, the tenant SecretStore; never logged. No default model name in code.
+4. **Data-egress consent (decided):** an external provider (Anthropic, OpenAI) is **disabled for a tenant until an explicit, audited tenant consent setting is on**. A local Ollama is allowed by default. Without consent the caller runs without a model (floor-only for scan decisioning). The consent is stored in `tenant_llm_settings` (SPEC scan-decisioning 7.2a), changed through an audited route, and **enforced inside `resolveLLMProvider({ purpose, tenantId })`**, which returns `null` for an external provider without consent, so no caller can bypass it. A security-suite check (`DEC-S10`) proves an external provider is never called without consent.
+5. **Bounds for the first caller:** 20 s and 3 turns (scan decisioning).
 
 ## Alternatives considered
 
@@ -98,7 +98,7 @@ The layer is small, optional and security-critical. A thin owned interface keeps
 - Keys only through the secret store, never logged; redaction paths cover the key field names; no secret in an error message.
 - Model output is untrusted: strict validation, size caps, plain-text rendering, provenance (provider and model) shown to users.
 - Egress only to the configured host; the Ollama URL is deployment configuration; tenant-supplied URLs are not allowed in v1.
-- Repository-derived data (paths, never contents or patches in v1) is sent to an external provider only under the consent rule once decided; until then external providers must not be enabled for real tenant data.
+- Repository-derived data (paths, never contents or patches in v1) is sent to an external provider only for a tenant with the explicit, audited consent; the gate is inside `resolveLLMProvider`.
 - No tenant, user, workspace or repository identifiers or names in a provider request; no cross-tenant response cache or conversation state.
 - Failures never fail the caller's workflow: `null` provider, timeout, error and invalid output are normal results with a documented fallback.
 - Security-suite coverage for the properties above is proposed in `docs/modules/scan-decisioning/SPEC.md` 14.1 (ADR-008 scope extension needs the owner's approval).

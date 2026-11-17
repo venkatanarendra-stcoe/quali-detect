@@ -24,7 +24,7 @@ const item = (id, permission, scope, implemented) =>
 const group = (id, items) => Object.freeze({ id, items: Object.freeze(items) });
 
 /**
- * Account group ("You"; owner decisions 2026-11-16 and 2026-11-17): the last group in both layouts, in this order:
+ * Account group ("You"; owner decisions 2026-11-16 and 2026-11-17): the last group of the ORGANIZATION layout only (the Workspace layout has none), in this order:
  * Account, Settings (the user's own Appearance and Preferences page; "my-settings" because "settings" is Organization
  * settings), Notifications (an ACTION item: the app opens the notifications drawer instead of navigating). All three
  * are scope "self", no permission; the app renders Sign out as the last row after them.
@@ -51,7 +51,10 @@ export const ORG_NAV_GROUPS = Object.freeze([
   ACCOUNT_GROUP,
 ]);
 
-/** Workspace layout (inside /workspaces/:workspaceId/...). @type {readonly NavGroupDefinition[]} */
+/**
+ * Workspace layout (inside /workspaces/:workspaceId/...). It has NO account group (owner decision 2026-11-17): Account,
+ * Settings, Notifications and Sign out live in the Organization layout only and are reached through the "All workspaces"
+ * back-link. @type {readonly NavGroupDefinition[]} */
 export const WORKSPACE_NAV_GROUPS = Object.freeze([
   group("workspace", [
     item("dashboard", "workspace.view", "workspace", true),
@@ -74,7 +77,6 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
     item("workspace-settings", "workspace.update", "workspace", true),
     item("workspace-integrations", "workspace_integration.view", "workspace", true),
   ]),
-  ACCOUNT_GROUP,
 ]);
 
 /**

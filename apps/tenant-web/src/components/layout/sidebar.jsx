@@ -18,8 +18,10 @@ const isActive = (pathname, paths) =>
 /**
  * Sidebar (240 px), the only app chrome (the top bar was removed by owner decision, 2026-11-16). Top to bottom: logo,
  * the organization (and, inside a workspace, "All workspaces" + the workspace switcher), then the navigation. The last
- * group ("You"; defined in `@qmentisai/shared`, no permission) is Account, Settings, Notifications (an action item: it
- * opens the drawer and carries the unread badge) and Sign out as its last row. Nothing notification-related sits above
+ * group of the Organization layout ("You"; defined in `@qmentisai/shared`, no permission) is Account, Settings,
+ * Notifications (an action item: it opens the drawer and carries the unread badge) and Sign out as its last row. The
+ * Workspace layout has no such group (owner decision 2026-11-17): it is reached through the "All workspaces" back-link,
+ * which every user sees. Nothing notification-related sits above
  * the navigation (owner decision 2026-11-17). There is no search / command palette
  * trigger (removed 2026-11-16) and no bottom-pinned account block. Organization layout outside a workspace, Workspace
  * layout inside one. The items come from `evaluateNavigation` (implemented && permitted && route exists); empty groups

@@ -718,6 +718,8 @@ Target repository: **`qm-test-2-renamed`** (already connected through the GitHub
 10. **Real time:** two browser sessions (two tenants or two roles): live updates in the right rooms only; logout of one session disconnects its socket; a socket without the cookie cannot connect; DevTools shows no token in the URL.
 11. **Screens:** the manual verification matrix of `SCREENS.md` section 10 across the seven default roles at 1280 and 1440 px.
 
+**Owner note (2026-11-17), scope of what this plan tests:** the orchestrator built and live-tested here creates scan tasks **directly from the pipeline configuration snapshot** (enabled scan types, in catalog order). The **Analysis and Scan Decisioning stage (workflow steps 4 and 5)** is **not part of this module**: the next module will insert it into the `preparing` state, between the source fetch and the start of `running`, and it will then become the **source of the scan tasks** (the configuration stops being the direct source; it stays an input). The task creation, the unsupported-task rule, the lease and the cancel and retry paths verified in §17.ai are the contract that stage will plug into. The false-positive / AI advisory agent is **deferred to the Findings module** (advisory only, working on bounded and untrusted context). Nothing about the design of either is decided here; they are listed as Open in `OPEN_DECISIONS.md`.
+
 ### 16.2 What is needed from the owner before the live run
 
 - Confirmation that **`qm-test-2-renamed`** is still connected, the GitHub App is installed on it with the read permissions the SCM module already uses (contents read, metadata, pull requests read), and the webhook delivery reaches the test API (tunnel or public URL).

@@ -24,7 +24,7 @@ const ALL = ["sbom", "sca", "sast", "secrets"];
 const ok = (p, cond, msg) => {
   if (!cond) p.push(msg);
 };
-const sha = (c) => c.repeat(40);
+export const sha = (c) => c.repeat(40);
 const json = (value) => JSON.stringify(value);
 const docs = (n, prefix = "docs/f") =>
   Array.from({ length: n }, (_, i) => ({
@@ -35,7 +35,7 @@ const docs = (n, prefix = "docs/f") =>
   }));
 
 /** A logger that keeps every line of every level (the client logs at debug). */
-function capturingLogger() {
+export function capturingLogger() {
   const lines = [];
   const write =
     (level) =>
@@ -54,7 +54,7 @@ function capturingLogger() {
 }
 
 /** A fresh installation and repository in the stub. */
-async function fixture(w) {
+export async function fixture(w) {
   const suffix = randomBytes(4).toString("hex");
   const installationId = String(900000000 + Math.floor(Math.random() * 99999999));
   const fullName = `suite-org/dec-${suffix}`;
@@ -71,7 +71,7 @@ async function fixture(w) {
   };
 }
 
-const pushExecution = (base, head) => ({
+export const pushExecution = (base, head) => ({
   id: randomUUID(),
   scanKind: "incremental",
   triggerType: "push",
@@ -80,7 +80,7 @@ const pushExecution = (base, head) => ({
   pullRequestNumber: null,
   trust: "trusted",
 });
-const pullExecution = (number, over = {}) => ({
+export const pullExecution = (number, over = {}) => ({
   id: randomUUID(),
   scanKind: "incremental",
   triggerType: "pull_request",

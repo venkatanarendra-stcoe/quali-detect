@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readGitHubAppConfig } from "@qmentisai/infra";
+import { readGitHubAppConfig, readLLMConfig } from "@qmentisai/infra";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -85,6 +85,10 @@ const envSchema = z.object({
   SCAN_DECISION_MAX_CHANGED_FILES: z.coerce.number().int().min(1).max(3000).default(3000),
   SCAN_DECISION_MAX_PAGES: z.coerce.number().int().min(1).max(30).default(30),
   SCAN_DECISION_SAMPLE_PATHS: z.coerce.number().int().min(0).max(100).default(20),
+  // Decision agent (SPEC 5.4, 17.d; AP-5: 20 s and 3 turns). The timeout must stay below EXECUTION_LEASE_TTL_SECONDS (checked below).
+  SCAN_DECISION_AGENT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(20),
+  SCAN_DECISION_MAX_TURNS: z.coerce.number().int().min(1).max(5).default(3),
+  SCAN_DECISION_CONTEXT_PATHS: z.coerce.number().int().min(0).max(500).default(100),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -144,7 +148,19 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       ? { enabled: false, problems: [], config: null }
       : readGitHubAppConfig(env, { production: e.NODE_ENV === "production" });
   if (github.problems.length > 0) throw new ConfigError(github.problems);
+  // The optional LLM assistant (ADR-013): only the pipeline worker runs the decision agent, so the scan worker reads nothing of it
+  // (ER-5: it holds no credential handle). Problems name the variable and the rule, never a value.
+  const llm =
+    workerName === "scan"
+      ? { problems: [], config: null }
+      : readLLMConfig(env, { production: e.NODE_ENV === "production" });
+  if (llm.problems.length > 0) throw new ConfigError(llm.problems);
   const executionProblems = [];
+  if (e.SCAN_DECISION_AGENT_TIMEOUT_SECONDS >= e.EXECUTION_LEASE_TTL_SECONDS)
+    executionProblems.push({
+      variable: "SCAN_DECISION_AGENT_TIMEOUT_SECONDS",
+      message: "must be less than EXECUTION_LEASE_TTL_SECONDS (the agent runs under the lease)",
+    });
   if (e.EXECUTION_LEASE_TTL_SECONDS <= 3 * e.EXECUTION_HEARTBEAT_SECONDS)
     executionProblems.push({
       variable: "EXECUTION_LEASE_TTL_SECONDS",
@@ -282,7 +298,11 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       maxChangedFiles: e.SCAN_DECISION_MAX_CHANGED_FILES,
       maxPages: e.SCAN_DECISION_MAX_PAGES,
       samplePaths: e.SCAN_DECISION_SAMPLE_PATHS,
+      agentTimeoutSeconds: e.SCAN_DECISION_AGENT_TIMEOUT_SECONDS,
+      maxTurns: e.SCAN_DECISION_MAX_TURNS,
+      contextPaths: e.SCAN_DECISION_CONTEXT_PATHS,
     }),
+    llm: llm.config,
     outbox: Object.freeze({
       batchSize: e.OUTBOX_BATCH_SIZE,
       pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS,

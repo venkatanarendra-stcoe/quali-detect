@@ -32,6 +32,7 @@ import { buildExecutionDbWorld, driveExecution, EXECDB_CHECKS } from "./helpers/
 import { buildOrchestratorWorld } from "./helpers/orchestrator.js";
 import { ORCH_CHECKS } from "./helpers/orchestrator-checks.js";
 import { CHANGE_DETECTION_CHECKS } from "./helpers/change-detection-checks.js";
+import { DECISION_AGENT_CHECKS } from "./helpers/decision-agent-checks.js";
 import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
 import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
 import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
@@ -53,7 +54,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 732;
+const EXPECTED_CHECKS = 739;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10376,6 +10377,7 @@ const schWorld = () =>
   for (const { id, name, run } of [
     ...ORCH_CHECKS,
     ...CHANGE_DETECTION_CHECKS,
+    ...DECISION_AGENT_CHECKS,
     ...CANCEL_RETRY_CHECKS,
     ...SBOM_CHECKS,
     ...STORE_CHECKS,

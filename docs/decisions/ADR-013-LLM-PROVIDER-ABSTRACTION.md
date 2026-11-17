@@ -1,6 +1,6 @@
 # ADR-013: LLM provider abstraction (LLMProvider, adapters, framework choice)
 
-- **Status:** **Approved** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Part B (the `LLMProvider` layer, the three adapters, the deployment configuration, the platform-secret names and the consent gate) is implemented; the harness (section 3) is not yet (see "As built, part B" below).
+- **Status:** **Approved** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Part B (the `LLMProvider` layer, the three adapters, the deployment configuration, the platform-secret names and the consent gate) and part D (the harness, section 3) are implemented (see "As built, part B" and "As built, part D" below).
 - **Date:** 2026-11-17
 - **Decision owners:** Product owner (decision); Claude Code (proposal)
 - **Relation to existing documents:** the open item "AI provider/model selection: provider-independent abstraction recommended" in `docs/decisions/OPEN_DECISIONS.md`; ADR-001 (JavaScript only), ADR-002 (modular monolith and separate workers), ADR-009 (SecretStore and PlatformSecretProvider), ADR-011 (envelopes); `docs/technical/SECURITY_GUIDELINES.md` "Repository and AI safety".
@@ -85,7 +85,16 @@ Implemented in `packages/infra/src/llm/` (server-only, exported from `@qmentisai
 - **Keys.** Platform secret names `llm.anthropic.api_key` and `llm.openai.api_key` (environment variables `LLM_ANTHROPIC_API_KEY`, `LLM_OPENAI_API_KEY`, or the `_FILE` variants, development only); a missing key resolves to `key_missing`. The startup check for a worker that will call a provider is the exported `missingLLMKeyProblems`; the API does not call the model and does not need a key.
 - **Tool results** go back as one `user` message built by `toolResultMessage(name, output)`.
 - **Concurrency cap.** A per-process semaphore (`LLM_MAX_CONCURRENT_CALLS`) wraps `complete`; waiting honours the caller's `AbortSignal`.
-- **Harness (section 3).** Not part of part B; it follows in the part that builds the agent.
+- **Harness (section 3).** Not part of part B; built in part D (below).
+
+## As built, part D (2026-11-17)
+
+`packages/infra/src/llm/harness.js` exports `runBoundedToolLoop`; details in `docs/modules/scan-decisioning/SPEC.md` section 17.d. It matches section 3 with these deviations and refinements:
+
+- **Validation is a callback, not Zod.** Section 3 says "strict Zod validation of the final output". `packages/infra` has no Zod dependency and none is added, so the harness takes `validate({ toolCalls, text }) => { ok: true, value } | { ok: false }`; the caller (the decision agent in `apps/workers`) owns the strict Zod schema. A refusal, any verdict other than exactly `ok: true`, or a throw is `invalid_output` and the whole output is discarded.
+- **Result shape.** `{ status, value?, text, usage: { inputTokens, outputTokens, latencyMs, turns }, provider: { id, model } | null }`, `status` in `ok | timeout | error | invalid_output | aborted`. A provider answer the adapter cannot parse maps to `invalid_output`.
+- **Loop.** One shared timeout (combined with the caller's `AbortSignal`) for all turns, at most `maxTurns` calls, temperature 0; the tool calls of all turns are collected; after a turn with tool calls the harness replies with `toolResultMessage("tool_calls", { recorded: n })`. It offers only the tools the caller passes and never executes a tool.
+- **Logging.** An injected logger receives status, provider, model, turns, token counts and latency only; never the data, the system prompt, the model's text or a tool input; errors are reduced to a code.
 
 ## Alternatives considered
 

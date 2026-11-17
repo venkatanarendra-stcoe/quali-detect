@@ -111,7 +111,7 @@ const exclusionOf = (patterns) => (relativePath) =>
  * nothing.
  * The engine's `log(level, message)` also goes to the task's execution log (SPEC §17.ac): buffered, redacted and capped by the
  * LogStore, written only while the attempt is held (fenced), and flushed before the attempt is finished.
- * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string, logStore?: any }} deps
+ * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string, logStore?: any, testDelay?: ((signal: AbortSignal) => Promise<void>) | null }} deps
  */
 export function createScanTaskHandler({
   db,
@@ -122,6 +122,7 @@ export function createScanTaskHandler({
   workerId,
   tmpRoot = os.tmpdir(),
   logStore,
+  testDelay = null,
 }) {
   const ex = config.execution;
   const id = workerId ?? `scan-${process.pid}-${randomBytes(3).toString("hex")}`;
@@ -289,6 +290,8 @@ export function createScanTaskHandler({
           sourceDir,
         });
         assertNoCredentials(context, "scan context");
+        // TEST-ONLY window (execution/test-delay.js); null in every normal process
+        if (testDelay) await testDelay(abort.signal);
         const run = await adapter.runTask(context, {
           signal: abort.signal,
           log: (level, message) => {

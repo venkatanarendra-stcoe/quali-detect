@@ -2207,4 +2207,74 @@ export const ORCH_CHECKS = [
       return p;
     },
   },
+  {
+    id: "EXE-078",
+    name: "the test-only delay hook is refused in production and is not an engine (owner decision 2026-11-17): with NODE_ENV=production a set EXECUTION_TEST_DELAY_MS fails the worker configuration at startup AND the hook module refuses to load; unset, 0 or non-production behave as documented (null, or an abortable delay); the hook is not in the engine registry",
+    async run(w) {
+      const p = [];
+      const { loadTestDelay } = await import("../../../../workers/src/execution/test-delay.js");
+      const { engineRegistry } = await import("../../../../workers/src/execution/registry.js");
+      // production refuses it at the configuration (startup) ...
+      for (const name of ["pipeline", "scan"]) {
+        const error = (() => {
+          try {
+            w.config({ NODE_ENV: "production", EXECUTION_TEST_DELAY_MS: "5000" }, name);
+            return null;
+          } catch (e) {
+            return e;
+          }
+        })();
+        ok(
+          p,
+          error instanceof ConfigError &&
+            error.problems.some((x) => x.variable === "EXECUTION_TEST_DELAY_MS"),
+          `production accepted the delay hook in the ${name} configuration`,
+        );
+      }
+      // ... and the module itself refuses to load
+      let refused = false;
+      try {
+        loadTestDelay({ NODE_ENV: "production", EXECUTION_TEST_DELAY_MS: "5000" });
+      } catch {
+        refused = true;
+      }
+      ok(p, refused, "the hook module loaded in production");
+      // control: not production -> configuration valid, hook active; unset or 0 -> no hook at all
+      ok(
+        p,
+        w.config({ NODE_ENV: "test", EXECUTION_TEST_DELAY_MS: "5000" }).execution.enabled === true,
+        "control: the test configuration with the hook was refused",
+      );
+      ok(p, loadTestDelay({ NODE_ENV: "production" }) === null, "unset in production was not null");
+      ok(
+        p,
+        loadTestDelay({ NODE_ENV: "test", EXECUTION_TEST_DELAY_MS: "0" }) === null,
+        "0 was not null",
+      );
+      const delay = loadTestDelay({ NODE_ENV: "test", EXECUTION_TEST_DELAY_MS: "150" });
+      const t0 = Date.now();
+      await delay(new AbortController().signal);
+      ok(p, Date.now() - t0 >= 140, "the delay did not wait");
+      const abort = new AbortController();
+      const pending = delay(abort.signal).then(
+        () => "resolved",
+        (reason) => reason,
+      );
+      abort.abort(new Error("cancelled"));
+      const result = await pending;
+      ok(
+        p,
+        result instanceof Error && result.message === "cancelled",
+        "an abort did not end the delay",
+      );
+      // not an engine: nothing in the registry is the hook, and an unknown engine id stays unknown
+      ok(
+        p,
+        engineRegistry.get("sast", "default") === null &&
+          engineRegistry.get("sast", "test-delay") === null,
+        "the registry resolved an engine for the hook",
+      );
+      return p;
+    },
+  },
 ];

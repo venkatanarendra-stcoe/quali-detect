@@ -16,10 +16,15 @@ export const WORKER_NAME = "scan";
  * (ER-5): it receives the archive through the artifact store and the task from the database.
  * @returns {Promise<{ stop: () => Promise<void> }>}
  */
-export function start() {
+export async function start() {
+  // TEST-ONLY hook: loaded by a dynamic import only when EXECUTION_TEST_DELAY_MS is set (throws in production)
+  const delayRequested =
+    !!process.env.EXECUTION_TEST_DELAY_MS && process.env.EXECUTION_TEST_DELAY_MS !== "0";
+  const testDelayModule = delayRequested ? await import("../execution/test-delay.js") : null;
   const build = ({ db, config, logger }) =>
     config.execution.enabled
       ? createScanTaskHandler({
+          testDelay: testDelayModule ? testDelayModule.loadTestDelay(process.env, logger) : null,
           db,
           config,
           logger,

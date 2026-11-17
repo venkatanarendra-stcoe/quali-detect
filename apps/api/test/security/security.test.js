@@ -51,7 +51,7 @@ import { buildOverviewChecks } from "./helpers/overview-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 707;
+const EXPECTED_CHECKS = 708;
 const env = (name) => {
   const value = process.env[name];
   if (!value)

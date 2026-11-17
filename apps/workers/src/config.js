@@ -34,6 +34,8 @@ const envSchema = z.object({
   // Execution orchestrator (docs/modules/executions/SPEC.md part C). OFF BY DEFAULT (EXEC-026, EQ-7a): with the flag off the
   // `pipeline` queue keeps its no-op handler and nothing claims a queued execution. All values are platform settings.
   EXECUTION_ORCHESTRATOR_ENABLED: z.enum(["true", "false"]).default("false"),
+  // TEST-ONLY delay hook (execution/test-delay.js): refused at startup when NODE_ENV=production. Unset/0 = off.
+  EXECUTION_TEST_DELAY_MS: z.coerce.number().int().min(0).max(600000).default(0),
   // Lease and heartbeat (ER-27): the database clock is the only clock; TTL must exceed 3 x heartbeat (checked below).
   EXECUTION_HEARTBEAT_SECONDS: z.coerce.number().int().min(1).max(300).default(10),
   EXECUTION_LEASE_TTL_SECONDS: z.coerce.number().int().min(4).max(3600).default(60),
@@ -118,6 +120,15 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
   if (e.WORKER_RETRY_MAX_DELAY_MS < e.WORKER_RETRY_BASE_DELAY_MS) {
     throw new ConfigError([
       { variable: "WORKER_RETRY_MAX_DELAY_MS", message: "must be >= WORKER_RETRY_BASE_DELAY_MS" },
+    ]);
+  }
+  // TEST-ONLY hook (execution/test-delay.js): a production process must not start with it, checked before anything else.
+  if (e.NODE_ENV === "production" && e.EXECUTION_TEST_DELAY_MS > 0) {
+    throw new ConfigError([
+      {
+        variable: "EXECUTION_TEST_DELAY_MS",
+        message: "is a test-only hook and is refused when NODE_ENV=production",
+      },
     ]);
   }
   // ER-5: the scan worker neither requires nor accepts GitHub App or SecretStore settings, so the process holds no credential

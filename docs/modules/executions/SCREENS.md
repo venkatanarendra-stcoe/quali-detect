@@ -170,6 +170,8 @@ No horizontal page scroll at either width; the table scrolls inside its own regi
 
 ## 10. Verification matrix (to be run by hand after implementation; nothing is claimed)
 
+**Status after the live run (2026-11-17, SPEC executions §17.ai):** the matrix below was **not** run (seven roles at 1280 and 1440 px stays Open). Verified live by the owner on the real stack: T-29 shows the live status change to Cancelled without a refresh, cancel (graceful and immediate) and retry from the UI, and the list and detail for the executions of the test run. The built screens match section 11 "As built"; the 12 listed deviations (including the status colour question) are unchanged and still need the owner's confirmation.
+
 Unchecked until the screens exist: all seven default roles on T-28, T-29 and the tab; each status chip and its reason text; queued/preparing/running/terminal cancel dialogs (both cancellation modes); retry success, quota error, deleted pipeline; fork execution notice and badge; incremental notice; filter URL round trip and Load more with filters; live update with the socket up, down and reconnecting; reduced motion; keyboard-only run of cancel and retry; screen reader announcement of status changes; 1280 and 1440 layouts; not-found and no-permission pages for a hidden workspace, another tenant and a role without the key; the old `/executions/:id` alias; the pipeline tab's "View all executions" link.
 
 ## 11. As built (part H, 2026-11-16)

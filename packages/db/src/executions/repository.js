@@ -310,7 +310,7 @@ export function createExecutionRepository({ db, entitlements }) {
      * database in the same statement, with `actor`, `correlationId` and `eventDetails`. With `releaseQuota` the statement also
      * sets `quota_released_at` (once, only when a unit was consumed) and, in the same transaction, gives the unit back with the
      * STORED period and amount; only the transitions of section 5.9 may release (`queued`/`preparing` -> `cancelled`,
-     * `preparing` -> `failed`). Audit entries and outbox messages are the caller's, in the same transaction.
+     * `preparing` -> `failed`) and the zero-scan ending `running` -> `succeeded` with reason `no_applicable_scans`. Audit entries and outbox messages are the caller's, in the same transaction.
      * @param {{ tenantId: string, executionId: string, from: string, to: string, reason?: string | null, leaseEpoch?: number, actor?: { type: "system" | "user", userId?: string }, correlationId?: string, eventDetails?: Record<string, unknown>, taskCounts?: Record<string, number>, releaseQuota?: boolean }} input
      * @param {any} [client] Prisma client or the caller's transaction client (a transaction is opened when needed).
      * @returns {Promise<{ transitioned: boolean, execution: null | { id: string, status: string, statusRev: number, leaseEpoch: number }, quotaReleased: boolean }>}
@@ -330,7 +330,7 @@ export function createExecutionRepository({ db, entitlements }) {
       const active = EXECUTION_ACTIVE_STATUSES.includes(from);
       if (active && !Number.isInteger(leaseEpoch))
         throw new TypeError("a transition out of preparing/running needs the held leaseEpoch");
-      if (releaseQuota && !canReleaseQuotaOnTransition(from, to))
+      if (releaseQuota && !canReleaseQuotaOnTransition(from, to, reason))
         throw new TypeError(`${from} -> ${to} never gives the quota unit back`);
       const terminal = isTerminalExecutionStatus(to);
       return withTransaction(client, async (tx) => {
@@ -382,7 +382,7 @@ export function createExecutionRepository({ db, entitlements }) {
     },
 
     /**
-     * Appends a NON-transition history row (`recovered`, `cancel_requested`, `limit_deferred`, `retry_requested`, `task_unsupported`); `transition`
+     * Appends a NON-transition history row (`recovered`, `cancel_requested`, `limit_deferred`, `retry_requested`, `task_unsupported`, `decision_started`, `decision_completed`); `transition`
      * rows are written by the database. With `leaseEpoch` the write is fenced (a lease holder's write). The sequence number
      * is assigned by the database. Returns `null` when the execution is not the tenant's, or terminal (the database refuses
      * events of a finished execution).
@@ -393,7 +393,7 @@ export function createExecutionRepository({ db, entitlements }) {
       const { tenantId, executionId, type, reason = null, leaseEpoch } = input;
       if (type === "transition" || !EXECUTION_EVENT_TYPES.includes(type))
         throw new TypeError(
-          "recordEvent writes recovered, cancel_requested, limit_deferred, retry_requested or task_unsupported rows",
+          "recordEvent writes recovered, cancel_requested, limit_deferred, retry_requested, task_unsupported, decision_started or decision_completed rows",
         );
       return withTransaction(client, async (tx) => {
         if (Number.isInteger(leaseEpoch))

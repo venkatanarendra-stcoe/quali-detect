@@ -71,9 +71,24 @@ export const EXECUTION_QUOTA_RELEASE_TRANSITIONS = Object.freeze([
   Object.freeze(["preparing", "failed"]),
 ]);
 
-/** @param {string} from @param {string} to @returns {boolean} */
-export const canReleaseQuotaOnTransition = (from, to) =>
-  EXECUTION_QUOTA_RELEASE_TRANSITIONS.some(([f, t]) => f === from && t === to);
+/**
+ * The reason of the zero-scan ending (docs/modules/scan-decisioning/SPEC.md 5.6, AP-3): the decision selected no scan, so the run is
+ * `succeeded`, no scan started and the quota unit is given back. It is the ONLY reason `succeeded` may carry.
+ */
+export const NO_APPLICABLE_SCANS_REASON = "no_applicable_scans";
+
+/**
+ * Whether a transition may give the quota unit back. The three endings of the table above, plus exactly one more: the zero-scan
+ * ending `running -> succeeded` with the reason `no_applicable_scans` (the database trigger `executions_guard` allows the same and
+ * nothing else). Called with two arguments it answers for the table only.
+ * @param {string} from
+ * @param {string} to
+ * @param {string | null} [reason]
+ * @returns {boolean}
+ */
+export const canReleaseQuotaOnTransition = (from, to, reason = null) =>
+  EXECUTION_QUOTA_RELEASE_TRANSITIONS.some(([f, t]) => f === from && t === to) ||
+  (from === "running" && to === "succeeded" && reason === NO_APPLICABLE_SCANS_REASON);
 
 /** Scan task statuses (SPEC §6.1, last paragraph). */
 export const SCAN_TASK_STATUS_VALUES = Object.freeze([
@@ -125,4 +140,6 @@ export const EXECUTION_EVENT_TYPES = Object.freeze([
   "limit_deferred",
   "retry_requested",
   "task_unsupported",
+  "decision_started",
+  "decision_completed",
 ]);

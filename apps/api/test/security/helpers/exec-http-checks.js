@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createExecutionLogRepository } from "@qmentisai/db";
+import { createExecutionLogRepository, createScanDecisionRepository } from "@qmentisai/db";
 import { createLogStore } from "@qmentisai/infra";
 import { driveExecution } from "./execution-db.js";
 
@@ -111,6 +111,7 @@ export const DETAIL_KEYS = [
   "cancelMode",
   "tasks",
   "resolutionEligible",
+  "decision",
   "rev",
 ];
 const TASK_KEYS = [
@@ -178,6 +179,7 @@ const FORBIDDEN_TEXT = [
  */
 export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
   const db = () => getDb();
+  const dec = () => createScanDecisionRepository({ db: db() });
   const api = (cookie, method, path, options = {}) => w.api(method, path, { cookie, ...options });
   const get = (cookie, path, params) => api(cookie, "GET", params ? `${path}?${qs(params)}` : path);
   const cancel = (cookie, id, body) =>
@@ -1870,6 +1872,201 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       const ok = await get(s.admin, `/executions/${e.id}/events`, { limit: 100 });
       if (JSON.stringify(ok.json).includes(await meIdOf(s.admin)))
         problems.push("events expose a user id");
+      return done(problems);
+    },
+  );
+
+  // ---------------------------------------------------------------------------------------------------------------------
+  // The scan decision in the detail (docs/modules/scan-decisioning/SPEC.md 8, Part E): DEC-S06c scope, DEC-S13 no leak
+  // ---------------------------------------------------------------------------------------------------------------------
+  /** A preparing incremental execution of `p` (snapshot with all four scans) with a decision recorded directly. */
+  const decided = async (k, p) => {
+    const config = {
+      schemaVersion: 1,
+      triggers: [],
+      scans: Object.fromEntries(
+        ["sbom", "sca", "sast", "secrets"].map((t) => [t, { enabled: true }]),
+      ),
+    };
+    const version = await k.d.pipelineConfigVersion.create({
+      data: {
+        tenantId: p.pipeline.tenantId,
+        pipelineId: p.pipeline.id,
+        version:
+          ((
+            await k.d.pipelineConfigVersion.aggregate({
+              where: { tenantId: p.pipeline.tenantId, pipelineId: p.pipeline.id },
+              _max: { version: true },
+            })
+          )._max.version ?? 0) + 1,
+        schemaVersion: 1,
+        config,
+        configHash: "c".repeat(64),
+        createdByUserId: p.pipeline.createdByUserId,
+      },
+    });
+    const e = await k.make(p, "preparing", {
+      configVersionId: version.id,
+      configVersion: version.version,
+      configHash: version.configHash,
+      scanKind: "incremental",
+      scanKindReason: "push",
+    });
+    const row = await k.d.scanDecision.create({
+      data: {
+        tenantId: e.tenantId,
+        workspaceId: e.workspaceId,
+        repositoryId: e.repositoryId,
+        pipelineId: e.pipelineId,
+        executionId: e.id,
+        scanKind: "incremental",
+        trust: "trusted",
+        diffSource: "github_compare",
+        diffStatus: "complete",
+        changedTotal: 2,
+        changeSummary: {
+          total: 2,
+          byClass: { docs: 2, code: 0 },
+          byStatus: { modified: 2 },
+          additions: 4,
+          deletions: 1,
+          samples: { docs: ["docs/a.md", "docs/b.md"] },
+        },
+        secretsRule: "any_change",
+        floor: [{ scanType: "secrets", ruleIds: ["FL-3"] }],
+        agentStatus: "ok",
+        agentProvider: "ollama",
+        agentModel: "suite-model",
+        agentAdditions: [{ scanType: "sbom", reason: "dependency docs changed" }],
+        agentSummary: "Added SBOM because docs mention dependencies.",
+        agentUsage: { inputTokens: 11, outputTokens: 7, latencyMs: 120, turns: 2 },
+        finalTypes: ["sbom", "secrets"],
+        notSelected: [
+          { scanType: "sca", reason: "no_matching_changes" },
+          { scanType: "sast", reason: "no_matching_changes" },
+        ],
+      },
+    });
+    return { e, row };
+  };
+  const DECISION_KEYS = ["scanKind", "diff", "secretsRule", "scanTypes", "agent", "decidedAt"];
+  const exact = (obj, keys) =>
+    obj && typeof obj === "object" && !Array.isArray(obj)
+      ? JSON.stringify(Object.keys(obj).sort()) === JSON.stringify([...keys].sort())
+      : false;
+
+  check(
+    "DEC-S06c",
+    "decision scope over HTTP (docs/modules/scan-decisioning/SPEC.md 8, DEC-S06): the decision is read only through its execution's detail: another tenant's administrator and a user without any role in the workspace get 404 identical to a missing id (no decision, no hint of its existence), a read-only role of the workspace and the administrator get 200 with the decision, and the decision is never part of the list, the events or the logs",
+    async () => {
+      const k = await exeWorld();
+      const problems = [];
+      const s = k.x.sessions;
+      const own = await decided(k, k.pay);
+      const hidden = await decided(k, k.idn);
+      const missing = await get(s.admin, `/executions/${MISSING()}`);
+      for (const [who, id] of [
+        ["edge administrator", own.e.id],
+        ["manager without a role in the identity workspace", hidden.e.id],
+      ]) {
+        const r = await get(who.startsWith("edge") ? s.edge : s.manager, `/executions/${id}`);
+        if (r.status !== 404) problems.push(`${who} answered ${r.status}`);
+        else if (strip(r.json) !== strip(missing.json))
+          problems.push(`${who}: the 404 differs from a missing id's`);
+        if (JSON.stringify(r.json).includes("decision"))
+          problems.push(`${who}: the 404 mentions a decision`);
+      }
+      for (const who of ["admin", "viewer", "developer"]) {
+        const r = await get(s[who], `/executions/${own.e.id}`);
+        if (r.status !== 200) problems.push(`control: ${who} answered ${r.status}`);
+        else if (!exact(r.json.data.decision, DECISION_KEYS))
+          problems.push(`control: ${who} got no decision`);
+      }
+      const list = await get(s.admin, "/executions", { limit: 100 });
+      if (list.json.data.some((row) => "decision" in row))
+        problems.push("the list carries a decision");
+      const events = await get(s.admin, `/executions/${own.e.id}/events`);
+      if (JSON.stringify(events.json).includes("dependency docs changed"))
+        problems.push("the history carries model text");
+      const logs = await get(s.admin, `/executions/${own.e.id}/logs`);
+      if (JSON.stringify(logs.json).includes("dependency docs changed"))
+        problems.push("the logs carry model text");
+      // a record whose execution belongs to another workspace of the tenant is not reachable through a mismatched chain
+      const foreignChain = await dec().findDecision({
+        tenantId: k.tenantA,
+        executionId: own.e.id,
+        workspaceId: hidden.e.workspaceId,
+      });
+      if (foreignChain) problems.push("a wrong workspace found the decision");
+      return done(problems);
+    },
+  );
+
+  check(
+    "DEC-S13",
+    "decision DTO, no leak (SPEC scan-decisioning 8): the detail carries decision as null for an execution without a record and otherwise exactly { scanKind, diff { source, status, changedTotal, summary { byClass, byStatus, additions, deletions, samples } }, secretsRule, scanTypes [{ scanType, state, ruleIds, reason, taskId }], agent { status, provider, model, summary, usage { inputTokens, outputTokens, latencyMs } }, decidedAt } in catalog order with the states required, added, not_selected and not_enabled; no tenant, workspace, repository, pipeline, execution or record id, no schema version, no turn count and no internal column",
+    async () => {
+      const k = await exeWorld();
+      const problems = [];
+      const none = await k.make(k.pay, "failed");
+      const nr = await get(k.x.sessions.admin, `/executions/${none.id}`);
+      if (nr.json?.data?.decision !== null)
+        problems.push("an execution without a record has a decision");
+      const { e, row } = await decided(k, k.pay);
+      const r = await get(k.x.sessions.admin, `/executions/${e.id}`);
+      const d = r.json?.data?.decision;
+      if (!exact(d, DECISION_KEYS)) return done([`decision keys ${Object.keys(d ?? {})}`]);
+      if (!exact(d.diff, ["source", "status", "changedTotal", "summary"]))
+        problems.push("diff keys");
+      if (!exact(d.diff.summary, ["byClass", "byStatus", "additions", "deletions", "samples"]))
+        problems.push("diff summary keys");
+      if (!exact(d.agent, ["status", "provider", "model", "summary", "usage"]))
+        problems.push("agent keys");
+      if (!exact(d.agent.usage, ["inputTokens", "outputTokens", "latencyMs"]))
+        problems.push(`usage keys ${Object.keys(d.agent.usage ?? {})}`);
+      const byType = Object.fromEntries(d.scanTypes.map((t) => [t.scanType, t]));
+      if (d.scanTypes.map((t) => t.scanType).join() !== "sbom,sca,sast,secrets")
+        problems.push("scan types are not in catalog order");
+      for (const t of d.scanTypes)
+        if (!exact(t, ["scanType", "state", "ruleIds", "reason", "taskId"]))
+          problems.push(`scan type keys ${Object.keys(t)}`);
+      const want = {
+        sbom: "added",
+        sca: "not_selected",
+        sast: "not_selected",
+        secrets: "required",
+      };
+      for (const [type, state] of Object.entries(want))
+        if (byType[type]?.state !== state) problems.push(`${type} is ${byType[type]?.state}`);
+      if (byType.secrets?.ruleIds.join() !== "FL-3") problems.push("the rule id is missing");
+      if (byType.sbom?.reason !== "dependency docs changed")
+        problems.push("the added reason is missing");
+      if (byType.sca?.reason !== "no_matching_changes")
+        problems.push("the not-selected code is missing");
+      if (
+        d.agent.provider !== "ollama" ||
+        d.agent.model !== "suite-model" ||
+        d.diff.changedTotal !== 2
+      )
+        problems.push("provider, model or total missing");
+      if (d.agent.usage.inputTokens !== 11 || d.agent.usage.latencyMs !== 120)
+        problems.push("usage values missing");
+      const text = JSON.stringify(r.json);
+      for (const secret of [
+        k.tenantA,
+        row.id,
+        "schemaVersion",
+        "schema_version",
+        "tenantId",
+        "tenant_id",
+        "turns",
+        "agentStatus",
+        "agent_status",
+        "finalTypes",
+        "notSelected",
+        "changeSummary",
+      ])
+        if (text.includes(secret)) problems.push(`the detail leaks ${secret}`);
       return done(problems);
     },
   );

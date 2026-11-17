@@ -44356,7 +44356,8 @@
                           },
                           "statusReason": {
                             "type": "string",
-                            "nullable": true
+                            "nullable": true,
+                            "description": "Stable machine code. A succeeded execution carries only no_applicable_scans (the scan decision selected no scan; the quota unit was given back)."
                           },
                           "triggerType": {
                             "type": "string"
@@ -44821,7 +44822,8 @@
                         },
                         "statusReason": {
                           "type": "string",
-                          "nullable": true
+                          "nullable": true,
+                          "description": "Stable machine code. A succeeded execution carries only no_applicable_scans (the scan decision selected no scan; the quota unit was given back)."
                         },
                         "triggerType": {
                           "type": "string"
@@ -45038,6 +45040,176 @@
                         "resolutionEligible": {
                           "type": "boolean"
                         },
+                        "decision": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "scanKind": {
+                              "type": "string"
+                            },
+                            "diff": {
+                              "type": "object",
+                              "properties": {
+                                "source": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string"
+                                },
+                                "changedTotal": {
+                                  "type": "number"
+                                },
+                                "summary": {
+                                  "type": "object",
+                                  "properties": {
+                                    "byClass": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "byStatus": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "additions": {
+                                      "type": "number"
+                                    },
+                                    "deletions": {
+                                      "type": "number"
+                                    },
+                                    "samples": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "byClass",
+                                    "byStatus",
+                                    "additions",
+                                    "deletions",
+                                    "samples"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "source",
+                                "status",
+                                "changedTotal",
+                                "summary"
+                              ]
+                            },
+                            "secretsRule": {
+                              "type": "string"
+                            },
+                            "scanTypes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "scanType": {
+                                    "type": "string"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "required",
+                                      "added",
+                                      "not_selected",
+                                      "not_enabled"
+                                    ]
+                                  },
+                                  "ruleIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "taskId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  }
+                                },
+                                "required": [
+                                  "scanType",
+                                  "state",
+                                  "ruleIds",
+                                  "reason",
+                                  "taskId"
+                                ]
+                              }
+                            },
+                            "agent": {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "string"
+                                },
+                                "provider": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "model": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "summary": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "usage": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "properties": {
+                                    "inputTokens": {
+                                      "type": "number"
+                                    },
+                                    "outputTokens": {
+                                      "type": "number"
+                                    },
+                                    "latencyMs": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "inputTokens",
+                                    "outputTokens",
+                                    "latencyMs"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "status",
+                                "provider",
+                                "model",
+                                "summary",
+                                "usage"
+                              ]
+                            },
+                            "decidedAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "scanKind",
+                            "diff",
+                            "secretsRule",
+                            "scanTypes",
+                            "agent",
+                            "decidedAt"
+                          ]
+                        },
                         "rev": {
                           "type": "number"
                         }
@@ -45074,6 +45246,7 @@
                         "cancelMode",
                         "tasks",
                         "resolutionEligible",
+                        "decision",
                         "rev"
                       ]
                     },

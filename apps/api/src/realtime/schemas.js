@@ -27,6 +27,14 @@ export const HINT_SCHEMAS = Object.freeze({
       at: z.string().datetime(),
     })
     .strict(),
+  "execution.decision": z
+    .object({
+      executionId: id,
+      workspaceId: id,
+      pipelineId: id,
+      rev: z.number().int().min(0),
+    })
+    .strict(),
   "task.changed": z
     .object({
       executionId: id,

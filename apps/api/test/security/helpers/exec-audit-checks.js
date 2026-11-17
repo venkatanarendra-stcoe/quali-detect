@@ -87,6 +87,7 @@ const EXECUTION_CHILD_TABLES = [
   "execution_log_counters",
   "execution_logs",
   "execution_task_log_counters",
+  "scan_decisions",
   "scan_result_items",
   "scan_results",
   "scan_task_attempts",
@@ -239,6 +240,12 @@ const PAYLOADS = {
     pipelineId: e.pipelineId,
     status: "running",
     rev: 1,
+  }),
+  "pipeline.execution.decision_completed": (e) => ({
+    executionId: e.id,
+    workspaceId: e.workspaceId,
+    pipelineId: e.pipelineId,
+    rev: 2,
   }),
   "pipeline.execution.log_appended": (e) => ({
     executionId: e.id,
@@ -614,6 +621,7 @@ async function hintsOf(w, tree) {
     if (
       ![
         "pipeline.execution.status_changed",
+        "pipeline.execution.decision_completed",
         "scan.task.status_changed",
         "pipeline.execution.log_appended",
       ].includes(message.type)
@@ -1382,6 +1390,7 @@ export const PART_I_CHECKS = [
       const sets = {
         "executions.": db.createExecutionRepository({ db: stubDb, entitlements: stubDb }),
         "tasks.": db.createScanTaskRepository({ db: stubDb }),
+        "decisions.": db.createScanDecisionRepository({ db: stubDb }),
         "executions-cancel.": db.createExecutionCancellation({ db: stubDb, entitlements: stubDb }),
         "logs.": db.createExecutionLogRepository({ db: stubDb }),
         "artifacts.": db.createExecutionArtifactRepository({ db: stubDb }),

@@ -292,6 +292,24 @@ export const MESSAGE_TYPES = Object.freeze({
       })
       .strict(),
   }),
+  /**
+   * Hint for Socket.IO and nothing else (docs/modules/scan-decisioning/SPEC.md 8, 9): the scan decision of an execution was
+   * recorded, so the detail view may refetch. Ids and the status revision ONLY: no model text, summary, reason, path or provider
+   * ever travels (`execution-decision-<executionId>`).
+   */
+  "pipeline.execution.decision_completed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        executionId: uuid,
+        workspaceId: uuid,
+        pipelineId: uuid,
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
   /** Hint (part E emits it, at most one per task per interval); never the lines. */
   "pipeline.execution.log_appended": Object.freeze({
     kind: "event",

@@ -6,6 +6,7 @@ import {
   createEntitlementService,
   createExecutionRepository,
   createOrchestratorMarkerRepository,
+  createScanDecisionRepository,
   createScanTaskRepository,
   withTransaction,
 } from "@qmentisai/db";
@@ -17,6 +18,8 @@ import {
   inspectTarGz,
 } from "@qmentisai/infra";
 import {
+  NO_APPLICABLE_SCANS_REASON,
+  SCAN_TASK_ORDER,
   SCAN_TASK_UNSUPPORTED_REASON,
   aggregateTaskOutcome,
   cancelWaitDecision,
@@ -32,6 +35,7 @@ import {
   EXECUTION_TIMEOUT_CAP_SECONDS,
   PLATFORM_PREPARE_FAILURES,
 } from "./constants.js";
+import { decideScans } from "./decision/index.js";
 import { enabledScanTypes, evaluateGates } from "./gates.js";
 import { createMessageProducer } from "./messages.js";
 import { resolveLogStore } from "./task-log.js";
@@ -52,6 +56,54 @@ class WorkerLost extends Error {}
 
 const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The longest summary kept in the `decision_completed` event (the full text lives in the decision record). */
+const EVENT_SUMMARY_MAX = 500;
+
+/**
+ * The bounded details of the `decision_completed` event (SPEC scan-decisioning 7.3): type names, statuses, counts and the short
+ * model summary. No prompt, no file contents, no path, no credential.
+ */
+const decisionEventDetails = (decision) => ({
+  floor: decision.floor.map((f) => f.scanType),
+  added: decision.agent.additions.map((a) => a.scanType),
+  final: decision.finalTypes,
+  agentStatus: decision.agent.status,
+  provider: decision.agent.provider,
+  model: decision.agent.model,
+  summary: decision.agent.summary ? decision.agent.summary.slice(0, EVENT_SUMMARY_MAX) : null,
+  diffStatus: decision.diff.status,
+  changedTotal: decision.diff.changedTotal,
+});
+
+/** One execution-log line about the decision (types and status only). */
+const decisionLine = (decision, enabled) =>
+  `scan decision: ${decision.finalTypes.length > 0 ? decision.finalTypes.join(", ") : "no scan"} of ${enabled.length} enabled type(s)${
+    decision.agent ? ` (assistant: ${decision.agent.status})` : " (decision reused)"
+  }`;
+
+/** The payload of `pipeline.execution.completed`, built from the final execution row. */
+const completedPayload = (final, { status, reason, resolutionEligible, tasks }) => ({
+  executionId: final.id,
+  pipelineId: final.pipelineId,
+  repositoryId: final.repositoryId,
+  workspaceId: final.workspaceId,
+  status,
+  statusReason: reason ?? null,
+  scanKind: final.scanKind,
+  trust: final.trust,
+  refType: final.refType,
+  refName: final.refName,
+  commitSha: final.commitSha,
+  pullRequestNumber: final.pullRequestNumber,
+  configVersion: final.configVersion,
+  configHash: final.configHash,
+  startedAt: final.startedAt ? final.startedAt.toISOString() : null,
+  finishedAt: final.finishedAt.toISOString(),
+  cancelRequested: Boolean(final.cancelRequestedAt),
+  resolutionEligible,
+  tasks,
+});
+
 /**
  * The execution orchestrator of the pipeline worker (docs/modules/executions/SPEC.md part C, §6): first-enable stale sweep,
  * claim with re-validation, lease and heartbeat, the fetch step, task creation and dispatch, aggregation, the single
@@ -64,7 +116,12 @@ const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * and then handled with no credential at all; repository content is only parsed, never executed (R-8).
  * Milestones are also written to the execution log (SPEC §17.ac) through the LogStore, best effort: a log failure never fails
  * a run, and every line passes the store's redaction and caps.
- * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void>, logStore?: any }} deps
+ *
+ * Scan decisioning (docs/modules/scan-decisioning/SPEC.md part E): in `preparing`, after the fetch and before any task exists, the
+ * orchestrator decides WHICH enabled scans this run needs (deterministic floor + optional agent that can only add), records the
+ * decision, and creates the tasks of the DECIDED types only, in one transaction fenced by the lease epoch. There is no switch for
+ * the step: it runs whenever the orchestrator runs; without a provider the decision is the floor.
+ * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function, listChangedFiles?: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void>, logStore?: any, decisionRuntime?: { resolveProvider: Function } | null }} deps
  */
 export function createOrchestrator({
   db,
@@ -76,6 +133,7 @@ export function createOrchestrator({
   workerId,
   sleep = sleepFor,
   logStore,
+  decisionRuntime = null,
 }) {
   const ex = config.execution;
   const id = workerId ?? `pipeline-${process.pid}-${randomBytes(3).toString("hex")}`;
@@ -83,6 +141,7 @@ export function createOrchestrator({
   const repo = createExecutionRepository({ db });
   const cancellation = createExecutionCancellation({ db });
   const tasksRepo = createScanTaskRepository({ db });
+  const decisions = createScanDecisionRepository({ db });
   const markers = createOrchestratorMarkerRepository({ db });
   const entitlements = createEntitlementService({
     repository: createEntitlementRepository({ db }),
@@ -398,27 +457,12 @@ export function createOrchestrator({
         await producer.completed(
           tx,
           row,
-          {
-            executionId,
-            pipelineId: final.pipelineId,
-            repositoryId: final.repositoryId,
-            workspaceId: final.workspaceId,
+          completedPayload(final, {
             status: to,
-            statusReason: reason ?? null,
-            scanKind: final.scanKind,
-            trust: final.trust,
-            refType: final.refType,
-            refName: final.refName,
-            commitSha: final.commitSha,
-            pullRequestNumber: final.pullRequestNumber,
-            configVersion: final.configVersion,
-            configHash: final.configHash,
-            startedAt: final.startedAt ? final.startedAt.toISOString() : null,
-            finishedAt: final.finishedAt.toISOString(),
-            cancelRequested: Boolean(final.cancelRequestedAt),
+            reason,
             resolutionEligible: eligible,
             tasks: summary,
-          },
+          }),
           row.correlationId,
         );
         await producer.statusChanged(tx, row, to, done.execution.statusRev, row.correlationId);
@@ -553,9 +597,10 @@ export function createOrchestrator({
     const { cfg, fullName, installationId } = await loadPrepareContext(row);
     const types = enabledScanTypes(cfg);
     if (types.length === 0) throw new PrepareFailure("config_invalid");
-    const specs = types.map((type, ordinal) => ({
+    // `ordinal` is the catalog position (SPEC scan-decisioning FT-6): gaps are expected when a type is not selected
+    const specs = types.map((type) => ({
       scanType: type,
-      ordinal,
+      ordinal: SCAN_TASK_ORDER.indexOf(type),
       engineId: cfg.scans[type].engine.id,
       engineProfile: cfg.scans[type].engine.profile ?? "default",
       severityThreshold: cfg.scans[type].severityThreshold ?? "low",
@@ -577,6 +622,7 @@ export function createOrchestrator({
     }
     const ref = { tenantId, executionId: row.id, name: ARCHIVE_NAME };
     let session = null;
+    let sha = row.commitSha;
     const open = async () =>
       (session ??= await github.openSourceSession({
         externalInstallationId: installationId,
@@ -584,7 +630,6 @@ export function createOrchestrator({
       }));
     try {
       // ER-10: pin the commit once (null to value). A pull request uses its stored head SHA; nothing is re-read.
-      let sha = row.commitSha;
       if (!sha) {
         if (row.refType === "pull_request") throw new PrepareFailure("ref_not_found");
         const resolved = await (
@@ -630,15 +675,163 @@ export function createOrchestrator({
     } finally {
       session?.close();
     }
-    // tasks (one per enabled scan type, from the SNAPSHOT), the move to `running`, the started event and the first dispatch
-    await withTransaction(db, async (tx) => {
-      await tasksRepo.createTasks(
-        { tenantId, executionId: row.id, leaseEpoch: epoch, tasks: specs },
+    // ---- the scan decision (SPEC scan-decisioning 5.1, 5.7), after the fetch and BEFORE any task exists
+    const scope = {
+      tenantId,
+      executionId: row.id,
+      workspaceId: row.workspaceId,
+      repositoryId: row.repositoryId,
+      pipelineId: row.pipelineId,
+    };
+    const persisted = await decisions.findDecision(scope);
+    let decision;
+    if (persisted) {
+      // (1) the record exists: reuse it, no diff, no model (D9)
+      decision = {
+        finalTypes: persisted.finalTypes,
+        zeroScan: persisted.finalTypes.length === 0,
+        reused: true,
+      };
+    } else if (entry.decision) {
+      // the same holder retries the step after a transient failure: the decision it already made is kept (no second model call)
+      decision = entry.decision;
+    } else {
+      // (2) a marker without a record: the previous holder died mid-decision, the agent is NOT called again; (3) neither: full flow
+      const interrupted = await decisions.hasDecisionStarted({ tenantId, executionId: row.id });
+      if (!interrupted)
+        await decisions.markDecisionStarted({
+          tenantId,
+          executionId: row.id,
+          leaseEpoch: epoch,
+          correlationId: row.correlationId ?? undefined,
+        });
+      signal.throwIfAborted();
+      await assertNotCancelled();
+      decision = await decideScans({
+        execution: { ...row, commitSha: sha },
+        tenantId,
+        repository: { fullName, externalInstallationId: installationId },
+        enabledTypes: types,
+        exclusions: cfg.exclusions ?? null,
+        github,
+        runtime: decisionRuntime,
+        config,
+        signal,
+        logger: log,
+        interrupted,
+      });
+      // a cancel (or a lost lease, or the deadline) that arrived during the diff or the model call ends the step with NO record
+      signal.throwIfAborted();
+      await assertNotCancelled();
+      entry.decision = decision;
+    }
+    const decided = new Set(decision.finalTypes);
+    const decidedSpecs = specs.filter((spec) => decided.has(spec.scanType));
+    // log lines are written while the execution is still preparing (a terminal execution accepts none)
+    await execLog(row, epoch, "platform", [decisionLine(decision, types)]);
+    if (decision.zeroScan)
+      await execLog(row, epoch, "platform", [
+        "no scan is applicable to this change: the execution will succeed without running a scan",
+      ]);
+    const outcome = await withTransaction(db, async (tx) => {
+      await repo.fenceExecution({ tenantId, executionId: row.id, leaseEpoch: epoch }, tx);
+      // the fence holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
+      await assertNotCancelled(tx);
+      if (!decision.reused) {
+        await decisions.insertDecision(
+          { tenantId, executionId: row.id, leaseEpoch: epoch, decision },
+          tx,
+        );
+        await decisions.recordDecisionCompleted(
+          {
+            tenantId,
+            executionId: row.id,
+            leaseEpoch: epoch,
+            correlationId: row.correlationId ?? undefined,
+            details: decisionEventDetails(decision),
+          },
+          tx,
+        );
+        await audit(tx, row, AUDIT.DECISION_COMPLETED, {
+          floor: decision.floor.map((f) => f.scanType),
+          added: decision.agent.additions.map((a) => a.scanType),
+          final: decision.finalTypes,
+          agentStatus: decision.agent.status,
+          provider: decision.agent.provider,
+          model: decision.agent.model,
+          diffStatus: decision.diff.status,
+          zeroScan: decision.zeroScan,
+          epoch,
+        });
+      }
+      if (decision.zeroScan) {
+        // SPEC 5.6 (AP-3): nothing applicable. preparing -> running -> succeeded in this one transaction, the same lease epoch,
+        // no task, the quota unit given back once, never resolution-eligible.
+        const ended = await decisions.finishZeroScan(
+          {
+            tenantId,
+            executionId: row.id,
+            leaseEpoch: epoch,
+            correlationId: row.correlationId ?? undefined,
+            endedDetails: { decision: "zero_scan" },
+          },
+          tx,
+        );
+        const final = await repo.findExecution({ tenantId, executionId: row.id }, tx);
+        await audit(tx, row, AUDIT.STARTED, {
+          from: "preparing",
+          to: "running",
+          taskCount: 0,
+          epoch,
+        });
+        await producer.started(
+          tx,
+          row,
+          { startedAt: final.startedAt, taskCount: 0 },
+          row.correlationId,
+        );
+        await producer.statusChanged(
+          tx,
+          row,
+          "running",
+          ended.started.statusRev,
+          row.correlationId,
+        );
+        await audit(tx, row, AUDIT.SUCCEEDED, {
+          from: "running",
+          to: "succeeded",
+          reason: NO_APPLICABLE_SCANS_REASON,
+          quotaReleased: ended.quotaReleased,
+          epoch,
+          taskCounts: taskCountsOf([]),
+        });
+        await producer.completed(
+          tx,
+          row,
+          completedPayload(final, {
+            status: "succeeded",
+            reason: NO_APPLICABLE_SCANS_REASON,
+            resolutionEligible: false,
+            tasks: [],
+          }),
+          row.correlationId,
+        );
+        await producer.statusChanged(
+          tx,
+          row,
+          "succeeded",
+          ended.ended.statusRev,
+          row.correlationId,
+        );
+        if (!decision.reused)
+          await producer.decisionCompleted(tx, row, ended.ended.statusRev, row.correlationId);
+        return "succeeded";
+      }
+      await tasksRepo.createDecidedTasks(
+        { tenantId, executionId: row.id, leaseEpoch: epoch, tasks: decidedSpecs },
         tx,
       );
-      await markUnsupportedInTransaction(tx, row, epoch, specs);
-      // createTasks holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
-      await assertNotCancelled(tx);
+      await markUnsupportedInTransaction(tx, row, epoch, decidedSpecs);
       const done = await repo.transitionExecution(
         {
           tenantId,
@@ -648,7 +841,7 @@ export function createOrchestrator({
           leaseEpoch: epoch,
           actor: { type: "system" },
           correlationId: row.correlationId ?? undefined,
-          eventDetails: { epoch, taskCount: specs.length },
+          eventDetails: { epoch, taskCount: decidedSpecs.length },
         },
         tx,
       );
@@ -657,21 +850,32 @@ export function createOrchestrator({
       await audit(tx, row, AUDIT.STARTED, {
         from: "preparing",
         to: "running",
-        taskCount: specs.length,
+        taskCount: decidedSpecs.length,
         epoch,
       });
       await producer.started(
         tx,
         row,
-        { startedAt: fresh.startedAt, taskCount: specs.length },
+        { startedAt: fresh.startedAt, taskCount: decidedSpecs.length },
         row.correlationId,
       );
       await producer.statusChanged(tx, row, "running", done.execution.statusRev, row.correlationId);
+      if (!decision.reused)
+        await producer.decisionCompleted(tx, row, done.execution.statusRev, row.correlationId);
       await dispatchInTransaction(tx, { ...row, ...fresh }, epoch, ex.taskParallelism);
+      return "running";
     });
-    await execLog(row, epoch, "platform", [`execution started with ${specs.length} scan task(s)`]);
-    const skipped = unsupportedLines(specs);
+    if (outcome === "succeeded") {
+      forget(row.id);
+      await store.deleteExecution({ tenantId, executionId: row.id }).catch(() => {});
+      return outcome;
+    }
+    await execLog(row, epoch, "platform", [
+      `execution started with ${decidedSpecs.length} scan task(s)`,
+    ]);
+    const skipped = unsupportedLines(decidedSpecs);
     if (skipped.length > 0) await execLog(row, epoch, "platform", skipped, "warn");
+    return outcome;
   }
 
   /**
@@ -692,8 +896,7 @@ export function createOrchestrator({
     ]);
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await prepareOnce(row, entry, signal);
-        return { outcome: "running" };
+        return { outcome: await prepareOnce(row, entry, signal) };
       } catch (error) {
         if (error instanceof LeaseLostError || entry.controller.signal.aborted) {
           forget(row.id);

@@ -50,7 +50,9 @@ function checkedAgent(agent, floor, enabledTypes) {
  * fail closed), then the optional agent that can only ADD enabled types, then the pure merge. Returns the object part E persists.
  * It never throws for the agent: an exception anywhere in the agent path becomes `agent.status = "error"` (floor only). A fork
  * execution never reaches the provider. `tenantId` is the one the caller loaded from the database, never from a message.
- * Not called by the orchestrator yet (part E).
+ * With `interrupted: true` (SPEC 5.7 case 2: a previous holder died after writing `decision_started` and before committing) the
+ * floor is recomputed (deterministic, the diff has no model cost) and the agent is NOT contacted: its status is `interrupted`,
+ * the provider is not even resolved (D9, DEC-008). Called by the orchestrator's `preparing` step.
  * @param {{
  *   execution: Parameters<typeof decideFloor>[0]["execution"] & { trust: string, scanKindReason?: string | null },
  *   tenantId: string,
@@ -62,6 +64,7 @@ function checkedAgent(agent, floor, enabledTypes) {
  *   config: Parameters<typeof decideFloor>[0]["config"] & { scanDecision: { agentTimeoutSeconds: number, maxTurns: number, contextPaths: number } },
  *   signal?: AbortSignal,
  *   logger?: any,
+ *   interrupted?: boolean,
  * }} input
  */
 export async function decideScans({
@@ -75,6 +78,7 @@ export async function decideScans({
   config,
   signal,
   logger,
+  interrupted = false,
 }) {
   const deterministic = await decideFloor({
     execution,
@@ -87,33 +91,43 @@ export async function decideScans({
     logger,
   });
   let agent;
-  try {
-    agent = checkedAgent(
-      await runDecisionAgent({
-        tenantId,
-        execution,
-        enabledTypes,
-        floor: deterministic.floor,
-        diff: deterministic.diff,
-        resolveProvider: runtime?.resolveProvider ?? NO_PROVIDER,
-        config,
-        signal,
-        logger,
-      }),
-      deterministic.floor,
-      enabledTypes,
-    );
-  } catch {
-    // Never an exception out of the decision because of the model path; the reason is a code, the error text is not logged.
+  if (interrupted) {
     agent = {
-      agentStatus: "error",
+      agentStatus: "interrupted",
       provider: null,
       model: null,
       additions: [],
       summary: null,
       usage: null,
     };
-  }
+  } else
+    try {
+      agent = checkedAgent(
+        await runDecisionAgent({
+          tenantId,
+          execution,
+          enabledTypes,
+          floor: deterministic.floor,
+          diff: deterministic.diff,
+          resolveProvider: runtime?.resolveProvider ?? NO_PROVIDER,
+          config,
+          signal,
+          logger,
+        }),
+        deterministic.floor,
+        enabledTypes,
+      );
+    } catch {
+      // Never an exception out of the decision because of the model path; the reason is a code, the error text is not logged.
+      agent = {
+        agentStatus: "error",
+        provider: null,
+        model: null,
+        additions: [],
+        summary: null,
+        usage: null,
+      };
+    }
   const finalTypes = finalizeTypes({
     floor: deterministic.floor,
     enabledTypes,

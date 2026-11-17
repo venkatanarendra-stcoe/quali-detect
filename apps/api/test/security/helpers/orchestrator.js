@@ -302,8 +302,12 @@ export async function buildOrchestratorWorld(db, github) {
   w.markers = createOrchestratorMarkerRepository({ db });
   w.verify = createOwnershipVerifier({ db });
 
-  w.orchestrator = (over = {}, { engines, config, github: client, store, db: dbOverride } = {}) =>
+  w.orchestrator = (
+    over = {},
+    { engines, config, github: client, store, db: dbOverride, decisionRuntime } = {},
+  ) =>
     createOrchestrator({
+      decisionRuntime: decisionRuntime ?? null,
       db: dbOverride ?? db,
       config: config ?? w.config(over),
       logger,

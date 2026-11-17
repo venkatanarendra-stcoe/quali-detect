@@ -8,6 +8,7 @@ import { HINT_SCHEMAS } from "./schemas.js";
  */
 export const HINT_MESSAGE_TYPES = Object.freeze([
   "pipeline.execution.status_changed",
+  "pipeline.execution.decision_completed",
   "scan.task.status_changed",
   "pipeline.execution.log_appended",
 ]);
@@ -43,6 +44,17 @@ export function buildHint(message, target) {
           status: payload.status,
           rev: payload.rev,
           at: message.occurredAt,
+        }),
+      };
+    case "pipeline.execution.decision_completed":
+      return {
+        event: SERVER_EVENTS.EXECUTION_DECISION,
+        rooms: [workspaceRoom, executionRoom],
+        payload: HINT_SCHEMAS[SERVER_EVENTS.EXECUTION_DECISION].parse({
+          executionId: target.executionId,
+          workspaceId: target.workspaceId,
+          pipelineId: target.pipelineId,
+          rev: payload.rev,
         }),
       };
     case "scan.task.status_changed":

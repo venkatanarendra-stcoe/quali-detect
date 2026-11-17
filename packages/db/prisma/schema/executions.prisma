@@ -58,6 +58,47 @@ model ExecutionEvent {
   @@map("execution_events")
 }
 
+/// The scan decision of one execution (docs/modules/scan-decisioning/SPEC.md 7.2): what changed, the deterministic floor, what the
+/// optional agent added, the decided final set and the enabled types that were not selected. One row per execution, insert-once
+/// (database trigger), written only inside the lease-fenced transaction that also creates the decided tasks. Ids, enums and short
+/// validated text only: no file contents, no patch, no prompt, no credential (CHECK).
+model ScanDecision {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  workspaceId    String            @map("workspace_id") @db.Uuid
+  repositoryId   String            @map("repository_id") @db.Uuid
+  pipelineId     String            @map("pipeline_id") @db.Uuid
+  executionId    String            @map("execution_id") @db.Uuid
+  schemaVersion  Int               @default(1) @map("schema_version")
+  scanKind       ExecutionScanKind @map("scan_kind")
+  trust          ExecutionTrust
+  diffSource     String            @map("diff_source")
+  diffStatus     String            @map("diff_status")
+  changedTotal   Int               @default(0) @map("changed_total")
+  changeSummary  Json              @default("{}") @map("change_summary")
+  secretsRule    String            @map("secrets_rule")
+  /// [{ scanType, ruleIds[] }]
+  floor          Json
+  agentStatus    String            @map("agent_status")
+  agentProvider  String?           @map("agent_provider")
+  agentModel     String?           @map("agent_model")
+  /// [{ scanType, reason }]
+  agentAdditions Json              @default("[]") @map("agent_additions")
+  agentSummary   String?           @map("agent_summary")
+  agentUsage     Json?             @map("agent_usage")
+  /// The decided types in catalog order (= floor union additions).
+  finalTypes     Json              @map("final_types")
+  /// [{ scanType, reason }] for the enabled types that are not in `finalTypes`.
+  notSelected    Json              @default("[]") @map("not_selected")
+  decidedAt      DateTime          @default(now()) @map("decided_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
+
+  @@unique([tenantId, executionId])
+  @@map("scan_decisions")
+}
+
 /// One scan task of one execution (SPEC §7.4), created from the configuration snapshot. `attempt` (0-based, below
 /// `maxAttempts`) is the task fence: it grows on a retry and on a lease reclaim, and a result or attempt close for any other
 /// attempt is refused by the database (ER-30). Task machine: pending -> queued -> running -> terminal, running -> queued

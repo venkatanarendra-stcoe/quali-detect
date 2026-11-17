@@ -95,6 +95,7 @@ model Tenant {
   scanTasks           ScanTask[]
   scanTaskAttempts    ScanTaskAttempt[]
   scanResults         ScanResult[]
+  scanDecisions       ScanDecision[]
   scanResultItems     ScanResultItem[]
   executionLogs       ExecutionLog[]
   logCounters         ExecutionLogCounter[]

@@ -265,6 +265,7 @@ model Execution {
   retries     Execution[]           @relation("ExecutionRetry")
   tasks       ScanTask[]
   events      ExecutionEvent[]
+  decisions   ScanDecision[]
   logs        ExecutionLog[]
   logCounters ExecutionLogCounter[]
   artifacts   ExecutionArtifact[]

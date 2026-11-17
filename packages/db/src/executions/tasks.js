@@ -50,6 +50,20 @@ export function createScanTaskRepository({ db }) {
     return rows.length === 1;
   }
 
+  async function createTasks({ tenantId, executionId, leaseEpoch, tasks }, tx) {
+    await executions.fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
+    const exec = await tx.execution.findFirst({
+      where: { id: executionId, tenantId },
+      select: { workspaceId: true, repositoryId: true, pipelineId: true },
+    });
+    if (!exec) return { created: 0 };
+    const result = await tx.scanTask.createMany({
+      data: tasks.map((t) => ({ tenantId, ...exec, executionId, status: "pending", ...t })),
+      skipDuplicates: true,
+    });
+    return { created: result.count };
+  }
+
   return Object.freeze({
     /**
      * Creates the tasks of an execution once, from the snapshot (ER-11), `pending`. Fenced by the lease; replay-safe (unique
@@ -58,18 +72,36 @@ export function createScanTaskRepository({ db }) {
      * @param {{ tenantId: string, executionId: string, leaseEpoch: number, tasks: Array<{ scanType: string, ordinal: number, engineId: string, engineProfile: string, severityThreshold: string, timeoutSeconds: number, maxAttempts: number }> }} input
      * @param {any} tx The caller's TRANSACTION client.
      */
-    async createTasks({ tenantId, executionId, leaseEpoch, tasks }, tx) {
+    createTasks,
+
+    /**
+     * Creates the tasks of the DECIDED scan types only (docs/modules/scan-decisioning/SPEC.md FT-2, amends ER-11): one `pending` task
+     * per spec, where the specs must be EXACTLY the types in the final set of the execution's persisted decision (the record is read
+     * here, by tenant and execution, never taken from the caller). A spec for a type outside the decision, a decided type without a
+     * spec, or a missing decision throws and creates nothing. The `ordinal` of a spec is its catalog position (gaps are expected, no
+     * constraint assumes contiguous ordinals). Fenced by the lease; replay-safe like `createTasks`. Call inside the transaction that
+     * also inserts the decision and moves the execution to `running`.
+     * @param {{ tenantId: string, executionId: string, leaseEpoch: number, tasks: Array<{ scanType: string, ordinal: number, engineId: string, engineProfile: string, severityThreshold: string, timeoutSeconds: number, maxAttempts: number }> }} input
+     * @param {any} tx The caller's TRANSACTION client.
+     * @returns {Promise<{ created: number }>}
+     */
+    async createDecidedTasks({ tenantId, executionId, leaseEpoch, tasks }, tx) {
       await executions.fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
-      const exec = await tx.execution.findFirst({
-        where: { id: executionId, tenantId },
-        select: { workspaceId: true, repositoryId: true, pipelineId: true },
+      const decision = await tx.scanDecision.findFirst({
+        where: { tenantId, executionId },
+        select: { finalTypes: true },
       });
-      if (!exec) return { created: 0 };
-      const result = await tx.scanTask.createMany({
-        data: tasks.map((t) => ({ tenantId, ...exec, executionId, status: "pending", ...t })),
-        skipDuplicates: true,
-      });
-      return { created: result.count };
+      if (!decision || !Array.isArray(decision.finalTypes))
+        throw new Error("Tasks are created only after the scan decision is recorded.");
+      const decided = new Set(decision.finalTypes);
+      const wanted = new Set(tasks.map((t) => t.scanType));
+      if (
+        wanted.size !== tasks.length ||
+        wanted.size !== decided.size ||
+        [...wanted].some((type) => !decided.has(type))
+      )
+        throw new Error("The tasks must be exactly the scan types of the recorded decision.");
+      return createTasks({ tenantId, executionId, leaseEpoch, tasks }, tx);
     },
 
     /**

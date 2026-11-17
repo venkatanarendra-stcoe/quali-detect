@@ -45,7 +45,7 @@ const SUMMARY_MARKER = "summary-marker-5521";
 const PATCH_MARKER = "HUNK-SECRET-TEXT-4410";
 
 /** A scripted stand-in for the three vendors: records every request, answers like the vendor of the URL it was called on. */
-async function startLlm() {
+export async function startLlm() {
   const state = { requests: [], respond: () => ({ calls: [] }), allTurns: false };
   const server = http.createServer((req, res) => {
     const chunks = [];
@@ -138,13 +138,18 @@ const BASE_URL_VARIABLE = {
   anthropic: "LLM_ANTHROPIC_BASE_URL",
   openai: "LLM_OPENAI_BASE_URL",
 };
-const scan = (scanType, reason = "needed for this change") => ({
+export const scan = (scanType, reason = "needed for this change") => ({
   name: "request_scan",
   args: { scanType, reason },
 });
 
 /** The real runtime factory pointed at the stub. */
-function runtimeFor(w, provider, stub, { key = true, requestTimeoutSeconds = "5", logger } = {}) {
+export function runtimeFor(
+  w,
+  provider,
+  stub,
+  { key = true, requestTimeoutSeconds = "5", logger } = {},
+) {
   const env = {
     LLM_PROVIDER: provider,
     LLM_MODEL: "suite-model",

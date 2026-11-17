@@ -13,6 +13,7 @@ export const JOIN_PERMISSION = "execution.view";
 export const CLIENT_EVENTS = Object.freeze({ SUBSCRIBE: "subscribe", UNSUBSCRIBE: "unsubscribe" });
 export const SERVER_EVENTS = Object.freeze({
   EXECUTION_CHANGED: "execution.changed",
+  EXECUTION_DECISION: "execution.decision",
   TASK_CHANGED: "task.changed",
   LOG_APPENDED: "log.appended",
   SUBSCRIPTION_ENDED: "subscription.ended",

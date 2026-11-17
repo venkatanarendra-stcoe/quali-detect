@@ -1,3 +1,4 @@
+import { SCAN_TASK_ORDER } from "@qmentisai/shared";
 import { FAILED_TASK_STATUSES } from "../constants/index.js";
 
 /**
@@ -108,11 +109,98 @@ export const toTaskDto = (t) => {
   };
 };
 
+const countOf = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+const countRecord = (value) =>
+  Object.fromEntries(
+    Object.entries(value && typeof value === "object" ? value : {})
+      .filter(([, n]) => Number.isFinite(n))
+      .map(([key, n]) => [key, countOf(n)]),
+  );
+const textOrNull = (value) => (typeof value === "string" && value ? value : null);
+
+/**
+ * The scan decision of an execution (docs/modules/scan-decisioning/SPEC.md 8): what changed, what each scan type got (`required` by the
+ * deterministic floor with its stable rule ids, `added` by the assistant with its reason, `not_selected` with a stable reason code, or
+ * `not_enabled`), the assistant status with provider and model, and the time. A FIELD ALLOWLIST over the stored row: no tenant id, no
+ * workspace/repository/pipeline id, no record id, no schema version and no other internal column. The reason TEXTS of the required
+ * rules are not in the API (the UI maps the stable ids); the agent summary and reasons are model-written untrusted text (render as text).
+ * @param {any} d the stored decision (or null)
+ * @param {Array<{ id: string, scanType: string }>} tasks the tasks of the execution
+ */
+export const toDecisionDto = (d, tasks) => {
+  if (!d) return null;
+  const floor = new Map((d.floor ?? []).map((f) => [f.scanType, f.ruleIds ?? []]));
+  const added = new Map((d.agentAdditions ?? []).map((a) => [a.scanType, a.reason]));
+  const notSelected = new Map((d.notSelected ?? []).map((n) => [n.scanType, n.reason]));
+  const taskIds = new Map(tasks.map((t) => [t.scanType, t.id]));
+  const summary = d.changeSummary && typeof d.changeSummary === "object" ? d.changeSummary : {};
+  const usage = d.agentUsage && typeof d.agentUsage === "object" ? d.agentUsage : null;
+  return {
+    scanKind: d.scanKind,
+    diff: {
+      source: d.diffSource,
+      status: d.diffStatus,
+      changedTotal: d.changedTotal,
+      summary: {
+        byClass: countRecord(summary.byClass),
+        byStatus: countRecord(summary.byStatus),
+        additions: countOf(summary.additions),
+        deletions: countOf(summary.deletions),
+        samples: Object.fromEntries(
+          Object.entries(
+            summary.samples && typeof summary.samples === "object" ? summary.samples : {},
+          ).map(([key, paths]) => [
+            key,
+            Array.isArray(paths) ? paths.filter((x) => typeof x === "string") : [],
+          ]),
+        ),
+      },
+    },
+    secretsRule: d.secretsRule,
+    scanTypes: SCAN_TASK_ORDER.map((scanType) => {
+      const taskId = taskIds.get(scanType) ?? null;
+      if (floor.has(scanType))
+        return {
+          scanType,
+          state: "required",
+          ruleIds: [...floor.get(scanType)],
+          reason: null,
+          taskId,
+        };
+      if (added.has(scanType))
+        return { scanType, state: "added", ruleIds: [], reason: added.get(scanType), taskId };
+      if (notSelected.has(scanType))
+        return {
+          scanType,
+          state: "not_selected",
+          ruleIds: [],
+          reason: notSelected.get(scanType),
+          taskId,
+        };
+      return { scanType, state: "not_enabled", ruleIds: [], reason: null, taskId };
+    }),
+    agent: {
+      status: d.agentStatus,
+      provider: textOrNull(d.agentProvider),
+      model: textOrNull(d.agentModel),
+      summary: textOrNull(d.agentSummary),
+      usage: usage
+        ? {
+            inputTokens: countOf(usage.inputTokens),
+            outputTokens: countOf(usage.outputTokens),
+            latencyMs: countOf(usage.latencyMs),
+          }
+        : null,
+    },
+    decidedAt: iso(d.decidedAt),
+  };
+};
+
 /**
  * Detail DTO: the list row plus the snapshot summary (version and a SHORT hash, never the configuration body), the requester's
  * display name (manual and retry only), the deadline, the cancel state, the tasks, `resolutionEligible` and `rev`.
  * @param {any} e execution row (list and detail columns)
- * @param {{ pipelineName?: string | null, repositoryName?: string | null, requestedByName?: string | null, tasks: any[], resolutionEligible: boolean }} parts
+ * @param {{ pipelineName?: string | null, repositoryName?: string | null, requestedByName?: string | null, tasks: any[], resolutionEligible: boolean, decision?: any }} parts
  */
 export const toExecutionDetailDto = (e, parts) => {
   const tasks = parts.tasks.map(toTaskDto);
@@ -133,6 +221,7 @@ export const toExecutionDetailDto = (e, parts) => {
     cancelMode: e.cancelMode ?? null,
     tasks,
     resolutionEligible: parts.resolutionEligible,
+    decision: toDecisionDto(parts.decision ?? null, parts.tasks),
     rev: e.statusRev,
   };
 };

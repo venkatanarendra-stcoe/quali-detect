@@ -134,23 +134,31 @@ export function createExecutionReadService({ repository, logStore }) {
         id: ref.id,
       });
       if (!e) throw new NotFoundError();
-      const [tasks, enabledTypes, pipelineNames, repositoryNames, memberNames] = await Promise.all([
-        repository.findTasks({ tenantId: actor.tenantId, executionId: e.id }),
-        repository.findEnabledScanTypes({
-          tenantId: actor.tenantId,
-          pipelineId: e.pipelineId,
-          configVersionId: e.configVersionId,
-        }),
-        repository.findPipelineNames({ tenantId: actor.tenantId, pipelineIds: [e.pipelineId] }),
-        repository.findRepositoryNames({
-          tenantId: actor.tenantId,
-          repositoryIds: [e.repositoryId],
-        }),
-        repository.findMemberNames({
-          tenantId: actor.tenantId,
-          userIds: e.requestedByUserId ? [e.requestedByUserId] : [],
-        }),
-      ]);
+      const [tasks, decision, enabledTypes, pipelineNames, repositoryNames, memberNames] =
+        await Promise.all([
+          repository.findTasks({ tenantId: actor.tenantId, executionId: e.id }),
+          repository.findDecision({
+            tenantId: actor.tenantId,
+            workspaceId: e.workspaceId,
+            repositoryId: e.repositoryId,
+            pipelineId: e.pipelineId,
+            executionId: e.id,
+          }),
+          repository.findEnabledScanTypes({
+            tenantId: actor.tenantId,
+            pipelineId: e.pipelineId,
+            configVersionId: e.configVersionId,
+          }),
+          repository.findPipelineNames({ tenantId: actor.tenantId, pipelineIds: [e.pipelineId] }),
+          repository.findRepositoryNames({
+            tenantId: actor.tenantId,
+            repositoryIds: [e.repositoryId],
+          }),
+          repository.findMemberNames({
+            tenantId: actor.tenantId,
+            userIds: e.requestedByUserId ? [e.requestedByUserId] : [],
+          }),
+        ]);
       const enabled = SCAN_TASK_ORDER.filter((type) => enabledTypes.includes(type));
       const resolutionEligible = isResolutionEligible({
         status: e.status,
@@ -173,6 +181,7 @@ export function createExecutionReadService({ repository, logStore }) {
           : null,
         requestedByName: memberNames.get(e.requestedByUserId) ?? null,
         tasks,
+        decision,
         resolutionEligible,
       });
     },

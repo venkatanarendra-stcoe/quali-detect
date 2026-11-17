@@ -2,6 +2,7 @@ import {
   createExecutionCancellation,
   createExecutionReadRepository,
   createExecutionRepository,
+  createScanDecisionRepository,
 } from "@qmentisai/db";
 
 /** Columns of an execution the DTOs read. NEVER the lease, the archive, the idempotency key or the correlation id. */
@@ -49,6 +50,7 @@ export function createExecutionsRepository({ db }) {
   const cancellation = createExecutionCancellation({ db });
   const executions = createExecutionRepository({ db });
   const reads = createExecutionReadRepository({ db });
+  const decisions = createScanDecisionRepository({ db });
   return Object.freeze({
     transaction: (fn) => db.$transaction(fn),
 
@@ -178,6 +180,21 @@ export function createExecutionsRepository({ db }) {
         where: { tenantId, workspaceId, id },
         select: { ...EXECUTION_COLUMNS, ...DETAIL_COLUMNS },
       }),
+
+    /**
+     * The scan decision of an execution (docs/modules/scan-decisioning/SPEC.md 8), or null. Tenant, execution AND the whole parent chain
+     * (workspace, repository, pipeline) must match; the mapper picks the fields a DTO may carry.
+     */
+    findDecision: (
+      { tenantId, workspaceId, repositoryId, pipelineId, executionId },
+      client = db,
+    ) =>
+      workspaceId && repositoryId && pipelineId
+        ? decisions.findDecision(
+            { tenantId, executionId, workspaceId, repositoryId, pipelineId },
+            client,
+          )
+        : Promise.resolve(null),
 
     /** Pipeline names of a set of pipelines of this tenant (labels only). */
     async findPipelineNames({ tenantId, pipelineIds }, client = db) {

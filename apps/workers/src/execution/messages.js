@@ -51,6 +51,23 @@ export function createMessageProducer({ db }) {
           },
         }),
       ),
+    /** Hint for Socket.IO (SPEC scan-decisioning 8): the decision was recorded. Ids and the revision only, never model text. */
+    decisionCompleted: (tx, exec, rev, correlationId) =>
+      send(
+        tx,
+        QUEUE_NAMES.REALTIME,
+        createEventEnvelope({
+          ...base(exec, `execution-decision-${exec.id}`, correlationId),
+          type: "pipeline.execution.decision_completed",
+          subject: { type: "execution", id: exec.id },
+          payload: {
+            executionId: exec.id,
+            workspaceId: exec.workspaceId,
+            pipelineId: exec.pipelineId,
+            rev,
+          },
+        }),
+      ),
     started: (tx, exec, { startedAt, taskCount }, correlationId) =>
       send(
         tx,

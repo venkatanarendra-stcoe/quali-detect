@@ -326,7 +326,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, workspaceId, pipeline, repository, status, statusReason, triggerType, triggerKey, refType, refName, pullRequestNumber, commitSha, scanKind, scanKindReason, trust, requestedAt, startedAt, finishedAt, durationMs, taskSummary, cancelRequested, retryOfExecutionId, configVersion, configHash, requestedBy, baseRef, deadlineAt, cancelRequestedAt, cancelMode, tasks, resolutionEligible, rev }",
+        "dataShape": "{ id, workspaceId, pipeline, repository, status, statusReason, triggerType, triggerKey, refType, refName, pullRequestNumber, commitSha, scanKind, scanKindReason, trust, requestedAt, startedAt, finishedAt, durationMs, taskSummary, cancelRequested, retryOfExecutionId, configVersion, configHash, requestedBy, baseRef, deadlineAt, cancelRequestedAt, cancelMode, tasks, resolutionEligible, decision, rev }",
         "metaKeys": [
           "correlationId"
         ]

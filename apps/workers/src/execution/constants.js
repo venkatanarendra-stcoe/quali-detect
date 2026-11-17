@@ -11,6 +11,7 @@ export const AUDIT = Object.freeze({
   RECOVERED: "execution.recovered",
   LEASE_RECLAIMED: "execution.lease_reclaimed",
   WORKER_LOST: "execution.worker_lost",
+  DECISION_COMPLETED: "execution.decision_completed",
 });
 
 /** Audit action of a terminal status. */

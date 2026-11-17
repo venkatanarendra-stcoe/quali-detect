@@ -163,13 +163,24 @@ const taskSummary = z.object({
   failed: z.number(),
   running: z.number(),
 });
+/**
+ * A stable lower-case machine code (the UI maps it to text). `succeeded` carries exactly one: `no_applicable_scans` (the scan
+ * decision selected no scan; nothing started and the quota unit was given back). Every other status that ends a run carries its
+ * own reason (cancelled, failed, partial, timed_out, blocked, skipped); `queued`, `preparing` and `running` carry none.
+ */
+const statusReason = z
+  .string()
+  .nullable()
+  .describe(
+    "Stable machine code. A succeeded execution carries only no_applicable_scans (the scan decision selected no scan; the quota unit was given back).",
+  );
 const base = {
   id: z.string(),
   workspaceId: z.string(),
   pipeline: z.object({ id: z.string(), name: z.string().optional() }),
   repository: z.object({ id: z.string(), fullName: z.string() }).nullable(),
   status: z.string(),
-  statusReason: z.string().nullable(),
+  statusReason,
   triggerType: z.string(),
   triggerKey: z.string(),
   refType: z.string(),
@@ -207,6 +218,43 @@ const task = z.object({
     })
     .nullable(),
 });
+const decisionScanType = z.object({
+  scanType: z.string(),
+  state: z.enum(["required", "added", "not_selected", "not_enabled"]),
+  ruleIds: z.array(z.string()),
+  reason: z.string().nullable(),
+  taskId: z.string().nullable(),
+});
+/** The scan decision of an execution (docs/modules/scan-decisioning/SPEC.md 8); `null` for an execution without a record. */
+const decision = z
+  .object({
+    scanKind: z.string(),
+    diff: z.object({
+      source: z.string(),
+      status: z.string(),
+      changedTotal: z.number(),
+      summary: z.object({
+        byClass: z.record(z.number()),
+        byStatus: z.record(z.number()),
+        additions: z.number(),
+        deletions: z.number(),
+        samples: z.record(z.array(z.string())),
+      }),
+    }),
+    secretsRule: z.string(),
+    scanTypes: z.array(decisionScanType),
+    agent: z.object({
+      status: z.string(),
+      provider: z.string().nullable(),
+      model: z.string().nullable(),
+      summary: z.string().nullable(),
+      usage: z
+        .object({ inputTokens: z.number(), outputTokens: z.number(), latencyMs: z.number() })
+        .nullable(),
+    }),
+    decidedAt: z.string(),
+  })
+  .nullable();
 const detail = z.object({
   ...base,
   configVersion: z.number(),
@@ -218,6 +266,7 @@ const detail = z.object({
   cancelMode: z.string().nullable(),
   tasks: z.array(task),
   resolutionEligible: z.boolean(),
+  decision,
   rev: z.number(),
 });
 const event = z.object({

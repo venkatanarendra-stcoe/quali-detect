@@ -56,6 +56,7 @@ const RESOURCE_CHECKS = {
   "pipeline.execution.completed": executionInChain,
   "pipeline.execution.cancel_requested": executionInChain,
   "pipeline.execution.status_changed": executionInChain,
+  "pipeline.execution.decision_completed": executionInChain,
   "pipeline.execution.log_appended": executionInChain,
   "scan.task.requested": taskInChain,
   "scan.task.completed": taskInChain,

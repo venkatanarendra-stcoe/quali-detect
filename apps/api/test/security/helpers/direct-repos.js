@@ -12,6 +12,7 @@ import {
   createExecutionArtifactRepository,
   createExecutionLogRepository,
   createExecutionRepository,
+  createScanDecisionRepository,
   createScanTaskRepository,
   executionStepKey,
 } from "@qmentisai/db";
@@ -459,6 +460,32 @@ export async function buildDalWorld(db) {
     UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-worker',
       lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '1 hour' WHERE id = ${plRunning.id}::uuid`;
   await db.$executeRaw`UPDATE executions SET status = 'running' WHERE id = ${plRunning.id}::uuid`;
+  // scan decisioning (part E): a preparing execution that already has its (empty) decision and its marker event, so the reads of the
+  // decision functions have something to find for the owner
+  const plDecided = await db.execution.create({
+    data: executionData({ concurrencyGroup: "manual:decided" }),
+  });
+  await db.$executeRaw`
+    UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-worker',
+      lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '1 hour' WHERE id = ${plDecided.id}::uuid`;
+  await db.scanDecision.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: ws.id,
+      repositoryId: repo.id,
+      pipelineId: pl.id,
+      executionId: plDecided.id,
+      scanKind: "full",
+      trust: "trusted",
+      diffSource: "none",
+      diffStatus: "not_needed",
+      secretsRule: "any_change",
+      floor: [],
+      agentStatus: "not_configured",
+      finalTypes: [],
+      notSelected: [],
+    },
+  });
   // execution module fixtures (part B, DAL-224..): a queued request, and a preparing one whose short lease has expired by the
   // time the entries run (the world waits for it below), so reclaim calls with the wrong tenant are not vacuously refused
   const exQueued = await db.execution.create({
@@ -625,6 +652,7 @@ export async function buildDalWorld(db) {
     triggerId: plTrigger.id,
     executionId: plExecution.id,
     runningId: plRunning.id,
+    decidedId: plDecided.id,
     exQueuedId: exQueued.id,
     exExpiredId: exExpired.id,
     exRetryId: exRetry.id,
@@ -801,6 +829,7 @@ export async function buildDalWorld(db) {
     executionsApi: createExecutionsRepository({ db }),
     realtime: createRealtimeRepository({ db }),
     tasks: createScanTaskRepository({ db }),
+    decisions: createScanDecisionRepository({ db }),
     logs: createExecutionLogRepository({ db }),
     artifacts: createExecutionArtifactRepository({ db }),
     executionIdempotency: createExecutionIdempotency({ db }),
@@ -4711,6 +4740,241 @@ export function buildDalEntries() {
         c.db.$transaction((tx) =>
           LS(c).setExternalConsent({ tenantId: c.x, enabled: false, userId: c.uA }, tx),
         ),
+    },
+  );
+
+  // ----- scan decisions (docs/modules/scan-decisioning/SPEC.md 7.2, 7.3, part E): the record, its marker and the decided tasks are
+  // reached by the tenant AND the execution chain; every write is fenced by the lease. Tenant Y presents tenant X's execution.
+  const DC = (c) => c.repos.decisions;
+  const emptyDecision = {
+    diff: { source: "none", status: "not_needed", changedTotal: 0, summary: {} },
+    secretsRule: "any_change",
+    floor: [],
+    agent: {
+      status: "not_configured",
+      provider: null,
+      model: null,
+      additions: [],
+      summary: null,
+      usage: null,
+    },
+    finalTypes: [],
+    notSelected: [],
+  };
+  /** A scratch preparing execution of X that already has its (empty) decision. */
+  const withDecision = async (c) => {
+    const { e } = await scratch(c, "preparing");
+    await inTx(c, (tx) =>
+      DC(c).insertDecision(
+        { tenantId: c.x, executionId: e.id, leaseEpoch: 1, decision: emptyDecision },
+        tx,
+      ),
+    );
+    return e;
+  };
+  E(
+    "decisions.findDecision",
+    (c) => DC(c).findDecision({ tenantId: c.y, executionId: c.pl.runningId }),
+    {
+      control: async (c) => {
+        const e = await withDecision(c);
+        return DC(c).findDecision({ tenantId: c.x, executionId: e.id });
+      },
+    },
+  );
+  E(
+    "decisions.findDecision (wrong workspace of the chain)",
+    (c) =>
+      DC(c).findDecision({ tenantId: c.x, executionId: c.pl.decidedId, workspaceId: c.pl.wsB }),
+    {
+      control: async (c) => {
+        const e = await withDecision(c);
+        return DC(c).findDecision({
+          tenantId: c.x,
+          executionId: e.id,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+        });
+      },
+    },
+  );
+  E(
+    "decisions.hasDecisionStarted",
+    (c) => DC(c).hasDecisionStarted({ tenantId: c.y, executionId: c.pl.runningId }),
+    {
+      control: async (c) => {
+        const { e } = await scratch(c, "preparing");
+        await c.db.executionEvent.create({
+          data: {
+            tenantId: c.x,
+            workspaceId: e.workspaceId,
+            repositoryId: e.repositoryId,
+            pipelineId: e.pipelineId,
+            executionId: e.id,
+            type: "decision_started",
+            details: {},
+          },
+        });
+        return DC(c).hasDecisionStarted({ tenantId: c.x, executionId: e.id });
+      },
+    },
+  );
+  E(
+    "decisions.markDecisionStarted",
+    (c) =>
+      inTx(c, (tx) =>
+        DC(c).markDecisionStarted(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1 },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "preparing");
+        return inTx(c, (tx) =>
+          DC(c).markDecisionStarted({ tenantId: c.x, executionId: e.id, leaseEpoch: 1 }, tx),
+        );
+      },
+    },
+  );
+  E(
+    "decisions.insertDecision",
+    (c) =>
+      inTx(c, (tx) =>
+        DC(c).insertDecision(
+          {
+            tenantId: c.y,
+            executionId: c.pl.runningId,
+            leaseEpoch: 1,
+            decision: emptyDecision,
+          },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "preparing");
+        return inTx(c, (tx) =>
+          DC(c).insertDecision(
+            { tenantId: c.x, executionId: e.id, leaseEpoch: 1, decision: emptyDecision },
+            tx,
+          ),
+        );
+      },
+    },
+  );
+  E(
+    "decisions.recordDecisionCompleted",
+    (c) =>
+      inTx(c, (tx) =>
+        DC(c).recordDecisionCompleted(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, details: {} },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const { e } = await scratch(c, "preparing");
+        return inTx(c, (tx) =>
+          DC(c).recordDecisionCompleted(
+            { tenantId: c.x, executionId: e.id, leaseEpoch: 1, details: {} },
+            tx,
+          ),
+        );
+      },
+    },
+  );
+  E(
+    "decisions.finishZeroScan",
+    (c) =>
+      inTx(c, (tx) =>
+        DC(c).finishZeroScan({ tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1 }, tx),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const e = await withDecision(c);
+        return inTx(c, (tx) =>
+          DC(c).finishZeroScan({ tenantId: c.x, executionId: e.id, leaseEpoch: 1 }, tx),
+        );
+      },
+    },
+  );
+  E(
+    "tasks.createDecidedTasks",
+    (c) =>
+      inTx(c, (tx) =>
+        TK(c).createDecidedTasks(
+          { tenantId: c.y, executionId: c.pl.runningId, leaseEpoch: 1, tasks: [] },
+          tx,
+        ),
+      ),
+    {
+      mayThrow: true,
+      verify: fenceRefused,
+      control: async (c) => {
+        const e = await withDecision(c);
+        return inTx(c, (tx) =>
+          TK(c).createDecidedTasks(
+            { tenantId: c.x, executionId: e.id, leaseEpoch: 1, tasks: [] },
+            tx,
+          ),
+        );
+      },
+    },
+  );
+  E(
+    "executions-api.findDecision (wrong workspace of the chain)",
+    (c) =>
+      XA(c).findDecision({
+        tenantId: c.x,
+        workspaceId: c.pl.wsB,
+        repositoryId: c.repo.id,
+        pipelineId: c.pl.pipeline.id,
+        executionId: c.pl.decidedId,
+      }),
+    {
+      control: async (c) => {
+        const e = await withDecision(c);
+        return XA(c).findDecision({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+          executionId: e.id,
+        });
+      },
+    },
+  );
+  E(
+    "executions-api.findDecision",
+    (c) =>
+      XA(c).findDecision({
+        tenantId: c.y,
+        workspaceId: c.ws,
+        repositoryId: c.repo.id,
+        pipelineId: c.pl.pipeline.id,
+        executionId: c.pl.runningId,
+      }),
+    {
+      control: async (c) => {
+        const e = await withDecision(c);
+        return XA(c).findDecision({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+          executionId: e.id,
+        });
+      },
     },
   );
 

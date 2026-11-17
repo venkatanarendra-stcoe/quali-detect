@@ -144,6 +144,7 @@ export function createExecutionRetentionRepository({ db }) {
                 await tx.$executeRaw`DELETE FROM execution_task_log_counters WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM execution_log_counters WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM execution_artifacts WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
+                await tx.$executeRaw`DELETE FROM scan_decisions WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM scan_tasks WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM execution_events WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM executions WHERE tenant_id = ${scope.tenantId}::uuid AND id = ${scope.id}::uuid`;

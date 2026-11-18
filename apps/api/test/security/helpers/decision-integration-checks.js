@@ -30,6 +30,11 @@ const ok = (p, cond, msg) => {
 const json = (value) =>
   JSON.stringify(value, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 const docsOnly = [{ filename: "docs/readme.md", status: "modified", additions: 1, deletions: 0 }];
+const modifiedCode = [{ filename: "src/a.js", status: "modified", additions: 2, deletions: 1 }];
+const manifestAndCode = [
+  { filename: "package.json", status: "modified", additions: 1, deletions: 0 },
+  { filename: "src/a.js", status: "modified", additions: 2, deletions: 1 },
+];
 const removedCode = [{ filename: "src/a.js", status: "removed", additions: 0, deletions: 3 }];
 const types = (rows) => rows.map((r) => r.scanType).join();
 const dec = (db) => createScanDecisionRepository({ db });
@@ -823,6 +828,13 @@ export const DECISION_INTEGRATION_CHECKS = [
         payload.resolutionEligible === false && payload.tasks?.length === 0,
         "the completed event is eligible or lists tasks",
       );
+      ok(
+        p,
+        (await w.db.executionLog.findMany({ where: { executionId: x.execution.id } })).every(
+          (l) => !/registered engine/.test(l.message),
+        ),
+        "a zero-scan execution logged the unsupported-engine ending",
+      );
       ok(p, (await hintsOf(w, x.tree, x.execution)).length === 1, "not exactly one decision hint");
       const record = await decisionOf(w, x.execution);
       ok(
@@ -970,6 +982,428 @@ export const DECISION_INTEGRATION_CHECKS = [
         else p.push(`${label}: unexpected outcome`);
       }
       ok(p, cancelled + succeeded === 6, "control: every race ended in one of the two outcomes");
+      return p;
+    },
+  },
+  {
+    id: "DEC-S09c",
+    name: "all decided tasks unsupported (owner decision 2026-11-18): when the DECIDED set is not empty and no decided type has a registered engine (an incremental source change, the registry holds only the SBOM engine, the model adds sca) the execution ends failed with the reason tasks_unsupported in ONE transaction preparing -> failed, with the decision row, the decision_completed event, every decided task recorded unsupported (engine_not_registered) and visible in the history, task counts all unsupported, no scan message, no running transition, the quota unit given back exactly once, resolutionEligible false in the single completed message, one decision hint, and exactly one decision's model requests; a MIXED decided set (one registered engine among them) is the normal flow: it starts, its unsupported tasks are recorded and the quota unit is NOT given back",
+    async run(w) {
+      const p = [];
+      const model = await modelAdding(w, ["sca"]);
+      try {
+        const x = await incremental(w, "allUnsupported", { files: modifiedCode });
+        await w.setQuotaUsage(x.tree, 2);
+        const orch = w.orchestrator(
+          {},
+          { decisionRuntime: model.runtime, engines: w.sbomRegistry() },
+        );
+        const { row } = await runOnce(w, x.tree, x.execution, { orch });
+        ok(
+          p,
+          row.status === "failed" && row.statusReason === "tasks_unsupported",
+          `status ${row.status}/${row.statusReason}`,
+        );
+        const tasks = await w.taskRows(x.execution);
+        ok(p, types(tasks) === "sca,sast,secrets", `tasks ${types(tasks)}`);
+        ok(
+          p,
+          tasks.every(
+            (t) => t.status === "unsupported" && t.statusReason === "engine_not_registered",
+          ),
+          `task states ${tasks.map((t) => `${t.status}/${t.statusReason}`)}`,
+        );
+        ok(
+          p,
+          row.taskCounts?.total === 3 && row.taskCounts?.unsupported === 3,
+          `task counts ${json(row.taskCounts)}`,
+        );
+        ok(p, row.quotaReleasedAt !== null, "quota_released_at is not set");
+        ok(
+          p,
+          (await usedUnits(w, x.tree)) === 1,
+          `usage ${await usedUnits(w, x.tree)}, expected the unit given back once`,
+        );
+        ok(p, row.startedAt === null, "the execution entered running (started_at is set)");
+        const events = await w.events(x.execution);
+        ok(
+          p,
+          ONE_STATUS_EVENT(events, "preparing", "failed") === 1,
+          "not exactly one preparing -> failed event",
+        );
+        ok(
+          p,
+          ONE_STATUS_EVENT(events, "preparing", "running") === 0 &&
+            ONE_STATUS_EVENT(events, "running", "failed") === 0,
+          "the execution went through running",
+        );
+        ok(
+          p,
+          events.filter((ev) => ev.type === "task_unsupported").length === 3,
+          "the history does not show the three unsupported tasks",
+        );
+        ok(
+          p,
+          (await eventTypes(w, x.execution, "decision_completed")) === 1,
+          "not exactly one decision_completed event",
+        );
+        const record = await decisionOf(w, x.execution);
+        ok(
+          p,
+          record?.finalTypes.join() === "sca,sast,secrets",
+          `record ${json(record?.finalTypes)}`,
+        );
+        ok(
+          p,
+          (await w.outbox(x.tree, { type: "scan.task.requested" })).filter(
+            (m) => m.payload.executionId === x.execution.id,
+          ).length === 0,
+          "a scan message was queued",
+        );
+        const completed = await w.completed(x.tree, x.execution);
+        ok(p, completed.length === 1, `${completed.length} completed messages`);
+        const payload = completed[0]?.payload?.payload ?? {};
+        ok(
+          p,
+          payload.status === "failed" && payload.statusReason === "tasks_unsupported",
+          `completed ${payload.status}/${payload.statusReason}`,
+        );
+        ok(p, payload.resolutionEligible === false, "the completed event is resolution-eligible");
+        ok(
+          p,
+          payload.tasks?.length === 3 && payload.tasks.every((t) => t.status === "unsupported"),
+          "the completed event does not list the three unsupported tasks",
+        );
+        ok(
+          p,
+          (await hintsOf(w, x.tree, x.execution)).length === 1,
+          "not exactly one decision hint",
+        );
+        const audits = await w.audit(x.tree, {
+          targetId: x.execution.id,
+          action: "execution.failed",
+        });
+        ok(
+          p,
+          audits.length === 1 && audits[0].metadata?.quotaReleased === true,
+          `${audits.length} failed audit entries`,
+        );
+        ok(
+          p,
+          model.calls() === 2,
+          `the model saw ${model.calls()} requests, expected one decision (2)`,
+        );
+        const statusHints = (
+          await w.outbox(x.tree, { type: "pipeline.execution.status_changed" })
+        ).filter((m) => m.payload.executionId === x.execution.id);
+        ok(
+          p,
+          statusHints.map((m) => m.payload.payload.status).join() === "preparing,failed" ||
+            statusHints.map((m) => m.payload.payload.status).join() === "failed",
+          `status hints ${statusHints.map((m) => m.payload.payload.status)}`,
+        );
+        ok(
+          p,
+          !(await w.store.size({
+            tenantId: x.tree.tenant.id,
+            executionId: x.execution.id,
+            name: "source.tar.gz",
+          })),
+          "the source archive was kept after the execution ended",
+        );
+        const lines = (
+          await w.db.executionLog.findMany({ where: { executionId: x.execution.id } })
+        ).map((l) => l.message);
+        ok(
+          p,
+          lines.some((l) => /no decided scan type has a registered engine/.test(l)) &&
+            lines.filter((l) => /no engine is registered, the task is recorded unsupported/.test(l))
+              .length === 3,
+          `execution log ${json(lines)}`,
+        );
+        // control: the full run of the same pipeline (every type enabled and decided, registry of SBOM only) is NOT the new case
+        // when a decided type has an engine: sbom decided -> normal flow (mixed)
+        const m = await incremental(w, "mixedDecided", { files: manifestAndCode });
+        await w.setQuotaUsage(m.tree, 2);
+        const mixedOrch = w.orchestrator({}, { engines: w.sbomRegistry() });
+        await mixedOrch.claimAndStart({ tenantId: m.tree.tenant.id, executionId: m.execution.id });
+        const mixed = await w.row(m.execution);
+        ok(p, mixed.status === "running", `mixed status ${mixed.status}`);
+        ok(p, mixed.quotaReleasedAt === null, "mixed: the quota unit was given back");
+        ok(p, (await usedUnits(w, m.tree)) === 2, `mixed: usage ${await usedUnits(w, m.tree)}`);
+        const mixedTasks = await w.taskRows(m.execution);
+        ok(
+          p,
+          mixedTasks.filter((t) => t.status === "unsupported").length === 3 &&
+            mixedTasks.filter((t) => t.scanType === "sbom" && t.status !== "unsupported").length ===
+              1,
+          `mixed tasks ${mixedTasks.map((t) => `${t.scanType}/${t.status}`)}`,
+        );
+      } finally {
+        await model.close();
+      }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S09d",
+    name: "all decided tasks unsupported, exactly once under races and no second decision: eight parallel reclaimers of an execution whose holder died AFTER the decision was recorded (the record names only unsupported types) reuse the record (ZERO model requests, no diff request) and end failed / tasks_unsupported with the unit given back EXACTLY once (one completed message, one record, three unsupported tasks, one terminal transition); a cancel request racing the same run at several moments ends cancelled or failed with the unit given back exactly once either way",
+    async run(w) {
+      const p = [];
+      const model = await modelAdding(w, ["sca"]);
+      try {
+        const r = await incremental(w, "unsupRace", { files: modifiedCode });
+        await w.setQuotaUsage(r.tree, 2);
+        await claimAndDie(w, r.tree, r.execution);
+        await w.db.$transaction((tx) =>
+          dec(w.db).insertDecision(
+            {
+              tenantId: r.tree.tenant.id,
+              executionId: r.execution.id,
+              leaseEpoch: 1,
+              decision: decisionFor({ floor: ["sast", "secrets"] }),
+            },
+            tx,
+          ),
+        );
+        const diffBefore = await changeCalls(w, r.tree.fullName);
+        const before = model.calls();
+        await sleep(1300);
+        const orchs = Array.from({ length: 8 }, () =>
+          w.orchestrator({}, { decisionRuntime: model.runtime, engines: w.sbomRegistry() }),
+        );
+        await Promise.all(
+          orchs.map((o) =>
+            o.reclaimOne({ tenantId: r.tree.tenant.id, id: r.execution.id, leaseEpoch: 1 }),
+          ),
+        );
+        const row = await w.row(r.execution);
+        ok(
+          p,
+          row.status === "failed" && row.statusReason === "tasks_unsupported",
+          `reclaim race ended ${row.status}/${row.statusReason}`,
+        );
+        ok(
+          p,
+          (await usedUnits(w, r.tree)) === 1,
+          `reclaim race: usage ${await usedUnits(w, r.tree)}`,
+        );
+        ok(
+          p,
+          (await w.completed(r.tree, r.execution)).length === 1,
+          "reclaim race: not one completed message",
+        );
+        ok(
+          p,
+          (await w.db.scanDecision.count({ where: { executionId: r.execution.id } })) === 1,
+          "reclaim race: not one record",
+        );
+        const tasks = await w.taskRows(r.execution);
+        ok(
+          p,
+          types(tasks) === "sast,secrets" && tasks.every((t) => t.status === "unsupported"),
+          `reclaim race: tasks ${tasks.map((t) => `${t.scanType}/${t.status}`)}`,
+        );
+        ok(
+          p,
+          model.calls() === before,
+          `reclaim called the model ${model.calls() - before} time(s)`,
+        );
+        ok(
+          p,
+          (await changeCalls(w, r.tree.fullName)) === diffBefore,
+          "reclaim with a record asked GitHub for the diff again",
+        );
+        ok(
+          p,
+          ONE_STATUS_EVENT(await w.events(r.execution), "preparing", "failed") === 1,
+          "reclaim race: not one preparing -> failed transition",
+        );
+        // a cancel racing the run
+        let cancelled = 0;
+        let failed = 0;
+        for (const delay of [0, 15, 40, 90, 200, 400]) {
+          const c = await incremental(w, `unsupCancel${delay}`, { files: modifiedCode });
+          await w.setQuotaUsage(c.tree, 2);
+          const orch = w.orchestrator({}, { engines: w.sbomRegistry() });
+          const run = orch.claimAndStart({
+            tenantId: c.tree.tenant.id,
+            executionId: c.execution.id,
+          });
+          await sleep(delay);
+          await createExecutionCancellation({ db: w.db }).requestCancel({
+            tenantId: c.tree.tenant.id,
+            executionId: c.execution.id,
+            userId: c.tree.user.id,
+            mode: "immediate",
+            graceSeconds: 0,
+          });
+          await run;
+          await w.pump(c.tree, { orch });
+          const end = await w.row(c.execution);
+          const label = `cancel after ${delay} ms ended ${end.status}/${end.statusReason}`;
+          ok(
+            p,
+            (await usedUnits(w, c.tree)) === 1,
+            `${label}: usage ${await usedUnits(w, c.tree)}`,
+          );
+          ok(p, end.quotaReleasedAt !== null, `${label}: quota_released_at unset`);
+          ok(
+            p,
+            (await w.completed(c.tree, c.execution)).length === 1,
+            `${label}: not one completed message`,
+          );
+          if (end.status === "cancelled") {
+            cancelled += 1;
+            ok(
+              p,
+              !(await decisionOf(w, c.execution)),
+              `${label}: a cancelled execution kept a record`,
+            );
+          } else if (end.status === "failed" && end.statusReason === "tasks_unsupported")
+            failed += 1;
+          else p.push(`${label}: unexpected outcome`);
+        }
+        ok(p, cancelled + failed === 6, "control: every race ended in one of the two outcomes");
+      } finally {
+        await model.close();
+      }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S09e",
+    name: "all decided tasks unsupported, atomicity: the decision row, the decision_completed event, the unsupported tasks, the preparing -> failed transition, the quota release and their audit entry and outbox messages are ONE unit: a failure injected at each step leaves NONE of them behind (no record, no event, no task, no completed or hint message, no tasks_unsupported ending, no quota release)",
+    async run(w) {
+      const p = [];
+      const sqlOf = (strings) => String(strings?.join?.("?"));
+      const steps = {
+        "decision insert": (m, a, t) => t === "scanDecision" && m === "create",
+        "decision event": (m, a, t) =>
+          t === "executionEvent" && m === "create" && a[0]?.data?.type === "decision_completed",
+        "task creation": (m, a, t) => t === "scanTask" && m === "createMany",
+        "unsupported marking": (m, a, t, s) =>
+          t === "$queryRaw" && sqlOf(s).includes("SET status = 'unsupported'"),
+        "transition to failed": (m, a, t, s, v) =>
+          t === "$queryRaw" && sqlOf(s).includes("UPDATE executions") && v?.includes("failed"),
+        "quota release": (m, a, t, s) =>
+          t === "$executeRaw" && sqlOf(s).includes("UPDATE tenant_quota_usage"),
+        "audit entry": (m, a, t) =>
+          t === "auditLog" && m === "create" && a[0]?.data?.action === "execution.failed",
+        "completed message": (m, a, t) =>
+          t === "outboxMessage" &&
+          m === "upsert" &&
+          a[0]?.create?.type === "pipeline.execution.completed",
+      };
+      for (const [label, fails] of Object.entries(steps)) {
+        const x = await incremental(w, `unsupAtomic${label.replaceAll(" ", "")}`, {
+          files: modifiedCode,
+        });
+        await w.setQuotaUsage(x.tree, 2);
+        let armed = false;
+        let firedHere = false;
+        const fire = () => {
+          firedHere = true;
+          armed = false;
+          throw new Error(`injected failure at ${label}`);
+        };
+        const wrapTx = (tx) =>
+          new Proxy(tx, {
+            get(target, prop) {
+              const value = target[prop];
+              if (prop === "$queryRaw" || prop === "$executeRaw")
+                return (strings, ...values) => {
+                  if (armed && fails("", [], prop, strings, values)) fire();
+                  return value.call(target, strings, ...values);
+                };
+              if (value && typeof value === "object" && !Array.isArray(value))
+                return new Proxy(value, {
+                  get(model, method) {
+                    const fn = model[method];
+                    if (typeof fn !== "function") return fn;
+                    return (...args) => {
+                      if (armed && fails(method, args, String(prop))) fire();
+                      return fn.apply(model, args);
+                    };
+                  },
+                });
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
+        const proxied = new Proxy(w.db, {
+          get(target, prop) {
+            if (prop === "$transaction")
+              return (fn, options) => target.$transaction((tx) => fn(wrapTx(tx)), options);
+            const value = target[prop];
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const github = {
+          openSourceSession: (...args) => w.github.openSourceSession(...args),
+          listChangedFiles: async (...args) => {
+            const answer = await w.github.listChangedFiles(...args);
+            armed = true;
+            return answer;
+          },
+        };
+        const orch = w.orchestrator({}, { db: proxied, github, engines: w.sbomRegistry() });
+        await orch.claimAndStart({ tenantId: x.tree.tenant.id, executionId: x.execution.id });
+        const e = x.execution;
+        const row = await w.row(e);
+        ok(p, firedHere, `${label}: control: the injected failure never fired`);
+        ok(p, !(await decisionOf(w, e)), `${label}: a decision row survived`);
+        ok(
+          p,
+          (await eventTypes(w, e, "decision_completed")) === 0,
+          `${label}: a decision_completed event survived`,
+        );
+        ok(p, (await w.taskRows(e)).length === 0, `${label}: tasks survived`);
+        // the unit was consumed and the failed unit rolled back its own release: nothing was given back (internal errors keep it)
+        ok(
+          p,
+          (await usedUnits(w, x.tree)) === 2 && row.quotaReleasedAt === null,
+          `${label}: a quota release survived (usage ${await usedUnits(w, x.tree)})`,
+        );
+        ok(
+          p,
+          (await eventTypes(w, e, "task_unsupported")) === 0,
+          `${label}: task_unsupported events survived`,
+        );
+        ok(
+          p,
+          row.statusReason !== "tasks_unsupported",
+          `${label}: the tasks_unsupported ending survived`,
+        );
+        ok(p, (await hintsOf(w, x.tree, e)).length === 0, `${label}: a decision hint survived`);
+        ok(
+          p,
+          (await w.completed(x.tree, e)).every(
+            (m) => m.payload.payload?.statusReason !== "tasks_unsupported",
+          ),
+          `${label}: a tasks_unsupported completed message survived`,
+        );
+        ok(
+          p,
+          (await w.audit(x.tree, { targetId: e.id, action: "execution.decision_completed" }))
+            .length === 0,
+          `${label}: a decision audit entry survived`,
+        );
+      }
+      // control: a healthy run writes all of them
+      const good = await incremental(w, "unsupAtomicOk", { files: modifiedCode });
+      await w.setQuotaUsage(good.tree, 2);
+      await runOnce(w, good.tree, good.execution, {
+        orch: w.orchestrator({}, { engines: w.sbomRegistry() }),
+      });
+      const gr = await w.row(good.execution);
+      ok(
+        p,
+        gr.status === "failed" &&
+          gr.statusReason === "tasks_unsupported" &&
+          (await decisionOf(w, good.execution)) &&
+          (await usedUnits(w, good.tree)) === 1,
+        "control: a healthy run did not write the whole unit",
+      );
       return p;
     },
   },

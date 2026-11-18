@@ -727,12 +727,28 @@ export function createOrchestrator({
     }
     const decided = new Set(decision.finalTypes);
     const decidedSpecs = specs.filter((spec) => decided.has(spec.scanType));
+    // Owner decision 2026-11-18 (scan-decisioning 17.g): the decided set is not empty but no decided type has a registered engine, so
+    // nothing real can run: the execution ends `failed` / `tasks_unsupported` from `preparing`, with the quota unit given back.
+    const allUnsupported =
+      decidedSpecs.length > 0 &&
+      decidedSpecs.every((spec) => !engines.has(spec.scanType, spec.engineId));
     // log lines are written while the execution is still preparing (a terminal execution accepts none)
     await execLog(row, epoch, "platform", [decisionLine(decision, types)]);
     if (decision.zeroScan)
       await execLog(row, epoch, "platform", [
         "no scan is applicable to this change: the execution will succeed without running a scan",
       ]);
+    if (allUnsupported)
+      await execLog(
+        row,
+        epoch,
+        "platform",
+        [
+          ...unsupportedLines(decidedSpecs),
+          "no decided scan type has a registered engine: the execution fails without running a scan",
+        ],
+        "warn",
+      );
     const outcome = await withTransaction(db, async (tx) => {
       await repo.fenceExecution({ tenantId, executionId: row.id, leaseEpoch: epoch }, tx);
       // the fence holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
@@ -832,6 +848,75 @@ export function createOrchestrator({
         tx,
       );
       await markUnsupportedInTransaction(tx, row, epoch, decidedSpecs);
+      if (allUnsupported) {
+        // Owner decision 2026-11-18: preparing -> failed (tasks_unsupported) with the quota release in the same statement. The edge
+        // and its release exist already (SPEC executions 5.9); the tasks are recorded `unsupported`, never started.
+        const tasks = await tasksRepo.listTasks({ tenantId, executionId: row.id }, tx);
+        const counts = taskCountsOf(tasks);
+        const failed = await repo.transitionExecution(
+          {
+            tenantId,
+            executionId: row.id,
+            from: "preparing",
+            to: "failed",
+            reason: "tasks_unsupported",
+            leaseEpoch: epoch,
+            releaseQuota: true,
+            taskCounts: counts,
+            actor: { type: "system" },
+            correlationId: row.correlationId ?? undefined,
+            eventDetails: {
+              epoch,
+              step: "preparing",
+              decision: "fail",
+              code: "decided_tasks_unsupported",
+            },
+          },
+          tx,
+        );
+        if (!failed.transitioned)
+          throw new LeaseLostError({ executionId: row.id, leaseEpoch: epoch });
+        const final = await repo.findExecution({ tenantId, executionId: row.id }, tx);
+        await audit(tx, row, AUDIT_BY_STATUS.failed, {
+          from: "preparing",
+          to: "failed",
+          reason: "tasks_unsupported",
+          quotaReleased: failed.quotaReleased,
+          epoch,
+          taskCounts: counts,
+          step: "preparing",
+          decision: "fail",
+          code: "decided_tasks_unsupported",
+        });
+        await producer.completed(
+          tx,
+          row,
+          completedPayload(final, {
+            status: "failed",
+            reason: "tasks_unsupported",
+            resolutionEligible: false,
+            tasks: tasks.map((t) => ({
+              taskId: t.id,
+              scanType: t.scanType,
+              status: t.status,
+              resultId: null,
+              itemCount: 0,
+              completeness: null,
+            })),
+          }),
+          row.correlationId,
+        );
+        await producer.statusChanged(
+          tx,
+          row,
+          "failed",
+          failed.execution.statusRev,
+          row.correlationId,
+        );
+        if (!decision.reused)
+          await producer.decisionCompleted(tx, row, failed.execution.statusRev, row.correlationId);
+        return "failed";
+      }
       const done = await repo.transitionExecution(
         {
           tenantId,
@@ -865,7 +950,7 @@ export function createOrchestrator({
       await dispatchInTransaction(tx, { ...row, ...fresh }, epoch, ex.taskParallelism);
       return "running";
     });
-    if (outcome === "succeeded") {
+    if (outcome === "succeeded" || outcome === "failed") {
       forget(row.id);
       await store.deleteExecution({ tenantId, executionId: row.id }).catch(() => {});
       return outcome;

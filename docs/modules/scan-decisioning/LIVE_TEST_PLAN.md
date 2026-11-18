@@ -17,7 +17,7 @@ One push therefore creates two executions (one per pipeline), which is the inten
 
 **Baseline run (do once).** Create the branch from `main` and push it: `git switch -c dec-test && git push -u origin dec-test`. A new branch is a `full` scan (reason `branch_created`; the pipelines' first request is `first_run`). Expect on T-29 "Full scan: every enabled scan type was selected." and `scan_decisions.diff_source = 'none'`. Every later push to `dec-test` is `incremental` (reason `push`) as long as the configuration is untouched. A force push or a tag is `full` again; do not use them except in LT-15.
 
-**What runs.** Only the SBOM engine ships. A selected SCA, SAST or Secrets scan becomes an `unsupported` task (reason `engine_not_registered`); that is expected and makes an execution with SBOM + another selected type end `partial`, SBOM alone `succeeded`. A scan type that is **not selected** never has a task and never makes the run partial.
+**What runs.** Only the SBOM engine ships. A selected SCA, SAST or Secrets scan becomes an `unsupported` task (reason `engine_not_registered`); that is expected and makes an execution with SBOM + another selected type end `partial`, SBOM alone `succeeded`. When the DECIDED set contains **no** type with an engine (for example only SAST, or SAST + Secrets), nothing real ran: the execution ends `failed` / `tasks_unsupported` straight from `preparing`, the decided tasks all `unsupported`, `quota_released_at` set (the unit is given back once), `resolutionEligible` false (owner decision 2026-11-18, executions SPEC 17.ab amendment 3a; case LT-17). A scan type that is **not selected** never has a task and never makes the run partial.
 
 **Reading the result.** `$DB` is a psql connection to the dev database. The URL is in `apps/api/.env` as `DATABASE_URL`; export it without printing it:
 
@@ -77,15 +77,15 @@ Environment: `LLM_PROVIDER=none` in both `apps/api/.env` and `apps/workers/.env`
 ### LT-02 source only
 
 - **Action.** Edit a `.js`/`.py` source file only (no manifest), commit, push.
-- **Expected `dec-nosec`.** floor `sast` (FL-2); final `sast`; not selected `sbom`, `sca`; one task, `sast`, `unsupported` (no SAST engine ships). An unsupported task fails nothing, so the expected ending is `succeeded`; record what is actually observed, since an execution whose only task is unsupported is an edge of the outcome table (SPEC executions 17.ab).
-- **Expected `dec-all`.** floor `sast, secrets`; final `sast, secrets`; not selected `sbom, sca`.
+- **Expected `dec-nosec`.** floor `sast` (FL-2); final `sast`; not selected `sbom`, `sca`; one task, `sast`, `unsupported` (no SAST engine ships). The decided set has no type with an engine, so the expected ending is `failed` / `tasks_unsupported` (owner decision 2026-11-18): task counts `{total 1, unsupported 1}`, `quota_released_at` set, no `running` transition (events `decision_started`, `decision_completed`, `task_unsupported`, `transition preparing->failed`), one `completed` message with `resolutionEligible` false (see LT-17).
+- **Expected `dec-all`.** floor `sast, secrets`; final `sast, secrets`; not selected `sbom, sca`; both tasks `unsupported`, so also `failed` / `tasks_unsupported` with the quota unit given back (no engine for either type).
 - **T-29.** "1 file changed (1 source file)"; SBOM and SCA `Not selected`.
 
 ### LT-03 docs only
 
 - **Action.** Edit `README.md` only, commit, push.
 - **Expected `dec-nosec`.** FL-3 applies to a type that is not enabled, so it adds nothing: the floor is EMPTY. Final `[]`, status `succeeded`, `status_reason = no_applicable_scans`, no task, `quota_released_at` set (this is the zero-scan case, see LT-08). With provider none no model is asked.
-- **Expected `dec-all`.** floor `secrets` (FL-3); final `secrets`; task `secrets` `unsupported`; `succeeded`; not selected `sbom, sca, sast`.
+- **Expected `dec-all`.** floor `secrets` (FL-3); final `secrets`; task `secrets` `unsupported`; the only decided type has no engine, so `failed` / `tasks_unsupported` with the quota unit given back (`succeeded` was the earlier, superseded expectation); not selected `sbom, sca, sast`.
 - **T-29.** `dec-all`: "1 file changed (1 documentation file). 1 of 4 enabled scan types were selected."
 
 ### LT-04 mixed change
@@ -123,6 +123,18 @@ psql "$DB" -c "SELECT seq, type, from_status, to_status, reason FROM execution_e
 ```
 
 Expected: `succeeded`, `no_applicable_scans`, `task_counts.total = 0`, `quota_released_at` not null, zero tasks, events `decision_started`, `decision_completed`, `transition preparing->running`, `transition running->succeeded` (two transitions, one lease epoch). In the UI the monthly scan usage shows the unit given back (compare the usage page before and after).
+
+### LT-17 decided types all unsupported (failed, quota refunded)
+
+Covered by LT-02 (both pipelines) and LT-03 (`dec-all`). Verify precisely once, on the `dec-nosec` run of LT-02 (`:E`):
+
+```sh
+psql "$DB" -c "SELECT id, status, status_reason, task_counts, quota_consumed, quota_released_at, started_at, finished_at FROM executions WHERE id = ':E';"
+psql "$DB" -c "SELECT scan_type, status, status_reason FROM scan_tasks WHERE execution_id = ':E' ORDER BY ordinal;"
+psql "$DB" -c "SELECT seq, type, from_status, to_status, reason FROM execution_events WHERE execution_id = ':E' ORDER BY seq;"
+```
+
+Expected: `failed`, `tasks_unsupported`, `task_counts` all in `unsupported` (here `total 1, unsupported 1`), `quota_released_at` not null, `started_at` null (the execution never ran), one task `sast` `unsupported` / `engine_not_registered`, events `decision_started`, `decision_completed`, `task_unsupported`, `transition preparing->failed` (no `running` transition), the monthly usage back by one. Control (the mixed case, no refund): LT-01 on `dec-nosec` ends `partial` / `tasks_unsupported` with `quota_released_at` null.
 
 ### LT-09 no provider on a pipeline run (control)
 

@@ -176,45 +176,61 @@ For these two cases run the pipeline worker alone in its own terminal so that th
 
 ```js
 import http from "node:http";
+import fs from "node:fs";
+// Delaying, LOGGING proxy in front of Ollama. Writes one line when a request ARRIVES (in flight) and one when the upstream
+// answers, so an abandoned request is visible even if the worker died. Request shape only: no prompt, no file names.
+const LOG = `${process.env.HOME}/ollama-proxy-11999.log`;
+let n = 0;
 http
   .createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
-    req.on("end", () =>
+    req.on("end", () => {
+      const id = ++n;
+      const t0 = Date.now();
+      fs.appendFileSync(LOG, JSON.stringify({ id, event: "arrive", at: new Date().toISOString(), path: req.url }) + "\n");
       setTimeout(() => {
         const up = http.request(
           { host: "127.0.0.1", port: 11434, path: req.url, method: req.method, headers: req.headers },
           (r) => {
+            fs.appendFileSync(LOG, JSON.stringify({ id, event: "answered", ms: Date.now() - t0, status: r.statusCode }) + "\n");
             res.writeHead(r.statusCode, r.headers);
             r.pipe(res);
           },
         );
         up.end(Buffer.concat(chunks));
-      }, 12000),
-    );
+      }, 15000);
+    });
   })
   .listen(11999, "127.0.0.1");
 ```
 
-Also set `EXECUTION_LEASE_TTL_SECONDS=20`, `EXECUTION_HEARTBEAT_SECONDS=5` and `SCAN_DECISION_AGENT_TIMEOUT_SECONDS=15` in the pipeline worker environment so the lease expires quickly (the agent timeout must stay below the lease TTL).
+Also set `EXECUTION_LEASE_TTL_SECONDS=40`, `EXECUTION_HEARTBEAT_SECONDS=8`, `SCAN_DECISION_AGENT_TIMEOUT_SECONDS=30` and `LLM_REQUEST_TIMEOUT_SECONDS=30` (as run on 2026-11-18; the 15 s proxy delay plus a 5 s model answer fits the 30 s agent budget) in the pipeline worker environment so the lease expires quickly (the agent timeout must stay below the lease TTL).
 
 ### LT-13 reclaim: kill -9 during the decision
 
-- **Action.** Start a watcher in a terminal, then push LT-01 content:
+Two variants. **Variant 1 (kill at `decision_started`, before any model request)** and **variant 2 (kill with a model request in flight)**. Run 2026-11-18: variant 1 passed (two executions, one `recovered` event each, `agent_status = interrupted`, zero proxy requests, because `decision_started` is written BEFORE the GitHub diff fetch and the model call, so a watcher keyed on `decision_started` kills before any request exists). Variant 2 is the one that shows an abandoned in-flight request.
+
+- **Setup.** The logging slow proxy above (its log has an `arrive` line when a request comes in and an `answered` line when Ollama replies, so an abandoned request is visible), the pipeline worker alone in its terminal with the section 5 overrides.
+- **Action (variant 2).** Start the watcher in a second terminal, then push LT-01 content. The watcher kills the worker (`kill -9`, only the non-`--watch` node process of `src/pipeline/main.js`) as soon as an execution has `decision_started` and no decision row AND the proxy log has a new `arrive` line, i.e. a model request is in flight:
+
+  Run this loop in a second terminal before the push; it prints `killed with <execution id>`:
 
 ```sh
-# kills the pipeline worker the moment decision_started exists and the decision is not yet recorded
+. /tmp/pgenv.sh; LOG=$HOME/ollama-proxy-11999.log
+base=$(grep -c '"event":"arrive"' "$LOG" || echo 0)
 while true; do
-  r=$(psql "$DB" -Atc "SELECT e.id FROM execution_events v JOIN executions e ON e.id = v.execution_id WHERE v.type = 'decision_started' AND e.status = 'preparing' AND NOT EXISTS (SELECT 1 FROM scan_decisions d WHERE d.execution_id = e.id) ORDER BY v.at DESC LIMIT 1")
-  if [ -n "$r" ]; then pkill -9 -f 'src/pipeline/main.js'; echo "killed with $r"; break; fi
+  r=$(psql -Atc "SELECT e.id FROM execution_events v JOIN executions e ON e.id = v.execution_id WHERE v.type = 'decision_started' AND e.status = 'preparing' AND NOT EXISTS (SELECT 1 FROM scan_decisions d WHERE d.execution_id = e.id) ORDER BY v.at DESC LIMIT 1")
+  now=$(grep -c '"event":"arrive"' "$LOG" || echo 0)
+  if [ -n "$r" ] && [ "$now" -gt "$base" ]; then sleep 1; kill -9 $(ps -eo pid,args | awk '/[n]ode .*src\/pipeline\/main.js/ && !/--watch/ {print $1}'); echo "killed with $r"; break; fi
   sleep 0.1
 done
 ```
 
-  Then start the pipeline worker again (`pnpm --filter @qmentisai/workers start:pipeline`) and wait for the lease to expire (about 20 s plus a sweep tick of up to 15 s).
-- **Expected.** The execution is reclaimed (`lease_epoch` 2, event `reclaimed`), a `scan_decisions` row appears with `agent_status = interrupted`, `agent_provider` null, `agent_additions = []`, `final_types` = the floor recomputed from a fresh diff; tasks equal the floor; the run completes. **The model is not called a second time**: the slow proxy log shows exactly one request for this execution (the one that was in flight when the worker died), none after the restart.
-- **Verify.** `execution_events` shows ONE `decision_started` and one `decision_completed`; `scan_decisions` has one row for the execution; the proxy request count.
-- **T-29.** The assistant block says the analysis was interrupted and the fixed rules were used; the event list shows "Analysis started" then "Analysis completed".
+  Then start the pipeline worker again with the same command and wait for the lease to expire (about 40 s with the overrides, plus a sweep tick of up to 15 s).
+- **Expected.** The execution is reclaimed (`lease_epoch` 2, event `recovered`, the name of the reclaim event in `execution_events`), a `scan_decisions` row appears with `agent_status = interrupted`, `agent_provider` null, `agent_additions = []`, `final_types` = the floor recomputed from a fresh diff; tasks equal the floor; the run completes. **The model is not called a second time**: the proxy log has exactly one `arrive` line per execution (the one in flight when the worker died, its `answered` line appears later, after the worker is already dead = the abandoned request) and no `arrive` line after the restart.
+- **Verify.** `execution_events` shows ONE `decision_started`, one `recovered` and one `decision_completed`; `scan_decisions` has one row for the execution; the proxy `arrive` count.
+- **T-29.** The assistant block says the analysis was interrupted and the fixed rules were used; the event list shows "Analysis started" then the recovery row then "Analysis completed".
 - **Variant (record present).** Kill later, after `scan_decisions` exists but before tasks are dispatched (very narrow; skip if you cannot hit it): expected no diff request to GitHub and no model request after restart, the tasks equal the recorded `final_types`.
 
 ### LT-14 cancel during analysis

@@ -1901,6 +1901,7 @@ export const DECISION_INTEGRATION_CHECKS = [
         ["diff source", { diffSource: "git_clone" }],
         ["diff status", { diffStatus: "partial" }],
         ["secrets rule", { secretsRule: "never" }],
+        ["secrets rule strict (removed 2026-11-18)", { secretsRule: "strict" }],
         ["agent status", { agentStatus: "great" }],
         ["a complete diff naming no source", { diffSource: "unavailable" }],
         ["a changed total on a truncated diff", { diffStatus: "truncated", changedTotal: 5 }],

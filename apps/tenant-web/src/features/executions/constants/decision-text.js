@@ -1,4 +1,3 @@
-import { SECRETS_RULES } from "@qmentisai/shared";
 import {
   CLASS_NOUNS,
   CLASS_ORDER,
@@ -6,7 +5,6 @@ import {
   NOT_SELECTED_TEXT,
   RULE_REASONS,
   RULE_REASON_FALLBACK,
-  SECRETS_STRICT_REASON,
 } from "./decision-rules.js";
 
 /**
@@ -36,13 +34,9 @@ export function inertText(value, max = 1000) {
 }
 
 /** Reason sentence of a REQUIRED scan type from its rule ids (fixed map; unknown ids give the generic sentence). */
-export function requiredReasonText(ruleIds, secretsRule) {
+export function requiredReasonText(ruleIds) {
   const ids = Array.isArray(ruleIds) ? ruleIds : [];
-  const texts = ids.map((id) =>
-    id === "FL-3" && secretsRule === SECRETS_RULES.STRICT
-      ? SECRETS_STRICT_REASON
-      : (RULE_REASONS[id] ?? RULE_REASON_FALLBACK),
-  );
+  const texts = ids.map((id) => RULE_REASONS[id] ?? RULE_REASON_FALLBACK);
   const unique = [...new Set(texts)];
   return unique.length ? unique.join("; ") : RULE_REASON_FALLBACK;
 }

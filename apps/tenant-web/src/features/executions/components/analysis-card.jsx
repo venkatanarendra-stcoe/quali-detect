@@ -54,8 +54,8 @@ function goToTask(taskId) {
   el.focus();
 }
 
-function ReasonCell({ scanType, secretsRule }) {
-  if (scanType.state === "required") return requiredReasonText(scanType.ruleIds, secretsRule);
+function ReasonCell({ scanType }) {
+  if (scanType.state === "required") return requiredReasonText(scanType.ruleIds);
   if (scanType.state === "added")
     return scanType.reason ? (
       <ClampedText max={500}>{scanType.reason}</ClampedText>
@@ -109,7 +109,7 @@ function DecisionTable({ decision, tasks }) {
                   <DecisionChip state={row.state} />
                 </td>
                 <td className="min-w-0 py-2 pr-3">
-                  <ReasonCell scanType={row} secretsRule={decision.secretsRule} />
+                  <ReasonCell scanType={row} />
                 </td>
                 <td className="py-2">
                   {task ? (

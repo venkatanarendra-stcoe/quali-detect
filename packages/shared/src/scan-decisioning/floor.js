@@ -68,18 +68,19 @@ const count = (value) => (Number.isSafeInteger(value) && value > 0 ? value : 0);
  * (truncated, unavailable, missing, malformed, or any scan kind other than "full" without a complete diff) selects every enabled
  * type; FL-1 any manifest file changed, in any status (a rename counts when its previous or its new path is a manifest), selects
  * `sbom` and `sca`; FL-2 a code file added, modified, renamed, copied or changed selects `sast` (a removal alone does not); FL-3
- * the Secrets rule `any_change` selects `secrets` when at least one file was written (status `unchanged` is ignored), `strict`
- * when at least one file changed in ANY status, removals included; FL-6 an empty changed set after exclusions gives an empty
+ * the Secrets rule `any_change` (the only rule, owner decision 2026-11-18) selects `secrets` when at least one file was written
+ * (added, modified, renamed or copied; status `removed` and `unchanged` are ignored, so a pure deletion never selects it); FL-6 an empty changed set after exclusions gives an empty
  * floor and `zeroScan`. The floor is ALWAYS a subset of `enabledTypes`, in catalog order.
  * @param {{
  *   scanKind: "full" | "incremental",
  *   diff?: { status?: string, files?: Array<{ path: string, previousPath?: string | null, status: string, additions?: number, deletions?: number }> } | null,
  *   enabledTypes: string[],
- *   secretsRule?: "any_change" | "strict",
+ *   secretsRule?: "any_change",
  *   exclusions?: { paths?: string[] } | null,
  *   redact?: (text: string) => string,
  *   samplePaths?: number,
  * }} input `redact` is required to produce sample paths (without it `changed.samples` stays empty: fail-safe)
+ * @throws {TypeError} when `secretsRule` is anything but `any_change` (fail fast; there is no wider mode)
  * @returns {{
  *   floor: Array<{ scanType: string, ruleIds: string[] }>,
  *   changed: { total: number, byClass: Record<string, number>, byStatus: Record<string, number>, additions: number, deletions: number, samples: Record<string, string[]> },
@@ -96,6 +97,8 @@ export function computeFloor({
   redact,
   samplePaths = SAMPLE_PATHS_DEFAULT,
 }) {
+  if (secretsRule !== SECRETS_RULES.ANY_CHANGE)
+    throw new TypeError("secretsRule must be any_change (the only Secrets rule)");
   const enabled = FLOOR_SCAN_TYPES.filter((type) =>
     Array.isArray(enabledTypes) ? enabledTypes.includes(type) : false,
   );
@@ -152,7 +155,6 @@ export function computeFloor({
   let manifest = false;
   let code = false;
   let written = false;
-  let any = false;
   for (const file of files) {
     const status = DIFF_FILE_STATUSES.includes(file?.status) ? file.status : "changed";
     const path = typeof file?.path === "string" ? file.path : "";
@@ -171,7 +173,6 @@ export function computeFloor({
       written = true;
       if (fileClass === "code" || previousClass === "code") code = true;
     }
-    if (status !== "unchanged") any = true;
   }
 
   if (manifest) {
@@ -179,9 +180,8 @@ export function computeFloor({
     select("sca", FLOOR_RULES.MANIFEST);
   }
   if (code) select("sast", FLOOR_RULES.CODE);
-  // An unknown secretsRule value behaves as `strict` (the wider one): never narrow the floor on a bad value.
-  const wide = secretsRule !== SECRETS_RULES.ANY_CHANGE;
-  if (wide ? any : written) select("secrets", FLOOR_RULES.SECRETS);
+  // FL-3: only a written file (never a removal) selects Secrets
+  if (written) select("secrets", FLOOR_RULES.SECRETS);
   // FL-6: an empty changed set selects nothing; `finish` reports zeroScan.
   return finish(changed);
 }

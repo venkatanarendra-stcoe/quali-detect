@@ -54,8 +54,12 @@ export const FLOOR_RULES = Object.freeze({
   FULL_RUN: "FL-5",
 });
 
-/** The Secrets rule (AP-2): `any_change` = a written file of any class; `strict` = any changed file, removals included. */
-export const SECRETS_RULES = Object.freeze({ ANY_CHANGE: "any_change", STRICT: "strict" });
+/**
+ * The Secrets rule (AP-2, amended by the owner on 2026-11-18): `any_change` = at least one file added, modified or renamed (the
+ * rename target), of any class. It is the ONLY rule: a pure deletion never triggers a content scan, so the `strict` mode that
+ * counted removals was removed. Any other value is refused (config at start, `computeFloor`, the database CHECK).
+ */
+export const SECRETS_RULES = Object.freeze({ ANY_CHANGE: "any_change" });
 export const DEFAULT_SECRETS_RULE = SECRETS_RULES.ANY_CHANGE;
 
 /** Stable reason codes of an enabled type that was not selected. */

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { redactLogText } from "@qmentisai/infra";
-import { computeFloor } from "@qmentisai/shared";
+import { computeFloor, SECRETS_RULES } from "@qmentisai/shared";
+import { ConfigError } from "../../../../workers/src/config.js";
 import { decideFloor } from "../../../../workers/src/execution/decision/index.js";
 
 /**
@@ -799,6 +800,113 @@ export const CHANGE_DETECTION_CHECKS = [
       for (const t of failToken) {
         ok(p, !json(failed).includes(t), "the token is in the failure result");
         ok(p, !lines.join("\n").includes(t), "the token is in the log lines after a failure");
+      }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S07e",
+    name: "the Secrets rule is any_change only (owner decision 2026-11-18, strict removed): a change that only removes files (code, documentation, configuration, a dotfile, a manifest, a rename source alone, in any number) never selects Secrets, a file added, modified or renamed (the rename target) does, a status unchanged does not; an unknown rule value (strict, never, empty, null) is refused by the floor with a TypeError and by the worker configuration at start (ConfigError naming the variable, never the value), while an unset or any_change value is accepted; the rule catalog holds exactly any_change",
+    async run(w) {
+      const p = [];
+      const floorOf = (files, over = {}) =>
+        computeFloor({
+          scanKind: "incremental",
+          diff: { status: "complete", files },
+          enabledTypes: ALL,
+          ...over,
+        });
+      const file = (path, status, previousPath) => ({
+        path,
+        status,
+        ...(previousPath ? { previousPath } : {}),
+        additions: 0,
+        deletions: 0,
+      });
+      const secretsOf = (files) =>
+        floorOf(files)
+          .floor.map((f) => f.scanType)
+          .includes("secrets");
+      ok(
+        p,
+        JSON.stringify(Object.values(SECRETS_RULES)) === JSON.stringify(["any_change"]),
+        `rule catalog ${json(SECRETS_RULES)}`,
+      );
+      for (const [label, files] of [
+        ["a removed source file", [file("src/a.js", "removed")]],
+        ["a removed document", [file("docs/a.md", "removed")]],
+        ["a removed configuration file", [file("config/app.yaml", "removed")]],
+        ["a removed dotfile", [file(".env", "removed")]],
+        ["a removed key file", [file("deploy/id_rsa.pem", "removed")]],
+        [
+          "many removed files",
+          Array.from({ length: 50 }, (_, i) => file(`src/f${i}.py`, "removed")),
+        ],
+        ["unchanged files", [file("src/a.js", "unchanged")]],
+        ["removed and unchanged files", [file("a.txt", "removed"), file("b.txt", "unchanged")]],
+      ]) {
+        const r = floorOf(files);
+        ok(p, !r.floor.some((f) => f.scanType === "secrets"), `${label} selected Secrets`);
+      }
+      const onlyRemoved = floorOf([file("docs/a.md", "removed"), file("src/a.js", "removed")]);
+      ok(
+        p,
+        onlyRemoved.zeroScan === true && onlyRemoved.floor.length === 0,
+        "a removal-only change of documents and code is not a zero-scan case",
+      );
+      for (const [label, files] of [
+        ["an added file", [file("a.bin", "added")]],
+        ["a modified file", [file("README.md", "modified")]],
+        ["a renamed file (the target)", [file("b.txt", "renamed", "a.txt")]],
+        [
+          "a removed file next to a modified one",
+          [file("a.js", "removed"), file("b.md", "modified")],
+        ],
+      ]) {
+        ok(p, secretsOf(files), `${label} did not select Secrets (control)`);
+      }
+      // an unknown rule value is refused, never read as a wider or a narrower mode
+      for (const bad of ["strict", "never", "", "ANY_CHANGE", null]) {
+        const outcome = (() => {
+          try {
+            floorOf([file("a.js", "modified")], { secretsRule: bad });
+            return "accepted";
+          } catch (error) {
+            return error instanceof TypeError ? "refused" : String(error);
+          }
+        })();
+        ok(p, outcome === "refused", `the floor with secretsRule ${json(bad)}: ${outcome}`);
+      }
+      ok(
+        p,
+        floorOf([file("a.js", "modified")], { secretsRule: "any_change" }).floor.length > 0,
+        "control: an explicit any_change was refused",
+      );
+      // the worker configuration
+      const configOutcome = (over) => {
+        try {
+          return { config: w.config(over) };
+        } catch (error) {
+          return { error };
+        }
+      };
+      for (const bad of ["strict", "never", "", "Any_Change"]) {
+        const { error } = configOutcome({ SCAN_DECISION_SECRETS_RULE: bad });
+        ok(
+          p,
+          error instanceof ConfigError &&
+            error.problems.some((x) => x.variable === "SCAN_DECISION_SECRETS_RULE") &&
+            !String(error.message).includes(bad || "\u0000"),
+          `SCAN_DECISION_SECRETS_RULE=${json(bad)} was not refused by name`,
+        );
+      }
+      for (const good of [{}, { SCAN_DECISION_SECRETS_RULE: "any_change" }]) {
+        const { config, error } = configOutcome(good);
+        ok(
+          p,
+          !error && config.scanDecision.secretsRule === "any_change",
+          `control: the configuration ${json(good)} was refused or changed the rule`,
+        );
       }
       return p;
     },

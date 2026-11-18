@@ -54,7 +54,7 @@ The same through the API (the logged-in dev session, `/api/v1`): `GET /execution
 
 **Agent statuses.** `not_configured`, `nothing_to_add`, `consent_required`, `skipped_fork`, `ok`, `timeout`, `error`, `invalid_output`, `interrupted`, `cancelled`. All but `ok` mean floor only.
 
-**Floor rules (SPEC 5.3, default `SCAN_DECISION_SECRETS_RULE=any_change`).** FL-1 manifest or lockfile changed in any status: SBOM + SCA. FL-2 a code file added, modified or renamed: SAST. FL-3 any file added, modified or renamed (any class): Secrets (`strict`: removals count too). FL-4 the diff failed, was truncated or unavailable: every enabled type. FL-6 empty changed set: nothing (zero-scan).
+**Floor rules (SPEC 5.3; the Secrets rule is `any_change` only, `SCAN_DECISION_SECRETS_RULE` accepts nothing else).** FL-1 manifest or lockfile changed in any status: SBOM + SCA. FL-2 a code file added, modified or renamed: SAST. FL-3 any file added, modified or renamed (any class): Secrets (a pure deletion never triggers it). FL-4 the diff failed, was truncated or unavailable: every enabled type. FL-6 empty changed set: nothing (zero-scan).
 
 ## 1. Setup order (details in "What I need from you")
 
@@ -94,18 +94,15 @@ Environment: `LLM_PROVIDER=none` in both `apps/api/.env` and `apps/workers/.env`
 - **Expected.** Both pipelines: floor is every enabled type (`dec-all` `sbom, sca, sast, secrets`; `dec-nosec` `sbom, sca, sast`); `not_selected = []`; `agent_status = nothing_to_add` is only reported when a provider resolves, with provider none it is `not_configured` (record which one you see).
 - **T-29.** "3 files changed ..."; every enabled type `Required`.
 
-### LT-05 removal only (zero-scan) and Secrets rule `any_change`
+### LT-05 removal only (zero-scan): Secrets never runs for a pure deletion
 
 - **Action.** `git rm` one source file and one doc file, commit, push (a pure deletion; no file added or modified).
-- **Expected, rule `any_change` (default).** `dec-all`: floor `[]` (FL-3 needs an added, modified or renamed file); final `[]`; `succeeded`/`no_applicable_scans`; no task; `quota_released_at` set and the usage counter of the period back by one. Same for `dec-nosec`.
+- **Expected.** `dec-all`: floor `[]` (FL-3 needs an added, modified or renamed file); final `[]`; `succeeded`/`no_applicable_scans`; no task; `quota_released_at` set and the usage counter of the period back by one. Same for `dec-nosec`.
 - **T-29.** "No scan applied to these changes." chip "Succeeded", reason "No scan applied", no Scans cards.
 
-### LT-06 removal only with Secrets rule `strict`
+### LT-06 (retired)
 
-- **Action.** Set `SCAN_DECISION_SECRETS_RULE=strict` in `apps/workers/.env`, restart the pipeline worker, repeat LT-05 with a different pair of files.
-- **Expected.** `dec-all`: floor `secrets` (rule FL-3 under `strict`; `secrets_rule = 'strict'` in the record); `dec-nosec`: still zero-scan (Secrets is not enabled). T-29 FL-3 wording reads "Any changed file, removals included, is scanned for secrets".
-- **Note.** The `strict` definition (also counts removals) is awaiting owner confirmation (`OPEN_DECISIONS.md`); this case is where to look at it.
-- **Afterwards.** Remove the variable (back to `any_change`) and restart.
+Retired 2026-11-18: the Secrets rule `strict` was removed by the owner (option B), so there is nothing to test; the id is kept so the other case ids stay stable. LT-05 covers the removal-only behavior: Secrets never runs for a pure deletion.
 
 ### LT-07 removal of a manifest
 
@@ -257,7 +254,7 @@ Run once with one agent-added execution (LT-10 A) and once with a zero-scan exec
    - Ollama (LT-10, 12-14): `LLM_PROVIDER=ollama`, `LLM_MODEL=<name of an installed model that supports tool calling>`, `LLM_OLLAMA_BASE_URL=http://127.0.0.1:11434` (default). Tell me the model; I cannot guess one (there is no default model by design). No key and no consent are needed.
    - Hosted (LT-11): `LLM_PROVIDER=anthropic` or `openai`, `LLM_MODEL=<model id>`. **How the key is supplied in development:** the key is a platform secret read from the process environment of the **pipeline worker only** (the scan worker and the API never read it): `LLM_ANTHROPIC_API_KEY=...` or `LLM_OPENAI_API_KEY=...`, or `LLM_ANTHROPIC_API_KEY_FILE=/path/to/a/file/holding/only/the/key` (preferred: keep the file outside the repository with mode 600 and never paste the key into a chat or a commit). Production refuses this environment provider on purpose (ADR-009: `NODE_ENV=production` plus a hosted provider makes the pipeline worker refuse to start) and no KMS or Vault provider exists yet, so a hosted provider is a development-only test today and a real platform secret provider is a prerequisite for production use. Do not set `NODE_ENV=production` for these tests. A local Ollama is unaffected.
    - Optional: `LLM_REQUEST_TIMEOUT_SECONDS` (default 30), `SCAN_DECISION_AGENT_TIMEOUT_SECONDS` (default 20, must stay below `EXECUTION_LEASE_TTL_SECONDS`), `SCAN_DECISION_MAX_TURNS`, `SCAN_DECISION_CONTEXT_PATHS`.
-4. **`SCAN_DECISION_SECRETS_RULE`**: leave unset (`any_change`) for everything except LT-06, where it is `strict` in `apps/workers/.env` (pipeline worker restart).
+4. **`SCAN_DECISION_SECRETS_RULE`**: leave unset (`any_change`, the only accepted value; any other value, including the removed `strict`, stops the worker at start).
 5. **The consent toggle (LT-11)**: an Admin of the dev tenant turns "Allow external AI providers to receive file names of your repositories" on and off in Settings; I need you to tell me when it is on, or do the steps of LT-11 yourself and paste the SQL results.
 6. **GitHub actions**, all in `qm-test-2-renamed`: create branch `dec-test` and push it (baseline); the commits of LT-01 to LT-07 and LT-15 (one commit each, pushed one at a time, waiting for the executions to end); a second GitHub account (or a throwaway one) that forks the repository and opens a pull request for LT-12; permission to create two pipelines (`dec-all`, `dec-nosec`) in a workspace and to change the fork policy (Admin).
 7. **Per case**, send me: the output of the "latest executions" query, the T-29 screenshot or a description of what each chip says, and for LT-10/11/12/13 the model server or vendor request counts. I will compare each with the "Expected" line and update this table.

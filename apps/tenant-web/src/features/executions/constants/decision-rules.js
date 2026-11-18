@@ -1,4 +1,4 @@
-import { FLOOR_RULES, SECRETS_RULES } from "@qmentisai/shared";
+import { FLOOR_RULES } from "@qmentisai/shared";
 
 /**
  * Fixed frontend wording of the scan-decision vocabulary (docs/modules/scan-decisioning/SCREENS.md 2.3, 2.5). The API sends
@@ -10,13 +10,11 @@ import { FLOOR_RULES, SECRETS_RULES } from "@qmentisai/shared";
 export const RULE_REASONS = Object.freeze({
   [FLOOR_RULES.MANIFEST]: "A dependency file changed",
   [FLOOR_RULES.CODE]: "Source code changed",
-  [FLOOR_RULES.SECRETS]: "Any change is scanned for secrets",
+  [FLOOR_RULES.SECRETS]: "An added or modified file is scanned for secrets",
   [FLOOR_RULES.DIFF_UNAVAILABLE]: "Changed files could not be listed, so everything runs",
   [FLOOR_RULES.FULL_RUN]: "Full scan: every enabled scan type runs",
 });
 export const RULE_REASON_FALLBACK = "Required by a fixed rule";
-/** FL-3 under the wider `strict` Secrets mode (removals count too). */
-export const SECRETS_STRICT_REASON = "Any changed file, removals included, is scanned for secrets";
 
 /** Stable codes of a scan type that was enabled but not selected. */
 export const NOT_SELECTED_TEXT = Object.freeze({ no_matching_changes: "No matching changes" });
@@ -74,5 +72,3 @@ export const STATUS_TITLES = Object.freeze({
   removed: "Removed",
   renamed: "Renamed",
 });
-
-export { SECRETS_RULES };

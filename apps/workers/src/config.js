@@ -81,7 +81,8 @@ const envSchema = z.object({
   EXECUTION_RETENTION_PURGE_BATCH_SIZE: z.coerce.number().int().min(1).max(5000).default(500),
   // Scan decisioning (docs/modules/scan-decisioning/SPEC.md 5.2, 5.3, 17.c). NOT WIRED YET: the orchestrator does not call the
   // decision until part E. The diff bounds stay at or below the documented GitHub limits (compare 300, pull-request files 3000).
-  SCAN_DECISION_SECRETS_RULE: z.enum(["any_change", "strict"]).default("any_change"),
+  // the only Secrets rule (owner decision 2026-11-18; `strict` was removed): any other value stops the worker at start
+  SCAN_DECISION_SECRETS_RULE: z.literal("any_change").default("any_change"),
   SCAN_DECISION_MAX_CHANGED_FILES: z.coerce.number().int().min(1).max(3000).default(3000),
   SCAN_DECISION_MAX_PAGES: z.coerce.number().int().min(1).max(30).default(30),
   SCAN_DECISION_SAMPLE_PATHS: z.coerce.number().int().min(0).max(100).default(20),

@@ -665,7 +665,8 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
 
   // ------------------------------------------------------------------------------------- DEC-S11: GET/PUT /settings/ai
   const keysOf = (r) => Object.keys(r.json?.data ?? {}).sort();
-  const dtoKeys = '["assistant","consentChangedAt","externalConsent","updatedAt"]';
+  const dtoKeys =
+    '["assistant","consentChangedAt","consentChangedBy","externalConsent","updatedAt"]';
   const rowOf = (tenantId) => db().tenantLlmSettings.findUnique({ where: { tenantId } });
   const auditOf = (tenantId) =>
     db().auditLog.findMany({ where: { tenantId, action: ACTION }, orderBy: { createdAt: "asc" } });
@@ -713,7 +714,7 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
   );
   add(
     "DEC-S11c",
-    "a tenant Admin reads the default: consent off, assistant not configured (the suite runs with LLM_PROVIDER unset), exactly the four DTO fields, the success envelope, and a read creates no row",
+    "a tenant Admin reads the default: consent off, assistant not configured (the suite runs with LLM_PROVIDER unset), exactly the five DTO fields (consentChangedBy null without a row), the success envelope, and a read creates no row",
     OK,
     async (x) => {
       const t = await tenant("r")(x);
@@ -728,6 +729,7 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
       ...(JSON.stringify(r.json.data.assistant) === '{"configured":false,"providerKind":null}'
         ? []
         : [`assistant ${JSON.stringify(r.json.data.assistant)}`]),
+      ...(r.json.data.consentChangedBy === null ? [] : ["a changer is named without a change"]),
       ...(r.row === null ? [] : ["reading created a row"]),
       ...(/model|baseUrl|apiKey|api_key|tenantId/i.test(JSON.stringify(r.json.data))
         ? ["the DTO names a model, a URL, a key or a tenant id"]
@@ -755,6 +757,13 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
             model: "model-canary-789",
             anthropicBaseUrl: "https://url-canary.example.test",
           },
+          { displayName: "Ada", id: "id-canary-1", email: "mail-canary@example.test" },
+        );
+        noteIf(
+          problems,
+          JSON.stringify(dto.consentChangedBy) !== '{"displayName":"Ada"}' ||
+            /id-canary|mail-canary/.test(JSON.stringify(dto)),
+          `${provider}: the changer is not exactly { displayName }`,
         );
         noteIf(
           problems,
@@ -1166,6 +1175,125 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
       );
       r.problems = problems;
       return r;
+    },
+    verifyProblems,
+  );
+  add(
+    "DEC-S11k",
+    "who changed the consent: the card gets the changer as { displayName } only (never an id or an email), resolved through the tenant's own settings row and a membership of the same tenant; a changer who belongs to another tenant, or no changer at all, reads null and the other tenant's name never appears; the PUT answer and the GET agree",
+    OK,
+    async (x) => {
+      const problems = [];
+      const n = await tenant("n")(x);
+      const m = await tenant("m")(x);
+      const meN = (await x.api("GET", "/me", { cookie: n.owner })).json.data;
+      const meM = (await x.api("GET", "/me", { cookie: m.owner })).json.data;
+      const put = await setConsent(x, n, true);
+      const get = await x.api("GET", "/settings/ai", { cookie: n.owner });
+      for (const [label, r] of [
+        ["PUT", put],
+        ["GET", get],
+      ]) {
+        const by = r.json?.data?.consentChangedBy;
+        noteIf(
+          problems,
+          JSON.stringify(by) !== JSON.stringify({ displayName: meN.user.name }),
+          `${label}: consentChangedBy is ${JSON.stringify(by)}`,
+        );
+        const text = JSON.stringify(r.json?.data ?? {});
+        noteIf(
+          problems,
+          text.includes(meN.user.id) || text.includes(meN.user.email),
+          `${label}: the DTO carries the user id or the email`,
+        );
+      }
+      // a row of tenant N that names a user of tenant M (no membership in N): null, and M's name never appears
+      await db().tenantLlmSettings.update({
+        where: { tenantId: n.id },
+        data: { updatedByUserId: meM.user.id },
+      });
+      const foreign = await x.api("GET", "/settings/ai", { cookie: n.owner });
+      noteIf(
+        problems,
+        foreign.json?.data?.consentChangedBy !== null,
+        "a user of another tenant is shown as the changer",
+      );
+      noteIf(
+        problems,
+        JSON.stringify(foreign.json?.data ?? {}).includes(meM.user.name),
+        "another tenant's user name appears",
+      );
+      // a deleted user (the column is set to NULL) and a missing id read null as well
+      await db().tenantLlmSettings.update({
+        where: { tenantId: n.id },
+        data: { updatedByUserId: null },
+      });
+      const none = await x.api("GET", "/settings/ai", { cookie: n.owner });
+      noteIf(problems, none.json?.data?.consentChangedBy !== null, "an unknown changer is named");
+      // control: the changer is shown again once the own tenant's user is stored
+      await db().tenantLlmSettings.update({
+        where: { tenantId: n.id },
+        data: { updatedByUserId: meN.user.id },
+      });
+      const back = await x.api("GET", "/settings/ai", { cookie: n.owner });
+      noteIf(
+        problems,
+        back.json?.data?.consentChangedBy?.displayName !== meN.user.name,
+        "control: the own tenant's changer is not shown",
+      );
+      await setConsent(x, n, false);
+      return done(problems);
+    },
+    verifyProblems,
+  );
+  add(
+    "DEC-S11l",
+    "concurrent consent writes are serialized per tenant: eight parallel PUTs of the same value change the setting once and write exactly one audit entry (the other seven are no-ops, all answer 200), and a burst of alternating values leaves an audit trail whose entries chain exactly (each previous value is the one before it, no entry records a change that did not happen) and whose last value is the stored one",
+    OK,
+    async (x) => {
+      const problems = [];
+      const t = await tenant("k")(x);
+      const same = await Promise.all(Array.from({ length: 8 }, () => setConsent(x, t, true)));
+      noteIf(
+        problems,
+        same.some((r) => r.status !== 200),
+        `a parallel PUT answered ${same.map((r) => r.status)}`,
+      );
+      noteIf(
+        problems,
+        (await auditOf(t.id)).length !== 1,
+        `eight identical PUTs wrote ${(await auditOf(t.id)).length} audit entries`,
+      );
+      const burst = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => setConsent(x, t, i % 2 === 0 ? false : true)),
+      );
+      noteIf(
+        problems,
+        burst.some((r) => r.status !== 200),
+        `a burst PUT answered ${burst.map((r) => r.status)}`,
+      );
+      const audit = await auditOf(t.id);
+      let value = false;
+      for (const a of audit) {
+        noteIf(
+          problems,
+          a.metadata?.previous !== value,
+          "an audit entry has a wrong previous value",
+        );
+        noteIf(
+          problems,
+          a.metadata?.new === a.metadata?.previous,
+          "an audit entry records a change that did not happen",
+        );
+        value = a.metadata?.new;
+      }
+      noteIf(
+        problems,
+        (await rowOf(t.id))?.externalConsent !== value,
+        "the stored value is not the last audited value",
+      );
+      await setConsent(x, t, false);
+      return done(problems);
     },
     verifyProblems,
   );

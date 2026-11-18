@@ -2013,6 +2013,28 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       if (nr.json?.data?.decision !== null)
         problems.push("an execution without a record has a decision");
       const { e, row } = await decided(k, k.pay);
+      const taskIds = {};
+      for (const [ordinal, scanType] of [
+        [0, "sbom"],
+        [3, "secrets"],
+      ])
+        taskIds[scanType] = (
+          await k.d.scanTask.create({
+            data: {
+              tenantId: e.tenantId,
+              workspaceId: e.workspaceId,
+              repositoryId: e.repositoryId,
+              pipelineId: e.pipelineId,
+              executionId: e.id,
+              scanType,
+              ordinal,
+              engineId: "suite-engine",
+              engineProfile: "default",
+              severityThreshold: "low",
+              timeoutSeconds: 900,
+            },
+          })
+        ).id;
       const r = await get(k.x.sessions.admin, `/executions/${e.id}`);
       const d = r.json?.data?.decision;
       if (!exact(d, DECISION_KEYS)) return done([`decision keys ${Object.keys(d ?? {})}`]);
@@ -2038,6 +2060,13 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       };
       for (const [type, state] of Object.entries(want))
         if (byType[type]?.state !== state) problems.push(`${type} is ${byType[type]?.state}`);
+      for (const [type, id] of Object.entries({
+        sbom: taskIds.sbom,
+        secrets: taskIds.secrets,
+        sca: null,
+        sast: null,
+      }))
+        if (byType[type]?.taskId !== id) problems.push(`${type} taskId is ${byType[type]?.taskId}`);
       if (byType.secrets?.ruleIds.join() !== "FL-3") problems.push("the rule id is missing");
       if (byType.sbom?.reason !== "dependency docs changed")
         problems.push("the added reason is missing");

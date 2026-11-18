@@ -1099,6 +1099,11 @@ export const DECISION_INTEGRATION_CHECKS = [
         );
         ok(p, (await create([])) !== "accepted", "a decided type without a task was accepted");
         ok(p, (await create([spec("sca")])) !== "accepted", "a task for another type was accepted");
+        ok(
+          p,
+          (await create([spec("secrets"), spec("secrets")])) !== "accepted",
+          "a duplicate task for the decided type was accepted",
+        );
         ok(p, (await w.taskRows(raw.execution)).length === 0, "a refused call created rows");
         ok(
           p,
@@ -1847,6 +1852,31 @@ export const DECISION_INTEGRATION_CHECKS = [
         });
         ok(p, e?.type === type, `${type} was not recorded`);
       }
+      // the marker helper writes at most one marker per execution: a second call is a no-op
+      const second = await w.execution(tree);
+      await claimAndDie(w, tree, second, 600);
+      const markers = () =>
+        w.db.executionEvent.count({ where: { executionId: second.id, type: "decision_started" } });
+      const firstMark = await dec(w.db).markDecisionStarted({
+        tenantId: t,
+        executionId: second.id,
+        leaseEpoch: 1,
+      });
+      const again = await dec(w.db).markDecisionStarted({
+        tenantId: t,
+        executionId: second.id,
+        leaseEpoch: 1,
+      });
+      ok(
+        p,
+        firstMark === true && again === false,
+        `markers written: first ${firstMark}, second ${again}`,
+      );
+      ok(
+        p,
+        (await markers()) === 1,
+        `${await markers()} decision_started markers for one execution`,
+      );
       const stale = await w.repo
         .recordEvent({
           tenantId: t,
@@ -1956,6 +1986,104 @@ export const DECISION_INTEGRATION_CHECKS = [
         Boolean(await decisionOf(w, young.execution)),
         "another execution's decision was purged",
       );
+      return p;
+    },
+  },
+  {
+    id: "DEC-S04c",
+    name: "no credential in any stored surface of a TRUSTED run that used the diff token and the model (SPEC scan-decisioning DEC-S04): after an incremental trusted run whose decision added a type through the model, none of the installation tokens the diff step minted, no Authorization value and no credential shape appears in the decision record, the decision events, the audit entries, the outbox messages, the execution log, the tasks or any other row of the tenant (control: a token was minted and the decision has the model's addition)",
+    async run(w) {
+      const p = [];
+      const model = await modelAdding(w, ["sbom"]);
+      try {
+        const x = await incremental(w, "tokenSweep");
+        const before = (await w.sourceCalls()).minted.length;
+        await runOnce(w, x.tree, x.execution, {
+          orch: w.orchestrator({}, { decisionRuntime: model.runtime }),
+        });
+        const minted = (await w.sourceCalls()).minted.slice(before);
+        ok(p, minted.length >= 1, "control: no installation token was minted for the diff");
+        const record = await decisionOf(w, x.execution);
+        ok(
+          p,
+          record?.agentStatus === "ok" && JSON.stringify(record.agentAdditions).includes("sbom"),
+          `control: the decision does not carry the model's addition (${record?.agentStatus})`,
+        );
+        const decisions = await w.db.scanDecision.findMany({
+          where: { tenantId: x.tree.tenant.id },
+        });
+        const dump = `${await w.dump(x.tree)}${JSON.stringify(decisions)}`;
+        for (const m of minted)
+          ok(
+            p,
+            typeof m.token === "string" && !dump.includes(m.token),
+            "an installation token is stored",
+          );
+        ok(
+          p,
+          !/ghs_stub_|Authorization|Bearer /i.test(dump),
+          "an Authorization value or token prefix is stored",
+        );
+        ok(p, findCredentials(dump).length === 0, "a credential shape is stored");
+      } finally {
+        await model.close();
+      }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S03b",
+    name: "fail safe inside the Executions preparing state (SPEC scan-decisioning 14.1 DEC-S03): a provider that answers HTTP 500, one that returns an invalid output (a floor type), one that never answers (the timeout) and a runtime whose provider resolution throws each leave the EXECUTION running to a normal ending (succeeded, no failure reason) with exactly the floor as tasks and the matching agent status in the decision record; the model never fails the run",
+    async run(w) {
+      const p = [];
+      const stub = await startLlm();
+      try {
+        const cases = [
+          ["http500", () => ({ status: 500 }), "error"],
+          ["invalid", () => ({ calls: [scan("secrets")] }), "invalid_output"],
+          ["hang", () => ({ hang: true }), "timeout"],
+        ];
+        for (const [label, respond, expected] of cases) {
+          stub.state.respond = respond;
+          const x = await incremental(w, `failSafe${label}`);
+          await runOnce(w, x.tree, x.execution, {
+            orch: w.orchestrator({}, { decisionRuntime: runtimeFor(w, "ollama", stub) }),
+          });
+          const row = await w.row(x.execution);
+          const record = await decisionOf(w, x.execution);
+          ok(
+            p,
+            row.status === "succeeded" && row.statusReason === null,
+            `${label}: the execution ended ${row.status}/${row.statusReason}`,
+          );
+          ok(p, record?.agentStatus === expected, `${label}: agent status ${record?.agentStatus}`);
+          ok(
+            p,
+            types(await w.taskRows(x.execution)) === "secrets",
+            `${label}: tasks ${types(await w.taskRows(x.execution))}`,
+          );
+        }
+        const x = await incremental(w, "failSafeThrow");
+        const throwing = {
+          resolveProvider: async () => {
+            throw new Error("resolver exploded");
+          },
+        };
+        await runOnce(w, x.tree, x.execution, {
+          orch: w.orchestrator({}, { decisionRuntime: throwing }),
+        });
+        const row = await w.row(x.execution);
+        const record = await decisionOf(w, x.execution);
+        ok(p, row.status === "succeeded", `throwing resolver: the execution ended ${row.status}`);
+        ok(p, record?.agentStatus === "error", `throwing resolver: ${record?.agentStatus}`);
+        ok(
+          p,
+          types(await w.taskRows(x.execution)) === "secrets",
+          "throwing resolver: tasks are not the floor",
+        );
+      } finally {
+        await stub.close();
+      }
       return p;
     },
   },

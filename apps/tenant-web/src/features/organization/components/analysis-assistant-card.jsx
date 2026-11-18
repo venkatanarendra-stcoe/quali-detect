@@ -84,6 +84,9 @@ function ConsentSwitch({ settings, canManage }) {
             >
               {absoluteTime(settings.consentChangedAt)}
             </time>
+            {settings.consentChangedBy?.displayName
+              ? ` by ${settings.consentChangedBy.displayName}`
+              : ""}
           </>
         ) : (
           " · never changed"

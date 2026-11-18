@@ -1,4 +1,7 @@
+import { readdirSync, readFileSync } from "node:fs";
 import http from "node:http";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createTenantLlmSettingsRepository } from "@qmentisai/db";
 import { findCredentials, readLLMConfig, runBoundedToolLoop } from "@qmentisai/infra";
 import { FLOOR_SCAN_TYPES } from "@qmentisai/shared";
@@ -46,7 +49,13 @@ const PATCH_MARKER = "HUNK-SECRET-TEXT-4410";
 
 /** A scripted stand-in for the three vendors: records every request, answers like the vendor of the URL it was called on. */
 export async function startLlm() {
-  const state = { requests: [], respond: () => ({ calls: [] }), allTurns: false };
+  const state = {
+    requests: [],
+    respond: () => ({ calls: [] }),
+    allTurns: false,
+    inFlight: 0,
+    maxInFlight: 0,
+  };
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -59,6 +68,11 @@ export async function startLlm() {
         /* keep raw */
       }
       state.requests.push({ url: req.url, headers: req.headers, raw, body });
+      state.inFlight += 1;
+      state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+      res.on("close", () => {
+        state.inFlight -= 1;
+      });
       const turn = (body?.messages ?? []).filter((m) => m.role === "user").length;
       let spec = state.respond(turn, body, req.url) ?? {};
       // Like a real model: after the tool-result turn it answers with plain text (set `allTurns` to script later turns).
@@ -148,13 +162,14 @@ export function runtimeFor(
   w,
   provider,
   stub,
-  { key = true, requestTimeoutSeconds = "5", logger } = {},
+  { key = true, requestTimeoutSeconds = "5", logger, maxConcurrentCalls } = {},
 ) {
   const env = {
     LLM_PROVIDER: provider,
     LLM_MODEL: "suite-model",
     [BASE_URL_VARIABLE[provider]]: stub.url,
     LLM_REQUEST_TIMEOUT_SECONDS: requestTimeoutSeconds,
+    ...(maxConcurrentCalls ? { LLM_MAX_CONCURRENT_CALLS: String(maxConcurrentCalls) } : {}),
     ...(key
       ? {
           LLM_ANTHROPIC_API_KEY: "sk-ant-suite-key-0123456789abcdef",
@@ -1403,6 +1418,155 @@ export const DECISION_AGENT_CHECKS = [
           result.agent.status === "consent_required" && stub.requests.length === 0,
           `no row: ${result.agent.status}, ${stub.requests.length} requests`,
         );
+      } finally {
+        await stub.close();
+      }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S06b",
+    name: "no model memory, conversation state or cache shared between tenants or executions (SPEC scan-decisioning SD-5): two tenants decided one after the other through the same runtime shape send requests of the same structure (one system and one user message in the first turn, no assistant history), the second tenant's requests hold nothing of the first tenant's paths, reasons, summary, ids or names, and the second tenant's decision holds nothing of the first's model text; no request carries a conversation, response, session, thread, user or metadata field or a store flag; the decision and LLM layers keep no module-level mutable store (a source guard; the one counting semaphore of the concurrency cap holds numbers only)",
+    async run(w) {
+      const p = [];
+      const PATH_A = "src/zz-tenant-a-only-4471.js";
+      const PATH_B = "src/zz-tenant-b-only-8820.js";
+      const REASON_A = "reason-of-tenant-a-3391";
+      const SUMMARY_A = "summary-of-tenant-a-6602";
+      const a = await setup(w, "dm1", [
+        { filename: PATH_A, status: "modified", additions: 1, deletions: 0 },
+      ]);
+      const b = await setup(w, "dm2", [
+        { filename: PATH_B, status: "modified", additions: 1, deletions: 0 },
+      ]);
+      const stub = await startLlm();
+      const FORBIDDEN_FIELDS = [
+        "previous_response_id",
+        "conversation",
+        "conversation_id",
+        "session",
+        "session_id",
+        "thread",
+        "thread_id",
+        "user",
+        "metadata",
+        "store",
+        "context",
+        "keep_alive",
+      ];
+      try {
+        stub.state.respond = (turn) =>
+          turn === 1 ? { text: SUMMARY_A, calls: [scan("sca", REASON_A)] } : {};
+        const da = await a.run({
+          runtime: runtimeFor(w, "ollama", stub),
+          execution: { ...pushExecution(a.base, a.head), scanKindReason: "push" },
+        });
+        const requestsA = stub.requests.splice(0);
+        ok(
+          p,
+          da.agent.status === "ok" && requestsA.length >= 1,
+          "control: tenant A was not decided",
+        );
+        stub.state.respond = () => ({});
+        const db2 = await b.run({
+          runtime: runtimeFor(w, "ollama", stub),
+          execution: { ...pushExecution(b.base, b.head), scanKindReason: "push" },
+        });
+        const requestsB = stub.requests.splice(0);
+        ok(p, db2.agent.status === "ok" && requestsB.length >= 1, "tenant B was not decided");
+        const shape = (r) =>
+          (r.body?.messages ?? []).map((m) => m.role).join(",") + `|${r.body?.tools?.length ?? 0}`;
+        ok(
+          p,
+          shape(requestsA[0]) === shape(requestsB[0]) && !shape(requestsB[0]).includes("assistant"),
+          `first-turn structure differs: A ${shape(requestsA[0])} B ${shape(requestsB[0])}`,
+        );
+        const foreign = [
+          PATH_A,
+          REASON_A,
+          SUMMARY_A,
+          a.tree.tenant.id,
+          a.tree.tenant.name,
+          a.tree.repo.fullName,
+          a.x.fullName,
+          a.base,
+          a.head,
+        ].filter((v) => typeof v === "string" && v.length >= 4);
+        for (const request of requestsB)
+          for (const value of foreign)
+            ok(
+              p,
+              !request.raw.includes(value),
+              `tenant B's request carries tenant A's "${value.slice(0, 12)}..."`,
+            );
+        ok(p, requestsB[0].raw.includes(PATH_B), "control: tenant B's own path is not sent");
+        ok(
+          p,
+          !json(db2).includes(REASON_A) && !json(db2).includes(SUMMARY_A),
+          "tenant B's decision holds tenant A's model text",
+        );
+        for (const request of [...requestsA, ...requestsB])
+          for (const field of FORBIDDEN_FIELDS)
+            ok(p, !(field in (request.body ?? {})), `a request carries the state field "${field}"`);
+      } finally {
+        await stub.close();
+      }
+      // source guard: no module-level mutable store in the decision and LLM layers
+      const here = fileURLToPath(new URL(".", import.meta.url));
+      const roots = [
+        resolve(here, "../../../../workers/src/execution/decision"),
+        resolve(here, "../../../../../packages/infra/src/llm"),
+      ];
+      const pattern =
+        /^(?:let |var |(?:export )?const \w+ = (?:new (?:Map|WeakMap|Set|WeakSet)\(\)|\[\]|\{\}))/;
+      for (const root of roots)
+        for (const file of readdirSync(root).filter((f) => f.endsWith(".js"))) {
+          const lines = readFileSync(join(root, file), "utf8").split("\n");
+          lines.forEach((line, i) => {
+            if (pattern.test(line) && !/^const limiters = new Map\(\);$/.test(line))
+              p.push(`${file}:${i + 1} holds module-level state: ${line.trim()}`);
+          });
+        }
+      return p;
+    },
+  },
+  {
+    id: "DEC-S03c",
+    name: "cost abuse bound (SPEC scan-decisioning SD-7): the per-process cap LLM_MAX_CONCURRENT_CALLS holds under load: eight decisions started at once through a runtime with a cap of 2 never have more than 2 requests in flight at the model, all eight still complete (the others wait their turn, none is dropped or failed), and a control runtime with a cap of 8 does reach more than 2 in flight (so the measurement can see concurrency)",
+    async run(w) {
+      const p = [];
+      const s = await setup(w, "dc1", [
+        { filename: "docs/readme.md", status: "modified", additions: 1, deletions: 0 },
+      ]);
+      const stub = await startLlm();
+      try {
+        stub.state.respond = () => ({ delayMs: 250, calls: [] });
+        const burst = async (cap) => {
+          stub.state.maxInFlight = 0;
+          const runtime = runtimeFor(w, "ollama", stub, { maxConcurrentCalls: cap });
+          const results = await Promise.all(
+            Array.from({ length: 8 }, () =>
+              s.run({
+                runtime,
+                execution: { ...pushExecution(s.base, s.head), scanKindReason: "push" },
+              }),
+            ),
+          );
+          return { results, max: stub.state.maxInFlight };
+        };
+        const capped = await burst(2);
+        ok(
+          p,
+          capped.max >= 1 && capped.max <= 2,
+          `cap 2: ${capped.max} requests in flight at once`,
+        );
+        ok(
+          p,
+          capped.results.every((d) => d.agent.status === "ok"),
+          `cap 2: statuses ${capped.results.map((d) => d.agent.status)}`,
+        );
+        const open = await burst(8);
+        ok(p, open.max > 2, `control: cap 8 reached only ${open.max} in flight`);
       } finally {
         await stub.close();
       }

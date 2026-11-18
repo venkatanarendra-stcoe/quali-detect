@@ -17,5 +17,6 @@ export const aiSettingsResponseSchema = createSuccessSchema(
     }),
     updatedAt: z.string().nullable(),
     consentChangedAt: z.string().nullable(),
+    consentChangedBy: z.object({ displayName: z.string() }).strict().nullable(),
   }),
 );

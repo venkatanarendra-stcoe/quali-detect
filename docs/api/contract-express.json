@@ -5318,7 +5318,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt }",
+        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
         "metaKeys": [
           "correlationId"
         ]
@@ -5376,7 +5376,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt }",
+        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
         "metaKeys": [
           "correlationId"
         ]

@@ -4978,6 +4978,44 @@ export function buildDalEntries() {
     },
   );
 
+  // ----- consent card: who changed the setting (part G, DAL-313..): the display name is reached through the tenant's settings
+  // row AND a membership of the same tenant. Tenant X's user presented through tenant Y must never come back.
+  E("llm-settings.findConsentChangedBy", (c) => LS(c).findConsentChangedBy({ tenantId: c.y }), {
+    control: (c) => LS(c).findConsentChangedBy({ tenantId: c.x }),
+  });
+  E(
+    "llm-settings.findConsentChangedBy (a row of Y that names a user of X)",
+    async (c) => {
+      await c.db.tenantLlmSettings.upsert({
+        where: { tenantId: c.y },
+        create: { tenantId: c.y, externalConsent: true, updatedByUserId: c.uA },
+        update: { updatedByUserId: c.uA },
+      });
+      return LS(c).findConsentChangedBy({ tenantId: c.y });
+    },
+    {
+      cleanup: (c) => c.db.tenantLlmSettings.deleteMany({ where: { tenantId: c.y } }),
+      control: (c) => LS(c).findConsentChangedBy({ tenantId: c.x }),
+    },
+  );
+
+  E(
+    "executions-api.findDecision (parent chain omitted)",
+    (c) => XA(c).findDecision({ tenantId: c.x, executionId: c.pl.decidedId }),
+    {
+      control: async (c) => {
+        const e = await withDecision(c);
+        return XA(c).findDecision({
+          tenantId: c.x,
+          workspaceId: c.ws,
+          repositoryId: c.repo.id,
+          pipelineId: c.pl.pipeline.id,
+          executionId: e.id,
+        });
+      },
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

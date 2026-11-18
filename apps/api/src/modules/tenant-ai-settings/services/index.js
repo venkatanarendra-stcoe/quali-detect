@@ -8,7 +8,11 @@ import { toAiSettingsDto } from "../mappers/index.js";
 export function createTenantAiSettingsService({ repository, audit, llm }) {
   return Object.freeze({
     async get(actor) {
-      return toAiSettingsDto(await repository.findSettings({ tenantId: actor.tenantId }), llm);
+      const row = await repository.findSettings({ tenantId: actor.tenantId });
+      const changedBy = row
+        ? await repository.findConsentChangedBy({ tenantId: actor.tenantId })
+        : null;
+      return toAiSettingsDto(row, llm, changedBy);
     },
     /**
      * Turns the external-provider consent on or off. A real change is written and audited in ONE transaction (metadata: the
@@ -35,7 +39,8 @@ export function createTenantAiSettingsService({ repository, audit, llm }) {
             },
             { tx },
           );
-        return toAiSettingsDto(result.row, llm);
+        const changedBy = await repository.findConsentChangedBy({ tenantId: actor.tenantId }, tx);
+        return toAiSettingsDto(result.row, llm, changedBy);
       });
     },
   });

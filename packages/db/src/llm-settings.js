@@ -29,6 +29,28 @@ export function createTenantLlmSettingsRepository({ db }) {
       client.tenantLlmSettings.findUnique({ where: { tenantId: assertTenantId(tenantId) } }),
 
     /**
+     * The display name of the user who last changed the consent, for the settings card. Reached by the tenant id only: the
+     * settings row is read by the tenant, and the user is returned only while they hold a membership of THAT tenant (any
+     * status, since the history stays true after a removal), so a user id that somehow points at another tenant's user, or
+     * at a deleted one (the column is set to NULL on delete), yields null. Only the name leaves: never the id or the email.
+     * @param {{ tenantId: string }} scope
+     * @returns {Promise<{ displayName: string } | null>}
+     */
+    async findConsentChangedBy({ tenantId }, client = db) {
+      const scoped = assertTenantId(tenantId);
+      const row = await client.tenantLlmSettings.findUnique({
+        where: { tenantId: scoped },
+        select: { updatedByUserId: true },
+      });
+      if (!row?.updatedByUserId) return null;
+      const user = await client.user.findFirst({
+        where: { id: row.updatedByUserId, memberships: { some: { tenantId: scoped } } },
+        select: { name: true },
+      });
+      return user?.name ? { displayName: user.name } : null;
+    },
+
+    /**
      * Sets the consent. Must run inside a transaction (`tx` is required): a per-tenant advisory lock serializes concurrent
      * writers so `previous` is exact, and the caller writes the audit entry in the same transaction. A write that does not
      * change the value touches nothing (`changed: false`).

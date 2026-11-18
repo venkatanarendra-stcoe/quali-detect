@@ -48181,13 +48181,27 @@
                         "consentChangedAt": {
                           "type": "string",
                           "nullable": true
+                        },
+                        "consentChangedBy": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "displayName": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "displayName"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "externalConsent",
                         "assistant",
                         "updatedAt",
-                        "consentChangedAt"
+                        "consentChangedAt",
+                        "consentChangedBy"
                       ]
                     },
                     "meta": {
@@ -48509,13 +48523,27 @@
                         "consentChangedAt": {
                           "type": "string",
                           "nullable": true
+                        },
+                        "consentChangedBy": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "displayName": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "displayName"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
                         "externalConsent",
                         "assistant",
                         "updatedAt",
-                        "consentChangedAt"
+                        "consentChangedAt",
+                        "consentChangedBy"
                       ]
                     },
                     "meta": {

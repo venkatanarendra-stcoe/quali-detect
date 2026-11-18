@@ -1,6 +1,6 @@
 # Screens: scan decisioning (T-29 "Analysis and decision")
 
-Status: **Approved (2026-11-17)** with the SPEC of this module (owner approval). Built in part F (2026-11-18), see section 9 "As built" for what was and was not verified. This module adds **one section to T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and changes nothing else on that screen, on T-28 or on navigation. Labels: **Confirmed** = the owner's 2026-11-17 brief; **Recommended** = my proposal; **Open** = needs the owner.
+Status: **Implemented (2026-11-18)**; approved 2026-11-17 with the SPEC of this module (owner approval). Built in part F and amended in part G and by the owner decisions of 2026-11-18; section 9 "As built" is authoritative where it differs from the sections above, and states what was and was not verified (the T-29 card and the consent card are **not confirmed in a browser; owner to confirm**). This module adds **one section to T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and changes nothing else on that screen, on T-28 or on navigation. Labels: **Confirmed** = the owner's 2026-11-17 brief; **Recommended** = my proposal; **Open** = needs the owner.
 
 ## Decisions applied from the brief
 
@@ -35,7 +35,7 @@ A `DataTable`-style list, one row per **enabled** scan type plus a row for each 
 |---|---|
 | Scan type | name (SBOM, SCA, SAST, Secrets) |
 | Decision | chip with **icon + text** (never colour alone): **Required** (neutral/mint-free tone, check icon), **Added by assistant** (info tone, sparkle icon), **Not selected** (muted, minus icon), **Not enabled** (muted, dash) |
-| Reason | for **Required**: the rule in words ("A dependency file changed", "Source code changed", "Any change is scanned for secrets", "Changed files could not be listed, so everything runs"); for **Added by assistant**: the model's reason (see 2.4); for **Not selected**: "No matching changes" |
+| Reason | for **Required**: the rule in words ("A dependency file changed", "Source code changed", "An added or modified file is scanned for secrets" (the only Secrets rule; `strict` was removed, SPEC 17.h), "Changed files could not be listed, so everything runs"); for **Added by assistant**: the model's reason (see 2.4); for **Not selected**: "No matching changes" |
 | Task | link to the task card below ("View task") when a task exists, with its status chip (including "Not supported" for `unsupported`); an em dash when no task exists |
 
 Rules: the wording of every **Required** reason comes from a fixed map of rule ids to text in the frontend (no model text, no free text from the API there). Rows are static text; no editing.
@@ -127,3 +127,12 @@ Frontend only (`apps/tenant-web`); no backend, database or contract change. The 
 - **NOT verified: any visual or browser check.** No browser tool was available. Not seen in a browser: layout at 1280 and 1440 px, light and dark themes, focus rings, the 3-line clamp and the "Show more" overflow detection (it measures `scrollHeight`, which only runs in a browser), the native disclosure, the consent dialog, keyboard-only use, the live refetch on the `execution.decision` hint, the persisted collapse choice, and the settings page with the seven default roles. Not run against a real decision: the dev database has not had the part E migration applied by this work, so no execution with a `decision` was loaded.
 - Hostile-string matrix for the manual pass (**not yet run**): a reason, summary, model name and sample path each containing `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `**bold**`, `[link](javascript:alert(1))`, a 5000-character unbroken word, a right-to-left override (U+202E), NUL and other C0 characters, line breaks, and an emoji; expected result for each: shown as inert single-line text, nothing executes, no link or bold, the page does not widen, "Show more" works with the keyboard.
 - Section 7's matrix (seven roles, every `agent.status`, full/incremental/truncated/unavailable, fork, no decision, zero scans, reclaim, themes, sizes, keyboard) is **not yet run**.
+
+**Amendments after part G (2026-11-18, as built; the live test is SPEC 17.i).**
+- `strict` is gone: there is one Secrets rule and one reason text (above). A removal-only change selects no Secrets scan.
+- A run whose DECIDED types all have no engine ends `failed` / `tasks_unsupported` from `preparing` with the quota unit given back (SPEC 17.g). The card shows the decision with the tasks created as `Not supported` (the "View task" links work), and the execution reason reads "No enabled scan type is supported yet" (`reasonText` in `constants/index.js`). That wording says "enabled" although the check is on the decided types (it differs from the SPEC term "no decided scan type has a registered engine"); a wording refinement is left to the owner, no code was changed here.
+- Zero scans: `succeeded` with the reason "No scan applied" and no task cards, as in 2.1.
+- Consent card: shows "On, last changed <time> by <name>" using `consentChangedBy` (`{ displayName }` or `null`, never an id or an e-mail), see section 9 above.
+- The 2.4 "1 call" part of the usage line is not shown (the DTO carries no turn count); the line reads "412 in / 96 out tokens - 3.1 s".
+
+**Verification status after the live test (honest).** The data these screens display was verified in the database for the live cases (SPEC 17.i): floor reasons, agent statuses (`not_configured`, `nothing_to_add`, `ok`, `skipped_fork`, `interrupted`, `invalid_output`), the zero-scan, all-unsupported and cancelled endings. **No browser check of T-29 or the consent card was done by the agent. Owner to confirm T-29** (and the consent card with the seven roles, the hostile-string matrix of this section and the section 7 matrix, which stay NOT run).

@@ -21,11 +21,14 @@ export const taskChangedHint = z.object({
   status: z.string().optional(),
   rev: z.number().int().optional(),
 });
+/** `execution.decision`: the scan decision was recorded. Ids and a revision only; the decision itself is read through the API. */
+export const decisionHint = z.object({ executionId: id, rev: z.number().int().optional() });
 export const logAppendedHint = z.object({ executionId: id, lastSeq: z.number().int() });
 export const subscriptionEndedHint = z.object({ scope: z.string(), id: z.string() });
 
 export const HINT_SCHEMAS = Object.freeze({
   "execution.changed": executionChangedHint,
+  "execution.decision": decisionHint,
   "task.changed": taskChangedHint,
   "log.appended": logAppendedHint,
   "subscription.ended": subscriptionEndedHint,

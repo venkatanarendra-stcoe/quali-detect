@@ -17,6 +17,9 @@ export function stagesOf(e) {
       id: "preparing",
       label: "Preparing",
       at: null,
+      sub: e.decision?.decidedAt
+        ? { label: "Analysis and decision", at: e.decision.decidedAt }
+        : null,
       state: rank === 1 ? "current" : reached(1) ? "done" : "skipped",
     },
     {
@@ -68,6 +71,17 @@ export function StageTimeline({ execution }) {
                 >
                   {relativeTime(stage.at)}
                 </time>
+              ) : null}
+              {stage.sub && stage.state !== "upcoming" ? (
+                <span className="block text-xs text-muted-foreground">
+                  {stage.sub.label}{" "}
+                  <time
+                    dateTime={stage.sub.at}
+                    title={absoluteTime(stage.sub.at, { dateStyle: "medium", timeStyle: "medium" })}
+                  >
+                    {relativeTime(stage.sub.at)}
+                  </time>
+                </span>
               ) : null}
             </span>
           </li>

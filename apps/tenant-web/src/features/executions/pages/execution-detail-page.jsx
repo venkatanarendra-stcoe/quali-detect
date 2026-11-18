@@ -27,6 +27,7 @@ import {
   UntrustedForkBadge,
   triggerText,
 } from "../components/execution-bits.jsx";
+import { AnalysisCard } from "../components/analysis-card.jsx";
 import { ExecutionFacts, Notices } from "../components/execution-facts.jsx";
 import { EventsTab } from "../components/events-tab.jsx";
 import { LiveIndicator } from "../components/live-indicator.jsx";
@@ -222,6 +223,7 @@ function Detail({ execution, live, registerRefresh }) {
         <div className="mb-4 grid gap-4 min-[1440px]:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
           <div className="min-w-0 space-y-4">
             <StageTimeline execution={e} />
+            <AnalysisCard execution={e} />
             <TaskCards tasks={e.tasks} onViewLog={viewLog} />
           </div>
           <ExecutionFacts execution={e} />
@@ -250,6 +252,7 @@ function Detail({ execution, live, registerRefresh }) {
             executionId={e.id}
             enabled={tab === "events"}
             live={live.live}
+            decision={e.decision ?? null}
           />
         </TabsContent>
       </Tabs>
@@ -283,6 +286,12 @@ export function ExecutionDetailPage() {
       const cached = queryClient.getQueryData(key);
       if (name === "execution.changed") {
         if (cached && hint.rev <= cached.rev) return; // older or duplicate hint: ignored
+        queryClient.invalidateQueries({ queryKey: key, exact: true });
+        queryClient.invalidateQueries({
+          queryKey: executionKeys.events(tenantId, workspaceId, executionId),
+        });
+      } else if (name === "execution.decision") {
+        // the decision was recorded: read it (and the new history rows) through the API; the hint carries no decision data
         queryClient.invalidateQueries({ queryKey: key, exact: true });
         queryClient.invalidateQueries({
           queryKey: executionKeys.events(tenantId, workspaceId, executionId),

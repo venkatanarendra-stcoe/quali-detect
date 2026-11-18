@@ -1,11 +1,12 @@
 import { ArrowRight, History } from "lucide-react";
 import { QueryTable } from "@/components/common/query-table.jsx";
 import { EmptyState } from "@/components/states/empty-state.jsx";
+import { analysisCompletedLabel } from "../constants/decision-text.js";
 import { EVENT_LABELS, reasonText } from "../constants/index.js";
 import { useExecutionEvents } from "../hooks/use-executions.js";
 import { ExecutionStatusChip, TimeAgo } from "./execution-bits.jsx";
 
-const columns = [
+const buildColumns = (decision) => [
   {
     id: "at",
     header: "Time",
@@ -25,6 +26,8 @@ const columns = [
           ) : null}
           <ExecutionStatusChip status={ev.toStatus} />
         </span>
+      ) : ev.type === "decision_completed" ? (
+        analysisCompletedLabel(decision)
       ) : (
         (EVENT_LABELS[ev.type] ?? ev.type.replace(/_/g, " "))
       ),
@@ -42,14 +45,17 @@ const columns = [
   },
 ];
 
-/** Events tab: the status history, oldest first, cursor "Load more". The API reports the actor kind only, not a name. */
-export function EventsTab({ workspaceId, executionId, enabled, live }) {
+/**
+ * Events tab: the status history, oldest first, cursor "Load more". The API reports the actor kind only, not a name. The events
+ * carry no details, so "Analysis completed" takes the final scan types from the execution's decision.
+ */
+export function EventsTab({ workspaceId, executionId, enabled, live, decision = null }) {
   const events = useExecutionEvents(workspaceId, executionId, { enabled, live });
   return (
     <QueryTable
       caption="Execution history"
       query={events}
-      columns={columns.map((c) => ({ ...c, enableSorting: false }))}
+      columns={buildColumns(decision).map((c) => ({ ...c, enableSorting: false }))}
       getRowId={(ev) => String(ev.seq)}
       height="auto"
       maxHeight="28rem"

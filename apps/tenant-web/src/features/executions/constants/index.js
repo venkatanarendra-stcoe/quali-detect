@@ -71,6 +71,7 @@ export const isCancelling = (e) =>
 /** Plain words for `statusReason` codes of an execution (unknown codes fall back to the code in words). */
 export const STATUS_REASONS = Object.freeze({
   ...DECISION_REASONS,
+  no_applicable_scans: "No scan applied",
   superseded: "Replaced by a newer request",
   pipeline_deleted: "The pipeline was deleted",
   quota_exceeded: "Quota exceeded",
@@ -150,6 +151,8 @@ export const TASK_TITLES = Object.freeze({
 });
 /** Display order of the task cards (SBOM, SCA, SAST, Secrets). */
 export const TASK_ORDER = SCAN_TASK_ORDER;
+/** The DOM id of a task card toggle, so the decision table can move focus to it. */
+export const taskToggleId = (taskId) => `task-toggle-${taskId}`;
 
 export const TRIGGER_FILTERS = Object.freeze([
   { value: "push", label: "Push" },
@@ -192,6 +195,8 @@ export const EVENT_LABELS = Object.freeze({
   limit_deferred: "Waiting for capacity",
   retry_requested: "Retry requested",
   task_unsupported: "A scan type is not supported yet",
+  decision_started: "Analysis started",
+  decision_completed: "Analysis completed",
 });
 
 /** Refusals of cancel and retry (`409 details.reason`, SPEC §8.1) in plain words. */

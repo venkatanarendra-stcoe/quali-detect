@@ -7,6 +7,7 @@ import {
   IntegrationsCatalogPage,
   WorkspaceIntegrationsPage,
 } from "@/features/integrations/index.js";
+import { OrganizationSettingsPage } from "@/features/organization/pages/organization-settings-page.jsx";
 import { OverviewPage } from "@/features/organization/pages/overview-page.jsx";
 import { PlannedModulePage } from "@/features/placeholders/pages/planned-module-page.jsx";
 import {
@@ -107,7 +108,7 @@ export const ORG_ROUTES = [
     path: "settings",
     permission: "tenant_settings.view",
     scope: "tenant",
-    element: planned("Organization settings", "Organization settings are planned."),
+    element: <OrganizationSettingsPage />,
   },
   {
     itemId: "audit-logs",

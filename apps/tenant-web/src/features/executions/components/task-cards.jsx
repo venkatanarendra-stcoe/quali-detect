@@ -10,7 +10,7 @@ import {
 import { useId, useState } from "react";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
-import { TASK_ORDER, TASK_TITLES, taskReasonText } from "../constants/index.js";
+import { TASK_ORDER, TASK_TITLES, taskReasonText, taskToggleId } from "../constants/index.js";
 import { TaskStatusChip, formatDuration } from "./execution-bits.jsx";
 
 const SEVERITIES = [
@@ -81,6 +81,7 @@ function TaskCard({ task, onViewLog }) {
   return (
     <li className="min-w-0 rounded-md border border-border bg-card text-card-foreground">
       <button
+        id={taskToggleId(task.id)}
         type="button"
         aria-expanded={open}
         aria-controls={panel}

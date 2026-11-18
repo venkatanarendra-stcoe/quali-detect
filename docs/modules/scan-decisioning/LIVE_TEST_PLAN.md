@@ -209,7 +209,7 @@ Also set `EXECUTION_LEASE_TTL_SECONDS=40`, `EXECUTION_HEARTBEAT_SECONDS=8`, `SCA
 
 ### LT-13 reclaim: kill -9 during the decision
 
-Two variants. **Variant 1 (kill at `decision_started`, before any model request)** and **variant 2 (kill with a model request in flight)**. Run 2026-11-18: variant 1 passed (two executions, one `recovered` event each, `agent_status = interrupted`, zero proxy requests, because `decision_started` is written BEFORE the GitHub diff fetch and the model call, so a watcher keyed on `decision_started` kills before any request exists). Variant 2 is the one that shows an abandoned in-flight request.
+Two variants. **Variant 1 (kill at `decision_started`, before any model request)** and **variant 2 (kill with a model request in flight)**. Run 2026-11-18: variant 1 passed (two executions, one `recovered` event each, `agent_status = interrupted`, zero proxy requests, because `decision_started` is written BEFORE the GitHub diff fetch and the model call, so a watcher keyed on `decision_started` kills before any request exists). Variant 2 is the one that shows an abandoned in-flight request. Variant 2, first attempt 2026-11-18: NOT demonstrated (the watcher had a `grep -c ... || echo 0` bug that made it never fire, the worker was killed by hand and the proxy log shows no in-flight request; reclaim and `interrupted` were as expected). Count lines with `count()` below, not `|| echo 0`.
 
 - **Setup.** The logging slow proxy above (its log has an `arrive` line when a request comes in and an `answered` line when Ollama replies, so an abandoned request is visible), the pipeline worker alone in its terminal with the section 5 overrides.
 - **Action (variant 2).** Start the watcher in a second terminal, then push LT-01 content. The watcher kills the worker (`kill -9`, only the non-`--watch` node process of `src/pipeline/main.js`) as soon as an execution has `decision_started` and no decision row AND the proxy log has a new `arrive` line, i.e. a model request is in flight:
@@ -218,10 +218,10 @@ Two variants. **Variant 1 (kill at `decision_started`, before any model request)
 
 ```sh
 . /tmp/pgenv.sh; LOG=$HOME/ollama-proxy-11999.log
-base=$(grep -c '"event":"arrive"' "$LOG" || echo 0)
+count() { grep -c '"event":"arrive"' "$LOG" 2>/dev/null | head -1; }; base=$(count); base=${base:-0}
 while true; do
   r=$(psql -Atc "SELECT e.id FROM execution_events v JOIN executions e ON e.id = v.execution_id WHERE v.type = 'decision_started' AND e.status = 'preparing' AND NOT EXISTS (SELECT 1 FROM scan_decisions d WHERE d.execution_id = e.id) ORDER BY v.at DESC LIMIT 1")
-  now=$(grep -c '"event":"arrive"' "$LOG" || echo 0)
+  now=$(count); now=${now:-0}
   if [ -n "$r" ] && [ "$now" -gt "$base" ]; then sleep 1; kill -9 $(ps -eo pid,args | awk '/[n]ode .*src\/pipeline\/main.js/ && !/--watch/ {print $1}'); echo "killed with $r"; break; fi
   sleep 0.1
 done

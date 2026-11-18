@@ -107,7 +107,7 @@ export const STATUS_REASONS = Object.freeze({
 export function reasonText(code, status) {
   if (!code) return null;
   if (code === "tasks_unsupported" && status === "failed")
-    return "No enabled scan type is supported yet";
+    return "None of the scans for this run is supported yet";
   return STATUS_REASONS[code] ?? humanize(code);
 }
 

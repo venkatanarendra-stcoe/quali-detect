@@ -12,6 +12,7 @@ export const SANDBOX_ERROR_CODES = Object.freeze({
   runtimeError: "runtime_error",
   capacity: "capacity",
   imageUnavailable: "image_unavailable",
+  toolDeferred: "tool_deferred",
 });
 
 export class SandboxError extends Error {

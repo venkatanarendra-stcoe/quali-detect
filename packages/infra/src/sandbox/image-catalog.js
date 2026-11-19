@@ -7,11 +7,12 @@ import { IMAGE_DIGEST_PATTERN, TOOL_ID_PATTERN } from "./policy.js";
  * and calls these functions), no clock, no network.
  *
  * Rules (SPEC 14.1 ENG-S02): a key resolves only to an ADOPTED entry with a well-formed `sha256:` registry digest; a tag is never
- * accepted; EXCLUDED and UNVERIFIED entries are never resolvable; a placeholder digest is refused in production mode; a locally
+ * accepted; EXCLUDED, UNVERIFIED and DEFERRED_V2 entries are never resolvable (a DEFERRED_V2 entry, Grype in v1 per SPEC OQ-24, is
+ * refused with its own code `tool_deferred`); a placeholder digest is refused in production mode; a locally
  * built image (no registry digest yet) is FLAGGED by the validator and is not resolvable until it has one. The scan path always runs
  * with `--pull=never` (the argument builder), so a resolved digest must already be in the runtime's local store (provisioning).
  *
- * @typedef {"ADOPTED" | "EXCLUDED" | "UNVERIFIED"} ImageStatus
+ * @typedef {"ADOPTED" | "EXCLUDED" | "UNVERIFIED" | "DEFERRED_V2"} ImageStatus
  * @typedef {{
  *   scannedAt: string, scanner: string, scannerVersion: string, dataSnapshotSha256: string,
  *   counts: { critical: number, high: number, medium: number, low: number, unknown: number }
@@ -28,7 +29,7 @@ import { IMAGE_DIGEST_PATTERN, TOOL_ID_PATTERN } from "./policy.js";
  */
 
 export const IMAGE_LOCK_SCHEMA_VERSION = 1;
-export const IMAGE_STATUSES = Object.freeze(["ADOPTED", "EXCLUDED", "UNVERIFIED"]);
+export const IMAGE_STATUSES = Object.freeze(["ADOPTED", "EXCLUDED", "UNVERIFIED", "DEFERRED_V2"]);
 export const SCAN_TYPES = Object.freeze(["sbom", "sca", "sast", "secrets", "evidence"]);
 export const IMAGE_ENTRY_REQUIRED_FIELDS = Object.freeze([
   "key",
@@ -58,6 +59,7 @@ export const IMAGE_FLAGS = Object.freeze([
   "data_licence_legal_gate",
   "data_quarantined",
   "own_build",
+  "deferred_v2",
   "not_selected",
   "mandatory_flags",
 ]);
@@ -134,7 +136,7 @@ export function validateImageLock(lock, { production = false } = {}) {
     if (typeof e.licence !== "string" || !SPDX.test(e.licence))
       err(`${at}: licence must be an SPDX identifier`);
     if (!IMAGE_STATUSES.includes(e.status))
-      err(`${at}: status must be ADOPTED, EXCLUDED or UNVERIFIED`);
+      err(`${at}: status must be ADOPTED, EXCLUDED, UNVERIFIED or DEFERRED_V2`);
     if (e.user !== null && (typeof e.user !== "string" || !USER.test(e.user)))
       err(`${at}: user must be null or numeric non-root uid:gid`);
     if (!Array.isArray(e.flags) || !e.flags.every((f) => IMAGE_FLAGS.includes(f)))
@@ -231,10 +233,17 @@ export function validateImageLock(lock, { production = false } = {}) {
         } else err(`${at}: an ADOPTED image needs a digest`);
       } else if (e.flags?.includes("local_build_requires_registry_digest"))
         err(`${at}: flag local_build_requires_registry_digest but a digest is set`);
-    } else if (e.status === "EXCLUDED" || e.status === "UNVERIFIED") {
+    } else if (e.status === "EXCLUDED" || e.status === "UNVERIFIED" || e.status === "DEFERRED_V2") {
       if (e.approvedBy !== null || e.approvedAt !== null)
         err(`${at}: a non-ADOPTED image must not carry an approval`);
     }
+    if (
+      (e.status === "DEFERRED_V2") !==
+      (Array.isArray(e.flags) && e.flags.includes("deferred_v2"))
+    )
+      err(`${at}: the flag deferred_v2 and the status DEFERRED_V2 go together`);
+    if (e.status === "DEFERRED_V2")
+      warnings.push(`${at}: deferred to v2 (SPEC OQ-24); never resolvable in v1`);
     if (e.status === "ADOPTED" && e.approvedBy === null)
       warnings.push(
         `${at}: not yet approved by an owner (approvedBy/approvedAt) - lock entries are proposals until approved`,
@@ -271,17 +280,25 @@ export function createImageResolver(lock, { production = false } = {}) {
       [reason],
     );
   };
+  const deferred = () => {
+    throw new SandboxError(
+      SANDBOX_ERROR_CODES.toolDeferred,
+      "tool not available in v1: deferred to v2",
+      ["deferred_v2"],
+    );
+  };
   return Object.freeze({
     /**
      * @param {string} key a catalog key (never a repository, a tag or a reference)
      * @param {{ scanType?: string }} [options] when given, the entry must serve that scan type
      * @returns {{ key: string, toolId: string, image: string, version: string, licence: string, user: string, pullPolicy: "never" }}
-     * @throws {SandboxError} `image_unavailable` with a reason code (`unknown_key`, `not_adopted`, `no_registry_digest`, `placeholder_digest`, `scan_type`)
+     * @throws {SandboxError} `tool_deferred` for a DEFERRED_V2 entry (Grype, v1); otherwise `image_unavailable` with a reason code (`unknown_key`, `not_adopted`, `no_registry_digest`, `placeholder_digest`, `scan_type`)
      */
     resolve(key, { scanType } = {}) {
       if (typeof key !== "string" || !KEY.test(key)) return refuse("unknown_key");
       const e = byKey.get(key);
       if (!e) return refuse("unknown_key");
+      if (e.status === "DEFERRED_V2") return deferred();
       if (e.status !== "ADOPTED") return refuse("not_adopted");
       if (scanType !== undefined && !e.scanTypes.includes(scanType)) return refuse("scan_type");
       if (!e.digest) return refuse("no_registry_digest");

@@ -67,8 +67,9 @@ Only language-ecosystem data from the allowed sources may be used (SPEC 5.12.1);
 
 ## 6. State of the committed lock file (read before relying on it)
 
-- 10 adopted or proposed entries and 5 excluded ones, copied from `IMAGES.md`. Seven entries carry a registry digest (Syft, Trivy, Grype, OSV-Scanner, Bandit, gosec, Gitleaks) plus the excluded Semgrep OSS.
+- 10 adopted or proposed entries and 5 excluded ones, copied from `IMAGES.md`. Seven entries carry a registry digest (Syft, Trivy, OSV-Scanner, Bandit, gosec, Gitleaks, and Grype, which is DEFERRED_V2) plus the excluded Semgrep OSS.
 - **Opengrep and detect-secrets are own builds with no registry digest.** They are flagged, produce a validator warning, are not resolvable, and become validator errors in production mode until the mirror digest is recorded.
-- **Grype is ADOPTED as code but its DB data is quarantined (D-15, OQ-24):** the lock lists it with `data_quarantined`; nothing may mount a Grype DB, so the adapter cannot run until the owner decides OQ-24.
+- **Grype is `DEFERRED_V2` (owner decision on OQ-24, 2026-11-19, SPEC D-21):** its aggregated DB licence is unstated, so it is not in the v1 SCA ensemble. The lock keeps the digest for traceability with the flags `deferred_v2` and `data_quarantined`; the resolver refuses it with the code `tool_deferred` (distinct from `image_unavailable`), and `runnableKeys()` omits it. v2 brings it back with an own-built DB from NVD + GHSA.
+- **Own-built images:** recording the mirror registry digests of Opengrep and detect-secrets is a pre-production task of the owner; the production-mode error of the loader stays correct until then.
 - No entry is approved by an owner, none has a signature check, an image SBOM or a self-scan. These are the owner's pre-production steps (ENG-L15).
 - The block extractor is `UNVERIFIED` (the image is not built, Part J).

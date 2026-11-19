@@ -69,12 +69,12 @@
       "version": "0.122.1",
       "licence": "Apache-2.0",
       "user": "65534:65534",
-      "status": "ADOPTED",
+      "status": "DEFERRED_V2",
       "source": {
         "kind": "upstream"
       },
-      "flags": ["data_licence_legal_gate", "data_quarantined"],
-      "notes": "Code is adopted; its DB data licence is unstated and QUARANTINED for v1 (D-15, OQ-24): no DB may be shipped or mounted, so the adapter cannot run until OQ-24 is decided.",
+      "flags": ["deferred_v2", "data_quarantined"],
+      "notes": "DEFERRED to v2 (owner decision on OQ-24, 2026-11-19): the aggregated Grype DB licence is unstated, so Grype is not in the v1 SCA ensemble and the resolver refuses it. Returns in v2 with an own-built DB from NVD and GHSA only. The digest is kept for traceability.",
       "sourceUrl": "https://github.com/anchore/grype",
       "licenceReviewedAt": null,
       "approvedBy": null,

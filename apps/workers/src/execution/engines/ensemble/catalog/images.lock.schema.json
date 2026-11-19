@@ -59,7 +59,7 @@
           "description": "SPDX identifier or expression; LicenseRef-* for non-SPDX licences"
         },
         "user": { "type": ["string", "null"], "pattern": "^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$" },
-        "status": { "enum": ["ADOPTED", "EXCLUDED", "UNVERIFIED"] },
+        "status": { "enum": ["ADOPTED", "EXCLUDED", "UNVERIFIED", "DEFERRED_V2"] },
         "source": {
           "type": "object",
           "additionalProperties": false,
@@ -79,6 +79,7 @@
               "data_licence_legal_gate",
               "data_quarantined",
               "own_build",
+              "deferred_v2",
               "not_selected",
               "mandatory_flags"
             ]

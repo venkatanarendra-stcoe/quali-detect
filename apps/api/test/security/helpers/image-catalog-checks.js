@@ -79,9 +79,11 @@ export const IMAGE_CATALOG_CHECKS = [
         );
       ok(
         p,
-        base.warnings.some((w) => /grype: data_quarantined/.test(w)),
-        "grype quarantine not warned",
+        base.warnings.some((w) => /grype: data_quarantined/.test(w)) &&
+          base.warnings.some((w) => /grype: deferred to v2/.test(w)),
+        "grype quarantine or deferral not warned",
       );
+      ok(p, entryOf(lock, "grype").status === "DEFERRED_V2", "grype is not DEFERRED_V2");
       ok(
         p,
         ["syft", "trivy", "gitleaks"].every((k) =>
@@ -148,6 +150,9 @@ export const IMAGE_CATALOG_CHECKS = [
         "unverified with approval date",
         (l) => (entryOf(l, "block-extractor").approvedAt = "2026-11-19"),
       );
+      mut("deferred entry with approval", (l) => (entryOf(l, "grype").approvedBy = "owner"));
+      mut("deferred status without its flag", (l) => (entryOf(l, "grype").flags = []));
+      mut("deferred flag on an adopted entry", (l) => (syft(l).flags = ["deferred_v2"]));
       mut("local build without its flag", (l) => (entryOf(l, "opengrep").flags = ["own_build"]));
       mut("local build without image id", (l) => delete entryOf(l, "opengrep").source.localImageId);
       mut("flag with a digest", (l) => {
@@ -376,6 +381,30 @@ export const IMAGE_CATALOG_CHECKS = [
           throwsReason(() => resolver.resolve(k)) === "not_adopted",
           `${k}: not refused as not_adopted`,
         );
+      // Grype is deferred to v2 (OQ-24): refused with its own stable code, with and without a scan type, even though it has a digest
+      for (const opts of [undefined, { scanType: "sca" }, { scanType: "sast" }]) {
+        let code = null;
+        let reason = null;
+        try {
+          resolver.resolve("grype", opts);
+        } catch (e) {
+          code = e instanceof SandboxError ? e.code : `non-sandbox ${e?.name}`;
+          reason = e?.problems?.[0];
+        }
+        ok(p, code === "tool_deferred" && reason === "deferred_v2", `grype resolve: ${code}`);
+      }
+      ok(p, !resolver.runnableKeys().includes("grype"), "grype is runnable");
+      ok(
+        p,
+        (() => {
+          const l = clone(lock);
+          entryOf(l, "grype").status = "ADOPTED";
+          entryOf(l, "grype").flags = [];
+          entryOf(l, "grype").approvedBy = null;
+          return createImageResolver(l).resolve("grype").key === "grype";
+        })(),
+        "control: an ADOPTED grype entry must resolve (the refusal comes from the status)",
+      );
       for (const k of ["opengrep", "detect-secrets"])
         ok(
           p,
@@ -578,6 +607,8 @@ export const IMAGE_CATALOG_CHECKS = [
           );
         if (e.status === "ADOPTED")
           ok(p, /ADOPTED/.test(row), `${e.key}: the row does not say ADOPTED`);
+        if (e.status === "DEFERRED_V2")
+          ok(p, /DEFERRED/.test(row), `${e.key}: the row does not say DEFERRED`);
         if (e.status === "EXCLUDED")
           ok(p, /EXCLUDED|NOT SELECTED/.test(row), `${e.key}: the row does not say EXCLUDED`);
         if (e.source.kind === "own_build" && e.source.localImageId)
@@ -598,8 +629,8 @@ export const IMAGE_CATALOG_CHECKS = [
       );
       ok(
         p,
-        lock.images.filter((e) => e.status === "ADOPTED" && e.digest).length >= 7,
-        "fewer than 7 adopted registry digests",
+        lock.images.filter((e) => e.status === "ADOPTED" && e.digest).length >= 6,
+        "fewer than 6 adopted registry digests",
       );
       // schema file
       const schema = JSON.parse(

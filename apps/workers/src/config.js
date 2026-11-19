@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readGitHubAppConfig, readLLMConfig } from "@qmentisai/infra";
+import { readGitHubAppConfig, readLLMConfig, sandboxConfigProblems } from "@qmentisai/infra";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -90,6 +90,19 @@ const envSchema = z.object({
   SCAN_DECISION_AGENT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(20),
   SCAN_DECISION_MAX_TURNS: z.coerce.number().int().min(1).max(5).default(3),
   SCAN_DECISION_CONTEXT_PATHS: z.coerce.number().int().min(0).max(500).default(100),
+  // Scan engines (docs/modules/scan-engines/SPEC.md part A, ADR-014). OFF BY DEFAULT (D-12): the flag exists but NOTHING reads it yet
+  // (the scan worker is wired in part K). The sandbox settings below only describe the container runtime CLI; no secret is involved.
+  SCAN_ENGINES_ENSEMBLE_ENABLED: z.enum(["true", "false"]).default("false"),
+  // The Docker-compatible CLI (execFile, never a shell). Nothing assumes a rootful runtime; rootless operation and uid mapping are
+  // UNVERIFIED (SPEC D-20, ENG-L18). The Docker socket is never mounted into a container.
+  SANDBOX_RUNTIME_BIN: z.enum(["docker", "podman"]).default("podman"),
+  SANDBOX_USER: z.string().default("65534:65534"),
+  SANDBOX_USERNS_MODE: z.enum(["keep-id", "auto", "nomap"]).optional(),
+  SANDBOX_UIDMAP: z.string().optional(),
+  SANDBOX_GIDMAP: z.string().optional(),
+  SANDBOX_SECCOMP_PROFILE: z.string().optional(),
+  SANDBOX_STDOUT_MAX_BYTES: z.coerce.number().int().min(1024).max(2147483648).default(134217728),
+  SANDBOX_CLI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(30000),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -211,6 +224,19 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       variable: "EXECUTION_METADATA_RETENTION_MONTHS",
       message: "must keep execution metadata at least as long as the logs",
     });
+  const sandbox = {
+    runtimeBin: e.SANDBOX_RUNTIME_BIN,
+    containerUser: e.SANDBOX_USER,
+    usernsMode: e.SANDBOX_USERNS_MODE ?? null,
+    uidMap: e.SANDBOX_UIDMAP ? e.SANDBOX_UIDMAP.split(",") : [],
+    gidMap: e.SANDBOX_GIDMAP ? e.SANDBOX_GIDMAP.split(",") : [],
+    seccompProfile: e.SANDBOX_SECCOMP_PROFILE ?? null,
+    ceilings: { stdoutBytes: e.SANDBOX_STDOUT_MAX_BYTES },
+    cliTimeoutMs: e.SANDBOX_CLI_TIMEOUT_MS,
+  };
+  // fail fast on an invalid sandbox setting (names the variable's concept, never the value); mount roots are supplied at wiring (part K)
+  for (const problem of sandboxConfigProblems(sandbox))
+    executionProblems.push({ variable: `SANDBOX_* (${problem.field})`, message: problem.message });
   if (executionProblems.length > 0) throw new ConfigError(executionProblems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
@@ -293,6 +319,11 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
         maxRatio: e.EXECUTION_ARCHIVE_MAX_RATIO,
         maxDepth: e.EXECUTION_ARCHIVE_MAX_DEPTH,
       }),
+    }),
+    scanEngines: Object.freeze({
+      // rollout flag (D-12): defined here, consumed by nothing until part K
+      ensembleEnabled: e.SCAN_ENGINES_ENSEMBLE_ENABLED === "true",
+      sandbox: Object.freeze(sandbox),
     }),
     scanDecision: Object.freeze({
       secretsRule: e.SCAN_DECISION_SECRETS_RULE,

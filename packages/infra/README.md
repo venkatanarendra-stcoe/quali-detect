@@ -17,3 +17,11 @@ Server-only infrastructure abstractions shared by `apps/api` and `apps/workers` 
 - Idempotency: `idempotencyKey ?? messageId`, tenant-scoped; at-least-once delivery, so handlers must still be idempotent.
 
 Never log connection URLs; they can contain credentials. The key builders live in `packages/shared/src/keys.js`.
+
+## Scan sandbox (`src/sandbox`)
+
+Scan-layer container abstraction (docs/modules/scan-engines/SPEC.md part A, ADR-014; the only place a container runtime is reached). Not wired into the scan worker yet.
+
+- `SandboxRuntime` interface (`run`, `kill`, `remove`, `health`, `listByLabel`); drivers `createCliSandboxRuntime` (a Docker-compatible CLI, `docker` or `podman` by configuration, through `execFile` with no shell; it never mounts or requires the runtime socket and does not assume a rootful runtime) and `FakeSandboxRuntime` (tests).
+- `RunSpec` + `validateRunSpec` (no field can weaken the sandbox; the image is `repository@sha256:<digest>` only), pure `buildRunArgs` and the independent audit `findRunArgsProblems` / `assertRunArgsSafe`, `createJanitor` (orphans by label), `createSandboxRunner` (kill then remove for a whole attempt), `createCapacityGate`.
+- `validateSandboxConfig` (fail fast). UNVERIFIED: that a real runtime applies the generated flags, rootless operation and uid mapping (ENG-L01, ENG-L18).

@@ -36,6 +36,7 @@ import { DECISION_AGENT_CHECKS } from "./helpers/decision-agent-checks.js";
 import { DECISION_INTEGRATION_CHECKS } from "./helpers/decision-integration-checks.js";
 import { CANCEL_RETRY_CHECKS } from "./helpers/cancel-retry-checks.js";
 import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
+import { SANDBOX_CHECKS } from "./helpers/sandbox-checks.js";
 import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
 import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
@@ -55,7 +56,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 779;
+const EXPECTED_CHECKS = 787;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10390,6 +10391,22 @@ const schWorld = () =>
       name,
       { status: 200 },
       async () => ({ status: 200, json: null, problems: await run(await orchWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Scan engines, part A (ADR-008 area 18, SPEC scan-engines 14.1 and 16.1): the sandbox invocation, RunSpec, runner, janitor and
+// capacity gate against a fake runtime and a recording execFile. No container, runtime binary, database or network is used.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Scan engines: sandbox invocation and runner (Docker-free)");
+  for (const { id, name, run } of SANDBOX_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run() }),
       (r) => r.problems,
     );
 }

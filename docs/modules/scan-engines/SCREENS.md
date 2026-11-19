@@ -160,6 +160,7 @@ Not run. Unchecked until the screen exists:
 - Not-found page for a hidden workspace and another tenant; no-permission page; the tools never appear for them.
 - Logs tab: tool lines appear with the task filter; no stdout/stderr text appears.
 - The seven default roles on T-29 (the same open item as executions SCREENS section 10).
+- Advisory attribution (section 12): the exact GHSA attribution text and a working link appear wherever an SCA tool row shows advisory data (data date / snapshot line), in light and dark themes, readable at 1280 and 1440 widths and by a screen reader; absent when no advisory data is shown.
 
 ## 11. Open items for the owner
 
@@ -168,3 +169,14 @@ Not run. Unchecked until the screen exists:
 3. Live per-tool progress while a task runs (SPEC OQ-22): Recommended not in v1.
 4. Whether the digest short form is useful to tenants or should be admin-only (Recommended: show, it is the reproducibility handle; the full digest never leaves the server).
 5. The findings-side surface of section 6 belongs to the Findings module; this file only reserves it.
+
+## 12. Advisory data attribution (GHSA, CC-BY-4.0; Confirmed 2026-11-19, SPEC D-15, SE-47)
+
+Advisory data derived from the GitHub Advisory Database is licensed CC-BY-4.0, which requires attribution. Wherever this module shows advisory data (the SCA tool row's data date and snapshot line on T-29, and later the advisory panel of T-32 and any export or report), the following text is shown in the card footer or the panel footer, in the small secondary text style, with the two URLs as ordinary links (`rel="noopener noreferrer"`, opened in a new tab, text only, host from the constant below, never from tool output):
+
+> This product includes vulnerability advisory data from the GitHub Advisory Database (https://github.com/github/advisory-database), licensed under CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/). The data has been used in a form that may include format conversion and filtering. National Vulnerability Database data is public domain (U.S. Government work).
+
+- The text is one constant in `@qmentisai/shared` (built with the first SCA part); screens import it and do not retype it.
+- It is shown once per card (not per row), only when at least one SCA tool row with advisory data is present; it is not an alert and uses neutral tokens.
+- The product's third-party notices page repeats it.
+- Legal sign-off of the text and placement is a REQUIRED gate before production (SPEC OQ-26).

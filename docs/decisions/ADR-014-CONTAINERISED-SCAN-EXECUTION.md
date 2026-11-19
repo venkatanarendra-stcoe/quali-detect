@@ -126,9 +126,16 @@ Observability: container starts/kills/orphans, capacity waits, DB snapshot age, 
 2. The documentation amendments of section 5 are approved and applied.
 3. Images are pinned by digest in an images manifest; cosign signing is deferred to production; the scanner images are scanned in CI later.
 
+## Decided 2026-11-19 (second batch)
+
+4. **Opengrep and LGPL-2.1:** acceptable as an unmodified binary in a separate container, never linked into platform code (SPEC D-14). The Part A spike is accepted (D-13).
+5. **Own-built images and mirror:** the owner approved building our own Opengrep and detect-secrets images and a pinned platform mirror registry; digests are recorded in `IMAGES.md` (SPEC D-14). This confirms the image-recipe part of the exception in section 1 for those two images only.
+6. **Rootless isolation is a REQUIRED pre-production GATE (SPEC D-20, OQ-27, ENG-L18).** The cloud sandbox forbade user namespaces, so rootless Podman or Docker, uid mapping and gVisor are unverified. The `SandboxRuntime` interface and the argument builder must not assume a rootful runtime: the runtime binary (`docker` or `podman`), the user-namespace mode and uid-mapping flags are configuration of the driver. Production use requires the verification on the owner's Docker machine.
+7. **Data licences:** a legal sign-off is a REQUIRED gate before production (SPEC D-15, OQ-26); the tool decisions here do not depend on it, but vulnerability data shown to tenants does.
+
 ## Open (owner decisions)
 
-3. Own-built images vs upstream images pinned by digest; the registry/mirror (SPEC OQ-12).
+3. ~~Own-built images vs upstream images pinned by digest; the registry/mirror (SPEC OQ-12).~~ Decided 2026-11-19 (item 5 above).
 4. The licence review outcomes (SPEC OQ-9): decided as a gate (permissive licence, no repository code execution, offline); outcomes per tool come from the Part A spike (SPEC 17.a).
 5. Whether fork traffic requires a separate host or OS user from the first release (SPEC SE-30).
 

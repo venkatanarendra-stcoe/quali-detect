@@ -1028,7 +1028,7 @@ export const ORCH_CHECKS = [
   },
   {
     id: "EXE-020",
-    name: "no repository code runs and the archive is hardened: an archive with a postinstall script, a Makefile, git hooks, an .npmrc, symlinks (one pointing outside), a hard link, ../ and absolute-path entries is scanned as data (no marker file appears, no link or escaping entry is extracted, nothing is written outside the work directory, extracted files are never executable); an oversize or bomb archive ends failed prepare_failed:archive_too_large (unit not given back), a wrong top directory archive_mismatch, a corrupt one archive_invalid; a benign archive is extracted and scanned",
+    name: "no repository code runs and the archive is hardened: an archive with a postinstall script, a Makefile, git hooks (never extracted, part C), an .npmrc, symlinks (one pointing outside), a hard link, ../ and absolute-path entries is scanned as data (no marker file appears, no link or escaping entry is extracted, nothing is written outside the work directory, extracted files are never executable); an oversize or bomb archive ends failed prepare_failed:archive_too_large (unit not given back), a wrong top directory archive_mismatch, a corrupt one archive_invalid; a benign archive is extracted and scanned",
     async run(w) {
       const p = [];
       const marker = `${w.tmp}/MARKER-executed`;
@@ -1083,15 +1083,14 @@ export const ORCH_CHECKS = [
       const seen = w.fileTrees.filter((t) => t.executionId === e.id);
       ok(p, seen.length === 4, `${seen.length} scans received the tree`);
       const files = (seen[0]?.files ?? []).map((f) => f.path).sort();
-      for (const want of [
-        "README.md",
-        "package.json",
-        "Makefile",
-        ".npmrc",
-        ".git/hooks/post-checkout",
-        "src/a.js",
-      ])
+      for (const want of ["README.md", "package.json", "Makefile", ".npmrc", "src/a.js"])
         ok(p, files.includes(want), `control: ${want} was not extracted`);
+      // part C (SPEC scan-engines D-18): repository git metadata (config, hooks) is never extracted
+      ok(
+        p,
+        files.every((f) => !f.split("/").includes(".git")),
+        "a .git entry was extracted",
+      );
       for (const bad of ["link", "evil", "hard", "escape.txt", "esc2.txt", "abs-escape.txt"])
         ok(p, !files.includes(bad), `${bad} was extracted`);
       ok(

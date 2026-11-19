@@ -1,31 +1,32 @@
-import { mkdir, open } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
+import { ARCHIVE_ERROR_CODES, ArchiveError } from "./errors.js";
+import {
+  TREE_DIR_MODE,
+  TREE_FILE_MODE,
+  TREE_MAX_NAME_BYTES,
+  TREE_MAX_PATH_BYTES,
+  validateExtractedTree,
+} from "./tree.js";
 
 /**
  * A bounded, in-house tar.gz reader on Node built-ins (docs/modules/executions/SPEC.md §6.3, §13.1: the spec prefers it to a
  * new dependency). It is a PARSER of untrusted bytes: nothing in the archive is executed, imported, built or installed (R-8).
  * What it does with entries:
- * - regular files are extracted (mode 0600, never executable, never setuid) under the destination directory;
- * - directories are created (0700);
+ * - regular files are extracted (mode 0644, never executable, never setuid) under the destination directory;
+ * - directories are created (0755) and the destination must sit inside a private (0700) parent, so a non-root scan container can
+ *   read the tree while nothing outside can traverse to it (SPEC scan-engines D-18);
+ * - any path with a `.git` component is NOT extracted (repository git config and hooks never reach a tool);
+ * - the extracted tree is validated before the call returns and the whole tree is removed on any violation ({@link validateExtractedTree});
  * - symbolic links, hard links, devices and FIFOs are SKIPPED, never followed and never created, so nothing inside the
  *   destination can point outside it;
  * - entries whose path is absolute, contains `..`, a NUL or a control character are SKIPPED and counted;
  * - the top-level directory GitHub puts around the tree is stripped;
  * - hard caps (entries, one file, expanded total, expansion ratio, path depth/length) abort with `archive_too_large`.
  */
-
-/** Stable failure codes (the orchestrator turns them into `prepare_failed:<code>`). */
-export class ArchiveError extends Error {
-  /** @param {"archive_too_large" | "archive_invalid" | "archive_mismatch"} code @param {string} message */
-  constructor(code, message) {
-    super(message);
-    this.name = "ArchiveError";
-    this.code = code;
-  }
-}
 
 /** Default caps; the orchestrator passes its configured values. */
 export const DEFAULT_ARCHIVE_LIMITS = Object.freeze({
@@ -298,45 +299,102 @@ export async function walkTarGz(source, options = {}) {
 export const inspectTarGz = (source, options = {}) => walkTarGz(source, options);
 
 /**
- * Extracts an archive into `destDir` (created, mode 0700). Every path is re-resolved and must stay inside `destDir`;
- * existing files are never overwritten (a duplicate entry is skipped); modes are normalised (files 0600, directories 0700).
+ * Extracts an archive into `destDir` (created, mode 0755, which must not exist yet and must sit inside a private parent: owned
+ * by the process user with no group or other access). Every path is re-resolved and must stay inside `destDir`; existing files
+ * are never overwritten (a duplicate entry is skipped); modes are set explicitly, whatever the umask (files 0644, directories
+ * 0755). Entries with a `.git` component are skipped and counted in `gitDenied`. A path over the PATH_MAX-safe limit fails with
+ * `tree_path_too_long` before anything is written. After extraction the tree is validated ({@link validateExtractedTree}); on
+ * ANY failure the destination is removed and the error is thrown, so no tool can ever receive a partial or doubtful tree.
  * @param {import("node:stream").Readable} source
  * @param {{ destDir: string, limits?: Partial<typeof DEFAULT_ARCHIVE_LIMITS>, exclude?: (p: string) => boolean, expectTopDirIncludes?: string }} options
  */
 export async function extractTarGz(source, { destDir, ...options }) {
+  const limits = { ...DEFAULT_ARCHIVE_LIMITS, ...options.limits };
   const root = path.resolve(destDir);
-  await mkdir(root, { recursive: true, mode: 0o700 });
+  const parent = await lstat(path.dirname(root)).catch(() => null);
+  if (
+    !parent ||
+    !parent.isDirectory() ||
+    (parent.mode & 0o077) !== 0 ||
+    (typeof process.getuid === "function" && parent.uid !== process.getuid())
+  )
+    throw new ArchiveError(
+      ARCHIVE_ERROR_CODES.treeInvalid,
+      "The extraction parent directory is not private.",
+    );
+  try {
+    await mkdir(root, { mode: TREE_DIR_MODE });
+  } catch {
+    throw new ArchiveError(ARCHIVE_ERROR_CODES.treeInvalid, "The extraction target exists.");
+  }
   const inside = (target) => target === root || target.startsWith(`${root}${path.sep}`);
-  return walkTarGz(source, {
-    ...options,
-    async onDirectory(rel) {
-      const target = path.resolve(root, rel);
-      if (!inside(target)) return;
-      try {
-        await mkdir(target, { recursive: true, mode: 0o700 });
-      } catch {
-        throw new ArchiveError("archive_invalid", "The archive contains conflicting entries.");
-      }
-    },
-    async onFile({ path: rel }) {
-      const target = path.resolve(root, rel);
-      if (!inside(target)) return null;
-      try {
-        await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      } catch {
-        throw new ArchiveError("archive_invalid", "The archive contains conflicting entries.");
-      }
-      let handle;
-      try {
-        handle = await open(target, "wx", 0o600);
-      } catch (error) {
-        if (error?.code === "EEXIST") return null; // a duplicate entry: the first one wins
-        throw new ArchiveError("archive_invalid", "The archive contains conflicting entries.");
-      }
-      return {
-        write: (buffer) => handle.write(buffer),
-        close: () => handle.close(),
-      };
-    },
-  });
+  const conflict = () =>
+    new ArchiveError(ARCHIVE_ERROR_CODES.invalid, "The archive contains conflicting entries.");
+  const guardPath = (rel) => {
+    if (
+      Buffer.byteLength(rel) > TREE_MAX_PATH_BYTES ||
+      rel.split("/").some((part) => Buffer.byteLength(part) > TREE_MAX_NAME_BYTES)
+    )
+      throw new ArchiveError(
+        ARCHIVE_ERROR_CODES.treePathTooLong,
+        "A path of the archive is too long.",
+      );
+  };
+  const known = new Set([""]);
+  async function ensureDir(rel) {
+    if (known.has(rel)) return;
+    await ensureDir(rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
+    const target = path.resolve(root, rel);
+    if (!inside(target)) throw conflict();
+    try {
+      await mkdir(target, { mode: TREE_DIR_MODE });
+    } catch (error) {
+      if (error?.code !== "EEXIST" || !(await lstat(target)).isDirectory()) throw conflict();
+    }
+    await chmod(target, TREE_DIR_MODE);
+    known.add(rel);
+  }
+  let gitDenied = 0;
+  const denied = (rel) => rel.split("/").some((part) => part.toLowerCase() === ".git");
+  try {
+    await chmod(root, TREE_DIR_MODE);
+    const stats = await walkTarGz(source, {
+      ...options,
+      limits,
+      exclude: (rel) => {
+        if (denied(rel)) {
+          gitDenied += 1;
+          return true;
+        }
+        return options.exclude?.(rel) ?? false;
+      },
+      async onDirectory(rel) {
+        guardPath(rel);
+        await ensureDir(rel);
+      },
+      async onFile({ path: rel }) {
+        guardPath(rel);
+        const target = path.resolve(root, rel);
+        if (!inside(target)) return null;
+        await ensureDir(rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
+        let handle;
+        try {
+          handle = await open(target, "wx", TREE_FILE_MODE);
+        } catch (error) {
+          if (error?.code === "EEXIST") return null; // a duplicate entry: the first one wins
+          throw conflict();
+        }
+        await handle.chmod(TREE_FILE_MODE);
+        return {
+          write: (buffer) => handle.write(buffer),
+          close: () => handle.close(),
+        };
+      },
+    });
+    const tree = await validateExtractedTree(root, limits);
+    return { ...stats, gitDenied, tree };
+  } catch (error) {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
 }

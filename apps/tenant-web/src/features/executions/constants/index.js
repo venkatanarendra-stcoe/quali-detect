@@ -94,6 +94,8 @@ export const STATUS_REASONS = Object.freeze({
   archive_integrity: "Source failed an integrity check",
   archive_missing: "Source archive is missing",
   archive_too_large: "Source is too large",
+  tree_invalid: "Source tree was rejected",
+  tree_path_too_long: "Source has a path that is too long",
   github_unavailable: "GitHub was unavailable",
   tenant_suspended: "The organization is suspended",
   tenant_inactive: "The organization is not active",

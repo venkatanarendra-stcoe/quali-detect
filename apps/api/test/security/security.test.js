@@ -39,6 +39,7 @@ import { SBOM_CHECKS } from "./helpers/sbom-checks.js";
 import { SANDBOX_CHECKS } from "./helpers/sandbox-checks.js";
 import { ARCHIVE_CHECKS } from "./helpers/archive-checks.js";
 import { ENSEMBLE_CORE_CHECKS } from "./helpers/ensemble-core-checks.js";
+import { ENSEMBLE_DB_CHECKS } from "./helpers/ensemble-db-checks.js";
 import { IMAGE_CATALOG_CHECKS } from "./helpers/image-catalog-checks.js";
 import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
@@ -59,7 +60,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 803;
+const EXPECTED_CHECKS = 806;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5691,7 +5692,7 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
 {
   const add = group("Executions: database integrity and state-machine helpers");
   const execdbWorld = () => once("execdb", () => buildExecutionDbWorld(suiteDb()));
-  for (const { id, name, run } of [...EXECDB_CHECKS, ...LOGDB_CHECKS])
+  for (const { id, name, run } of [...EXECDB_CHECKS, ...LOGDB_CHECKS, ...ENSEMBLE_DB_CHECKS])
     add(
       id,
       name,

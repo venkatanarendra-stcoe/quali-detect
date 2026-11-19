@@ -11,6 +11,8 @@ export class ArtifactExistsError extends Error {
 }
 
 const MEDIA_TYPES = new Set(["application/json", "text/plain", "application/octet-stream"]);
+/** Artifact classes with their own ceilings (migration 20261119120100): `standard` and `sbom_document`. */
+const ARTIFACT_CLASSES = new Set(["standard", "sbom_document"]);
 const MAX_PAGE = 200;
 
 /**
@@ -29,20 +31,30 @@ export function createExecutionArtifactRepository({ db }) {
     /**
      * Inserts one artifact. With `ifAbsent` an existing name is kept (`created: false`); without it `ArtifactExistsError`.
      * Returns `{ created: false, found: false }` when the tenant has no such execution.
-     * @param {{ tenantId: string, executionId: string, name: string, mediaType: string, content: Buffer, sha256: string, ifAbsent?: boolean }} input
+     * @param {{ tenantId: string, executionId: string, name: string, mediaType: string, content: Buffer, sha256: string, ifAbsent?: boolean, artifactClass?: "standard" | "sbom_document" }} input
      * @param {any} [client]
      * @returns {Promise<{ created: boolean, found: boolean }>}
      */
     async put(
-      { tenantId, executionId, name, mediaType, content, sha256, ifAbsent = false },
+      {
+        tenantId,
+        executionId,
+        name,
+        mediaType,
+        content,
+        sha256,
+        ifAbsent = false,
+        artifactClass = "standard",
+      },
       client = db,
     ) {
       if (!MEDIA_TYPES.has(mediaType)) throw new TypeError("Unsupported artifact media type.");
       if (!Buffer.isBuffer(content)) throw new TypeError("content must be a Buffer");
+      if (!ARTIFACT_CLASSES.has(artifactClass)) throw new TypeError("Unsupported artifact class.");
       return withTransaction(client, async (tx) => {
         const rows = await tx.$queryRaw`
-          INSERT INTO execution_artifacts (id, tenant_id, workspace_id, repository_id, pipeline_id, execution_id, name, media_type, size_bytes, sha256, content)
-          SELECT gen_random_uuid(), e.tenant_id, e.workspace_id, e.repository_id, e.pipeline_id, e.id, ${name}, ${mediaType}, ${content.length}::int, ${sha256}, ${content}
+          INSERT INTO execution_artifacts (id, tenant_id, workspace_id, repository_id, pipeline_id, execution_id, name, media_type, size_bytes, sha256, content, artifact_class)
+          SELECT gen_random_uuid(), e.tenant_id, e.workspace_id, e.repository_id, e.pipeline_id, e.id, ${name}, ${mediaType}, ${content.length}::int, ${sha256}, ${content}, ${artifactClass}
           FROM executions e WHERE e.tenant_id = ${tenantId}::uuid AND e.id = ${executionId}::uuid
           ON CONFLICT (tenant_id, execution_id, name) DO NOTHING
           RETURNING id`;

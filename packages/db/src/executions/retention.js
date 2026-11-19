@@ -137,8 +137,10 @@ export function createExecutionRetentionRepository({ db }) {
                   FOR UPDATE SKIP LOCKED`;
                 if (!locked) return false;
                 const scope = { tenantId, id };
+                await tx.$executeRaw`DELETE FROM scan_result_item_details WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM scan_result_items WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM scan_results WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
+                await tx.$executeRaw`DELETE FROM scan_tool_runs WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM scan_task_attempts WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM execution_logs WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;
                 await tx.$executeRaw`DELETE FROM execution_task_log_counters WHERE tenant_id = ${scope.tenantId}::uuid AND execution_id = ${scope.id}::uuid`;

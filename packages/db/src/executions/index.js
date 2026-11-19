@@ -12,5 +12,6 @@ export * from "./markers.js";
 export * from "./cancel.js";
 export * from "./logs.js";
 export * from "./artifacts.js";
+export * from "./scan-engines.js";
 export * from "./retention.js";
 export * from "./read.js";

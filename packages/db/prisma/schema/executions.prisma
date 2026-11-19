@@ -135,6 +135,7 @@ model ScanTask {
   execution   Execution                 @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict)
   attempts    ScanTaskAttempt[]
   results     ScanResult[]
+  toolRuns    ScanToolRun[]
   logs        ExecutionLog[]
   logCounters ExecutionTaskLogCounter[]
 
@@ -176,27 +177,31 @@ model ScanTaskAttempt {
 /// refused unless it names the task's current running attempt (fence, ER-30). Counts and flags only; the items are in
 /// `scan_result_items`. No finding identity (ADR-004).
 model ScanResult {
-  id             String       @id @default(uuid()) @db.Uuid
-  tenantId       String       @map("tenant_id") @db.Uuid
-  workspaceId    String       @map("workspace_id") @db.Uuid
-  repositoryId   String       @map("repository_id") @db.Uuid
-  pipelineId     String       @map("pipeline_id") @db.Uuid
-  executionId    String       @map("execution_id") @db.Uuid
-  scanTaskId     String       @map("scan_task_id") @db.Uuid
-  attempt        Int
-  scanType       ScanTaskType @map("scan_type")
-  schemaVersion  Int          @default(1) @map("schema_version")
-  engineId       String       @map("engine_id")
-  engineVersion  String       @map("engine_version")
-  completeness   String
-  truncated      Boolean      @default(false)
-  itemCount      Int          @default(0) @map("item_count")
-  severityCounts Json         @default("{}") @map("severity_counts")
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  workspaceId       String       @map("workspace_id") @db.Uuid
+  repositoryId      String       @map("repository_id") @db.Uuid
+  pipelineId        String       @map("pipeline_id") @db.Uuid
+  executionId       String       @map("execution_id") @db.Uuid
+  scanTaskId        String       @map("scan_task_id") @db.Uuid
+  attempt           Int
+  scanType          ScanTaskType @map("scan_type")
+  schemaVersion     Int          @default(1) @map("schema_version")
+  engineId          String       @map("engine_id")
+  engineVersion     String       @map("engine_version")
+  completeness      String
+  truncated         Boolean      @default(false)
+  itemCount         Int          @default(0) @map("item_count")
+  severityCounts    Json         @default("{}") @map("severity_counts")
+  /// Ensemble results only (`schema_version` 2, scan-engines part D): hash of the run manifest and the coverage statement.
+  runManifestSha256 String?      @map("run_manifest_sha256")
+  coverage          Json?
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  task   ScanTask         @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict)
-  items  ScanResultItem[]
+  tenant  Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task    ScanTask               @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict)
+  items   ScanResultItem[]
+  details ScanResultItemDetail[]
 
   @@unique([tenantId, scanTaskId])
   @@unique([tenantId, executionId, id])
@@ -222,11 +227,87 @@ model ScanResultItem {
   data             Json     @default("{}")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  result ScanResult @relation(fields: [tenantId, executionId, scanResultId], references: [tenantId, executionId, id], onDelete: Restrict)
+  tenant Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  result ScanResult            @relation(fields: [tenantId, executionId, scanResultId], references: [tenantId, executionId, id], onDelete: Restrict)
+  detail ScanResultItemDetail?
 
   @@unique([tenantId, scanResultId, ordinal])
   @@map("scan_result_items")
+}
+
+/// The ensemble detail of one result item (scan-engines SPEC 7.3, part D): 1:1 with `scan_result_items`, so list queries stay lean
+/// and the 4 KiB item `data` is untouched. Insert-only; no secret value and no identity (ADR-004); `dedup_key` is a MERGE key
+/// inside one task. The migration holds the CHECK constraints (sizes, provenance shape, credential shapes) and the triggers.
+model ScanResultItemDetail {
+  tenantId        String   @map("tenant_id") @db.Uuid
+  executionId     String   @map("execution_id") @db.Uuid
+  scanResultId    String   @map("scan_result_id") @db.Uuid
+  itemOrdinal     Int      @map("item_ordinal")
+  schemaVersion   Int      @map("schema_version")
+  dedupKey        String   @map("dedup_key")
+  confidence      String
+  confidenceBasis String   @map("confidence_basis")
+  severityAssumed Boolean  @default(false) @map("severity_assumed")
+  provenance      Json
+  advisories      Json     @default("[]")
+  cwe             Int[]    @default([])
+  evidence        Json?
+  scmRef          Json?    @map("scm_ref")
+  url             String?
+  scope           Json     @default("{}")
+  /// What the table has no column for: component, locations, fix, rule name, value-length bucket, raw reference.
+  extra           Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  item   ScanResultItem @relation(fields: [tenantId, scanResultId, itemOrdinal], references: [tenantId, scanResultId, ordinal], onDelete: Restrict, map: "scan_result_item_details_item_fkey")
+  result ScanResult     @relation(fields: [tenantId, executionId, scanResultId], references: [tenantId, executionId, id], onDelete: Restrict, map: "scan_result_item_details_result_fkey")
+
+  @@id([tenantId, scanResultId, itemOrdinal])
+  @@map("scan_result_item_details")
+}
+
+/// One tool run of one scan task attempt (scan-engines SPEC 5.3, 7.3, part D): which tool and image ran, how it ended (fixed
+/// status and reason words), its counters and applied limits. No stdout, no stderr, no tool message text. Insert-only, fenced by
+/// `(scan_task_id, attempt)` (ER-30). The migration holds the CHECK constraints and the guard triggers.
+model ScanToolRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  repositoryId     String    @map("repository_id") @db.Uuid
+  pipelineId       String    @map("pipeline_id") @db.Uuid
+  executionId      String    @map("execution_id") @db.Uuid
+  scanTaskId       String    @map("scan_task_id") @db.Uuid
+  attempt          Int
+  toolId           String    @map("tool_id")
+  toolVersion      String    @map("tool_version")
+  imageDigest      String?   @map("image_digest")
+  configDigest     String    @map("config_digest")
+  rulepackDigest   String?   @map("rulepack_digest")
+  dbSnapshotSha256 String?   @map("db_snapshot_sha256")
+  dbBuiltAt        DateTime? @map("db_built_at") @db.Timestamptz(6)
+  status           String
+  reason           String?
+  exitCode         Int?      @map("exit_code")
+  startedAt        DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime  @map("finished_at") @db.Timestamptz(6)
+  durationMs       Int       @map("duration_ms")
+  scope            Json      @default("{}")
+  recordsSeen      Int       @default(0) @map("records_seen")
+  recordsDropped   Int       @default(0) @map("records_dropped")
+  findingsMapped   Int       @default(0) @map("findings_mapped")
+  severityCounts   Json      @default("{}") @map("severity_counts")
+  truncated        Boolean   @default(false)
+  limits           Json      @default("{}")
+  capacityWaitMs   Int       @default(0) @map("capacity_wait_ms")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task   ScanTask @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId, scanTaskId], references: [tenantId, workspaceId, repositoryId, pipelineId, executionId, id], onDelete: Restrict, map: "scan_tool_runs_task_fkey")
+
+  @@unique([tenantId, scanTaskId, attempt, toolId])
+  @@index([tenantId, executionId])
+  @@map("scan_tool_runs")
 }
 
 /// Platform-level marker rows of the execution orchestrator (SPEC ER-31): the persisted first-enable marker and the one-time
@@ -327,18 +408,20 @@ model ExecutionTaskLogCounter {
 /// An execution artifact held by the Postgres driver of the `ArtifactStore` (SPEC §17.ac). Insert-only, capped (size, count and
 /// bytes per execution), named by a validated single path segment; the logical key is `t/<tenant>/x/<execution>/<name>`.
 model ExecutionArtifact {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  workspaceId  String   @map("workspace_id") @db.Uuid
-  repositoryId String   @map("repository_id") @db.Uuid
-  pipelineId   String   @map("pipeline_id") @db.Uuid
-  executionId  String   @map("execution_id") @db.Uuid
-  name         String
-  mediaType    String   @map("media_type")
-  sizeBytes    Int      @map("size_bytes")
-  sha256       String
-  content      Bytes
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  repositoryId  String   @map("repository_id") @db.Uuid
+  pipelineId    String   @map("pipeline_id") @db.Uuid
+  executionId   String   @map("execution_id") @db.Uuid
+  name          String
+  mediaType     String   @map("media_type")
+  sizeBytes     Int      @map("size_bytes")
+  sha256        String
+  content       Bytes
+  /// `standard` (1 MiB, 20 objects, 8 MiB per execution) or `sbom_document` (16 MiB, 20 documents, 64 MiB per execution).
+  artifactClass String   @default("standard") @map("artifact_class")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "execution_artifacts_tenant_id_fkey")
   execution Execution @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, executionId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "execution_artifacts_execution_fkey")

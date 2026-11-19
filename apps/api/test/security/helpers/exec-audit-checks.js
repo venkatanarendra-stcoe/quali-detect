@@ -88,10 +88,12 @@ const EXECUTION_CHILD_TABLES = [
   "execution_logs",
   "execution_task_log_counters",
   "scan_decisions",
+  "scan_result_item_details",
   "scan_result_items",
   "scan_results",
   "scan_task_attempts",
   "scan_tasks",
+  "scan_tool_runs",
 ];
 
 async function compositeKeyProblems(db) {

@@ -8,6 +8,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TEXT_TYPES = new Set(["application/json", "text/plain"]);
 /** The most one artifact may hold (the database CHECK is the same number). */
 export const ARTIFACT_MAX_BYTES = 1048576;
+/** The most one `sbom_document` artifact (a raw CycloneDX or SPDX document) may hold: 16 MiB (scan-engines SPEC 7.3, D-8; the database CHECK is the same number). */
+export const SBOM_DOCUMENT_MAX_BYTES = 16 * 1048576;
+const ARTIFACT_CLASSES = new Set(["standard", "sbom_document"]);
 
 async function readCapped(source, maxBytes) {
   const chunks = [];
@@ -32,9 +35,17 @@ async function readCapped(source, maxBytes) {
  * is hashed and stored (the stored sha256 is of the stored bytes).
  * @param {{ repository: ReturnType<typeof import("@qmentisai/db").createExecutionArtifactRepository>, maxBytes?: number }} deps
  */
-export function createPostgresArtifactStore({ repository, maxBytes = ARTIFACT_MAX_BYTES }) {
+export function createPostgresArtifactStore({
+  repository,
+  maxBytes = ARTIFACT_MAX_BYTES,
+  sbomMaxBytes = SBOM_DOCUMENT_MAX_BYTES,
+}) {
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > ARTIFACT_MAX_BYTES)
     throw new TypeError(`maxBytes must be an integer between 1 and ${ARTIFACT_MAX_BYTES}.`);
+  if (!Number.isInteger(sbomMaxBytes) || sbomMaxBytes < 1 || sbomMaxBytes > SBOM_DOCUMENT_MAX_BYTES)
+    throw new TypeError(
+      `sbomMaxBytes must be an integer between 1 and ${SBOM_DOCUMENT_MAX_BYTES}.`,
+    );
   const locate = (ref) => {
     const parsed = parseArtifactRef(ref);
     if (!UUID.test(parsed.tenantId) || !UUID.test(parsed.executionId))
@@ -50,16 +61,24 @@ export function createPostgresArtifactStore({ repository, maxBytes = ARTIFACT_MA
      * Stores a stream (buffered and capped at `maxBytes`). With `ifAbsent` an existing object is kept and `created` is false.
      * @param {{ tenantId: string, executionId: string, name: string }} ref
      * @param {import("node:stream").Readable | Buffer | string} source
-     * @param {{ maxBytes?: number, ifAbsent?: boolean, mediaType?: "application/json" | "text/plain" | "application/octet-stream" }} [options]
+     * @param {{ maxBytes?: number, ifAbsent?: boolean, mediaType?: "application/json" | "text/plain" | "application/octet-stream", artifactClass?: "standard" | "sbom_document" }} [options]
+     * `artifactClass` `sbom_document` raises the ceiling of THIS object to 16 MiB (the other classes keep 1 MiB).
      * @returns {Promise<{ created: boolean, bytes: number, sha256: string | null }>}
      */
     async put(
       ref,
       source,
-      { maxBytes: limit = maxBytes, ifAbsent = false, mediaType = "application/octet-stream" } = {},
+      {
+        maxBytes: limit,
+        ifAbsent = false,
+        mediaType = "application/octet-stream",
+        artifactClass = "standard",
+      } = {},
     ) {
+      if (!ARTIFACT_CLASSES.has(artifactClass)) throw new TypeError("Unsupported artifact class.");
       const { tenantId, executionId, name } = locate(ref);
-      const cap = Math.min(limit, maxBytes);
+      const classMax = artifactClass === "sbom_document" ? sbomMaxBytes : maxBytes;
+      const cap = Math.min(limit ?? classMax, classMax);
       let content = await readCapped(
         Buffer.isBuffer(source) || typeof source === "string"
           ? Readable.from([Buffer.from(source)])
@@ -78,6 +97,7 @@ export function createPostgresArtifactStore({ repository, maxBytes = ARTIFACT_MA
         content,
         sha256,
         ifAbsent,
+        artifactClass,
       });
       return {
         created: result.created,

@@ -1,6 +1,6 @@
 # Screens: scan engines (T-29 "Tools" additions)
 
-Status: **Draft for owner review (2026-11-19)** with `SPEC.md` of this module. Nothing is built; nothing here has been seen in a browser. This module adds **one section to the scan task cards of T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and **changes nothing else** on T-29, T-28, the pipeline Executions tab or navigation. Evidence snippets and SCM links are **not** shown on T-29: they surface in the Findings module (T-32, finding detail), where this document only reserves the surface (section 6). Visual rules: `docs/design/DESIGN_SYSTEM.md` and `docs/design/UX_GUIDELINES.md`. Labels: **Confirmed** = the owner's 2026-11-19 brief; **Recommended** = my proposal; **Open** = needs the owner. The screens are **model-free**: no language model is involved, and every string that comes from a tool or from the repository is shown as inert text.
+Status: **Approved with `SPEC.md` of this module (owner decisions 2026-11-19; degraded wording aligned with SPEC OQ-17 / D-6).** Nothing is built; nothing here has been seen in a browser. This module adds **one section to the scan task cards of T-29** (Execution detail, `docs/modules/executions/SCREENS.md` section 4) and **changes nothing else** on T-29, T-28, the pipeline Executions tab or navigation. Evidence snippets and SCM links are **not** shown on T-29: they surface in the Findings module (T-32, finding detail), where this document only reserves the surface (section 6). Visual rules: `docs/design/DESIGN_SYSTEM.md` and `docs/design/UX_GUIDELINES.md`. Labels: **Confirmed** = the owner's 2026-11-19 brief; **Recommended** = my proposal; **Open** = needs the owner. The screens are **model-free**: no language model is involved, and every string that comes from a tool or from the repository is shown as inert text.
 
 ## Decisions applied from the brief
 
@@ -23,7 +23,7 @@ Status: **Draft for owner review (2026-11-19)** with `SPEC.md` of this module. N
 
 Inside each **scan task card** (existing: title, status chip, engine id/profile, attempt, duration, result summary, expandable region). Two additions:
 
-1. **Collapsed card, one summary line** under the existing result summary, only when the DTO has `tools`: plain text built from counts and codes, for example "3 tools" (all succeeded), "3 tools, 1 did not finish" (one failed, timed out or unavailable), "2 tools, 1 skipped" (skipped tools are neutral, not a problem). With an icon only for the problem case (TriangleAlert), text always present.
+1. **Collapsed card, one summary line** under the existing result summary, only when the DTO has `tools`: plain text built from counts and codes, for example "3 tools" (all succeeded), "3 tools, 1 did not finish (degraded)" (one failed, timed out or unavailable), "2 tools, 1 skipped" (skipped tools are neutral, not a problem). With an icon only for the problem case (TriangleAlert), text always present.
 2. **Expanded region, a new sub-section "Tools"** between the existing result summary and the attempts list, plus the **coverage line** (3.4). The existing "View log" button stays and still sets the Logs tab task filter; tool start/end lines appear there as ordinary log lines (fixed words, section 5).
 
 The existing `unsupported` task card is unchanged (no tools; "No engine is available for this scan type yet."). A running task shows the existing indeterminate bar and **no tools list** (tool rows are recorded when a tool finishes; live per-tool progress is Open, SPEC OQ-22). The list appears when the task finishes, through the existing refetch on `scan.task.status_changed`.
@@ -88,12 +88,12 @@ One sentence, plain text with an icon when it is not the normal case:
 | `coverage.state` | Text | Icon |
 |---|---|---|
 | `complete` | (nothing is shown) | |
-| `partial_tools` | "Partial coverage: 1 of 3 tools did not finish. Results are incomplete, so this run cannot mark findings fixed." | TriangleAlert |
+| `partial_tools` | "Succeeded with reduced coverage (degraded): 1 of 3 tools did not finish. Results are incomplete, so this run cannot mark findings fixed." | TriangleAlert |
 | `gaps` | "No tool supports these languages: Haskell, Elixir. Results are incomplete." (language names come from a fixed platform list; an unknown language shows "other") | TriangleAlert |
 | `nothing_to_scan` | "Nothing to scan: no files of this kind were found." | Info |
 | `truncated` | "Results were cut at the platform limit." (the existing "Truncated" badge stays too) | TriangleAlert |
 
-This text is consistent with the existing page-level notice for non-eligible runs ("This run did not complete a full scan. It cannot mark findings fixed.") and does not replace it. Note the execution status stays `succeeded` for a degraded task (SPEC 5.4 row 6); the coverage line is where the tenant sees the degradation. If the owner chooses SPEC option B (execution `partial`), the existing reason text "Some scan tasks did not finish" applies and this line still shows.
+This text is consistent with the existing page-level notice for non-eligible runs ("This run did not complete a full scan. It cannot mark findings fixed.") and does not replace it. Note the task and execution status stay `succeeded` for a degraded task ("succeeded (degraded)", SPEC 5.4 row 6, Confirmed D-6); the coverage line is where the tenant sees the degradation, and a degraded result is never eligible to mark findings fixed. The execution status `partial` is not used for this case (owner decision 2026-11-19). A task where all tools failed shows the existing "Failed" treatment (3.5).
 
 ### 3.5 A task that failed because no tool succeeded
 

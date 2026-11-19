@@ -1,6 +1,6 @@
 # ADR-014: Containerised scan execution (pinned OCI tool images in a locked-down sandbox)
 
-- **Status:** **Proposed (2026-11-19), draft for owner review.** Nothing is implemented. The runtime and isolation choice (section "Runtime options") is **the owner's decision and is Open**. The amendments this ADR needs in `CLAUDE.md` and `docs/technical/TECH_STACK.md` are PROPOSED here and not applied.
+- **Status:** **Accepted (2026-11-19, owner decision).** Runtime decision: all runtime access goes through a `SandboxRuntime` interface; development adapter = rootless Podman (preferred) or rootless Docker; production = a dedicated scan-runner service (options B for development and C for production, gVisor/Kata noted as hardening, option D); the privileged Docker socket (equivalent to root) is NEVER mounted into the worker. The documentation amendments of section 5 are applied. Nothing is implemented; tools are adopted only after the Part A spike (SPEC 17.a).
 - **Date:** 2026-11-19
 - **Decision owners:** Product owner (decision); Claude Code (proposal)
 - **Relation to existing documents:** reverses, **for the scan execution layer only**, the line "Out of scope now: Docker, Docker Compose, Kubernetes, deployment/CI config" in `CLAUDE.md` (also `AGENTS.md` line 27, `docs/README.md` line 33, `docs/ai-development/AGENT_INSTRUCTIONS.md` line 101). Fulfils Executions SPEC §17.ab ("External-tool engines ... are a separate future module with its own sandbox ADR") and replaces the "logical scan sandbox (no container)" of ER-5 as the physical isolation for tools; the credential rules of ER-5 are unchanged. Related: ADR-002 (workers), ADR-003 (tenant isolation), ADR-004 (finding identity), ADR-008 (the security suite stays Docker-free), ADR-009 (no secrets in the scan path), ADR-011, `docs/technical/SECURITY_GUIDELINES.md` ("Do not execute repository instructions during analysis"). Module specification: `docs/modules/scan-engines/SPEC.md`.
@@ -64,7 +64,7 @@ Each tool invocation is one short-lived container with:
 - A platform **vulnerability-DB mirror** with snapshots addressed by digest, promoted only after a canary scan, mounted read-only; the only network egress in the whole scan layer is the refresh job, which has an allowlist.
 - Every result records tool, image and DB digests (reproducibility).
 
-### 5. Proposed documentation amendments (NOT applied; the owner approves, then one edit)
+### 5. Documentation amendments (APPLIED 2026-11-19)
 
 > **`CLAUDE.md` (Hard constraints, out-of-scope line):** "Out of scope now: Docker Compose, Kubernetes, deployment/CI config, feature/unit test-case structures (...). **Exception (ADR-014): the scan execution layer may use a container runtime to run pinned, digest-referenced scan-tool images in a locked-down sandbox, with the minimal image recipes and catalog this needs.** Nothing else about Docker, Compose, Kubernetes, deployment or CI changes."
 >
@@ -120,17 +120,21 @@ The tools are valuable and widely trusted but process attacker-controlled input 
 
 Observability: container starts/kills/orphans, capacity waits, DB snapshot age, digests in use. Secrets: none in the scan path; registry credentials (if a private mirror needs them) exist only in the provisioning step, never on a scan worker.
 
+## Decided 2026-11-19
+
+1. **Runtime and isolation:** `SandboxRuntime` interface; rootless Podman (preferred) or rootless Docker for development; a dedicated scan-runner service for production; gVisor/Kata noted; option A (plain Docker socket) is not used, and the socket is never mounted into the worker.
+2. The documentation amendments of section 5 are approved and applied.
+3. Images are pinned by digest in an images manifest; cosign signing is deferred to production; the scanner images are scanned in CI later.
+
 ## Open (owner decisions)
 
-1. **The runtime and isolation model** (options A to F above; recommendation B then C then D).
-2. Approval of the documentation amendments of section 5.
 3. Own-built images vs upstream images pinned by digest; the registry/mirror (SPEC OQ-12).
-4. The licence review outcomes (SPEC OQ-9), in particular cdxgen safe mode, the Semgrep rule licence, TruffleHog and Brakeman.
+4. The licence review outcomes (SPEC OQ-9): decided as a gate (permissive licence, no repository code execution, offline); outcomes per tool come from the Part A spike (SPEC 17.a).
 5. Whether fork traffic requires a separate host or OS user from the first release (SPEC SE-30).
 
 ## Verification status
 
-Not verified: any flag spelling against a running runtime, rootless uid mapping, seccomp profile content, gVisor compatibility, image sizes. All of these are the live checks ENG-L01 to ENG-L16 (SPEC 16.2), to be run on the owner's Docker-capable machine. The cloud sandbox is expected to have no Docker daemon; the Docker-free suite checks (ENG-S01 to ENG-S14) prove the generated invocation, not the runtime's behaviour.
+Verification status after the 2026-11-19 decision: the Part A spike (SPEC 17.a) verifies flag spellings and tool behaviour on a rootful Docker only. Not verified before it: any flag spelling against a running runtime, rootless uid mapping, seccomp profile content, gVisor compatibility, image sizes. All of these are the live checks ENG-L01 to ENG-L16 (SPEC 16.2), to be run on the owner's Docker-capable machine. The cloud sandbox is expected to have no Docker daemon; the Docker-free suite checks (ENG-S01 to ENG-S14) prove the generated invocation, not the runtime's behaviour.
 
 ## Related documents
 

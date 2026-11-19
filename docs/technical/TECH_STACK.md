@@ -64,6 +64,10 @@ Removed by the migration: `fastify`, `fastify-plugin`, `@fastify/cookie`, `@fast
 
 New configuration: `TRUST_PROXY` (hop count or addresses; `true` is refused), `RATE_LIMIT_WINDOW_MS` (60000), `RATE_LIMIT_MAX` (600).
 
+## Scan layer exception (ADR-014, owner-approved 2026-11-19)
+
+The stack above has no container technology, and Docker, Docker Compose, Kubernetes, deployment and CI/CD remain out of scope. The one exception is the scan-tool sandbox: third-party scan tools (SBOM, SCA, SAST, secrets) run as OCI images pinned by digest in a locked-down container (no network, read-only filesystem, non-root, dropped capabilities, resource limits), reached only through the `SandboxRuntime` interface in `packages/infra`. Development adapter: rootless Podman (preferred) or rootless Docker. Production: a dedicated scan-runner service, with gVisor or Kata noted as hardening. The privileged Docker socket is never mounted into the worker or any tool container. The root `README.md` does not carry the out-of-scope rule and is unchanged.
+
 ## Data and messaging responsibilities
 
 - PostgreSQL: durable business state.

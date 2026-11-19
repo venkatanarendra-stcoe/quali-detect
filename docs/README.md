@@ -30,5 +30,5 @@ Do not treat recommendations or open items as confirmed requirements.
 - pnpm workspaces + Turborepo monorepo.
 - Two separate frontends: Tenant Application and Root Console.
 - Backend starts as a modular monolith with separate worker entry points.
-- Do not add feature or unit test-case structures, Docker, Docker Compose or deployment setup to the current initialization scope. The one exception is the security regression suite (`pnpm test:security`, ADR-008): tenant isolation, authorization (404/403), platform/tenant session separation and segregation of duties only.
+- Do not add feature or unit test-case structures, Docker, Docker Compose or deployment setup to the current initialization scope. Scan-layer exception (ADR-014, owner-approved 2026-11-19): only the scan-tool sandbox may use an OCI runtime through `SandboxRuntime` to run digest-pinned third-party scan tools; Docker, Compose, Kubernetes, deployment and CI stay out of scope everywhere else. The other exception is the security regression suite (`pnpm test:security`, ADR-008): tenant isolation, authorization (404/403), platform/tenant session separation and segregation of duties only.
 - Do not silently change approved architecture or product decisions.

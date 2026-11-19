@@ -24,7 +24,7 @@ JavaScript ES Modules (`.js`, `.jsx`; **no TypeScript**), React, Vite, Tailwind 
 - The UI may hide or disable actions by permission; the backend will be the enforcement point.
 
 ## Do not (current scope)
-Implement backend APIs, database schemas, real OAuth or repository connections, authentication against a backend, Root Console screens, Docker/Compose/Kubernetes, deployment or CI/CD, or the Pipelines UI before Workspace and Repository UI are complete.
+Implement backend APIs, database schemas, real OAuth or repository connections, authentication against a backend, Root Console screens, Docker/Compose/Kubernetes (the only exception is the scan-tool sandbox layer behind `SandboxRuntime`, ADR-014, owner-approved 2026-11-19; never mount the Docker socket into the worker), deployment or CI/CD, or the Pipelines UI before Workspace and Repository UI are complete.
 
 ## Working protocol
 Plan briefly, implement incrementally, update the relevant docs in the same change, report what was actually run. Never claim a command or check succeeded unless it was executed and observed.

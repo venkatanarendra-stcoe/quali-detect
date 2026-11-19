@@ -98,7 +98,7 @@ Do not mix platform administration permissions with tenant authorization.
 
 ## 9. Current scope exclusions
 
-Do not add feature or unit test-case directories or test-case implementation (the sole exception is the security regression suite, `pnpm test:security`, ADR-008: tenant isolation, authorization 404/403, platform/tenant session separation and segregation of duties), Docker, Docker Compose, Kubernetes, deployment or CI/CD setup as part of the current project initialization scope. Do not interpret this as permission to ignore secure engineering or code review.
+Do not add feature or unit test-case directories or test-case implementation (the sole exception is the security regression suite, `pnpm test:security`, ADR-008: tenant isolation, authorization 404/403, platform/tenant session separation and segregation of duties, plus the areas added by the owner for executions, scan decisioning and, since 2026-11-19, scan-engine sandbox integrity as listed in ADR-008), Docker, Docker Compose, Kubernetes, deployment or CI/CD setup as part of the current project initialization scope. **Scan-layer exception (ADR-014, owner-approved 2026-11-19):** only the scan-tool sandbox layer may use an OCI container runtime, solely through the `SandboxRuntime` interface (rootless Podman or Docker in development, a dedicated scan-runner service in production), to run third-party scan-tool images pinned by digest; never mount the Docker socket into the worker or any container; Docker, Compose, Kubernetes, deployment and CI remain out of scope everywhere else. Do not interpret this as permission to ignore secure engineering or code review.
 
 ## 10. Work protocol
 

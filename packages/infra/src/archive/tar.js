@@ -381,7 +381,7 @@ export async function extractTarGz(source, { destDir, ...options }) {
         let handle;
         try {
           handle = await open(target, "wx", TREE_FILE_MODE);
-        } catch (error) {
+        } catch {
           // EEXIST = an EXACT duplicate path, or a real on-disk collision (a case-insensitive host file system): abort rather than
           // let the first entry hide the second from the scan. Names that differ only by case or Unicode form are distinct
           // files on the case-sensitive Linux target: both are extracted and flagged by the tree walk.

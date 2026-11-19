@@ -157,8 +157,6 @@ const shape = {
   rawRef: z.object({ toolRunId: z.string().uuid(), ordinal: z.number().int().min(0) }).strict(),
   /** Secrets only: at most the 4 leading characters, and only for a value longer than 12 (the `normalizeItems` rule). */
   preview: z.string().max(4).optional(),
-  /** Secrets only (SPEC 7.2 example). A coarse bucket of the value length; see SPEC 17.e for the review note. */
-  valueLengthBucket: z.enum(["<=16", "<=32", "<=64", ">64"]).optional(),
 };
 
 /** Cross-field rules shared by findings and candidates. */
@@ -170,8 +168,7 @@ function refineCommon(f, ctx) {
     bad("component required");
   if (f.kind === "component" && f.severity !== "info") bad("a component is info");
   if (f.kind === "secret" && f.severity === "critical") bad("a secret is never critical in v1");
-  if (f.kind !== "secret" && (f.preview !== undefined || f.valueLengthBucket !== undefined))
-    bad("preview is for secrets only");
+  if (f.kind !== "secret" && f.preview !== undefined) bad("preview is for secrets only");
   if (f.kind === "secret" && !f.location?.path) bad("a secret needs a path");
   if ((f.kind === "code_issue" || f.kind === "secret") && f.location?.startLine === undefined)
     bad("a line is required");
@@ -233,6 +230,32 @@ export const candidateSchema = z
         message: "rule tool differs from the provenance tool",
       });
   });
+
+/**
+ * The `extra` column of a detail row (docs/modules/scan-engines/SPEC.md 7.3): what the table has no column for. Validated at WRITE
+ * time (owner decision 2026-11-19): strict (an unknown key is refused), every string and array capped, at most
+ * {@link FINDING_LIMITS.extraBytes} as `jsonb::text`. It holds no secret value and nothing derived from one (D-5): the worker
+ * builds it only from a validated finding and scrubs it with the secret-containment functions first; the database CHECK still
+ * refuses a credential shape.
+ */
+export const detailExtraSchema = z
+  .object({
+    component: componentSchema.optional(),
+    locations: z
+      .array(z.object({ path: relPath, startLine: line.optional() }).strict())
+      .max(L.locations)
+      .optional(),
+    locationCount: z.number().int().min(0).max(10_000_000).optional(),
+    fix: z
+      .object({ fixedVersions: z.array(noControl(100)).max(L.fixedVersions) })
+      .strict()
+      .optional(),
+    ruleName: noControl(200).optional(),
+    ruleTool: toolId,
+    rawRef: z.object({ toolRunId: z.string().uuid(), ordinal: z.number().int().min(0) }).strict(),
+  })
+  .strict()
+  .refine((e) => bytes(e) <= L.extraBytes, "extra too large");
 
 /**
  * @typedef {z.infer<typeof findingSchema>} EnsembleFinding

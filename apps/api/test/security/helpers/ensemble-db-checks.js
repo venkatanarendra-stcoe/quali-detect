@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   createExecutionArtifactRepository,
   createExecutionRetentionRepository,
@@ -65,7 +66,11 @@ const detail = (over = {}) => ({
   scmRef: null,
   url: "https://github.com/o/r/blob/" + "a".repeat(40) + "/package-lock.json",
   scope: { kind: "full", inScope: true },
-  extra: { component: { name: "lodash" } },
+  extra: {
+    component: { purl: "pkg:npm/lodash@4.17.20", name: "lodash", ecosystem: "npm" },
+    ruleTool: "trivy",
+    rawRef: { toolRunId: randomUUID(), ordinal: 0 },
+  },
   ...over,
 });
 const detailRaw = (item, d) => ({
@@ -1392,6 +1397,250 @@ export const ENSEMBLE_DB_CHECKS = [
         artifactRetentionDays: 3650,
       });
       if (again.executions !== 0) p.push("a second purge deleted more");
+      return p;
+    },
+  },
+  {
+    id: "ENG-S08d",
+    name: "detail rows are tenant-owned and never readable across tenants; rows that existed before the migrations stay valid (SPEC scan-engines 7.3, owner decisions 2026-11-19, ENG-S08): scan_result_item_details.tenant_id is NOT NULL, equals the tenant of its item and of its result for every stored row, and a raw writer cannot attach a detail to another tenant's item or result (composite keys, both directions); every read of the repository needs the trusted tenant AND the execution AND the result, a twin result with the same ordinals in another tenant is never mixed in, and every SQL statement of the scan-engine repository over the three tables carries a tenant predicate (source guard); `extra` is validated strictly at write time by the repository (an unknown key, a secret-shaped key, a traversal path, an oversize or mistyped value inserts nothing); the new scan_results columns are nullable, the artifact class is defaulted, and legacy-shaped rows (schema version 1, no coverage, no manifest, standard artifacts) pass the migrations' CHECK constraints when those are re-applied to the existing rows (re-validated in a rolled-back transaction) and are unchanged by them",
+    async run(c) {
+      const p = [];
+      const { db, A, B } = c;
+      const repo = createScanResultDetailRepository({ db });
+      const eA = await inState(c, A, "running", 0);
+      const eB = await inState(c, B, "running", 0);
+      const taskA = await runningTask(c, eA, "sca");
+      const taskB = await runningTask(c, eB, "sca");
+      const a = await resultWithItems(c, eA, taskA, 3);
+      const b = await resultWithItems(c, eB, taskB, 3);
+      const baseA = { tenantId: eA.tenantId, executionId: eA.id, scanResultId: a.result.id };
+      const baseB = { tenantId: eB.tenantId, executionId: eB.id, scanResultId: b.result.id };
+      // twin results: the same ordinals and the same dedup keys in two tenants
+      const twin = [
+        detail({ dedupKey: "sca|pkg:npm/twin@1|CVE-9-9" }),
+        detail({ dedupKey: "sca|pkg:npm/twin@2|CVE-9-9" }),
+      ];
+      if ((await repo.insertMany({ ...baseA, details: twin })).inserted !== 2)
+        p.push("control: A details");
+      if ((await repo.insertMany({ ...baseB, details: twin })).inserted !== 2)
+        p.push("control: B details");
+      for (const [who, base, other] of [
+        ["A", baseA, baseB],
+        ["B", baseB, baseA],
+      ]) {
+        const own = await repo.listForResult(base);
+        if (own.length !== 2) p.push(`control: ${who} reads ${own.length} of its own rows`);
+        // every combination that mixes the tenant, the execution or the result of the other side reads nothing
+        for (const q of [
+          { ...base, tenantId: other.tenantId },
+          { ...base, executionId: other.executionId },
+          { ...base, scanResultId: other.scanResultId },
+          {
+            tenantId: other.tenantId,
+            executionId: other.executionId,
+            scanResultId: base.scanResultId,
+          },
+          {
+            tenantId: base.tenantId,
+            executionId: other.executionId,
+            scanResultId: other.scanResultId,
+          },
+          {
+            tenantId: other.tenantId,
+            executionId: base.executionId,
+            scanResultId: other.scanResultId,
+          },
+        ])
+          if ((await repo.listForResult(q)).length !== 0)
+            p.push(`${who}: a detail read crossed a boundary`);
+        for (const missing of ["tenantId", "executionId", "scanResultId"])
+          if ((await repo.listForResult({ ...base, [missing]: randomUUID() })).length !== 0)
+            p.push(`${who}: an unknown ${missing} read rows`);
+      }
+      // the column is mandatory and every stored row agrees with its parents
+      const nullable = async (table, column) =>
+        (
+          await db.$queryRaw`SELECT is_nullable AS n, column_default AS d FROM information_schema.columns WHERE table_name = ${table} AND column_name = ${column}`
+        )[0];
+      if ((await nullable("scan_result_item_details", "tenant_id"))?.n !== "NO")
+        p.push("scan_result_item_details.tenant_id is nullable");
+      for (const column of ["run_manifest_sha256", "coverage"]) {
+        const r = await nullable("scan_results", column);
+        if (r?.n !== "YES" || r?.d !== null)
+          p.push(`scan_results.${column} is not a plain nullable column`);
+      }
+      const klass = await nullable("execution_artifacts", "artifact_class");
+      if (klass?.n !== "NO" || !String(klass?.d).includes("standard"))
+        p.push("execution_artifacts.artifact_class has no standard default");
+      const mismatched = await db.$queryRaw`
+        SELECT count(*)::int AS bad, (SELECT count(*)::int FROM scan_result_item_details) AS total FROM scan_result_item_details d
+        WHERE NOT EXISTS (SELECT 1 FROM scan_result_items i WHERE i.tenant_id = d.tenant_id AND i.scan_result_id = d.scan_result_id AND i.ordinal = d.item_ordinal)
+           OR NOT EXISTS (SELECT 1 FROM scan_results r WHERE r.tenant_id = d.tenant_id AND r.execution_id = d.execution_id AND r.id = d.scan_result_id)
+           OR NOT EXISTS (SELECT 1 FROM executions x WHERE x.tenant_id = d.tenant_id AND x.id = d.execution_id)`;
+      if (mismatched[0].total < 4 || mismatched[0].bad !== 0)
+        p.push(`detail rows disagree with their parents: ${JSON.stringify(mismatched[0])}`);
+      // a raw writer cannot attach a detail row to another tenant's item or result, in either direction
+      const itemA = a.items[2];
+      const itemB = b.items[2];
+      mustReject(
+        p,
+        "tenant B's detail on tenant A's item",
+        await attempt(() =>
+          db.scanResultItemDetail.create({
+            data: detailRaw({ ...itemA, tenantId: eB.tenantId }, detail()),
+          }),
+        ),
+        "P2003",
+      );
+      mustReject(
+        p,
+        "tenant A's detail on tenant B's item",
+        await attempt(() =>
+          db.scanResultItemDetail.create({
+            data: detailRaw({ ...itemB, tenantId: eA.tenantId }, detail()),
+          }),
+        ),
+        "P2003",
+      );
+      mustReject(
+        p,
+        "tenant A's detail on tenant B's result",
+        await attempt(() =>
+          db.scanResultItemDetail.create({
+            data: detailRaw({ ...itemA, executionId: eB.id, scanResultId: b.result.id }, detail()),
+          }),
+        ),
+        "P2003",
+      );
+      mustAccept(
+        p,
+        "a detail on its own item",
+        await attempt(() => db.scanResultItemDetail.create({ data: detailRaw(itemA, detail()) })),
+      );
+      // source guard: every statement over the three tables names a tenant predicate
+      const source = readFileSync(
+        new URL("../../../../../packages/db/src/executions/scan-engines.js", import.meta.url),
+        "utf8",
+      );
+      const statements =
+        source.match(
+          /(?:INSERT INTO|FROM|JOIN) scan_(?:tool_runs|result_item_details|result_items|tasks)\b[\s\S]*?(?:`|ORDER BY)/g,
+        ) ?? [];
+      if (statements.length < 4) p.push(`source guard found ${statements.length} statements`);
+      for (const table of ["scan_tool_runs", "scan_result_item_details", "scan_result_items"])
+        if (!statements.some((st) => st.includes(table))) p.push(`source guard missed ${table}`);
+      for (const st of statements)
+        if (
+          !/tenant_id\s*=\s*\$\{tenantId\}::uuid|i\.tenant_id = d\.tenant_id|t\.tenant_id/.test(st)
+        )
+          p.push(`a statement has no tenant predicate: ${st.slice(0, 60).replace(/\s+/g, " ")}`);
+      if (/\$queryRawUnsafe|\$executeRawUnsafe/.test(source))
+        p.push("the repository uses unsafe raw SQL");
+      // `extra` is validated at write time by the repository
+      const fresh = await resultWithItems(c, eA, await runningTask(c, eA, "secrets"), 2);
+      const freshBase = {
+        tenantId: eA.tenantId,
+        executionId: eA.id,
+        scanResultId: fresh.result.id,
+      };
+      const goodExtra = detail().extra;
+      for (const [label, extra] of [
+        ["an unknown key", { ...goodExtra, note: "x" }],
+        ["a secret-shaped key", { ...goodExtra, secret: "hunter2hunter2" }],
+        ["a value-length key", { ...goodExtra, valueLengthBucket: "<=16" }],
+        ["a traversal path", { ...goodExtra, locations: [{ path: "../../etc/passwd" }] }],
+        ["a mistyped value", { ...goodExtra, fix: "x" }],
+        ["an unknown tool", { ...goodExtra, ruleTool: "grype" }],
+        ["an oversize value", { ...goodExtra, ruleName: "x".repeat(5000) }],
+        ["a string", "x"],
+        ["an array", [goodExtra]],
+        ["null", null],
+      ]) {
+        const r = await attempt(() =>
+          repo.insertMany({ ...freshBase, details: [detail({ extra })] }),
+        );
+        if (r.ok) p.push(`the repository accepted extra with ${label}`);
+      }
+      if ((await repo.listForResult(freshBase)).length !== 0) p.push("a rejected extra left a row");
+      mustAccept(
+        p,
+        "a valid extra",
+        await attempt(() =>
+          repo.insertMany({ ...freshBase, details: [detail({ extra: goodExtra })] }),
+        ),
+      );
+      // rows that existed before the migrations: legacy-shaped rows stay valid when the CHECKs are applied to them
+      const legacy = await resultWithItems(c, eA, await runningTask(c, eA, "sbom"), 1, {
+        completeness: "incomplete",
+      });
+      const legacyRows =
+        await db.$queryRaw`SELECT schema_version AS "schemaVersion", run_manifest_sha256 AS manifest, coverage FROM scan_results WHERE id = ${legacy.result.id}::uuid`;
+      if (
+        legacyRows[0]?.schemaVersion !== 1 ||
+        legacyRows[0]?.manifest !== null ||
+        legacyRows[0]?.coverage !== null
+      )
+        p.push(`a legacy-shaped result is not what it should be: ${JSON.stringify(legacyRows[0])}`);
+      const store = createPostgresArtifactStore({
+        repository: createExecutionArtifactRepository({ db }),
+      });
+      await store.put(
+        { tenantId: eA.tenantId, executionId: eA.id, name: "legacy-doc" },
+        Buffer.from("{}"),
+        {
+          mediaType: "application/json",
+        },
+      );
+      const legacyArtifact =
+        await db.$queryRaw`SELECT artifact_class AS class FROM execution_artifacts WHERE execution_id = ${eA.id}::uuid AND name = 'legacy-doc'`;
+      if (legacyArtifact[0]?.class !== "standard")
+        p.push("a default artifact is not the standard class");
+      const defOf = async (name) =>
+        (
+          await db.$queryRaw`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = ${name}`
+        )[0]?.def;
+      for (const [table, name] of [
+        ["scan_results", "scan_results_ensemble_check"],
+        ["execution_artifacts", "execution_artifacts_values_check"],
+      ]) {
+        const def = await defOf(name);
+        if (!def) {
+          p.push(`constraint ${name} not found`);
+          continue;
+        }
+        // ADD CONSTRAINT validates every existing row, exactly as the migration did
+        mustAccept(
+          p,
+          `${name} re-applied to the existing rows`,
+          await probe(db, async (tx) => {
+            await tx.$executeRawUnsafe(`ALTER TABLE ${table} DROP CONSTRAINT ${name}`);
+            await tx.$executeRawUnsafe(`ALTER TABLE ${table} ADD CONSTRAINT ${name} ${def}`);
+          }),
+        );
+      }
+      // control: the same probe does fail for a row that violates the constraint (so a pass is not vacuous)
+      mustReject(
+        p,
+        "control: the re-validation is not vacuous",
+        await probe(db, async (tx) => {
+          await tx.$executeRawUnsafe(
+            "ALTER TABLE scan_results DROP CONSTRAINT scan_results_ensemble_check",
+          );
+          await tx.$executeRawUnsafe("ALTER TABLE scan_results DISABLE TRIGGER USER");
+          await tx.$executeRawUnsafe(
+            'UPDATE scan_results SET coverage = \'{"state":"complete"}\'::jsonb WHERE id = $1::uuid',
+            legacy.result.id,
+          );
+          await tx.$executeRawUnsafe(
+            "ALTER TABLE scan_results ADD CONSTRAINT scan_results_ensemble_check CHECK (coverage IS NULL)",
+          );
+        }),
+        "scan_results_",
+      );
+      const after =
+        await db.$queryRaw`SELECT schema_version AS "schemaVersion", coverage FROM scan_results WHERE id = ${legacy.result.id}::uuid`;
+      if (after[0]?.schemaVersion !== 1 || after[0]?.coverage !== null)
+        p.push("the legacy row changed");
       return p;
     },
   },

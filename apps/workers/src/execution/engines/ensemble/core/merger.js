@@ -300,8 +300,6 @@ function buildFinding(scanType, members, extra = {}) {
   if (base.kind === "secret") {
     const withPreview = [base, ...members].find((m) => m.preview !== undefined);
     if (withPreview) finding.preview = withPreview.preview;
-    const bucket = [base, ...members].find((m) => m.valueLengthBucket !== undefined);
-    if (bucket) finding.valueLengthBucket = bucket.valueLengthBucket;
   }
   const parsed = findingSchema.safeParse(finding);
   if (!parsed.success)

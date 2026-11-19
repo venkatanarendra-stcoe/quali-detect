@@ -1,4 +1,4 @@
-import { TOOL_STATUSES, TOOLS_FAILED_REASON, TRANSIENT_TOOL_REASONS } from "./constants.js";
+import { TOOL_STATUSES, TOOLS_FAILED_REASON, toolReasonClass } from "./constants.js";
 
 /**
  * Roll-up of per-tool run statuses into the task outcome (docs/modules/scan-engines/SPEC.md 5.4, owner decision D-6). Pure and
@@ -7,6 +7,11 @@ import { TOOL_STATUSES, TOOLS_FAILED_REASON, TRANSIENT_TOOL_REASONS } from "./co
  * `succeeded` or `partial` and no failure; 6 as 5 with at least one failed, timed out, cancelled or unavailable tool
  * (`succeeded`, DEGRADED, `incomplete`, never resolution eligible); 7 no tool succeeded and at least one failed (`failed`,
  * `tools_failed`, transient only when every failure is transient). No new task status; `unsupported` is never produced here.
+ * A stale vulnerability database is never a failure (owner decision 2026-11-19): the reason `db_stale` is valid only on a
+ * `partial` run and any other combination is refused with a TypeError, so a caller cannot fail a scan for staleness. A tool that
+ * stays `unavailable` with `db_unavailable` after the retries is a broken tool of row 6 (degraded, `incomplete`) when another tool
+ * produced output; when none did, the task is the ordinary `failed` task of row 7 with the transient class (the retry budget of
+ * ER-13 decides how often).
  */
 
 /** @typedef {{ toolId: string, status: typeof TOOL_STATUSES[number], reason?: string | null }} ToolOutcome */
@@ -42,6 +47,9 @@ export function rollUpTask({
   if (!Array.isArray(tools)) throw new TypeError("tools must be an array");
   for (const t of tools)
     if (!TOOL_STATUSES.includes(t?.status)) throw new TypeError("unknown tool status");
+  for (const t of tools)
+    if (toolReasonClass(t.reason) === "warning" && t.status !== "partial")
+      throw new TypeError("a stale database is a warning on a partial run, never a failure");
   const base = {
     toolsDegraded: 0,
     coverageGaps: [],
@@ -91,7 +99,7 @@ export function rollUpTask({
     };
   }
   if (ok.length === 0) {
-    const transient = broken.every((t) => TRANSIENT_TOOL_REASONS.includes(t.reason ?? ""));
+    const transient = broken.every((t) => toolReasonClass(t.reason) === "transient");
     return {
       ...base,
       taskStatus: "failed",

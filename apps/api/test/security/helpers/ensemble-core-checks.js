@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CONFIDENCES,
   DEFERRED_TOOL_IDS,
+  detailExtraSchema,
   ENSEMBLE_RESULT_SCHEMA_VERSION,
   FINDING_LIMITS,
   jsonbTextBytes,
@@ -19,6 +21,7 @@ import {
   rollUpTask,
   severityFromCvssScore,
   severityOfSecretType,
+  toolReasonClass,
 } from "@qmentisai/shared";
 import {
   ToolOutputError,
@@ -30,7 +33,6 @@ import {
   detailRowBytes,
   findingToDetail,
   findingToItem,
-  lengthBucket,
   scrubDeep,
   mergeTaskCandidates,
   normalizeAdvisoryId,
@@ -756,6 +758,8 @@ export const ENSEMBLE_CORE_CHECKS = [
         p,
         adv("cve-2021-23337")?.id === "CVE-2021-23337" &&
           adv("GHSA-35JH-R3H4-6JHM")?.id === "GHSA-35jh-r3h4-6jhm" &&
+          adv("ghsa-35jh-r3h4-6jhm")?.id === "GHSA-35jh-r3h4-6jhm" &&
+          adv("Ghsa-35Jh-R3h4-6jHm")?.id === "GHSA-35jh-r3h4-6jhm" &&
           adv("go-2021-0001")?.id === "GO-2021-0001",
         "advisory normalization",
       );
@@ -1528,20 +1532,13 @@ export const ENSEMBLE_CORE_CHECKS = [
           exact13.preview === "1234",
         `preview rule: ${longPrev.preview}/${shortPrev.preview}/${exact12.preview}/${exact13.preview}`,
       );
+      // D-5: nothing derived from a secret value is stored, not even its length (the bucket was dropped)
       ok(
         p,
-        longPrev.valueLengthBucket === "<=32" &&
-          shortPrev.valueLengthBucket === "<=16" &&
-          cands(GITLEAKS, [
-            { id: "k", path: "a.env", line: 1, typeClass: "jwt", secret: "x".repeat(70) },
-          ])[0].valueLengthBucket === ">64",
-        "length bucket",
-      );
-      ok(
-        p,
-        cands(GITLEAKS, [{ id: "k", path: "a.env", line: 1, typeClass: "jwt" }])[0]
-          .valueLengthBucket === undefined,
-        "a bucket without a value",
+        [longPrev, shortPrev, exact12, exact13].every(
+          (c) => !("valueLengthBucket" in c) && JSON.stringify(c).includes("Bucket") === false,
+        ),
+        "a candidate carries a length bucket",
       );
       // fingerprint is memory only
       const fp = withFp.candidates[0].mergeHints?.fingerprint;
@@ -1874,6 +1871,114 @@ export const ENSEMBLE_CORE_CHECKS = [
       eq("7 no reason is permanent", rollUpTask({ tools: [t("a", "failed")] }), {
         errorClass: "permanent",
       });
+      // owner decision 2026-11-19: failure classification
+      eq(
+        "7 db_unavailable alone is transient (infrastructure)",
+        rollUpTask({
+          tools: [t("a", "unavailable", "db_unavailable"), t("b", "unavailable", "db_unavailable")],
+        }),
+        { taskStatus: "failed", errorClass: "transient", matchedRow: 7 },
+      );
+      eq(
+        "7 db_unavailable with a permanent failure is permanent",
+        rollUpTask({
+          tools: [t("a", "unavailable", "db_unavailable"), t("b", "failed", "killed")],
+        }),
+        { errorClass: "permanent" },
+      );
+      eq(
+        "6 a persistent db_unavailable degrades, it does not discard the scan",
+        rollUpTask({ tools: [t("a", "succeeded"), t("b", "unavailable", "db_unavailable")] }),
+        {
+          taskStatus: "succeeded",
+          completeness: "incomplete",
+          toolsDegraded: 1,
+          resolutionEligible: false,
+          matchedRow: 6,
+        },
+      );
+      eq(
+        "6 a killed tool is permanent for the run and shows as degraded",
+        rollUpTask({ tools: [t("a", "succeeded"), t("b", "failed", "killed")] }),
+        { taskStatus: "succeeded", completeness: "incomplete", toolsDegraded: 1, matchedRow: 6 },
+      );
+      eq(
+        "7 killed alone is permanent (not auto-retried)",
+        rollUpTask({ tools: [t("a", "failed", "killed")] }),
+        { taskStatus: "failed", errorClass: "permanent" },
+      );
+      eq(
+        "5 a stale database is a warning: the scan proceeds, incomplete, never eligible",
+        rollUpTask({ tools: [t("a", "partial", "db_stale"), t("b", "succeeded")] }),
+        {
+          taskStatus: "succeeded",
+          completeness: "incomplete",
+          toolsDegraded: 0,
+          resolutionEligible: false,
+          matchedRow: 5,
+        },
+      );
+      eq(
+        "5 a stale database alone still produces a scan",
+        rollUpTask({ tools: [t("a", "partial", "db_stale")] }),
+        { taskStatus: "succeeded", completeness: "incomplete", matchedRow: 5 },
+      );
+      for (const status of [
+        "failed",
+        "timed_out",
+        "unavailable",
+        "skipped",
+        "cancelled",
+        "succeeded",
+      ])
+        ok(
+          p,
+          throwsCode(() => rollUpTask({ tools: [t("a", status, "db_stale")] })) !== null,
+          `db_stale was accepted on a ${status} tool`,
+        );
+      eq(
+        "reason classes",
+        [
+          "sandbox_error",
+          "image_unavailable",
+          "capacity",
+          "db_unavailable",
+          "db_stale",
+          "killed",
+          "timeout",
+          "out_of_memory",
+          "exit_code",
+          "output_invalid",
+          "output_too_large",
+          "config_invalid",
+          "no_applicable_files",
+          "cancelled",
+          "deadline",
+          "nonsense",
+          null,
+          undefined,
+        ].map(toolReasonClass),
+        [
+          "transient",
+          "transient",
+          "transient",
+          "transient",
+          "warning",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+          "permanent",
+        ],
+      );
       // properties over all combinations of up to three tools
       const statuses = [
         "succeeded",
@@ -2399,15 +2504,11 @@ export const ENSEMBLE_CORE_CHECKS = [
       ])[0];
       ok(
         p,
-        bucketBase[0].valueLengthBucket === undefined && withBucket.valueLengthBucket === "<=32",
-        `bucket from a non-base member: ${withBucket.valueLengthBucket}`,
+        !("valueLengthBucket" in bucketBase[0]) && !("valueLengthBucket" in withBucket),
+        "a merged secret carries a length bucket",
       );
       const onlyBase = merge("secrets", bucketBase)[0];
-      ok(
-        p,
-        !("valueLengthBucket" in onlyBase) && !("preview" in onlyBase),
-        "absent bucket or preview must be absent",
-      );
+      ok(p, !("preview" in onlyBase), "an absent preview must be absent");
       eq(
         "preview from a member",
         merge("secrets", [
@@ -2671,6 +2772,7 @@ export const ENSEMBLE_CORE_CHECKS = [
         evidenceBytes: 8192,
         url: 2000,
         detailRowBytes: 16384,
+        extraBytes: 16384,
       });
       // ---- roll-up details
       ok(
@@ -2944,16 +3046,21 @@ export const ENSEMBLE_CORE_CHECKS = [
       const emptySecret = parse(GITLEAKS, [
         { id: "r", title: "plain title", path: "a.env", line: 1, typeClass: "jwt", secret: "" },
       ]);
+      eq("an empty secret value", emptySecret.candidates[0].title, "plain title");
       eq(
-        "an empty secret value",
-        [emptySecret.candidates[0].title, emptySecret.candidates[0].valueLengthBucket],
-        ["plain title", undefined],
+        "a one character value leaves no length trace",
+        "valueLengthBucket" in
+          parse(GITLEAKS, [{ id: "r", path: "a.env", line: 1, typeClass: "jwt", secret: "x" }])
+            .candidates[0],
+        false,
       );
       eq(
-        "a one character value has a bucket",
-        parse(GITLEAKS, [{ id: "r", path: "a.env", line: 1, typeClass: "jwt", secret: "x" }])
-          .candidates[0].valueLengthBucket,
-        "<=16",
+        "the schema refuses a length bucket key (strict, D-5)",
+        findingSchema.safeParse({
+          ...merge("secrets", sec(GITLEAKS, {}))[0],
+          valueLengthBucket: "<=32",
+        }).success,
+        false,
       );
       eq(
         "a 4 character value is scrubbed",
@@ -3058,19 +3165,6 @@ export const ENSEMBLE_CORE_CHECKS = [
       eq("OSC sequence ended by ST", scrubDeep("a\u001b]0;evil\u001b\\b", []), "ab");
       eq("ANSI sequence", scrubDeep("a\u001b[1;31mb\u001b[0m", []), "ab");
       eq("a path keeps its exact bytes", scrubDeep({ path: "a\u202eb" }, []), { path: "a\u202eb" });
-      eq(
-        "buckets",
-        [
-          lengthBucket(0),
-          lengthBucket(16),
-          lengthBucket(17),
-          lengthBucket(32),
-          lengthBucket(33),
-          lengthBucket(64),
-          lengthBucket(65),
-        ],
-        ["<=16", "<=16", "<=32", "<=32", "<=64", "<=64", ">64"],
-      );
       // ---- storage details
       const sbomF = merge("sbom", [
         ...cands(SYFT, [{ purl: "pkg:npm/s@1", path: "p" }]),
@@ -3082,6 +3176,84 @@ export const ENSEMBLE_CORE_CHECKS = [
         [2, "syft"],
       );
       eq("default scope", findingToDetail(sbomF).scope, { kind: "full", inScope: true });
+      // `extra` is validated at write time (owner decision 2026-11-19): strict, bounded, scrubbed
+      const extraOk = findingToDetail(sbomF).extra;
+      ok(p, detailExtraSchema.safeParse(extraOk).success, "control: a built extra is valid");
+      for (const [label, bad] of [
+        ["an unknown key", { ...extraOk, note: "x" }],
+        ["a value length bucket key", { ...extraOk, valueLengthBucket: "<=16" }],
+        ["a secret key", { ...extraOk, secret: "hunter2hunter2" }],
+        ["a fingerprint key", { ...extraOk, fingerprint: "ab".repeat(16) }],
+        ["a missing raw reference", { ...extraOk, rawRef: undefined }],
+        ["an unknown tool", { ...extraOk, ruleTool: "grype" }],
+        [
+          "too many locations",
+          { ...extraOk, locations: Array.from({ length: 21 }, () => ({ path: "a" })) },
+        ],
+        ["a traversal path", { ...extraOk, locations: [{ path: "../etc/passwd" }] }],
+        ["a control character", { ...extraOk, ruleName: "a\u0000b" }],
+        ["a long name", { ...extraOk, ruleName: "x".repeat(201) }],
+        ["a string where an object belongs", { ...extraOk, fix: "x" }],
+        [
+          "too large",
+          {
+            ...extraOk,
+            component: { ...extraOk.component, name: "x".repeat(200) },
+            fix: { fixedVersions: Array.from({ length: 10 }, () => "y".repeat(100)) },
+            ruleName: "z".repeat(200),
+            locations: Array.from({ length: 20 }, (_, i) => ({ path: `${"d".repeat(1000)}/${i}` })),
+          },
+        ],
+        ["an array", [extraOk]],
+        ["a string", "x"],
+        ["null", null],
+        ["an empty object", {}],
+      ])
+        ok(p, !detailExtraSchema.safeParse(bad).success, `extra accepted ${label}`);
+      // the size boundary of `extra`: exactly 16384 bytes of jsonb text is accepted, one more is not
+      const sized = (lastLen) => ({
+        ruleTool: "syft",
+        rawRef: { toolRunId: randomUUID(), ordinal: 0 },
+        locations: [
+          ...Array.from({ length: 19 }, (_, i) => ({ path: `${"d".repeat(800)}/${i}` })),
+          { path: "e".repeat(lastLen) },
+        ],
+      });
+      let lastLen = 1;
+      while (jsonbTextBytes(sized(lastLen)) < FINDING_LIMITS.extraBytes && lastLen < 1024)
+        lastLen += 1;
+      eq(
+        "fixture: exactly the extra limit",
+        jsonbTextBytes(sized(lastLen)),
+        FINDING_LIMITS.extraBytes,
+      );
+      ok(
+        p,
+        detailExtraSchema.safeParse(sized(lastLen)).success,
+        "extra of exactly 16384 bytes refused",
+      );
+      ok(
+        p,
+        !detailExtraSchema.safeParse(sized(lastLen + 1)).success,
+        "extra of 16385 bytes accepted",
+      );
+      const prototypeExtra = JSON.parse(
+        '{"ruleTool":"syft","rawRef":{"toolRunId":"' +
+          randomUUID() +
+          '","ordinal":0},"__proto__":{"x":1}}',
+      );
+      ok(p, !detailExtraSchema.safeParse(prototypeExtra).success, "extra accepted __proto__");
+      const leaky = toStorageRows(
+        [{ ...sbomF, rule: { ...sbomF.rule, name: "key ghp_abcdefghijklmnopqrstuv1234 here" } }],
+        10,
+      );
+      ok(
+        p,
+        leaky.details.length === 1 &&
+          !JSON.stringify(leaky.details[0].extra).includes("ghp_abcdefghij") &&
+          detailExtraSchema.safeParse(leaky.details[0].extra).success,
+        "a credential in extra was stored",
+      );
       const secretF = merge("secrets", sec(GITLEAKS, {}))[0];
       eq(
         "secret item data",

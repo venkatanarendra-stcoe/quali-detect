@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { detailExtraSchema } from "@qmentisai/shared";
 import { withTransaction } from "../transaction.js";
 
 /**
@@ -84,6 +85,8 @@ export function createScanResultDetailRepository({ db }) {
         let inserted = 0;
         for (const [index, d] of details.entries()) {
           const ordinal = d.itemOrdinal ?? index;
+          // `extra` is validated at write time (strict, bounded; the database CHECK refuses credential shapes)
+          const extra = d.extra === undefined ? {} : detailExtraSchema.parse(d.extra);
           inserted += await tx.$executeRaw`
             INSERT INTO scan_result_item_details (tenant_id, execution_id, scan_result_id, item_ordinal, schema_version, dedup_key,
               confidence, confidence_basis, severity_assumed, provenance, advisories, cwe, evidence, scm_ref, url, scope, extra)
@@ -92,7 +95,7 @@ export function createScanResultDetailRepository({ db }) {
               ${JSON.stringify(d.advisories ?? [])}::jsonb, ${d.cwe ?? []}::int[],
               ${d.evidence === null || d.evidence === undefined ? null : JSON.stringify(d.evidence)}::jsonb,
               ${d.scmRef === null || d.scmRef === undefined ? null : JSON.stringify(d.scmRef)}::jsonb, ${d.url ?? null},
-              ${json(d.scope)}::jsonb, ${json(d.extra)}::jsonb
+              ${json(d.scope)}::jsonb, ${json(extra)}::jsonb
             FROM scan_result_items i
             WHERE i.tenant_id = ${tenantId}::uuid AND i.execution_id = ${executionId}::uuid AND i.scan_result_id = ${scanResultId}::uuid
               AND i.ordinal = ${ordinal}::int`;

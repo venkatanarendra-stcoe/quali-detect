@@ -1,6 +1,12 @@
-import { FINDING_LIMITS, findingSchema, jsonbTextBytes } from "@qmentisai/shared";
+import {
+  FINDING_LIMITS,
+  detailExtraSchema,
+  findingSchema,
+  jsonbTextBytes,
+} from "@qmentisai/shared";
 import { findCredentials } from "@qmentisai/infra";
 import { normalizeItems } from "../../../scan-handler.js";
+import { scrubDeep } from "./scrub.js";
 
 /**
  * Projection of merged findings onto the storage rows (docs/modules/scan-engines/SPEC.md 7.1, 7.3): the list-friendly
@@ -49,7 +55,7 @@ export function findingToItem(finding) {
 
 /**
  * The detail row of a finding (without the keys of its item, which the repository adds). What the SPEC table has no column for
- * (component, locations, fix, rule name, value-length bucket, raw reference) goes to `extra`.
+ * (component, locations, fix, rule name, raw reference) goes to `extra`.
  * @param {object} finding
  */
 export function findingToDetail(finding) {
@@ -59,7 +65,6 @@ export function findingToDetail(finding) {
   if (finding.locationCount !== undefined) extra.locationCount = finding.locationCount;
   if (finding.fix) extra.fix = finding.fix;
   if (finding.rule.name) extra.ruleName = finding.rule.name;
-  if (finding.valueLengthBucket) extra.valueLengthBucket = finding.valueLengthBucket;
   extra.ruleTool = finding.rule.tool;
   extra.rawRef = finding.rawRef;
   return {
@@ -107,6 +112,13 @@ export function toStorageRows(findings, cap) {
       continue;
     }
     let detail = findingToDetail(finding);
+    // `extra` is validated at write time: scrubbed like every other untrusted text, then strict, bounded and credential-free
+    const extra = detailExtraSchema.safeParse(scrubDeep(detail.extra, []));
+    if (!extra.success) {
+      dropped += 1;
+      continue;
+    }
+    detail = { ...detail, extra: extra.data };
     if (detailRowBytes(detail) > FINDING_LIMITS.detailRowBytes)
       detail = { ...detail, evidence: null };
     if (

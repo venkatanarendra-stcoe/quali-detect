@@ -255,7 +255,7 @@ model ScanResultItemDetail {
   scmRef          Json?    @map("scm_ref")
   url             String?
   scope           Json     @default("{}")
-  /// What the table has no column for: component, locations, fix, rule name, value-length bucket, raw reference.
+  /// What the table has no column for: component, locations, fix, rule name, raw reference.
   extra           Json     @default("{}")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

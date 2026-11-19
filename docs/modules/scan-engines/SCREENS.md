@@ -148,7 +148,7 @@ Use the sentence-case texts of sections 3.2 to 3.5 verbatim unless the owner edi
 
 Not run. Unchecked until the screen exists:
 
-- Task cards for each scan type with 1, 2 and 3 tools: all tools succeeded; one failed; one timed out; one unavailable (stale data); one skipped; partial; all failed (task `Failed`); `nothing_to_scan`; `gaps`.
+- Task cards for each scan type with 1, 2 and 3 tools: all tools succeeded; one failed; one timed out; one unavailable (data missing, `db_unavailable`); one partial with `db_stale` (the scan proceeded on old data: a warning, never a failed chip); one skipped; partial; all failed (task `Failed`); `nothing_to_scan`; `gaps`.
 - Each status chip and each fixed-word reason text; an unknown code and an unknown status.
 - SCA row: data date, short snapshot id, "older than 3 days" warning.
 - SBOM tool row showing "Components N" and the in-process "built in" adapter.

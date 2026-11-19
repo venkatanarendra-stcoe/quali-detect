@@ -4,7 +4,7 @@ import { redactCredentialText } from "@qmentisai/infra";
  * Containment of untrusted text and of secret values (docs/modules/scan-engines/SPEC.md 5.6.4, 7.2, ENG-S05, D-5). A secret VALUE
  * is never stored, logged or transmitted: the adapter hands the framework the raw field names that hold it, the framework removes
  * them before the mapper runs, keeps their values only in memory to scrub every string of the candidate (also in base64, base64url,
- * hex, URL-encoded and reversed forms), and derives nothing from them but a length bucket and, in memory only, a task-keyed HMAC.
+ * hex, URL-encoded and reversed forms), and derives nothing from them but, in memory only, a task-keyed HMAC (D-5: nothing derived from a secret is stored).
  */
 
 /** Values shorter than this are not scrubbed from text (a one-letter "value" would erase the title); they are still never stored as a field. */
@@ -82,12 +82,4 @@ export function scrubDeep(value, variants, depth = 0, key = "") {
     return out;
   }
   return value;
-}
-
-/** Coarse length bucket of a secret value (SPEC 7.2 example). */
-export function lengthBucket(length) {
-  if (length <= 16) return "<=16";
-  if (length <= 32) return "<=32";
-  if (length <= 64) return "<=64";
-  return ">64";
 }

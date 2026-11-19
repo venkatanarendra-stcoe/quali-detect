@@ -1,6 +1,6 @@
 import { OUTPUT_DROP_RATIO_LIMIT, candidateSchema } from "@qmentisai/shared";
 import { PARSE_KIT, PARSE_LIMITS, ToolOutputError } from "./parse-kit.js";
-import { lengthBucket, scrubDeep, secretVariants } from "./scrub.js";
+import { scrubDeep, secretVariants } from "./scrub.js";
 
 /**
  * Runs the parse, validate and map pipeline of ONE tool adapter over ONE tool output (docs/modules/scan-engines/SPEC.md 7.2
@@ -146,12 +146,10 @@ function oneRecord(adapter, raw, ordinal, ctx) {
       variants,
     );
     if (candidate.kind === "secret") {
-      // a preview only for a value longer than 12, at most 4 characters; the bucket is computed here, never by the mapper
+      // a preview only for a value longer than 12, at most 4 characters; nothing else is derived from the value (D-5)
       if (maxLength > 12 && typeof candidate.preview === "string")
         candidate.preview = candidate.preview.slice(0, 4);
       else delete candidate.preview;
-      if (maxLength > 0) candidate.valueLengthBucket = lengthBucket(maxLength);
-      else delete candidate.valueLengthBucket;
     }
     if (fingerprint && candidate.kind === "secret")
       candidate.mergeHints = { ...candidate.mergeHints, fingerprint };

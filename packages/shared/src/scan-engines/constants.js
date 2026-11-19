@@ -104,12 +104,34 @@ export const TOOL_REASONS = Object.freeze([
   "cancelled",
   "deadline",
 ]);
-/** Reasons a retry of the whole ensemble may help (SPEC 5.3, ER-13). Every other reason is PERMANENT for that tool. */
+/**
+ * Reasons a retry of the whole ensemble may help (SPEC 5.3, ER-13): infrastructure that can recover (owner decision 2026-11-19:
+ * `db_unavailable` is transient). Every other FAILURE reason is PERMANENT for that tool (`killed`, `timeout`, `out_of_memory`
+ * stay permanent for the run and are surfaced as degraded, never auto-retried).
+ */
 export const TRANSIENT_TOOL_REASONS = Object.freeze([
   "sandbox_error",
   "image_unavailable",
   "capacity",
+  "db_unavailable",
 ]);
+/**
+ * Reasons that are a WARNING on a run that still produced output, never a failure (owner decision 2026-11-19): `db_stale` marks
+ * the tool run `partial` (result `incomplete`, so never resolution eligible) and the scan proceeds. A stale database never fails,
+ * skips or makes unavailable a tool.
+ */
+export const WARNING_TOOL_REASONS = Object.freeze(["db_stale"]);
+
+/**
+ * The class of a tool reason for the retry decision and the roll-up.
+ * @param {string | null | undefined} reason
+ * @returns {"warning" | "transient" | "permanent"} `permanent` for a missing or unknown reason (no retry loop can start)
+ */
+export function toolReasonClass(reason) {
+  if (typeof reason === "string" && WARNING_TOOL_REASONS.includes(reason)) return "warning";
+  if (typeof reason === "string" && TRANSIENT_TOOL_REASONS.includes(reason)) return "transient";
+  return "permanent";
+}
 /** The error code of a task whose every tool failed (SPEC 5.4 row 7). */
 export const TOOLS_FAILED_REASON = "tools_failed";
 
@@ -162,6 +184,7 @@ export const FINDING_LIMITS = Object.freeze({
   evidenceBytes: 8192,
   url: 2000,
   detailRowBytes: 16384,
+  extraBytes: 16384,
 });
 /** SAST: two candidates of different tools whose start lines differ by at most this merge (Recommended, SPEC 5.6.3). */
 export const SAST_LINE_TOLERANCE = 3;

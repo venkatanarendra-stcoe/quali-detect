@@ -1,0 +1,887 @@
+# Scan engines (production ensemble engines) — Module Specification
+
+**Status:** **Draft for owner review** (2026-11-19). Nothing in this document is implemented. No code, migration, package or configuration change accompanies it. `CLAUDE.md`, `docs/technical/TECH_STACK.md` and the other approved documents are NOT edited by this draft; the amendments they need are PROPOSED in section 0 and in ADR-014.
+**Owner:** Product owner (decisions); Claude Code (specification)
+**Last updated:** 2026-11-19
+**Related ADRs:** ADR-002 (modular monolith, separate workers), ADR-003 (tenant isolation), ADR-004 (finding identity is per pipeline, never merged across pipelines), ADR-008 (security suite; scope amendment PROPOSED in section 14.1), ADR-009 (no secrets in messages, SecretStore), ADR-011 (envelopes, outbox, ownership re-validation), ADR-012 (workspace-level source-control linking; GitHub only today), ADR-013 (LLM abstraction; not used by this module), **ADR-014 (containerised scan execution, Proposed, written with this spec)**
+**Related specs:** `docs/modules/executions/SPEC.md` (scan tasks, results, timeouts, cancellation, `untrusted_fork`, engine registry, §17.ab SBOM-lite engine), `docs/modules/scan-decisioning/SPEC.md` (which scan types run), `docs/modules/pipelines-triggers/SPEC.md` §5.7.1 (engine catalog)
+**Template:** `docs/technical/MODULE_SPECIFICATION_TEMPLATE.md` (the owner's brief named `docs/MODULE_SPECIFICATION_TEMPLATE.md`; the file lives under `docs/technical/`).
+
+Labels used throughout: **Confirmed** = stated by the owner in the 2026-11-19 brief (rows `CB-n` below) or already approved in an existing document and cited; **Recommended** = my proposal; **Open** = needs the owner. Per `CLAUDE.md` (status rule), only Confirmed items are requirements; nothing Recommended or Open is promoted.
+
+## Decisions taken from the owner brief (2026-11-19, Confirmed)
+
+| Id | Decision |
+|---|---|
+| CB-1 | The built-in SBOM-lite engine is to be replaced by **production ensemble engines**. Each tool runs as a **pinned OCI image (by digest)** in a locked-down sandbox: no network by default, read-only mount of the archive, non-root, dropped capabilities, seccomp, CPU / memory / pids / time limits. Repository code is analysed as **data** and never executed |
+| CB-2 | This reverses the "no Docker" constraint **for the scan layer only**. The rest of the `CLAUDE.md` out-of-scope line (Docker, Compose, Kubernetes, deployment, CI) otherwise stands. The amendment to `CLAUDE.md` and `TECH_STACK.md` needs an owner approval; this draft only proposes the wording |
+| CB-3 | Each scan type is an **ensemble engine** running N **tool adapters**; each adapter runs its container, parses the output and maps it to the normalized finding schema. Tools: SBOM = Syft + cdxgen (CycloneDX and SPDX outputs); SCA = Trivy + Grype + OSV-Scanner; SAST = Semgrep OSS (or Opengrep) + per-language tools selected by detected languages (Bandit, gosec, njsscan, Brakeman); Secrets = Gitleaks + detect-secrets (TruffleHog optional, AGPL-3.0 flagged); **CodeQL is excluded** (commercial-licence restriction) |
+| CB-4 | A tool failing does **not** fail the scan type if another tool of that type succeeded (partial per tool). Per-tool statuses roll up into the task status and stay consistent with Executions SPEC 5.4 and scan-decisioning 17.g |
+| CB-5 | Results of several tools are **merged and de-duplicated within a scan type**; one issue found by several tools is ONE finding carrying tool provenance (which tools found it, with higher confidence) |
+| CB-6 | A **normalized finding schema** (severity, rule/CVE/CWE, title, location, tool provenance, confidence, raw reference) is defined here for the Findings module; adapters return raw-parsed records, a pure mapper maps them, the merger de-duplicates; tool output is untrusted input |
+| CB-7 | **Evidence enrichment**: tree-sitter (no execution) extracts the enclosing function or block of a code finding; SCM deep links point to the exact commit, file and lines; **secret values are redacted** in evidence |
+| CB-8 | **Vulnerability databases** are pinned and mirrored offline for Trivy, Grype and OSV; a refresh job updates them; the sealed scan path needs no live network |
+| CB-9 | Integration with scan execution honours timeouts, cancellation (kill containers, no orphans), `untrusted_fork` (no tenant credentials to any tool), and incremental scope |
+| CB-10 | T-29 shows which tools ran and each tool's per-task status and counts; evidence and links surface later in Findings (T-32) |
+| CB-11 | Security-suite additions (ADR-008 scope amendment) are a PROPOSAL for the owner's approval, testable without Docker in the cloud sandbox, plus live Docker checks listed separately |
+| CB-12 | The **container runtime and isolation model is the owner's decision** (Open, section 15, OQ-1 and ADR-014) |
+
+## 0. Facts that need the owner's attention (read this first)
+
+### 0.1 The "Findings SPEC" does not exist
+
+The brief refers to a "Findings SPEC" (the normalized finding schema). **`docs/modules/findings/` does not exist** (verified: `docs/modules/` holds only `access-management`, `executions`, `pipelines-triggers`, `repositories-github`, `scan-decisioning`, `user-preferences`, `scan-engines`). The progress tracker lists "Finding lifecycle" as Not Started. I therefore did not copy a schema; section 7.2 defines the normalized finding schema in this module as a **Recommended contract proposal** that the future Findings module adopts or amends. It follows ADR-004 (finding identity is per pipeline; findings are never merged across pipelines; a workspace may only show correlation). It is listed as a cross-module Open point (OQ-20). Until the Findings module accepts it, it is a proposal and nothing may treat it as a settled contract.
+
+### 0.2 The ADR number
+
+The brief says "ADR-XXX". `docs/decisions/` holds ADR-001 to ADR-013 (verified by listing); the next free number is **ADR-014**, written as `docs/decisions/ADR-014-CONTAINERISED-SCAN-EXECUTION.md` (Proposed).
+
+### 0.3 Contradictions with existing, approved text (none is silently changed)
+
+| Id | Where | What it says | Effect of this module | Proposal |
+|---|---|---|---|---|
+| CX-1 | `CLAUDE.md` line 14; `AGENTS.md` line 27; `docs/README.md` line 33; `docs/ai-development/AGENT_INSTRUCTIONS.md` line 101 | Docker, Docker Compose, Kubernetes, deployment and CI are out of scope now | Scan tools run as containers, so a container runtime and Dockerfile-free pinned images are needed | **Owner-approved amendment**, scan layer only (ADR-014 "Scope"). I do not edit these files. Proposed sentence in section 0.4 |
+| CX-2 | Executions SPEC ER-5 | "Logical scan sandbox (no container) ... Physical isolation (separate process pool, container) is a deployment decision outside this spec (Docker is out of scope); the queue split of ER-7 keeps it possible" | The physical isolation now exists for tools. The scan worker still holds no SecretStore or GitHub setting; it gains access to a container runtime (ADR-014 risk R1) | ER-5 stays true for credentials; add a pointer to ADR-014 when approved |
+| CX-3 | Executions SPEC §17.ab | The SBOM-lite engine is the only engine; "External-tool engines (Semgrep, Trivy, Gitleaks) are a separate future module with its own sandbox ADR" | This is that module and that ADR (ADR-014). Consistent, not a conflict | None |
+| CX-4 | ADR-008 line 150 "no Docker"; `ER-6` "never spawn the repository's code" | The suite runs without Docker; adapters never run repository code | The suite additions of section 14.1 are Docker-free (fake runtime); live Docker checks are NOT in `pnpm test:security` | Keep the suite Docker-free; live checks are a separate plan (section 16.2) |
+| CX-5 | Executions SPEC §7.4 `scan_result_items.data` | `data jsonb` at most 4 KiB; `normalizeItems` drops a larger object | Provenance, raw severities and evidence do not fit | New detail table (section 7.3), proposal only |
+| CX-6 | Executions SPEC §7.4 and §17.ac | One artifact at most 1 MiB, 20 per execution, 8 MiB per execution; "nothing writes artifacts yet" | CycloneDX / SPDX documents of a large repository exceed 1 MiB | Open (OQ-14): raise the ceilings for a new artifact class, or wait for the object-storage driver |
+| CX-7 | Executions SPEC ER-26 | The results module "never computes a fingerprint" and items carry "locators only, not an identity key" | The merger computes a **dedup key** and, for secrets, an in-task fingerprint | The dedup key is a within-task merge key, NOT a finding identity (ADR-004); the Findings module still owns identity. Stated in 7.2 |
+| CX-8 | Scan-decisioning FT-5 ("the decision adds nothing to a task message") and 17.i display note ("the full list is not stored") | A task has no list of changed files; the decision record keeps counts and up to N sample paths | Incremental scoping of SAST and Secrets needs the changed-path list | Section 5.9: store the capped list as an artifact referenced by the execution, read by the scan handler (the message stays unchanged). Needs the owner's OK because it amends a stored-data statement |
+| CX-9 | SBOM-lite (`engines/sbom`, §17.ab) emits one item per (ecosystem, name, version, source file) | An ensemble merges by component identity | Item count and shape change; `locations[]` in the detail row | Section 5.6 and OQ-5 |
+| CX-10 | Executions SPEC 5.4 | Task statuses `succeeded, failed, timed_out, cancelled, skipped, unsupported`; no task `partial` | "A tool failing does not fail the scan type" needs a partial notion | Use the existing `completeness = incomplete` result flag (precedent: §17.ab item 5, "a bad file is a warning, not a failure"); **no new task status, no migration of the enum, no change to table 5.4** (section 5.4). Option B (execution `partial`) is Open |
+| CX-11 | `packages/shared/src/pipelines/constants.js` `ENGINE_CATALOG`; §17.ab ("the catalog id stays `default` because stored pipeline configurations select it") | Engines are selected by `engine.id` and `engine.profile` only; a repository can never add an engine, rule pack path, command or plugin | Keep `default` / `standard`; the ensemble replaces the implementation behind the same id, chosen by a deployment flag | Section 5.10 |
+| CX-12 | `packages/infra/src/archive/tar.js` extracts files with mode `0600` and directories `0700` | A non-root container user cannot read a tree owned by another uid with those modes | Mount strategy must make the tree readable by the container user without widening permissions on the host | Section 6.3 and ADR-014 (uid mapping); a live check (ENG-L02) |
+| CX-13 | OPEN_DECISIONS rows "Scan engine vendors" (Select providers) and "Built-in vs external scan engines" (Hybrid proposed) | Unresolved | This spec proposes the vendors and the hybrid boundary | The rows stay; new rows are added (section 15 and `OPEN_DECISIONS.md`) |
+
+### 0.4 Proposed wording of the `CLAUDE.md` / `TECH_STACK.md` amendment (for the owner; NOT applied)
+
+> Out of scope now: Docker Compose, Kubernetes, deployment/CI config, feature/unit test-case structures (...). **Exception (ADR-014): the scan execution layer may use a container runtime (Docker, rootless Docker or Podman) to run pinned, digest-referenced third-party scan-tool images in a locked-down sandbox, and the repository may hold the minimal build recipes and image catalog needed for that. Nothing else about Docker, Compose, Kubernetes, deployment or CI changes.**
+
+## 1. Purpose
+
+QmentisAI scans customer repositories with four scan types (SBOM, SCA, SAST, Secrets; `docs/product/PROJECT_CONTEXT.md` "Initial scan scope"). Today only the in-process SBOM-lite engine exists (Executions §17.ab); SCA, SAST and Secrets tasks are recorded `unsupported`. This module provides the production engines: for each scan type an **ensemble** of well-known open-source tools, each run as a pinned, sandboxed container, whose outputs are normalized, merged and de-duplicated into one result per scan task in the shape the Findings module will consume, with tool provenance, reproducible versions and offline vulnerability data.
+
+## 2. Scope
+
+### In scope
+- ADR-014 and the sandbox runner: a `SandboxRuntime` abstraction, a pure argv builder, the pinned image catalog and its digest workflow.
+- Tool adapters, pure mappers and the merger for SBOM, SCA, SAST and Secrets; the normalized finding schema (Recommended contract).
+- Severity normalization, dedup keys and confidence per scan type.
+- Evidence enrichment (enclosing block by tree-sitter, line window fallback), SCM deep links, secret redaction.
+- The vulnerability-database mirror and its refresh job.
+- Integration into the scan handler: per-tool statuses and roll-up, timeouts, cancellation without orphans, `untrusted_fork`, incremental scope, resource budget and scheduler.
+- Hostile-archive hardening additions and the threat model.
+- T-29 additions (tool list and per-tool status) in `SCREENS.md`.
+- Security-suite additions (proposal), live test plan, rollout flags.
+
+### Out of scope
+- The Findings module (identity, lifecycle, suppression, dashboards, T-31 to T-34, the false-positive agent): this module only reserves the contract and the evidence fields (T-32 shows them later).
+- DAST and Asset Discovery (T-30), licence-policy decisions, reachability analysis, auto-remediation.
+- Docker Compose, Kubernetes, deployment and CI configuration (CX-1 keeps them out of scope); building a registry; production orchestration of the runner beyond ADR-014's options.
+- The LLM layer (ADR-013): no model is involved in any step of this module; every tool-derived string is inert data.
+- Running a customer's build, tests, package manager or any repository-provided hook, for any reason.
+- A UI for managing tool catalogs, rule packs or DB snapshots (a later Root Console item; OQ-23).
+
+## 3. Actors and permissions
+
+No new permission key is introduced (**Recommended**, as in scan-decisioning §3).
+
+| Actor / role | Action | Scope | Permission |
+|---|---|---|---|
+| Tenant user | Sees the tool list and per-tool status on T-29 | workspace | `execution.view` (existing key) |
+| Tenant user | Sees evidence and links (later, T-32) | workspace | `finding.view` (planned by the Findings module) |
+| Platform admin | Approves an image digest bump, DB snapshot promotion, rule-pack change | platform | Out of this spec (Root Console, Open OQ-23); until then a repository change reviewed by the owner |
+| Scan worker / runner | Runs containers | system | none (service identity; no tenant credential) |
+| DB refresh worker | Downloads vulnerability data | system | none (service identity; the only network-egress component) |
+
+## 4. Functional requirements
+
+| ID | Requirement | Priority | Status |
+|---|---|---|---|
+| SEF-001 | Each tool runs only as a catalog image referenced by digest, in the sandbox of ADR-014 / section 6 | Must | Confirmed (CB-1) |
+| SEF-002 | The repository is analysed as data; nothing from it is executed, built, installed, imported or interpreted as tool configuration | Must | Confirmed (CB-1; ER-6, R-8) |
+| SEF-003 | Each scan type is an ensemble of tool adapters selected by the engine catalog entry, applicability (detected languages and files) and platform configuration, never by repository content | Must | Confirmed (CB-3); selection mechanics Recommended |
+| SEF-004 | Per-tool statuses roll up into one task outcome without failing the scan type while a tool succeeded | Must | Confirmed (CB-4); exact table Recommended (5.4) |
+| SEF-005 | Findings of several tools are merged within a scan type by a per-type dedup key; the merged finding carries provenance and a confidence | Must | Confirmed (CB-5); keys Recommended (5.6) |
+| SEF-006 | Severity is normalized to critical / high / medium / low / info, the highest wins, each tool's raw severity is recorded | Must | Normalization policy Recommended (OQ-4) |
+| SEF-007 | Adapter output is validated strictly and bounded; the mapper is a pure function; the schema is versioned | Must | Confirmed (CB-6) |
+| SEF-008 | Code findings carry the enclosing function or block, or a line-window fallback, within size caps | Should | Confirmed (CB-7); caps Recommended |
+| SEF-009 | Findings carry an SCM deep link built from the recorded provider and the pinned commit SHA | Should | Confirmed (CB-7); formats Recommended |
+| SEF-010 | A secret value never appears in any stored or transmitted field, log, event or error | Must | Confirmed (CB-7); mechanics Recommended |
+| SEF-011 | Vulnerability databases are versioned, mirrored snapshots mounted read-only; the sealed path needs no network; each result records tool, image and DB digests | Must | Confirmed (CB-8); mirror design Recommended |
+| SEF-012 | Cancellation, lease loss and deadline kill every container of the attempt; no orphan survives; a janitor reaps stragglers | Must | Confirmed (CB-9) |
+| SEF-013 | An `untrusted_fork` task passes no tenant credential to any tool and uses the `scan-untrusted` queue | Must | Confirmed (CB-9, ER-5, ER-7) |
+| SEF-014 | Incremental scans scope each tool as specified in 5.9 | Should | Confirmed (CB-9); mechanics Recommended |
+| SEF-015 | Parallelism of tools within a task is bounded by a per-task budget and a per-worker semaphore | Should | Recommended |
+| SEF-016 | Hostile archives and hostile tool output are tolerated within hard caps; every cap breach is a stable code | Must | Confirmed (CB-1, section 11) |
+| SEF-017 | T-29 lists the tools of each task with fixed-word statuses and counts; all tool-derived text is inert | Must | Confirmed (CB-10) |
+| SEF-018 | The engines are enabled progressively per scan type by a deployment flag; SBOM-lite stays available until the ensemble is verified | Should | Recommended (OQ-18) |
+| SEF-019 | The security-suite additions of 14.1 run without Docker and fail when a property is removed | Must | Confirmed as a proposal for approval (CB-11) |
+
+## 5. Business rules
+
+Rule ids `SE-n`. "Confirmed" rows cite the owner brief row (`CB-n`) or an existing approved rule; everything else is **Recommended** unless marked **Open**.
+
+### 5.1 Anatomy of an ensemble engine
+
+| Rule | Text |
+|---|---|
+| SE-1 | One ensemble engine per scan type, registered in the existing engine registry (`apps/workers/src/execution/engines.js`) and implementing the existing adapter contract `runTask(context, { signal, log, emit }) -> { status, items[], summary, truncated?, incomplete? }` (Executions ER-6). The scan handler, queues, leases, fencing and the `scan_results` writer are unchanged. The ensemble is a new engine implementation behind the same `(scanType, "default")` catalog id (CX-11). Confirmed (CB-3) for the pattern, Recommended for the placement |
+| SE-2 | An ensemble is a list of **tool adapters**. A tool adapter is a plain object `{ toolId, scanType, imageKey, plan(ctx) -> RunPlan, parse(streams) -> RawRecord[], map(rawRecord, ctx) -> Candidate }`. `plan` builds a `RunSpec` (section 6.2) from platform data only; `parse` is a bounded, strict reader of the tool's stdout (untrusted); `map` is a **pure function** (no I/O, no clock, no randomness) from a validated raw record to a normalized candidate (7.2). The **merger** (pure) folds candidates of the whole task into findings. Confirmed (CB-6) for the boundaries, Recommended for the names |
+| SE-3 | The adapter never builds a shell command. `RunSpec.argv` is an array passed to the runtime without a shell; no repository-derived string is placed in `argv` except validated relative paths after a `--` separator (SE-27). Confirmed (CB-1, ER-6) in spirit, Recommended mechanics |
+| SE-4 | A tool adapter returns **raw-parsed records** only (after schema validation and caps). It does not know severities, tenants or the database. All normalization is in `map` and the merger, which makes them unit-testable in the security suite without Docker (14.1) |
+| SE-5 | The ensemble does not call the network, the database, the SecretStore, the GitHub client or the LLM layer. Its only side effects are containers (through `SandboxRuntime`) and the engine's `log` and `emit` |
+
+```mermaid
+flowchart LR
+  A[Extracted archive, read-only data] --> P[Pre-extraction and tree validation]
+  P --> S[Applicability: languages and files]
+  S --> T1[Tool adapter 1 plan]
+  S --> T2[Tool adapter 2 plan]
+  S --> T3[Tool adapter N plan]
+  T1 --> R[SandboxRuntime: one locked container per tool]
+  T2 --> R
+  T3 --> R
+  R --> V[parse: strict validation and caps, per tool]
+  V --> M[map: pure mapper to normalized candidates]
+  M --> G[merge and dedup within the scan type]
+  G --> E[Evidence enrichment: block extractor container, line window, redaction, links]
+  E --> O[emit items and detail rows, per-tool run records]
+```
+
+### 5.2 Tool catalog and licences (Recommended; every licence line is "verify before adoption" unless I say I am confident)
+
+I did not browse the web for this draft. Licences below are what I am confident of from general knowledge; anything marked **verify** must be re-checked against the tool's repository and the licence texts before adoption (OQ-9 includes the legal review). **No version or image digest is pinned in this document** (placeholders `<tool>@sha256:<digest-placeholder>`; the pinning workflow is section 9.3 / ADR-014).
+
+| Scan type | Tool | Licence (confidence) | OK to run as a separate container? | Caveats |
+|---|---|---|---|---|
+| SBOM | **Syft** | Apache-2.0 (confident) | Yes | Static catalogers; can unpack nested archives (JARs, wheels), so give it the same decompression caps as the archive (11.2). Emits CycloneDX and SPDX (verify the exact format flags at adoption) |
+| SBOM | **cdxgen** | Apache-2.0 (verify) | Yes, **only in a no-build / lockfile mode** | The highest-footgun tool: by design it can call package managers and build tools (npm, mvn, gradle, pip, go) to resolve dependency trees, and those execute repository-controlled code (lifecycle scripts, build plugins, `setup.py`). Mitigations: no network (installs fail), image without package managers beyond what the tool strictly needs, explicit "do not resolve/build" configuration (verify the flags and environment variables at adoption), and a live planted-script test (ENG-L06). If it cannot be made safe, drop it and keep Syft + SBOM-lite (OQ-9) |
+| SCA | **Trivy** | Apache-2.0 (confident) | Yes | Run with `--scanners vuln` only (no secret, misconfig, licence scanning in this module), offline flags, no DB update. Its vulnerability DB is distributed as an OCI artifact from a public registry with pull limits: mirror it (5.12). DB data terms: **verify** |
+| SCA | **Grype** | Apache-2.0 (confident) | Yes | Needs a Grype DB (its own format and listing) mounted read-only; auto-update disabled; it reads `.grype.yaml` from the current directory and the scanned path (11.3). DB data terms: **verify** |
+| SCA | **OSV-Scanner** | Apache-2.0 (confident) | Yes | Offline mode needs local OSV database files per ecosystem (large; subset by ecosystem, OQ-6). OSV data is aggregated from many sources with mostly permissive data licences (CC-BY 4.0 for several): attribution duties **verify**. Reads `osv-scanner.toml` found in scanned directories (11.3) |
+| SAST | **Semgrep OSS engine** | LGPL-2.1 for the engine (confident) | Yes (unmodified, separate container) | **Rule licence caveat:** the community rules in the Semgrep registry are under the Semgrep Rules License (not an OSI licence; it restricts use in a competing commercial offering and redistribution). Do **not** bundle registry rules without legal review (OQ-9). Safe path: platform-written rules and rule packs whose licence permits our use; the engine is intra-file for taint in the OSS edition (verify) |
+| SAST | **Opengrep** (alternative) | LGPL-2.1 (verify) | Yes | A community fork of the Semgrep engine created after the OSS edition lost features; same rule syntax; younger project and release cadence (verify); same rule-licence caveat applies to the rules you load. Trade-off in OQ-8 |
+| SAST | **Bandit** (Python) | Apache-2.0 (confident) | Yes | AST based, no execution; reads `.bandit`, `setup.cfg`, `pyproject.toml` (11.3); `# nosec` comments |
+| SAST | **gosec** (Go) | Apache-2.0 (confident) | Yes, **higher risk** | Loads Go packages with the Go toolchain (`go list` machinery), which can invoke the compiler and cgo and resolve modules. Needs `CGO_ENABLED=0`, `GOFLAGS=-mod=vendor` or `-mod=readonly`, `GOPROXY=off`, `GOTOOLCHAIN=local` (verify) and may still execute toolchain code on hostile `go:` directives. Phase 4b, after a live test (ENG-L07); not in the first SAST release (OQ-7) |
+| SAST | **njsscan** (JS/Node) | LGPL-3.0 (verify) | Yes | Wraps Semgrep rules plus its own; largely overlaps Semgrep. Python package dependencies add supply-chain surface. Recommended: skip in v1 (OQ-7) |
+| SAST | **Brakeman** (Rails) | **Brakeman Public Use License: free for non-commercial use, commercial use needs a licence (verify)** | **No, not without legal review** | Ruby / Rails only. Recommended: excluded from v1 pending a licence decision (OQ-9) |
+| Secrets | **Gitleaks** | MIT (confident) | Yes | Use directory mode (no git history: the archive has no `.git`). Reads `.gitleaks.toml` / `.gitleaksignore` and `gitleaks:allow` comments (11.3). Use its redaction option so the secret is not in stdout; this removes the value needed for a cross-tool fingerprint (5.6.4) |
+| Secrets | **detect-secrets** | Apache-2.0 (confident) | Yes | Python; baseline file and plugin loading must be platform-controlled; custom plugins from the repository are never loaded. Output has locations and types, not the value (verify) |
+| Secrets | **TruffleHog** (optional) | **AGPL-3.0 (confident)** | **Not in v1 by default.** Running an unmodified build as a separate process is commonly treated as aggregation, but the AGPL network-use clause and our hosted offering make this a legal-review item | Its main differentiator is live verification of credentials, which needs outbound network and is therefore **incompatible with the sealed path**; offline it loses that value. Recommended: exclude (OQ-9) |
+| Secrets, SAST | **CodeQL** | GitHub CodeQL terms (confident that commercial use requires GitHub Advanced Security) | **Excluded** (Confirmed, CB-3) | Commercial-licence restriction |
+| Evidence | **tree-sitter** and grammars | MIT for the runtime and most grammars (verify each grammar) | Yes | Runs only inside a sandbox container (5.13) |
+
+### 5.3 Per-tool run statuses (Recommended)
+
+A tool run is one container execution (or, for the in-process SBOM-lite adapter, one function call). One row per tool per task attempt in `scan_tool_runs` (7.3).
+
+| Tool status | Meaning | Counts as success for roll-up |
+|---|---|---|
+| `succeeded` | Exit code accepted by the adapter's table, stdout parsed and valid, no cap hit | yes |
+| `partial` | The tool produced usable output but a cap or a defect limited it: output truncated at its byte cap, invalid records dropped, a per-file timeout inside the tool, DB stale (warn tier) | yes, result becomes `incomplete` |
+| `failed` | Crash, unacceptable exit code, unparseable output, OOM kill, sandbox error, image missing | no |
+| `timed_out` | The tool's wall-clock limit or the task deadline reached while it ran | no |
+| `cancelled` | Killed because of a user cancel, lease loss or abort | no (task follows cancel rules) |
+| `skipped` | Not applicable (no file of its kind, another tool excluded by catalog rule); not started | neutral |
+| `unavailable` | Could not start for a platform reason known before the run: DB snapshot missing or past the hard staleness limit, image not present in the local store | no |
+
+Failure reasons are **fixed words** (stable codes, no tool text), shown on T-29 through a frontend map: `image_unavailable`, `db_unavailable`, `db_stale`, `timeout`, `out_of_memory`, `exit_code`, `output_invalid`, `output_too_large`, `sandbox_error`, `killed`, `no_applicable_files`, `config_invalid`, `capacity`, `cancelled`, `deadline`. (`capacity` is transient: the tool waited longer than the scheduler allows, 5.8.)
+
+Retry classification against Executions ER-13: `sandbox_error` and `image_unavailable` are **transient**; `timeout`, `out_of_memory`, `output_invalid`, `output_too_large`, `exit_code`, `config_invalid` are **permanent** for that tool. **Deviation to confirm (OQ-17):** ER-13 lists "engine timeout of the process" as transient; a tool that timed out on the same input will time out again, so I recommend treating a tool timeout as permanent. A task is retried (ER-13, new attempt, whole ensemble re-run) only when no tool succeeded and every failure is transient.
+
+### 5.4 Roll-up of tool statuses into the task and the execution (Recommended; Confirmed intent CB-4)
+
+Let *applicable tools* be the tools whose applicability check passed. Evaluate top to bottom, first match wins.
+
+| # | Situation | Task status | `scan_results.completeness` | Notes |
+|---|---|---|---|---|
+| 1 | The task is cancelled or the lease is lost | `cancelled` (Executions ER-14) | `incomplete`, results of finished tools kept | Containers killed (6.4) |
+| 2 | The task deadline is reached while a tool runs | `timed_out` (ER-16) | `incomplete`, finished tools' results kept (B5) | Running tools become `timed_out`/`cancelled` |
+| 3 | No file in the tree is relevant to the scan type (for example SBOM with no manifest, SAST with no source file) | `succeeded` | `complete`, zero items, `coverage = nothing_to_scan` | Like SBOM-lite on a repository without manifests |
+| 4 | Relevant files exist but no catalog tool is applicable (for example Haskell only for SAST) | `succeeded` | `incomplete`, `coverageGaps = [language ...]` | Honest coverage statement; execution not resolution eligible (ER-24). **Open (OQ-17):** option B makes this `failed`; I recommend A because the engine ran and reported exactly what it could not cover, unlike scan-decisioning 17.g where no engine existed at all |
+| 5 | At least one tool `succeeded` or `partial`; every other applicable tool `succeeded`, `partial` or `skipped`; no cap hit | `succeeded` | `complete` (if no `partial`) | The normal case |
+| 6 | At least one tool `succeeded` or `partial`; at least one other applicable tool `failed`, `timed_out`, `unavailable` | `succeeded` | `incomplete`, `toolsDegraded = n` | "A tool failing does not fail the scan type" (CB-4). Precedent: Executions §17.ab item 5, a bad file is a warning and the result is `incomplete` |
+| 7 | No tool `succeeded` or `partial`; at least one `failed`/`unavailable` | `failed`, reason `tools_failed`; error class transient only if every failure is transient | no result, or an `incomplete` empty one (follow the SBOM-lite handling of a failed engine) | T-29 shows each tool's fixed reason |
+| 8 | Every applicable tool `skipped` | falls under rows 3 or 4 | | |
+
+**Execution level (consistency with SPEC 5.4 and scan-decisioning 17.g).** No new task status and no change to table 5.4: a task in row 6 is `succeeded`, so an execution whose tasks all succeed is `succeeded`; because the result is `incomplete`, `resolutionEligible` is false (ER-24 requires every enabled type's result to be complete), the same way a truncated SBOM-lite result already behaves. A row 7 task is an ordinary `failed` task: one failed plus one succeeded task gives `partial / tasks_incomplete`; no success gives `failed / tasks_failed`. `unsupported` keeps its meaning (a scan type with no registered engine; terminal at creation; never from `running`) and is **not** used for a tool: a tool that cannot run is `unavailable` or `failed` inside a registered engine. The all-decided-types-unsupported ending of 17.g is unchanged. **Option B (Open, OQ-17):** surface row 6 as an execution `partial / tasks_incomplete` by marking the task `failed`; I do not recommend it because it contradicts CB-4 and loses the tool results that did succeed.
+
+### 5.5 Selection and applicability (Recommended)
+
+| Rule | Text |
+|---|---|
+| SE-6 | The set of tools of a scan type is platform data (the image catalog, 9.3), keyed by `(scanType, profile)`. A pipeline selects only `engine.id` and `engine.profile` (pipelines-triggers §5.7.1: "a repository can never add an engine, a rule pack path, a command or a plugin"). Profile `standard` is the only profile at first |
+| SE-7 | **Language detection** is a pure function of file names and extensions of the extracted tree (a bounded walk, the SBOM-lite walker pattern), never of file content and never by running `file` or a parser. It returns a ranked list of languages with file counts. It selects the per-language SAST tools; Semgrep runs when any supported language is present |
+| SE-8 | Applicability per type: SBOM and SCA are applicable when the walk finds a manifest, lockfile or other inventory source that a tool supports (Syft also catalogs images/binaries in the tree: only file kinds on a platform allowlist are handed over); Secrets always applies to the scoped file set; SAST applies per detected language |
+| SE-9 | A tool that is not applicable is recorded `skipped` with reason `no_applicable_files`, never started |
+
+### 5.6 Merge and de-duplication within a scan type (Confirmed intent CB-5; keys and tolerances Recommended, OQ-5)
+
+General rules:
+
+| Rule | Text |
+|---|---|
+| SE-10 | The merger takes the candidates of **one task attempt** and nothing else. It has no tenant, pipeline or execution input beyond that task, keeps no module-level state and calls nothing outside itself. Findings are therefore never merged across tasks, executions, pipelines or tenants (ADR-004, ADR-003) |
+| SE-11 | The `dedupKey` is a deterministic string built from the per-type fields below. It is a **merge key inside the task, not a finding identity**; the Findings module computes identity per pipeline (CX-7) and may reuse it as an input |
+| SE-12 | **Two candidates of the same tool are never merged** (they are two occurrences, even with an equal key); they are separate findings unless the tool itself reports them as one. Cross-tool merging only |
+| SE-13 | A merged finding keeps one `provenance[]` entry per tool that reported it: `{ toolId, toolVersion, imageDigestShort, ruleId, rawSeverity, rawRef }`; `confidence` is raised one step (low to medium, medium to high) when at least two **distinct tools** agree, capped at high, with `confidenceBasis = "multi_tool"` |
+| SE-14 | Determinism: candidates are sorted before merging by `(dedupKey, toolId, rawRef)`; the output order is by severity, then path, line, component, rule, so two runs of the same inputs give identical output |
+| SE-15 | Findings of different scan types are **never** merged in this module (a hard-coded password reported by Bandit and by Gitleaks stays two findings); cross-type correlation is the Findings module's decision |
+
+**5.6.1 SBOM: component identity.** Key: `canonicalPurl(type, namespace, name, version, selected qualifiers)`.
+
+| Step | Rule |
+|---|---|
+| Parse | Own small purl parser (no dependency; OQ-5), rejecting any purl over 500 characters or with control characters |
+| Normalize name | Per purl type: `npm` lowercase scope and name; `pypi` lowercase with `_` and `.` mapped to `-`; `golang` lowercase namespace and name per the purl spec; `maven` namespace and name as given (case-sensitive); `deb`, `rpm`, `apk` keep distro qualifiers. **verify each rule against the purl specification at implementation** |
+| Qualifiers | Keep `classifier`, `type` (maven), `arch`, `distro` (OS packages); drop `repository_url`, `download_url`, `vcs_url`, `checksum`, `subpath` |
+| Version | Trim only. A leading `v` is stripped only for types where the registry never uses one (verify), never for `golang`. No semver coercion |
+| Declared-only | A component with no version (a range from a manifest) is kept only when no component with a version and the same `(type, namespace, name)` was found from the same directory; otherwise it is dropped as redundant |
+| Merge | One component finding per key. `locations[]` is the union of source files (cap 20, plus `locationCount`), `scope` the strongest (prod over dev over optional/peer over unknown, as SBOM-lite), `licenses` the union (cap 10), `hashes` kept when two tools agree |
+| Output | `kind = component`, `severity = info` |
+
+**5.6.2 SCA: purl@version plus advisory with alias resolution.**
+
+| Step | Rule |
+|---|---|
+| Component | Canonical purl and version exactly as in 5.6.1; if the two tools disagree about the version of the same lockfile entry they stay two findings |
+| Advisory aliases | Each record yields an alias set from its own output: its primary id plus every alias the tool reports (Trivy `VulnerabilityID` and references, Grype `relatedVulnerabilities`, OSV `aliases`). Ids are normalized to upper case with their family prefix (`CVE-`, `GHSA-`, `GO-`, `PYSEC-`, `RUSTSEC-`, `OSV-`, vendor ids kept as given) |
+| Canonical advisory id | Priority `CVE` > `GHSA` > ecosystem id (`GO`, `PYSEC`, `RUSTSEC`, ...) > `OSV` > other; stored beside the full alias list (cap 20) |
+| Merge | Two candidates merge when the canonical purl and version are equal **and** their alias sets intersect (transitive within the component, via union-find). **Guard (SE-12 extension):** a union that would join two different primary ids reported by the same tool for the same component is not performed |
+| Merged fields | `fixedVersions` the union (and the minimal version that fixes all, when computable by ecosystem-aware comparison; otherwise the list); `cvss` every score and vector per tool kept in `provenance`; `cwe` union; `references` union (cap 10, `http(s)` only) |
+| Output | `kind = vulnerability`, `rule.id` = canonical advisory id |
+
+**5.6.3 SAST: rule class + file + location tolerance.**
+
+| Step | Rule |
+|---|---|
+| Rule class | `ruleClass` = the normalized CWE when present (CWE-79, CWE-89, ...), mapped through a small curated **equivalence table** that groups siblings (Recommended starting set: command injection {77, 78, 88}, SQL injection {89, 564}, XSS {79, 80}, path traversal {22, 23, 36}, hard-coded credential {259, 321, 798}, deserialization {502}, SSRF {918}, open redirect {601}, weak crypto {326, 327, 328}, insecure randomness {330, 338}). A candidate with no CWE gets `ruleClass = tool:<toolId>:<ruleId>` and therefore never merges across tools (no false merges) |
+| File | Path normalized (POSIX separators, no `./`, NFC); a tool-reported path outside the source root is dropped (`output_invalid`) |
+| Location | Two candidates of different tools merge when `ruleClass` and file are equal and **either** their line ranges overlap, **or** both lie inside the same enclosing block (from the block extractor, 5.13), **or** their start lines differ by at most `SAST_LINE_TOLERANCE` (Recommended 3). The merge is applied in sorted order and is not transitive beyond tolerance from the first member (no chaining of far lines) |
+| Merged fields | Range = union capped at the enclosing block; title = the tool with the highest confidence, ties by tool order; `cwe` union; remediation text is not merged (not stored in v1) |
+| Output | `kind = code_issue` |
+
+**5.6.4 Secrets: file + line + type + fingerprint (never the value).**
+
+| Step | Rule |
+|---|---|
+| Type class | Tool rule ids map to a platform list of types: `private_key`, `aws_access_key`, `gcp_service_account`, `azure_storage_key`, `github_token`, `gitlab_token`, `slack_token`, `stripe_key`, `jwt`, `basic_auth_url`, `generic_api_key`, `high_entropy_string`, `password_assignment`, `other`. Unmapped ids become `other` with the tool's id kept in provenance |
+| In-task fingerprint | Where an adapter can obtain the value from a tool that does not redact it, it computes `HMAC-SHA-256(taskKey, value)` truncated to 16 bytes, where `taskKey` is 32 random bytes generated in memory for this attempt, **never stored, logged or transmitted**. It is used only for the merge inside the task and is discarded with the task. It is not stored on the finding. Gitleaks is run with redaction (so the value never leaves the sandbox), which means fingerprints exist only for tools that expose the value; the merge then falls back to the location key |
+| Key | `(path, startLine, typeClass)` plus the fingerprint when both candidates have one; two secrets on one line with different fingerprints stay separate |
+| Tolerance | Start lines must be equal (0 lines); a multi-line secret (private key block) merges when the start lines are equal; a `generic_api_key`, `high_entropy_string` or `other` candidate merges into a specific type on the same line |
+| Stored identity across runs | **Open (OQ-5b)**: the Findings module will need something stable across runs (line numbers shift). Options: (A) no stored fingerprint, identity from path + type + rule + line context hash; (B) a keyed HMAC with a platform-derived per-tenant key delivered to the scan worker (needs an exception to ER-5 "no secret in the scan worker"; a leaked key allows dictionary attacks on stored fingerprints); (C) hash computed inside the sandbox with a per-execution salt delivered by the pipeline worker. Recommendation: A for v1 (nothing derived from the secret is stored), revisit with the Findings module. Executions SPEC §7.4 already says any stored hash "would have to be a keyed HMAC with a tenant key (Findings decides, Open)" |
+| Output | `kind = secret`; stored preview follows the existing built rule: at most 4 leading characters, only for a value longer than 12, never otherwise (`normalizeItems`); the masked preview rules are in 5.13.4 |
+
+### 5.7 Severity normalization and confidence (Recommended, OQ-4)
+
+**Policy.** Normalize every tool's severity to `critical | high | medium | low | info`; the merged finding takes the **highest** normalized severity among its tools; each tool's raw value and scale are kept in `provenance[]` (`severityRaw`); `severityAssumed = true` when the severity had to be defaulted.
+
+| Source scale | Raw value | Normalized |
+|---|---|---|
+| CVSS v3.x base score (standard qualitative bands) | 9.0 - 10.0 / 7.0 - 8.9 / 4.0 - 6.9 / 0.1 - 3.9 / 0.0 | critical / high / medium / low / info |
+| CVSS v4.0 base score | same bands (verify the qualitative scale for v4) | same |
+| Trivy `Severity` | CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN | critical, high, medium, low, **UNKNOWN to medium with `severityAssumed`** (fail visible, OQ-4) |
+| Grype `severity` | Critical, High, Medium, Low, Negligible, Unknown | critical, high, medium, low, info, UNKNOWN to medium with `severityAssumed` |
+| OSV record | `database_specific.severity` string (GHSA: CRITICAL/HIGH/MODERATE/LOW); else a CVSS vector in `severity[].score` | MODERATE to medium; a vector is converted by an in-repo CVSS v3 base-score calculator (public formula; no new dependency, OQ-4); v4 vectors: `severityAssumed` medium until a calculator is approved |
+| Semgrep / Opengrep `extra.severity` | ERROR / WARNING / INFO | high / medium / low. Critical is **not** produced from SAST by default; a platform rule may carry `metadata.qm_severity` to set it. `metadata.confidence` and `impact` (when present) feed `confidence`, not severity |
+| Bandit `issue_severity`, `issue_confidence` | HIGH / MEDIUM / LOW | high / medium / low; confidence mapped the same way |
+| gosec `severity`, `confidence` | HIGH / MEDIUM / LOW | high / medium / low |
+| njsscan | ERROR / WARNING / INFO | high / medium / low (if adopted) |
+| Brakeman (if ever adopted) | confidence only: High / Medium / Weak | confidence only; severity assumed medium (Open) |
+| Gitleaks, detect-secrets | no severity | platform table by type class: `private_key`, `aws_access_key`, `gcp_service_account`, `azure_storage_key`, `github_token`, `gitlab_token`, `stripe_key` = high; `slack_token`, `jwt`, `basic_auth_url`, `password_assignment` = medium; `generic_api_key`, `high_entropy_string`, `other` = medium or low by tool confidence. **Never critical in v1**: "critical" would mean verified-active, which needs live verification (network) |
+| SBOM components | n/a | info |
+
+**Confidence** (`low | medium | high`): tool-reported confidence mapped per tool (Bandit/gosec HIGH to high; Semgrep `metadata.confidence`; Trivy/Grype/OSV vulnerability matches by ecosystem-native id = high, CPE-based matches = low or medium); one step up when two distinct tools agree (SE-13); `confidenceBasis` records why.
+
+### 5.8 Resource limits, parallelism and the scheduler (Recommended, OQ-10)
+
+**Per-container limits** (all enforced by the runtime flags of 6.2, not by the tool). Numbers are starting points to be measured on the owner's machine (live test ENG-L10); they are configuration with hard ceilings, validated at start like the archive caps.
+
+| Tool | CPUs | Memory | pids | Wall-clock | Stdout cap | Notes |
+|---|---|---|---|---|---|---|
+| Syft | 1 | 1 GiB | 128 | 180 s | 64 MiB | |
+| cdxgen | 1 | 1.5 GiB | 256 | 240 s | 64 MiB | |
+| Trivy | 2 | 2 GiB | 256 | 300 s | 64 MiB | DB mount read-only |
+| Grype | 2 | 2 GiB | 128 | 300 s | 64 MiB | |
+| OSV-Scanner | 1 | 1.5 GiB | 128 | 300 s | 64 MiB | |
+| Semgrep / Opengrep | 2 | 3 GiB | 512 | 600 s | 64 MiB | tool-internal per-file timeout 30 s, max target file size 1 MiB (verify flags) |
+| Bandit | 1 | 1 GiB | 128 | 240 s | 32 MiB | |
+| gosec | 2 | 2 GiB | 256 | 300 s | 32 MiB | |
+| Gitleaks | 1 | 1 GiB | 128 | 300 s | 32 MiB | |
+| detect-secrets | 1 | 1 GiB | 128 | 300 s | 32 MiB | |
+| Block extractor (5.13) | 1 | 1 GiB | 128 | 120 s | 8 MiB | |
+
+Every tool's wall-clock is further capped by the task deadline (`min(tool limit, task secondsToDeadline)`, ER-16). The sum of tool limits may exceed the task timeout; the task deadline always wins. `scanTaskTimeoutSeconds` comes from the pipeline snapshot as today; the per-tool wall-clock values are platform configuration, not tenant-selectable.
+
+**Scheduler (inside the scan worker process).**
+
+| Rule | Text |
+|---|---|
+| SE-16 | **Per task:** at most `SCAN_ENGINE_TOOL_PARALLELISM` (Recommended 2) tools run at once; the rest wait in catalog order. This sits under the existing per-execution task parallelism (`EXECUTION_TASK_PARALLELISM`, ER-12, default 2) |
+| SE-17 | **Per worker process:** a weighted semaphore over CPU and memory (`SCAN_RUNNER_CPU_CAPACITY` default 4, `SCAN_RUNNER_MEMORY_MIB` default 8192, `SCAN_RUNNER_MAX_CONTAINERS` default 4). A tool starts only when its limits fit; FIFO by task start time so no task starves |
+| SE-18 | **Per tenant, per worker:** at most `SCAN_RUNNER_MAX_CONTAINERS_PER_TENANT` (Recommended 2) containers, keyed by the tenant id the handler already loaded from the database. The key is used for counting only and never passed to a tool |
+| SE-19 | **Queue interplay:** the consumers of `scan` and `scan-untrusted` use separate semaphores, `scan-untrusted` capped at `SCAN_UNTRUSTED_CAPACITY_SHARE` (Recommended 50 percent) of the worker, so a flood of fork pull requests cannot starve trusted runs (ER-7). Queue prefetch must not exceed the worker's container capacity, so a message is not claimed far ahead of the capacity to run it |
+| SE-20 | **Waiting is not running:** a tool waits for capacity at most `SCAN_RUNNER_WAIT_SECONDS` (Recommended 120); then it is `unavailable` with reason `capacity` (transient). The task lease heartbeat keeps running while it waits (the heartbeat timer is independent of tool execution in `scan-handler.js`) |
+| SE-21 | A single archive-wide limit protects the host: the extracted tree is on local disk once per task attempt (as today) and mounted read-only into every tool container of that attempt; the tree is deleted in the handler's `finally` as today |
+
+### 5.9 Scan kind, incremental scope and what each tool receives (Confirmed intent CB-9; mechanics Recommended)
+
+Today (`scan-handler.js`, verified) a task receives the whole extracted tree and **no list of changed files**; scan-decisioning decides *which scan types* run (FT-2) but not *which files*; its record holds counts and sample paths only (CX-8). For an incremental execution (`scan_kind = incremental`), the Recommended mechanics are:
+
+| Rule | Text |
+|---|---|
+| SE-22 | The pipeline worker, in the decision transaction, stores the capped changed-path list (at most 3000 paths, bounded by the GitHub limits already recorded in scan-decisioning 17.a, 512 KiB, redacted paths) as an artifact `t/<tenant>/x/<execution>/changed-paths.json` through the existing `ArtifactStore` and records `changed_paths_ref` and `changed_paths_status` (`complete`, `truncated`, `unavailable`) on the decision. The message to the scan task stays unchanged (FT-5); the scan handler reads the artifact by tenant and execution. **Needs the owner's OK (CX-8)** because it amends the statement that the full list is not stored |
+| SE-23 | **Fail closed to full:** when `changed_paths_status` is `truncated` or `unavailable`, or the execution is `full`, every tool runs over the whole tree and no filter is applied. A partially known scope is never used |
+| SE-24 | **Merge first, filter after.** Tools run (scoped or full) and are merged on their complete output; the changed-path filter is then applied once, identically, to every merged finding with a path. Results are therefore independent of how each tool was scoped |
+
+| Tool class | Full run | Incremental run |
+|---|---|---|
+| SBOM (Syft, cdxgen), SCA (Trivy, Grype, OSV) | whole tree | **whole tree, no path filter**: dependency graphs and lockfiles are whole-tree by nature; a changed manifest changes the resolved graph. `scope.applied = full_tree` is recorded; the Findings module decides which findings to open (an incremental run is never resolution eligible, ER-24) |
+| Semgrep / Opengrep, Bandit | target `/src` | explicit file targets (changed files of supported languages, at most 2000, after `--`); above the cap: full run then filter |
+| gosec, njsscan, Brakeman | whole module / project | **full run then filter** (they need package context) |
+| Gitleaks | directory mode over `/src` | **full run then filter** to changed paths (secrets scanning is cheap and per-file; avoids argument-length and config surprises) |
+| detect-secrets | whole tree | changed files as targets (cap 2000) or full then filter |
+| Block extractor | locations of the findings that survived | same |
+
+`scan_tool_runs.scope` records `{ kind: "full" | "targets" | "full_filtered", paths: n }`.
+
+### 5.10 Engine identity, versioning, reproducibility and progressive enablement
+
+| Rule | Text |
+|---|---|
+| SE-25 | **Identity.** The catalog id stays `default` (CX-11). `scan_results.engine_id` = `default`; `engine_version` = `ensemble-<scanType>/<ensembleVersion>` (the existing columns, no schema change for this). `ensembleVersion` is the semantic version of the adapter + mapper + merger + rule-pack set in this repository and changes when any mapping or merge rule or the catalog image set changes |
+| SE-26 | **Reproducibility record.** Every tool run records `toolVersion`, `imageDigest`, `configDigest` (the platform tool configuration actually mounted), `rulepackDigest` (SAST), and `dbSnapshotSha256` plus `dbBuiltAt` (SCA). The set of these plus `ensembleVersion` is canonicalized and hashed into `run_manifest_sha256` on `scan_results` (new column, 7.3). Same archive hash + same manifest hash must give identical findings (the pipeline is deterministic, SE-14); results with different manifests are comparable but not expected to be equal. The DB snapshot is the one input that legitimately changes between runs |
+| SE-27 | **Argument safety.** Repository-derived values (paths) enter `argv` only after `--`, as relative POSIX paths that start with a letter, digit, `_` or `.` followed by a safe character, contain no `..`, no control characters, no leading `-`, are at most 1024 characters and exist in the validated tree. Anything else is dropped from the target list and counted (`targetsDropped`) |
+| SE-28 | **Progressive enablement (Open, OQ-18).** Recommended deployment flags, Zod-validated at start: `SCAN_ENGINE_SBOM`, `SCAN_ENGINE_SCA`, `SCAN_ENGINE_SAST`, `SCAN_ENGINE_SECRETS`, each `off` (type has no engine: `unsupported`, today's behaviour for SCA, SAST and Secrets), `lite` (SBOM only: the existing engine), `ensemble`. Defaults: SBOM `lite`, the rest `off`. A flag per tenant (allowlist for a canary) is Open. **No silent runtime fallback** from ensemble to lite when containers fail: mixed engines would make results non-comparable and hide a broken runtime. Instead the SBOM-lite parser may ship as an **in-process tool adapter `sbom-lite`** inside the SBOM ensemble (no container; same hardening limits), so an SBOM task keeps an inventory when both container tools fail (roll-up row 6). Whether it stays permanently is Open |
+
+### 5.11 `untrusted_fork` and hostile repositories
+
+| Rule | Text |
+|---|---|
+| SE-29 | **No tenant credential reaches any tool, ever, for any trust level.** The scan worker has none (ER-5). Tool containers receive an explicit environment allowlist of static strings (`HOME=/tmp`, offline switches), never `process.env` inherited, and `assertNoCredentials` runs over every `RunSpec` before it is built (the guard that already protects the scan context). Confirmed (CB-9, ER-5) |
+| SE-30 | A fork's code is **hostile by assumption**; so is a trusted repository's (a compromised dependency or insider is the same threat). Both use the identical sandbox. The fork difference is the pool: `scan-untrusted` consumers (ER-7) with their own semaphore (SE-19), tighter defaults (Recommended: 50 percent of the CPU, memory and time limits of 5.8 for forks), and, in production, a separate runtime user or host and a stronger OCI runtime (gVisor or Kata) so that a container escape from a fork's content does not land next to trusted scan data (ADR-014 option D). Recommended; the owner decides the production isolation (OQ-1) |
+| SE-31 | Fork results keep the existing marks: `untrusted_fork`, never auto-assigned, never resolution eligible. Evidence snippets and links are produced as for any run |
+
+### 5.12 Vulnerability database management (Confirmed intent CB-8; design Recommended, OQ-6)
+
+**Goal:** the sealed scan path never needs the network and always records which data it used.
+
+| Rule | Text |
+|---|---|
+| SE-32 | **A platform-owned mirror**, behind a `DbMirrorStore` interface in `packages/infra` (same pattern as `ArtifactStore`; driver `local-fs` first, object storage later, OD). Content is **public vulnerability data, not tenant data**, so one set of snapshots is shared by all tenants (no tenant in the path; read-only) |
+| SE-33 | **Snapshots are versioned and addressed by digest:** `db/<tool>/<sha256>` plus a metadata row in a new platform-level table `scan_db_snapshots` (7.3): tool, source version, upstream build time, fetched time, size, sha256, status `candidate | active | retired | rejected`. One `active` snapshot per tool; the previous N (Recommended 3) are kept for rollback and for reproducing old results |
+| SE-34 | **A refresh job** in the scheduler worker (`apps/workers`, the pattern of the retention purge) enqueues a platform message `maintenance.scan_db.refresh_requested` (versioned envelope, ADR-011, `.strict()`, off by default behind `SCAN_DB_REFRESH_ENABLED`, Recommended period 6 hours). A new platform worker role `dbrefresh` handles it. **It is the only component allowed network egress**, to an allowlist of the upstream data hosts, and runs the vendor's own download command inside a container with the egress allowlist or as a vetted downloader (ADR-014 risk R6). It downloads into a temporary name, verifies upstream integrity metadata where the vendor provides it (verify), computes the sha256, and writes a `candidate` row |
+| SE-35 | **Promotion gate:** a candidate becomes `active` only after (a) size and age sanity checks (not empty, not smaller than 50 percent of the active one, built less than `SCAN_DB_MAX_UPSTREAM_AGE` ago), and (b) a **canary scan** in the same sandbox: a tiny platform-owned fixture (an SBOM with a known, long-lived vulnerable package) must produce the expected advisory. Failure marks it `rejected` and keeps the previous `active`. Promotion is atomic (one row update) |
+| SE-36 | **Mount:** at task start the runner resolves the `active` snapshot per tool, materializes it once into a host cache directory `<cache>/<tool>/<sha256>/` (verified against the sha256 before first use; permissions `0555/0444`, owned by the runner user) and bind-mounts it **read-only** at `/db`. The container sets the tool's offline switches (Trivy skip DB update and offline scan, Grype auto-update off, OSV offline mode; exact flags verify at adoption). Tools never receive a download URL or a registry credential |
+| SE-37 | **Provenance on every result:** `dbSnapshotSha256`, `dbBuiltAt`, `dbFetchedAt` per tool run (SE-26), shown on T-29 as the DB version/date |
+| SE-38 | **Staleness policy (Open, OQ-6; Recommended):** age is measured from the snapshot's upstream build time. Warn tier older than 3 days: tool status `partial`, reason shown "DB older than 3 days", result `incomplete`. Hard tier older than 14 days (configurable): the tool is `unavailable` with reason `db_stale` and does not run. With three SCA tools sharing the same cause, all `unavailable`, the task fails with `tools_failed` (row 7): this is intended, a vulnerability scan on year-old data would be a false assurance |
+| SE-39 | The refresh job writes platform metrics and logs (counts, digests), never tenant data; the platform audit entry for it follows the open platform-audit system actor point already recorded for the retention purge (Executions §17.ac) |
+
+### 5.13 Evidence enrichment (Confirmed intent CB-7; caps and formats Recommended, OQ-11)
+
+**5.13.1 Where tree-sitter runs: inside a sandbox container too (Recommended).** Parsing hostile source is itself an attack surface (grammar bugs, resource exhaustion, native-code memory errors). Therefore:
+
+- A small `block-extractor` image (pinned like any tool) runs with the same flags as every tool (no network, read-only `/src`, non-root, limits of 5.8).
+- Input: a JSON list on stdin of `{ path, startLine, endLine }` (validated relative paths, line numbers integers, at most 2000 entries).
+- **Output is numbers only:** `{ path, startLine, endLine, enclosingStart, enclosingEnd, nodeKind }` where `nodeKind` is from a fixed allowlist (`function`, `method`, `class`, `block`, `module`, `unknown`). The container returns **no source text and no names**. The scan worker (outside the container) reads the lines from the extracted tree itself with plain bounded file reads. The hostile parser therefore can influence only integers and one enumerated label.
+- If the container fails, times out or a file has no grammar, the finding falls back to the line window (5.13.2) and the tool run for the extractor is `partial`/`failed` without failing the scan.
+- **Grammars for v1 languages** (Recommended, follows OQ-7): JavaScript, TypeScript (and TSX), Python, Go, Java; stretch: Ruby, PHP, C#. Each grammar's licence is verified at adoption (MIT for the common ones; **verify**).
+- **WASM versus native bindings (Open, OQ-11):** Recommended `web-tree-sitter` with prebuilt grammar `.wasm` files inside the image (no compiler toolchain in the image, memory-safe sandbox inside the Node runtime, grammars pinned by file hash, the image is a Node runtime that is not a package manager). Native bindings are faster but need prebuilt binaries or a build toolchain in the image. Either way the choice is confined to the extractor image; the platform code only sees the JSON.
+
+**5.13.2 Caps (Recommended).**
+
+| Item | Cap |
+|---|---|
+| Enclosing block used | at most 80 lines; a larger block is replaced by the window |
+| Line window fallback | 10 lines before and after the finding (21 lines), clipped to the file |
+| One line | 300 characters, longer lines cut with a visible marker; control characters replaced |
+| Snippet total | 4 KiB after redaction |
+| Evidence per finding (all fields) | 8 KiB |
+| Findings that get a snippet per task | the 500 highest severity first (ties by path, line); the rest keep location and link only; `evidenceTruncated = true` on the result |
+| Extractor input per task | 2000 locations; files over 1 MiB are not parsed (window only) |
+| Per-file parse time inside the extractor | 5 s |
+
+**5.13.3 SCM deep links (Recommended; formats from general knowledge, verify at implementation).** Built from the repository's recorded provider, its recorded full name (`repositories.provider`, `full_name`, `html_url`), the execution's pinned `commit_sha` (40 hexadecimal characters, validated; **never a branch name**) and the finding's path and lines. The link is a plain string produced by one pure function; the host comes from a fixed per-provider allowlist, never from tool output or user input.
+
+| Provider | Format (line range syntax) | Status in this product |
+|---|---|---|
+| GitHub | `https://github.com/{owner}/{repo}/blob/{sha}/{path}#L{start}-L{end}` (single line `#L{n}`) | **The only provider wired today** (`enum ScmProvider { github }` in `packages/db/prisma/schema/scm.prisma`; ADR-012, repositories-github). GitHub Enterprise hosts are Open |
+| GitLab | `https://gitlab.com/{group}/{project}/-/blob/{sha}/{path}#L{start}-{end}` (single `#L{n}`) | Not wired; format for the future adapter |
+| Bitbucket Cloud | `https://bitbucket.org/{workspace}/{repo}/src/{sha}/{path}#lines-{start}:{end}` (single `#lines-{n}`) | Not wired; format for the future adapter |
+
+Path segments are percent-encoded one by one; a path with `..`, a control character or a backslash yields no link. Line numbers are positive integers from the validated record. A repository whose provider has no registered formatter, or without a pinned SHA, gets `url = null` and the finding is still valid. Component findings (SBOM, SCA) link to the **manifest file** that declared the component when one is known, with no line.
+
+**5.13.4 Secret redaction in evidence (Confirmed intent CB-7).**
+
+| Rule | Text |
+|---|---|
+| SE-40 | A `secret` finding stores **no value and no value-derived data except** the existing preview rule (at most 4 leading characters, only when the value is longer than 12 characters; `normalizeItems`) plus `valueLength` bucket (`<=16`, `<=32`, `<=64`, `>64`) and the type class. No hash, no HMAC and no entropy score of the value is stored in v1 (OQ-5b option A) |
+| SE-41 | Gitleaks runs with its redaction option on so the value never reaches the worker. detect-secrets output has no value. A tool or version that does return the value (or a `Match`/`Line` field containing it) is handled by the adapter: the field is dropped by the **strict raw-record schema** (unknown fields are stripped, not copied), so a value can never be carried into a candidate by accident |
+| SE-42 | The **snippet of a secret finding** is the single reported line with the matched span replaced by `[REDACTED:<typeClass>]` when the tool reports the span; when the span is unknown the snippet is **omitted** (fail closed) and the finding keeps location and link only |
+| SE-43 | **Every snippet of every finding type, and every title and message,** passes the platform redaction (`redactLogText` family: PEM blocks, credential shapes, `Authorization` headers, password pairs) before storage, because a SAST finding's line can itself contain a hard-coded secret. The window around a secret finding is never stored |
+| SE-44 | Raw tool stdout of Gitleaks and detect-secrets is never stored as an artifact and never logged; only counts and fixed reason codes reach the task log. Raw outputs of other tools, if stored (OQ-14), go through the same redaction and credential CHECKs as logs |
+
+## 6. Workflows
+
+### 6.1 One scan task with an ensemble engine
+
+```mermaid
+sequenceDiagram
+  participant H as scan handler (existing)
+  participant E as ensemble engine
+  participant Sch as runner scheduler
+  participant RT as SandboxRuntime
+  participant C as tool container (locked down)
+  participant D as PostgreSQL
+  H->>H: claim attempt, extract archive to private temp dir (existing)
+  H->>E: runTask(context, signal, log, emit)
+  E->>E: validate tree, detect languages, resolve scope, pick applicable tools
+  E->>Sch: acquire budget per tool (task, worker, tenant limits)
+  Sch->>RT: run(RunSpec) with label task and deadline
+  RT->>C: start (no network, ro /src, ro /db, tmpfs, limits)
+  C-->>RT: stdout stream (capped), exit code
+  RT-->>E: bounded output
+  E->>E: parse, strict validation, map, merge, evidence, redact
+  E-->>H: items (emit), summary, per-tool runs, completeness
+  H->>D: one transaction: result, items, details, tool runs, attempt close, task status (existing finishTask extended)
+  Note over H,C: on abort, lease loss or deadline: runtime.kill for every container of the attempt, then remove
+```
+
+### 6.2 The run specification and the generated runtime invocation (Recommended; ADR-014)
+
+`RunSpec` has **no field that can weaken the sandbox**: there is no network, mount-mode, capability, user, device or privilege field. The runner decides all of those from constants; the adapter can only choose the image key (resolved to a digest from the catalog), the argv, the limits within the ceilings, whether the DB mount is attached, and the read-only mount sources it is allowed to name (`archive`, `db:<tool>`, `rules:<tool>`).
+
+```js
+/**
+ * @typedef {{
+ *   toolId: string, imageKey: string,                 // catalog key, resolved to repo@sha256:... by the runner
+ *   argv: string[],                                   // no shell; repository paths only after "--", validated (SE-27)
+ *   mounts: { archive: true, db?: string, rules?: string },
+ *   stdin?: string,                                   // only for the block extractor: validated JSON, capped
+ *   limits: { cpus: number, memoryMiB: number, pids: number, wallClockSeconds: number, stdoutBytes: number, tmpfsMiB: number },
+ *   labels: { taskId: string, attempt: number, deadlineEpoch: number }   // for the janitor (6.4)
+ * }} RunSpec
+ */
+```
+
+The pure function `buildRunArgs(spec, runtimeConfig)` returns the argv of the runtime CLI. For Docker (and Podman, same flags) the generated invocation has this shape (flag names are the ones I am confident of; **verify each against the installed runtime in the live test ENG-L01**):
+
+```text
+docker run --rm --init
+  --name qm-<task8>-<tool>-<attempt>
+  --label qm.scan=1 --label qm.task=<taskId> --label qm.attempt=<n> --label qm.deadline=<epoch>
+  --pull=never
+  --network=none
+  --read-only
+  --user <uid>:<gid>                              # non-root, fixed; see 6.3
+  --cap-drop=ALL
+  --security-opt=no-new-privileges
+  --security-opt seccomp=<platform profile file>    # never "unconfined"
+  --pids-limit=<n> --memory=<n>m --memory-swap=<n>m --cpus=<n>
+  --ulimit nofile=1024:1024 --ulimit fsize=<bytes> --ulimit core=0
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=<n>m
+  --mount type=bind,src=<tree>,dst=/src,readonly
+  --mount type=bind,src=<db snapshot>,dst=/db,readonly        # SCA tools only
+  --mount type=bind,src=<rules>,dst=/rules,readonly           # SAST / secrets platform rule packs only
+  --env HOME=/tmp --env <tool offline switches>               # explicit allowlist, no --env-file, no inherited env
+  --workdir /tmp
+  <repository>@sha256:<digest> <argv...>
+```
+
+Properties the invocation must **never** contain (asserted by ENG-S01): `--privileged`, `--network` other than `none`, `--net=host`, `--pid=host`, `--ipc=host`, `--userns=host`, `--device`, `--cap-add`, `--security-opt seccomp=unconfined` or `apparmor=unconfined`, `--volume`/`--mount` with a writable mode, a mount of the runtime socket, `/proc`, `/sys`, the home directory, the worker's working directory, the archive store or the database mirror root, `--env-file`, `--env` carrying a name outside the allowlist, `--user 0` or `root`, a tag instead of a digest, `--pull=always`, `--entrypoint` taken from anything other than the catalog.
+
+There is **no host-writable mount**: output leaves the container only through stdout (capped, read by the runner) and the exit code. This removes a whole class of host-write and symlink-race problems.
+
+### 6.3 Archive hand-over and the uid question
+
+The existing flow (verified in `apps/workers/src/execution/scan-handler.js` and `packages/infra/src/archive/tar.js`): the archive is read from the `ArtifactStore`, its sha256 is checked against `executions.archive_sha256`, and it is extracted by the in-house bounded reader into a private `mkdtemp` directory, files mode `0600`, directories `0700`, links, devices and FIFOs skipped, `..` and absolute paths skipped, caps on entries, sizes, ratio and depth, and the `exclusions.paths` of the snapshot applied.
+
+New for this module (Recommended): (1) **a second validation of the extracted tree** before any container starts (11.2), (2) **making the tree readable by the container user without widening it to the world**: the container runs as the same numeric uid as the scan worker user (rootless runtimes map it into the container's user namespace; for rootless Podman `--userns=keep-id`, for rootless Docker the equivalent mapping, verify). That keeps the `0600/0700` modes as they are and avoids `chmod a+r` (CX-12). A rootful runtime would need a different, explicit uid and a group-readable tree; this is one reason the rootless option is recommended in ADR-014. Verified live by ENG-L02. (3) the tree is mounted read-only, so even a tool that wanted to write into it cannot.
+
+### 6.4 Timeouts, cancellation, lease loss and no orphans (Confirmed intent CB-9)
+
+| Event | Behaviour |
+|---|---|
+| Tool wall-clock reached | The runner kills that container (`kill`, then `rm -f`), the tool is `timed_out`, other tools continue, partial output is discarded for that tool (a killed tool's stdout is not parsed in v1; OQ-10) |
+| Task deadline, user cancel, lease loss | The handler's `AbortSignal` (already wired to all three, `scan-handler.js`) fires; the runner kills **every** container labelled with that task and attempt, waits for removal up to `EXECUTION_ABORT_GRACE_SECONDS`, and the ensemble returns whatever finished tools produced; the handler then follows ER-14/ER-16 (partial results of finished tools are ingested `incomplete`) |
+| Runner or worker process crash (`SIGKILL`, power loss) | Containers outlive the process. Defence in depth: (1) every container has the `qm.deadline` label and the runner holds a **hard stop at the tool's wall-clock inside the runtime** where supported (verify; otherwise the janitor); (2) a **janitor** runs at worker start and every minute: it lists containers labelled `qm.scan=1`, and removes any whose deadline passed or whose attempt is no longer `running` in the database (read by `(tenant, task, attempt)`); (3) container names are unique per attempt, so a re-run cannot collide with a straggler |
+| Reclaimed task (new attempt, ER-28 to ER-30) | The new attempt has a new label; the old attempt's stragglers are removed by the janitor; the old holder's late DB writes are rejected by the existing fence |
+| Tool exit code | A per-tool table says which codes are success (many scanners exit non-zero when they find something); any other code is `failed` with reason `exit_code` |
+
+### 6.5 Failure paths
+
+A missing image or snapshot before start gives `unavailable`; the container runtime missing on the worker gives `failed` with `sandbox_error` for every tool of the task (transient, ER-13: the task retries and, on exhaustion, fails `tools_failed`), and a startup health check logs it once per worker so it is visible before tasks arrive. The engine never throws for tool-originated problems: every defect becomes a tool status; only programming errors reach `EngineError("engine_failed")`.
+
+## 7. Data model
+
+### 7.1 Existing structures this module builds on (verified)
+
+| Structure | Facts (source) | Use |
+|---|---|---|
+| `scan_tasks`, `scan_task_attempts` | Executions SPEC §7.4 and `packages/db/prisma/schema/executions.prisma` | Unchanged. Roll-up of 5.4 uses existing statuses |
+| `scan_results` | `schemaVersion Int @default(1)`, `engineId`, `engineVersion`, `completeness`, `truncated`, `itemCount`, `severityCounts`; unique `(tenantId, scanTaskId)` | Gains `run_manifest_sha256` and `coverage` (7.3); `schema_version` 2 for ensemble results |
+| `scan_result_items` | `kind` in (`vulnerability, license, secret, code_issue, component`), `ruleId`, `severity`, `title`, `path`, `startLine`, `endLine`, `componentPurl`, `componentVersion`, `data` jsonb (code cap 4 KiB); unique `(tenantId, scanResultId, ordinal)`; composite FK to the result | Keeps the list-friendly projection of a finding; unchanged shape |
+| `ArtifactStore`, `LogStore` | Interfaces and Postgres drivers; artifact ceilings 1 MiB / 20 / 8 MiB (§17.ac) | Raw documents blocked by the ceilings (CX-6, OQ-14) |
+| Engine registry | `createEngineRegistry`, `EngineError`, adapter contract (`engines.js`) | The ensemble is registered here |
+| `ENGINE_CATALOG` | `packages/shared/src/pipelines/constants.js` | Unchanged; `default` / `standard` |
+| `ScanContext` | ids, scan type, engine, thresholds, `trust`, `deadlineSeconds`, `sourceDir`; `assertNoCredentials` | Extended with `scope` only (5.9); still no credential |
+
+### 7.2 The normalized finding schema (Recommended contract proposal for the Findings module; **no `docs/modules/findings` exists, section 0.1**)
+
+Version `schemaVersion: 1` of the *ensemble finding* (stored in `scan_results.schema_version = 2` terms, see 7.3 for the mapping). Strict Zod schema in `packages/shared` (so the API DTO mapper, the worker and the future Findings module share one definition), JSDoc typedef beside it.
+
+| Field | Type / cap | Meaning |
+|---|---|---|
+| `schemaVersion` | integer, 1 | Schema version of the finding record |
+| `scanType` | `sbom \| sca \| sast \| secrets` | Which ensemble produced it |
+| `kind` | `component \| vulnerability \| code_issue \| secret` (`license` reserved) | Matches the existing `scan_result_items.kind` values |
+| `dedupKey` | string, 600 | The merge key of 5.6; **not a finding identity** (ADR-004, CX-7) |
+| `title` | string, 200, escaped on render | From the highest-confidence tool; redacted |
+| `severity` | `critical \| high \| medium \| low \| info` | Normalized, highest of the tools (5.7) |
+| `severityAssumed` | boolean | True when defaulted |
+| `confidence` | `low \| medium \| high` | 5.7 and SE-13 |
+| `confidenceBasis` | `tool \| multi_tool \| heuristic` | |
+| `rule` | `{ id: string(200), name?: string(200), tool: string }` | Canonical rule or advisory id |
+| `cwe` | integer[] (max 10) | Normalized CWE numbers |
+| `advisories` | `{ id: string(60), family: string }[]` (max 20) | CVE, GHSA, OSV, ... (SCA) |
+| `location` | `{ path?: string(1024), startLine?: int, endLine?: int, startColumn?: int, endColumn?: int }` | Source location (SAST, secrets) or the declaring manifest (SBOM, SCA) |
+| `component` | `{ purl: string(500), name: string(200), version?: string(100), ecosystem: string(40), scope?: string }` | SBOM, SCA |
+| `locations` | `{ path, startLine? }[]` (max 20) and `locationCount` | Component occurrences |
+| `fix` | `{ fixedVersions: string[] (max 10) }` | SCA |
+| `provenance` | array (1 to 6) of `{ toolId, toolVersion, imageDigestShort, ruleId?, severityRaw, severityScale, confidenceRaw?, rawRef }` | Which tools found it, what each said |
+| `evidence` | object, 8 KiB total (section 7.4) | Enclosing block or window, redacted |
+| `scmRef` | `{ provider, repoFullName, commitSha, path?, startLine?, endLine? }` | Structured link inputs |
+| `url` | string, 2000, nullable | Built deep link (5.13.3) |
+| `scope` | `{ kind: full \| targets \| full_filtered, inScope: boolean }` | 5.9 |
+| `rawRef` | `{ toolRunId, ordinal }` | Pointer to the tool run and the record position; **not** the raw record |
+
+JSON example (SCA finding, two tools agreed):
+
+```json
+{
+  "schemaVersion": 1, "scanType": "sca", "kind": "vulnerability",
+  "dedupKey": "sca|pkg:npm/lodash@4.17.20|CVE-2021-23337",
+  "title": "Command injection in lodash template",
+  "severity": "high", "severityAssumed": false, "confidence": "high", "confidenceBasis": "multi_tool",
+  "rule": { "id": "CVE-2021-23337", "tool": "trivy" },
+  "cwe": [77],
+  "advisories": [ { "id": "CVE-2021-23337", "family": "CVE" }, { "id": "GHSA-35jh-r3h4-6jhm", "family": "GHSA" } ],
+  "location": { "path": "package-lock.json" },
+  "component": { "purl": "pkg:npm/lodash@4.17.20", "name": "lodash", "version": "4.17.20", "ecosystem": "npm", "scope": "prod" },
+  "fix": { "fixedVersions": ["4.17.21"] },
+  "provenance": [
+    { "toolId": "trivy", "toolVersion": "<v>", "imageDigestShort": "sha256:ab12cd34", "ruleId": "CVE-2021-23337", "severityRaw": "HIGH", "severityScale": "trivy", "rawRef": { "toolRunId": "<uuid>", "ordinal": 41 } },
+    { "toolId": "grype", "toolVersion": "<v>", "imageDigestShort": "sha256:ef56ab78", "ruleId": "GHSA-35jh-r3h4-6jhm", "severityRaw": "High", "severityScale": "grype", "rawRef": { "toolRunId": "<uuid>", "ordinal": 17 } }
+  ],
+  "evidence": null, "scmRef": { "provider": "github", "repoFullName": "<owner>/<repo>", "commitSha": "<40 hex>", "path": "package-lock.json" },
+  "url": "https://github.com/<owner>/<repo>/blob/<40 hex>/package-lock.json", "scope": { "kind": "full", "inScope": true }
+}
+```
+
+JSON example (secret finding):
+
+```json
+{
+  "schemaVersion": 1, "scanType": "secrets", "kind": "secret",
+  "dedupKey": "secrets|src/config/prod.env|12|aws_access_key",
+  "title": "AWS access key", "severity": "high", "confidence": "high", "confidenceBasis": "multi_tool",
+  "rule": { "id": "aws_access_key", "tool": "gitleaks" },
+  "location": { "path": "src/config/prod.env", "startLine": 12, "endLine": 12 },
+  "preview": "AKIA", "valueLengthBucket": "<=32",
+  "evidence": { "snippet": "AWS_ACCESS_KEY_ID=[REDACTED:aws_access_key]", "kind": "line" },
+  "provenance": [ { "toolId": "gitleaks", "...": "..." }, { "toolId": "detect-secrets", "...": "..." } ]
+}
+```
+
+**Mapper boundaries and validation (CB-6).** (1) *Adapter boundary:* the tool's stdout is parsed with a bounded streaming reader, size-capped, depth-capped (no recursion on untrusted depth, the SBOM-lite pre-check pattern), parsed as JSON into a plain object with `__proto__`, `constructor` and `prototype` keys refused, then validated by a **strict per-tool Zod schema that strips unknown keys** and caps every string and array. Records that fail are dropped and counted (`recordsDropped`); a high drop ratio (Recommended over 20 percent) makes the tool `failed` `output_invalid`. (2) *Mapper:* `map(rawRecord, ctx)` is pure and total; it cannot throw on validated input. (3) *Merger:* pure, operates on one task. (4) *Boundary to storage:* the existing `normalizeItems` (control characters stripped, credential-shaped text redacted, lengths capped) stays the last gate before the database. (5) `schemaVersion` is checked by every consumer; an unknown version is refused, not guessed.
+
+### 7.3 Proposed database changes (PROPOSAL ONLY; no migration is written by this spec)
+
+All new tenant-owned tables carry the full chain `(tenant, workspace, repository, pipeline, execution)` with composite foreign keys to `scan_tasks`, exactly like `scan_results` (ER-2), insert-only for terminal facts, fenced by `(scan_task_id, attempt)` (ER-30).
+
+| Change | Shape |
+|---|---|
+| **`scan_tool_runs`** (new, tenant-owned) | `id`, chain, `execution_id`, `scan_task_id`, `attempt`, `tool_id`, `tool_version`, `image_digest` (`sha256:` + 64 hex, CHECK), `config_digest`, `rulepack_digest` null, `db_snapshot_sha256` null, `db_built_at` null, `status` (7 values of 5.3), `reason` (fixed words, CHECK), `exit_code` null, `started_at`, `finished_at`, `duration_ms`, `scope` jsonb, `records_seen`, `records_dropped`, `findings_mapped`, `severity_counts` jsonb, `truncated` bool, `limits` jsonb (applied), `capacity_wait_ms`. Unique `(tenant_id, scan_task_id, attempt, tool_id)`. Credential-shape CHECK on text columns like `execution_logs`. No stdout, no stderr, no tool message text |
+| **`scan_result_item_details`** (new, 1:1 with `scan_result_items`) | `tenant_id`, `scan_result_id`, `item_ordinal`, `schema_version`, `dedup_key`, `confidence`, `confidence_basis`, `severity_assumed`, `provenance` jsonb (at most 6 entries), `advisories` jsonb, `cwe` int[], `evidence` jsonb (CHECK size 8 KiB), `scm_ref` jsonb, `url` text null, `scope` jsonb. Keeps `scan_result_items` and its 4 KiB `data` untouched (CX-5), so list queries stay lean. Composite FK to the item |
+| **`scan_results`** (columns added) | `run_manifest_sha256` text null, `coverage` jsonb (`{ state, coverageGaps[], toolsDegraded, tools: [{toolId, status}] }`), `schema_version` 2 for ensemble results; CHECK that a result with `toolsDegraded > 0` is `incomplete` |
+| **`scan_db_snapshots`** (new, **platform-level, no tenant column**, like `execution_orchestrator_markers`) | `id`, `tool_id`, `source_version`, `upstream_built_at`, `fetched_at`, `size_bytes`, `sha256` (unique per tool), `status`, `promoted_at`, `rejected_reason` fixed words; one `active` per tool (partial unique index); status transitions one-way by trigger; no tenant data |
+| **`scan_decisions`** (columns added, Open CX-8) | `changed_paths_ref`, `changed_paths_status` |
+| Artifacts | No change in v1 (OQ-14) |
+| Enums | **No change** to `scan_task_status`, `executions` or the transition guards (CX-10) |
+| `@qmentisai/shared` | New schema package files for the finding schema, severity maps, reason words, status roll-up function (shared by the worker, the API mapper and the suite) |
+
+### 7.4 The evidence object
+
+```json
+{ "kind": "block", "language": "python", "nodeKind": "function",
+  "startLine": 40, "endLine": 71, "focusStart": 55, "focusEnd": 57,
+  "snippet": "<up to 4 KiB of redacted text, 300 chars per line>", "truncated": false }
+```
+`kind` is `block` (tree-sitter enclosing range), `window` (fallback) or `line` (secrets, redacted single line). `snippet` is data and rendered only as inert text (SCREENS). Never present for a secret without a known span (SE-42).
+
+### 7.5 Retention
+
+Tool runs and details follow the result: execution metadata 13 months (ER-17). Evidence snippets contain source text: the Recommended retention is the **log/artifact window of 90 days** for the `evidence.snippet` field (the Findings module may copy what it needs under its own retention); Open (OQ-11). DB snapshots: the last N (3) kept, older deleted by the refresh job after no non-purged result references them (results record the sha; the snapshot is only needed to reproduce).
+
+## 8. API contract
+
+No new endpoint. `GET /executions/{id}` already returns task cards from the DTO mapper (`apps/api/src/modules/executions/mappers`); this module adds, to each task DTO, an optional `tools` array and a `coverage` object, read from `scan_tool_runs` and `scan_results.coverage` by `(tenant, execution)`:
+
+```json
+{ "tools": [ { "toolId": "trivy", "displayName": "Trivy", "version": "x.y.z", "imageShort": "sha256:ab12cd34",
+               "status": "succeeded", "reason": null, "durationMs": 41200,
+               "counts": { "critical": 0, "high": 3, "medium": 5, "low": 2, "info": 0 },
+               "db": { "builtAt": "2026-11-18T06:00:00Z", "versionShort": "sha256:77aa11bb" },
+               "scope": "full" } ],
+  "coverage": { "state": "partial_tools", "toolsDegraded": 1, "gaps": [] } }
+```
+Rules: DTO mappers never expose Prisma models, internal ids of tool runs, full digests (short form only: the first 8 hex characters after `sha256:` is enough to identify, the full digest stays server side), command lines, stderr, or any tool-originated free text; `reason` is a fixed word from 5.3; `displayName` comes from the platform catalog. Same permission as the execution (`execution.view`), same 404 behaviour for hidden workspaces and other tenants. An execution created before the ensemble existed has no `tools` (the field is omitted, no placeholder). The OpenAPI snapshot and the `docs/api/` twins are regenerated with `pnpm contract:snapshot` when this is built (CLAUDE.md contract rule). Findings endpoints are the Findings module's.
+
+## 9. Events and asynchronous work
+
+### 9.1 Messages
+
+No new task message: `scan.task.requested` and `scan.task.completed` are unchanged (FT-5, ER-15). `scan.task.status_changed` hints are unchanged. **Optional hint (Recommended):** a `scan.task.tool_changed` hint (ids, tool id, status only; no counts that need authorization beyond what the room already has) so T-29 can show tools live; if not built, T-29 refetches on `scan.task.status_changed` (OQ-22).
+
+### 9.2 Maintenance messages
+
+`maintenance.scan_db.refresh_requested` (platform message, `.strict()`, enqueued only when `SCAN_DB_REFRESH_ENABLED=true`, handler refuses in a process where it is off, same pattern as `maintenance.executions.purge_requested`), consumed by the `dbrefresh` worker. `maintenance.scan_images.verify_requested` (Open, OQ-12): a periodic check that every catalog digest is present in the local runtime store and matches the lock file.
+
+### 9.3 The image catalog and the digest workflow (Recommended, OQ-12)
+
+- **Catalog file** in the repository, reviewed like code: `images.lock.json` (path proposal: `apps/workers/src/execution/engines/ensemble/catalog/images.lock.json`, Open) with, per tool: `toolId`, `scanType`, `repository`, `digest` (`sha256:...`), `version` (informational), `licence` and licence-review date, `sourceUrl`, `approvedBy`, `approvedAt`, `imageSbomSha256`, `selfScan` (the result of scanning the image with our own SCA: counts), `signatureVerified` (true/false and how). Placeholders only until the owner approves real digests.
+- **Resolution:** the runner takes only `imageKey`; the digest comes from the lock file; a tag is never accepted (ENG-S02).
+- **Update flow:** a person (or a scripted proposal) opens a change that edits one lock entry; the change must show the licence, the upstream release notes link, the self-scan result and the image SBOM; the owner approves; the lock file hash is logged at worker start. No automatic digest bump.
+- **Provisioning:** images are loaded into the runtime's local store before use (`pull` by digest from a platform-controlled mirror registry, or `load` from a tarball for air-gapped hosts) by an operator action or a provisioning step; the scan path always runs with `--pull=never`, so a scan never reaches a registry.
+- **Verification:** where upstream publishes signatures or provenance (cosign / SLSA), verify them at provisioning time (verify availability per tool). **Own build versus upstream images (Open):** upstream images pinned by digest are the v1 recommendation; building our own minimal images needs Dockerfiles and a build pipeline (CX-1: covered by the ADR-014 exception only for scan images, CI stays out of scope).
+- **The scanners' own vulnerabilities:** a Critical or High vulnerability with a fix in a scanner image blocks its next approval; accepted exceptions are recorded in the lock entry. The images are scanned with the platform's own SCA ensemble once it exists, and with a third-party scan until then (OQ-12).
+
+## 10. Frontend requirements
+
+Only T-29 changes, and only by additions; the full specification is `docs/modules/scan-engines/SCREENS.md`. Summary: each scan task card gains a collapsible "Tools" list (tool name, version, image digest in short form, fixed-word status, duration, counts by normalized severity, DB version for SCA, fixed-word failure reason), a coverage line, and the incomplete/partial notices; every tool-derived string is inert text. Evidence snippets and links are **not** on T-29: they surface in Findings (T-32, Findings module), where this module only reserves the fields (SCREENS section 6). Navigation, permissions and the other screens are unchanged. Loading, empty, error and unauthorized states are those of T-29.
+
+## 11. Security and privacy
+
+The sandbox is the core property of this module (CB-1). Tenant isolation and credential rules of the existing modules apply unchanged: every query by `(tenant, id)`, the chain foreign keys, no `tenantId` from messages (ER-3), no credential in the scan worker (ER-5), `scan_results` and the new tables tenant-scoped and fenced.
+
+### 11.1 Threat model
+
+| # | Attacker goal | Vector | Control | Residual risk |
+|---|---|---|---|---|
+| T1 | Run attacker code on the scan host | A repository makes a tool execute it: package-manager lifecycle scripts or build plugins via cdxgen or gosec, a hostile Semgrep rule or autofix, `setup.py`, `go:generate`, Makefile, git hooks | Tools run in analysis-only modes with explicit config (11.3); images without package managers where possible; **no network**, read-only root, non-root, `no-new-privileges`, all capabilities dropped; no shell in argv; platform-owned rules only; live planted-script test (ENG-L06) | Code that still runs does so only inside the container; residual is T2 |
+| T2 | Escape the container to the host | Kernel or runtime vulnerability, abused syscalls | seccomp, `cap-drop=ALL`, rootless runtime (user namespace), read-only mounts, pids/memory/cpu limits; production option: gVisor or Kata (ADR-014 option D); patch cadence for kernel/runtime | A kernel or runtime zero-day; mitigated, not eliminated, by D |
+| T3 | Become root through the runtime control channel | The scan worker holds the Docker socket (equivalent to root); a compromised worker uses it | Prefer rootless Docker/Podman (socket owner is an unprivileged user) or a scan-runner service with a narrow API that cannot create arbitrary containers (ADR-014 options B, C); the worker never mounts the socket into a tool | Dev with a plain Docker socket is root-equivalent: accepted for development only (ADR-014 R1) |
+| T4 | Read another tenant's data | A tool container sees another task's tree or output; a shared cache leaks | One private temp tree per task attempt, only that tree mounted, no shared writable mount, DB mirror is public data only, container names/labels carry ids only, every DB access by `(tenant, id)` | Host-level compromise (T2/T3) |
+| T5 | Exfiltrate repository content or secrets | Tool or planted code calls out (HTTP, DNS, metadata service, host localhost services such as PostgreSQL, Redis, RabbitMQ) | `--network=none` (no interfaces, no DNS, no loopback to the host); no mounts of sockets; verified live (ENG-L03) including the host loopback and cloud metadata addresses | Covert channels with no network are impractical; none known |
+| T6 | Steal platform or tenant credentials | Environment inheritance, mounted files, the worker's config | Scan worker has no credentials (ER-5); explicit env allowlist; `assertNoCredentials` over every `RunSpec`; no `--env-file`; no home-directory mount; registry credentials live only in the provisioning step, not on the scan path | The runner host's own credentials (outside this module) |
+| T7 | Exhaust host resources (DoS) | Fork bomb, memory bomb, CPU spin, disk fill, stdout flood, thousands of containers | pids/memory/cpu/ulimit/tmpfs limits, wall-clock kill, stdout byte cap, per-task / per-tenant / per-worker budgets (5.8), queue wait cap, fork pool share | Noisy neighbour inside the budgets |
+| T8 | Crash or stall the platform with a hostile archive | Zip/tar bomb, deep or wide trees, symlink or hardlink tricks, special files, huge filenames, Unicode tricks | Existing bounded reader plus 11.2 validation; tools handed only a validated tree; caps and stable codes | Pathological input just under the caps costs the full budget of one task |
+| T9 | Attack the platform through tool output | Findings with XSS strings, huge or deeply nested JSON, `__proto__` keys, path traversal in a reported path, ANSI escapes, bidi control characters, link injection | Strict per-tool schemas that strip unknown keys, byte/depth/array caps, reported paths must resolve inside the validated tree, `normalizeItems` and redaction before storage, inert rendering and fixed-word reasons in the UI, link host from a fixed allowlist | Parser defect in our own validators (covered by ENG-S09) |
+| T10 | Change what the tools do through repository files | `.semgrepignore`, `.gitleaks.toml`, `osv-scanner.toml`, `.trivyignore`, `.grype.yaml`, `.bandit`, `trivy.yaml`, plugin hooks, `.gitattributes` | Platform-owned config passed explicitly; tool-control filenames removed from the tool's tree at extraction (11.3); "ignore repo-provided config" is an acceptance criterion per tool, proven live by planting (ENG-L07) | A tool that discovers config in a way we did not foresee: the planting test is the only proof |
+| T11 | Hide findings | Inline suppressions (`nosec`, `nosemgrep`, `gitleaks:allow`, `pragma: allowlist secret`), ignore files | Disable inline-suppression handling where the tool offers a switch (OQ-16); suppression is a platform workflow in the Findings module, not a code comment | Tools without a switch; documented per tool |
+| T12 | Supply-chain compromise of a scanner image or its update | Poisoned upstream image, typosquatted image, tag swap | Digest pinning, lock file review, signature/provenance verification where available, image self-scan, no automatic bumps, `--pull=never`, provisioning from a platform mirror | Compromise before approval; mitigated by review and self-scan, not eliminated |
+| T13 | Hide vulnerabilities by poisoning the vulnerability data | Tampered or truncated DB snapshot, stale DB | Snapshot sha256, size/age sanity, canary scan before promotion, atomic promotion with rollback, staleness tiers (5.12), egress limited to the refresh job and an allowlist | Compromised upstream data source |
+| T14 | Obtain a secret from platform storage | The secret leaks into a finding, snippet, title, log, event, DTO or error | No value stored (SE-40), tool redaction, strict schemas that drop value-bearing fields, fail-closed snippets, redaction of all snippets/titles/messages, raw secret-tool stdout never stored or logged, ENG-S05 over every sink | Shape-based redaction cannot recognise every secret format inside a SAST snippet; residual is limited to source text already in the tenant's own repository |
+| T15 | Cause findings of one tenant/pipeline to merge into another's | A shared dedup cache or merger state | Merger is per-task, pure, no module state (SE-10); ADR-004 | None identified |
+| T16 | Leave processes running after a task ends | Worker crash, lost lease, ignored kill | Labels, kill-on-abort, janitor by label and deadline, unique names | Janitor interval (up to one minute) |
+| T17 | Race the tree between validation and use | Modify the tree after validation | Tree is private to the attempt, owned by the worker, mounted read-only, no tool has write access; no other process shares it | A root-level attacker on the host (T2/T3) |
+| T18 | Make a finding link point somewhere malicious | Tool-reported path or URL | Link built from the recorded provider, pinned 40-hex SHA, repository name and a path from the validated tree; fixed host list; no URL taken from tool output | GitHub Enterprise hosts not yet handled |
+| T19 | Exploit the parser via source files | A crafted source file crashes or exploits tree-sitter or Semgrep | Parsers run only in the sandbox; the extractor returns integers and one enumerated label only | As T2 |
+| T20 | Weaken the sandbox by configuration | An operator or a bug sets a permissive flag | `RunSpec` has no such field; the runner derives every security flag from constants; ENG-S01/S02 fail the build if one disappears | A code change that edits the constants (reviewed) |
+
+### 11.2 Hostile-archive tolerance (cap and pre-extraction validation)
+
+The existing bounded reader (`packages/infra/src/archive/tar.js`, caps in `apps/workers/src/config.js`: archive 200 MiB, 100000 entries, 50 MiB per file, 1 GiB expanded, ratio 200, depth 64; links, hardlinks, devices, FIFOs skipped; `..`, absolute, NUL and control-character paths skipped) already extracts safely and is not re-opened here. This module adds, before any container starts, **a validation walk of the extracted tree** and per-vector caps:
+
+| Vector | Cap / rule | Result on breach |
+|---|---|---|
+| Decompression bomb (outer archive) | Existing ratio and expanded-size caps | `prepare_failed:archive_too_large` (existing) |
+| Nested archives inside the tree (JAR, wheel, zip, tar) | Tools that unpack them (Syft, Trivy, Grype) get their own caps: max nested depth 2, max nested expanded bytes per archive (Recommended 64 MiB) and in total (256 MiB), ratio 100, by tool flag where one exists (verify) else by excluding nested archives from the tool's target set | Tool `partial` or `skipped` for that file; counted |
+| Symbolic or hard links, devices, FIFOs, sockets | None are created by the reader; the validation walk (`lstat`) fails the task attempt if any non-regular, non-directory entry exists (defence against a reader regression) | Task `failed`, permanent, error code `tree_invalid` (a new stable code, proposal) |
+| Path traversal, absolute paths | Reader skips; the walk asserts every entry resolves under the root | as above |
+| File count / directory count / depth | Entries 100000, depth 64 (existing); a second cap on **files handed to tools** (Recommended 100000) and on tool target lists (2000 explicit paths) | Cap breach: targets dropped and counted, tool runs on the directory or is `partial` |
+| Very long names / paths | Path 1024 characters, component 255 | Entry skipped and counted |
+| Unicode tricks | Entries with NUL or control characters already skipped. Bidirectional override/isolate characters (U+202A to U+202E, U+2066 to U+2069), zero-width characters and non-NFC names are **kept** (they are real files) but flagged `pathSuspicious`; every path shown or stored is rendered with those characters escaped as visible `\uXXXX`; two entries whose names collide after NFC normalization or case folding are both kept, and a finding path is always the exact bytes of the entry | UI shows escaped text; link builder refuses such paths (no link) |
+| Huge single files / minified lines | Per-file byte cap for tools (Recommended 1 MiB for SAST, 5 MiB manifests as SBOM-lite, 10 MiB for secrets); per-line cap where the tool has one | File skipped by the tool; counted `partial` |
+| Sparse or special regular files | Size is the logical size; the existing per-file cap applies at extraction | as above |
+| Binary files | Not passed to SAST; Syft binary catalogers only on an allowlist; secrets tools may scan binaries up to a cap (Recommended 5 MiB) | skipped |
+| Many small files (inode exhaustion) | Entry cap; tmpfs `size` and inode limits for `/tmp` | `out_of_memory`/`sandbox_error` per tool |
+| Tool-reported paths | Must be inside `/src` (relative, no `..`), must exist in the tree; otherwise the record is dropped | `recordsDropped` |
+
+### 11.3 Repository-provided tool configuration: "ignore repo config" (Confirmed intent CB-1; mechanics Recommended, OQ-16)
+
+**Principle (SE-45):** the only configuration, rule file, ignore file, baseline, plugin or hook a tool ever uses comes from a platform-owned read-only mount (`/rules`). Nothing from the repository tree changes a tool's behaviour. Two layers:
+
+1. **Explicit flags / environment** pointing the tool at the platform config and disabling discovery wherever the tool offers it (flag names verify per tool at adoption).
+2. **Tree filtering at extraction, per scan type**, using the existing `exclude` predicate of the extractor (`apps/workers/src/execution/scan-handler.js` already passes `exclude` to `extractTarGz`): a platform-owned deny list of **tool-control file names** is applied in addition to the pipeline's `exclusions.paths`, so a tool that auto-discovers a file never finds it. Each task already extracts its own private copy, so the filtering differs per scan type without extra cost. Recommended starting list (verify and extend with the live planting test): `.semgrepignore`, `.semgrep/`, `.semgrep.yml`, `.gitleaks.toml`, `.gitleaksignore`, `.secrets.baseline`, `.trivyignore`, `.trivyignore.yaml`, `trivy.yaml`, `trivy-secret.yaml`, `.grype.yaml`, `.grype/`, `osv-scanner.toml`, `.syft.yaml`, `.bandit`, `bandit.yaml`, `.njsscan`, `.cdxgenignore`, `.pre-commit-config.yaml`, `.gitattributes`, `.gitignore`. The files are not deleted from the archive record; they are only absent from that scan type's tree. Residual: a secret inside such a file is not seen by the Secrets tools (accepted, low); manifests that double as tool config (`pyproject.toml`, `setup.cfg`, `package.json`) cannot be removed and are handled by flags (below).
+
+| Tool | Repository-controlled behaviour / footgun | Control (verify flag names at adoption) |
+|---|---|---|
+| Syft | Reads `.syft.yaml` from the working directory; unpacks nested archives; binary catalogers on arbitrary files | Working directory `/tmp`; explicit config; nested-archive caps; cataloger allowlist; never `--from docker` or registry sources |
+| cdxgen | **Executes package managers/build tools** (npm, mvn, gradle, pip, go, dotnet) to resolve trees, which run repository scripts and plugins; env-var driven options | No-build / lockfile-only mode; image has no mvn/gradle/pip/go and no network; if the mode cannot be enforced the tool is not adopted (OQ-9); ENG-L06 |
+| Trivy | `trivy.yaml` / `.trivyignore*` in cwd and tree; Java POM remote resolution; misconfiguration engine can load repo policies; secret scanner config | `--scanners vuln` only; explicit config; DB update and Java DB update off, offline scan on; cwd `/tmp`; deny-listed files removed |
+| Grype | `.grype.yaml` in cwd or the scan root; ignore rules; DB auto-update | Explicit `--config`; auto-update and validate-age off; DB path `/db`; deny-listed files removed |
+| OSV-Scanner | **`osv-scanner.toml` found in scanned directories can ignore vulnerabilities and packages** | Deny-list removal (primary) plus an explicit config where supported; offline mode with local DB; planting test is mandatory |
+| Semgrep / Opengrep | `.semgrepignore`, `.gitignore` handling, `nosem` comments, `--config auto` (network), rules fetched from the registry, `--autofix` (writes files), metrics/telemetry, version check | Rules only from `/rules` (`--config /rules/...`); never `auto`; `--metrics=off`; version check off; no autofix; `--no-git-ignore`; `--disable-nosem` (OQ-16); per-file timeout, max target bytes, jobs; `/src` is read-only so autofix could not write anyway |
+| Bandit | Reads `.bandit`, `setup.cfg`, `pyproject.toml` if pointed at; `# nosec`; loads plugins from entry points | Explicit `-c /rules/bandit.yaml`; no ini discovery; `--ignore-nosec` (OQ-16); image has only the pinned Bandit |
+| gosec | Loads packages through the Go toolchain (compiler, cgo, module resolution); `#nosec` | `CGO_ENABLED=0`, `GOFLAGS=-mod=vendor` or readonly, `GOPROXY=off`, `GOTOOLCHAIN=local`; `-nosec` handling per OQ-16; adopted only after ENG-L07 (phase 4b) |
+| njsscan / Brakeman | `.njsscan`, `config/brakeman.yml`; Brakeman licence | Not in v1 (OQ-7, OQ-9) |
+| Gitleaks | `.gitleaks.toml`, `.gitleaksignore`, `gitleaks:allow` comments; git-mode reads `.git` | Directory mode (`--no-git`), explicit `--config /rules/gitleaks.toml`, redaction on, size/decode caps, no baseline; ignore inline allow if the version has a switch (OQ-16) |
+| detect-secrets | Default file list comes from `git ls-files` (an archive has no `.git`, so the default scan could find **nothing**: use the all-files mode, verify), baseline file, `pragma: allowlist secret`, custom plugin paths | All-files mode; no baseline; no custom plugins; platform plugin set only |
+| TruffleHog (if ever) | Live credential verification calls the network | Excluded (OQ-9) |
+| Block extractor | Grammar bugs | Sandbox, integers only |
+
+**Prompt-injection note.** No language model is involved anywhere in this module (ADR-013 is not used), so repository text cannot steer a model. Repository text that looks like instructions is just data in a tool's input.
+
+### 11.4 Privacy
+
+Evidence snippets contain customer source text. They are stored in the tenant's partition under the same tenant scope as results, shown only to users with the relevant view permission, never sent to any external service, never logged, and subject to retention (7.5). The DB mirror holds only public vulnerability data. No tenant data leaves the platform in this module (no network egress exists in the scan path).
+
+## 12. Observability
+
+Logs (task log, redacted, capped by the LogStore): one line per tool start/end with tool id, fixed status and reason, duration, counts; scheduler waits; janitor actions; never tool stdout/stderr text beyond a bounded, redacted first line on `failed` (and none for secret tools). Metrics (Pino-derived counters now, a metrics backend later, Open as elsewhere): container starts, durations and exit classes per tool, kills, orphans reaped, capacity wait times, drop ratios, DB snapshot age per tool, canary results, image digests in use. Correlation id: the execution's `correlationId` is carried into the log fields, never into the container. Alerts (when a metrics system exists): DB snapshot older than the warn tier, janitor reaping more than N containers, a tool failing in more than X percent of runs, any container started with a non-catalog digest (must be zero).
+
+## 13. Dependencies
+
+| Dependency | Use | Notes |
+|---|---|---|
+| Executions module | handler, registry, leases, results, logs, artifacts | Unchanged contracts except the additions of section 7 |
+| Scan-decisioning | decided types; (CX-8) changed-path artifact | Amendment needed for 5.9 |
+| Repositories (GitHub) | provider, `full_name`, `html_url`, pinned `commit_sha` for links | GitHub only |
+| Findings module (does not exist) | consumes the normalized schema | OQ-20 |
+| Container runtime on scan hosts | OQ-1 | New operational dependency (ADR-014) |
+| Third-party scan tools | Section 5.2 | Licences to verify (OQ-9) |
+| npm dependencies of the platform | **None planned.** The runner uses `node:child_process` (`execFile`, no shell) to call the runtime CLI; no `dockerode`, no tree-sitter in the platform packages (it lives only in the extractor image); an in-repo purl parser and CVSS calculator avoid two packages. Each exception must be justified per `docs/technical/CODING_STANDARDS.md` | Recommended |
+
+## 14. Acceptance criteria
+
+- [ ] ADR-014 is Accepted by the owner and `CLAUDE.md`, `TECH_STACK.md`, `docs/README.md`, `AGENT_INSTRUCTIONS.md` and `AGENTS.md` carry the approved amendment (CX-1).
+- [ ] A container run is constructed only from a catalog digest; the generated invocation contains every required flag and none of the forbidden ones (ENG-S01, ENG-S02), and the live inspection agrees (ENG-L01).
+- [ ] No tool container has network access, verified live including host loopback and the metadata address (ENG-L03).
+- [ ] Repository code is never executed: planted lifecycle scripts, plugins and hooks do not run under any tool (ENG-L06); repository tool config and inline suppressions do not change results (ENG-L07).
+- [ ] For each shipped scan type: per-tool statuses roll up exactly as table 5.4 (ENG-S11); a failing tool does not fail the type while another succeeds; an all-tools failure fails the task with `tools_failed`.
+- [ ] Merge/dedup produces one finding with provenance for an issue found by two tools and never merges across tasks (ENG-S06); severity mapping tables are asserted.
+- [ ] Hostile archives and hostile tool outputs are contained (ENG-S07, ENG-S09, ENG-L08).
+- [ ] No secret value appears in any store, log, message, DTO or event (ENG-S05, ENG-L14).
+- [ ] Cancellation, deadline and lease loss leave no container behind; a killed worker's containers are reaped (ENG-S10, ENG-L05).
+- [ ] The sealed scan path runs with the host network disabled using a mirrored snapshot; each result records tool, image and DB digests (ENG-S12, ENG-L09).
+- [ ] T-29 shows the tools and statuses as specified in SCREENS with all states and accessibility checks run by hand.
+- [ ] `pnpm test:security` with the additions passes; a mutation sweep of the new functions is done (part M).
+- [ ] `docs/api/` snapshots regenerated and reviewed; PROGRESS_TRACKER and OPEN_DECISIONS updated.
+
+### 14.1 Security-suite additions (PROPOSED ADR-008 scope amendment, "area 18"; the owner approves, CB-11, OQ-3)
+
+Proposed scope sentence for ADR-008: "area 18, scan engine sandbox and result integrity: the properties of the container invocation (no network, read-only mounts, non-root, dropped capabilities, resource limits, digest-pinned images, no credentials), that repository content is never executed or used as tool configuration, that secret values never reach stored or transmitted data, that cross-tool merging never crosses a tenant, pipeline or task, that hostile archives and tool outputs are contained, tenant isolation of scan results and tool runs, and cancellation without orphans. Tool quality, rule content, severity tables and dedup tolerances stay out of scope." The suite remains Docker-free (ADR-008 line 150); the live checks (ENG-L) are a separate hand-run plan.
+
+**How they are testable without Docker.** A `FakeSandboxRuntime` implements the `SandboxRuntime` interface in memory: it records every `run(spec)` call, the **argv produced by `buildRunArgs`**, kill/remove calls and label state; it returns scripted stdout and exit codes (valid, malformed, hostile, huge, slow, hanging). The pure functions (`buildRunArgs`, `assertRunSpecSafe`, mappers, merger, roll-up, redaction, link builder, tree validation, DB-snapshot selection) are asserted directly. The checks run inside the existing disposable PostgreSQL for the DB parts.
+
+| Check | What it proves | How (no Docker) |
+|---|---|---|
+| ENG-S01 | **Invocation invariants.** For every tool of every ensemble, the argv contains `--network=none`, `--read-only`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, a `seccomp=` profile that is not `unconfined`, a non-root `--user`, `--pids-limit`, `--memory` with equal `--memory-swap`, `--cpus`, `--ulimit`, a `noexec,nosuid,nodev` tmpfs, `--pull=never`, `--init`, the labels, only `readonly` bind mounts of the archive / db snapshot / rules, no other mount, and none of the forbidden flags of 6.2 | Table-driven over the tool catalog with `buildRunArgs`; a mutated copy of each forbidden property is also checked to be rejected |
+| ENG-S02 | **Secure by construction and digest pinning.** `RunSpec` schema refuses unknown keys and any attempt to set network, privileged, device, capabilities, user, extra mounts or writable mounts; the image comes from the lock file by key; a tag, a missing or malformed digest, or a key not in the catalog is refused; the lock file entries all match `sha256:[0-9a-f]{64}` (placeholders refused in production mode) | Pure function tests |
+| ENG-S03 | **Repository content is never executed or used as configuration.** No `sh -c`/`bash -c` or shell metacharacter processing anywhere in the runner (execFile only, source guard); hostile file names (`--config=evil`, `; rm -rf`, newline, leading `-`, spaces, `$()`) never alter argv (they appear only after `--` and only if valid, else are dropped and counted); each tool's argv snapshot contains its "ignore repo config" flags; the per-scan-type deny list removes the tool-control file names from the tree handed to tools | argv assertions; extraction test with a fixture archive; source grep guard |
+| ENG-S04 | **No credentials reach tools.** `assertNoCredentials` runs over every spec; the container env is exactly the allowlist; a planted `GITHUB_TOKEN`, `DATABASE_URL`, `AWS_*`, `LLM_*` in the worker process env never appears in any argv or env of any call; the scan worker config schema still refuses SecretStore and GitHub App settings; the same for `untrusted_fork` through `scan-untrusted` | Fake runtime captures; config schema test; extends `EXE-046/048` |
+| ENG-S05 | **Secrets are masked in everything stored.** Hostile tool output carrying a canary secret in every field (`Secret`, `Match`, `Line`, `Description`, snippet, rule message, file name) yields stored items, details, evidence, logs, task events, DTOs, outbox rows and error texts with **no occurrence** of the canary, its base64, hex, URL-encoded or reversed forms; the preview obeys the 4-character / length-12 rule; a secret finding with an unknown span has no snippet; SAST snippets containing a credential shape are redacted | Fake runtime + database + DTO mapper; substring sweep over all sinks |
+| ENG-S06 | **Dedup never crosses a boundary.** The merger accepts one task's candidates; identical candidates in two tasks of two tenants, two pipelines of one tenant, or two executions of one pipeline produce separate rows each; no module-level state (source guard like `DEC-S06b`); same-tool duplicates are not merged; different scan types are not merged; the union-find guard refuses to join two primary ids of one tool | Pure functions + two-tenant database fixture |
+| ENG-S07 | **Hostile archives are contained.** Bomb ratio, entry/size/depth caps, symlinks, hardlinks, devices, traversal, absolute paths, NUL, over-long names, bidi names, NFC and case collisions, 100000 tiny files: nothing is written outside the destination, the tree has no non-regular entry, the validation walk fails closed, walks stay within caps, codes are stable; tool-reported paths outside the tree are dropped | Extraction on generated archives; extends `EXE-049` |
+| ENG-S08 | **Tenant isolation of results and tool runs.** Composite foreign keys refuse a mismatched chain; reads by `(tenant, id)` of another tenant return nothing / HTTP 404 identical to a missing id; a zombie attempt's write of tool runs, details or results affects 0 rows; `scan_tool_runs` DTO has no ids of other tenants, no digests beyond the short form, no free text | DB + HTTP in the existing harness; patterns of `EXECDB-024/025` |
+| ENG-S09 | **Hostile tool output is tolerated.** Malformed, truncated, huge, deeply nested JSON, wrong types, `__proto__`/`constructor` keys, ANSI/bidi/control characters, invalid severities, duplicate records, a million records, NaN/negative lines: bounded memory and time, tool status `partial`/`failed` with a fixed reason, no unhandled exception, no prototype pollution, titles escaped | Fake runtime scripted outputs; heap/time guards |
+| ENG-S10 | **Cancellation leaves no orphan.** On abort, lease loss, deadline and tool timeout the fake runtime sees `kill` then `remove` for every started container of the attempt exactly once, none remains afterwards; the janitor removes labelled containers past their deadline or whose attempt is not running and never touches unlabelled ones; a crash simulation (runner state dropped) is recovered by the janitor | Fake runtime state machine |
+| ENG-S11 | **Roll-up matches the specification.** Every row of table 5.4 incl. partial / failed / timed_out / cancelled / skipped / unavailable combinations; a degraded result is `incomplete` and the execution is not resolution eligible; `unsupported` is never produced for a tool; execution outcome per SPEC 5.4 and 17.g unchanged | Pure roll-up function table + orchestrator run with scripted tools |
+| ENG-S12 | **Sealed path and DB provenance.** The SCA argv carries the offline switches; the db mount is read-only and points at an `active` snapshot; no refresh code path is reachable from the scan path (source guard: the scan package imports nothing from the refresh worker); the result records snapshot sha and build time; staleness tiers behave as 5.12; a rejected or unverified candidate is never mounted | Pure + database |
+| ENG-S13 | **Links and evidence are safe.** Links are built only from the recorded provider, a 40-hex SHA (never a branch), validated path segments and the fixed host; paths with `..`, backslashes, control or bidi characters give no link; unknown providers give `url = null`; evidence caps hold; the block extractor's output accepts only integers and the enumerated label | Pure functions + fake runtime scripted extractor output |
+| ENG-S14 | **Capacity and fairness are enforced.** Per-task, per-worker, per-tenant and fork-share semaphores never exceed their limits under concurrent scripted tasks; a waiting tool times out as `unavailable` `capacity` | Fake runtime with timers (small property test) |
+
+Mutation sweep (part M): mutate the flag list of `buildRunArgs` (remove each security flag in turn), the env allowlist, the redaction, the merger tenant scoping, the roll-up table, the kill-on-abort, the janitor filter, the path validation, and require the suite to fail for every mutant, with survivors triaged (the method of Executions §17.ag).
+
+**Live checks (not in the suite, run by hand on the owner's Docker-capable machine):** ENG-L01 to ENG-L16 in section 16.2.
+
+## 15. Open questions (each with options and a recommendation; nothing is promoted)
+
+Priority P1 = blocks the first build, P2 = blocks a scan type, P3 = can be settled later.
+
+| Id | P | Question | Options | Recommendation |
+|---|---|---|---|---|
+| OQ-1 | P1 | **Container runtime and isolation model** (OWNER DECISION, ADR-014) | A plain Docker daemon socket; B rootless Docker or Podman, CLI per run; C a dedicated `scan-runner` service with a narrow API; D B or C plus gVisor/Kata for production; E microVM per task; F Kubernetes Jobs (out of scope) | B for development and a single-host first release behind the `SandboxRuntime` seam; C when more than one host or fork traffic appears; D for production multi-tenant; A only on a developer laptop. **Docker-socket-equals-root is the central risk (ADR-014 R1)** |
+| OQ-2 | P1 | Amend `CLAUDE.md`, `AGENTS.md`, `docs/README.md`, `TECH_STACK.md`, `AGENT_INSTRUCTIONS.md`, Executions ER-5 for the scan-layer exception | Apply the wording of 0.4 / do nothing / narrower | Approve ADR-014 first, then apply 0.4 in one edit |
+| OQ-3 | P1 | ADR-008 scope amendment (area 18, section 14.1) | Approve as written / reduce / defer | Approve with the first build part (A) so every later part is covered |
+| OQ-4 | P2 | Severity normalization policy | A highest wins with raw kept (5.7); B majority; C weighted by tool trust; unknown handling: medium + `severityAssumed` / info / low | A with unknown as medium and a visible flag; CVSS v3 calculator in-repo; no critical from SAST or secrets by default |
+| OQ-5 | P2 | Dedup keys and tolerances per scan type (5.6); component occurrences (one finding with `locations[]` vs one per file as SBOM-lite) | As 5.6 / stricter (same line only) / looser | As 5.6; `SAST_LINE_TOLERANCE` 3 |
+| OQ-5b | P2 | Stored secret fingerprint (identity across runs) | A none (v1); B keyed HMAC with a platform-derived per-tenant key in the scan worker (exception to ER-5); C salted hash computed in the sandbox | A for v1; decide with the Findings module |
+| OQ-6 | P2 | Offline vulnerability DB mirror strategy and staleness | A as 5.12 (platform mirror + digests + canary); B tools bake a DB into the image per release; C fetch at scan time (rejected: breaks sealed path); thresholds 3/14 days; OSV ecosystem subset | A; thresholds as stated; start OSV with the ecosystems of the platform's SBOM parsers |
+| OQ-7 | P2 | Which SAST language tools in v1 | Semgrep only; Semgrep + Bandit; + gosec; + njsscan; + Brakeman | Semgrep + Bandit first; gosec after ENG-L07; njsscan skipped (overlap); Brakeman excluded (licence) |
+| OQ-8 | P2 | Semgrep OSS vs Opengrep | Semgrep OSS (LGPL engine, established, feature-limited OSS edition, rule-licence caveats); Opengrep (community fork, restores some features, younger) | Start behind an interface so either runs the same platform-owned rules; decide after a live comparison on fixtures (ENG-L11); verify both licences and release health |
+| OQ-9 | P1 | Licence and legal review: Semgrep rule licence, cdxgen safe mode, Brakeman, TruffleHog AGPL, CodeQL excluded (Confirmed), Trivy/Grype/OSV data terms and attribution, tree-sitter grammars | Per tool as in 5.2 | Legal review before adoption of each tool; cdxgen adopted only if ENG-L06 passes; TruffleHog and Brakeman excluded |
+| OQ-10 | P2 | Resource limits and timeouts per tool (5.8), killed-tool partial output | Numbers as 5.8, measured in ENG-L10; parse a killed tool's output or discard | Numbers as proposed; discard a killed tool's output in v1 |
+| OQ-11 | P3 | Evidence caps, grammars, wasm vs native tree-sitter, snippet retention | As 5.13 | As 5.13; wasm in the extractor image; 90-day snippet retention |
+| OQ-12 | P1 | Image registry, build, signing and digest workflow; image SBOM; vulnerability policy for the scanners' own images | Upstream images pinned by digest from a platform mirror registry (v1) vs own minimal builds; cosign verification where available; self-scan gate | Upstream digests + mirror + review PR + self-scan; own builds later |
+| OQ-13 | P2 | Scan-kind scoping (5.9, CX-8): store the changed-path list as an artifact | A as 5.9; B pass paths in the task message (rejected: FT-5, size); C always full then filter by the 300 samples (insufficient) | A, fail closed to full |
+| OQ-14 | P2 | SBOM documents (CycloneDX, SPDX) and raw tool outputs: where stored, size ceilings | Raise artifact ceilings for a class; wait for object storage (OD); do not store raw outputs | Do not store raw outputs in v1; store SBOM documents only when the object-storage driver or a raised ceiling exists |
+| OQ-15 | P3 | Engine versioning and reproducibility | Record tool + image + db + config digests and a manifest hash (5.10) / record versions only | Record the manifest hash |
+| OQ-16 | P2 | Honour or ignore inline suppression comments (`nosec`, `nosemgrep`, `#nosec`, `gitleaks:allow`, `pragma: allowlist secret`) and repository ignore files | Ignore all (a developer cannot hide a finding by a comment; suppression is a platform workflow) / honour (tool default; hiding is trivial for an attacker) | Ignore, and show them as context in evidence later; needs the Findings suppression workflow to exist before release so developers have a path |
+| OQ-17 | P2 | Roll-up semantics (5.4): row 6 stays `succeeded` + `incomplete` vs execution `partial`; row 4 (no applicable tool) `succeeded` + incomplete vs `failed`; tool timeout permanent vs ER-13 transient | As 5.4 vs alternatives | As 5.4 |
+| OQ-18 | P2 | Progressive enablement: per-type flags, canary tenant list, SBOM-lite as an in-process adapter or retired | As 5.10 | Flags per type; SBOM-lite kept as `sbom-lite` adapter until the ensemble is verified, then decide |
+| OQ-19 | P3 | Windows and macOS developer machines | Docker Desktop / WSL2 (Linux VM; paths, uid mapping and seccomp behave differently) / Linux-only dev for scan work | Linux or WSL2 for scan-engine work; document that Desktop runtimes are not a security reference |
+| OQ-20 | P2 | Normalized finding schema ownership (no Findings SPEC) | Findings module adopts or amends section 7.2 | Treat 7.2 as the proposal; version it; no consumer before the Findings spec exists |
+| OQ-21 | P3 | Image size and cost (several images, large DBs) | Mirror only needed ecosystems; share layers; prune | Measure in ENG-L10; keep a size budget in the lock file |
+| OQ-22 | P3 | A `scan.task.tool_changed` realtime hint | Add / refetch on task hint only | Refetch only in v1 |
+| OQ-23 | P3 | Root Console management of the catalog, rule packs and DB snapshots | Later Root Console item / repository-reviewed files only | Files first |
+
+## 16. Implementation notes
+
+### 16.1 Build parts A to N and phases per scan type (Recommended plan; nothing is built)
+
+**Phases.** *Phase 0 foundation:* A, B, C, D. *Phase 1 SBOM end to end (the container pipeline proven on the lowest-risk type):* E, K (core), L, M (core checks), N (first live run). *Phase 2 Secrets:* I, J (redaction + links), M additions. *Phase 3 SCA:* F, G, M additions. *Phase 4 SAST:* H (4a Semgrep + Bandit, 4b gosec), J (tree-sitter), M additions. *Phase 5 hardening and rollout:* remaining N, flags, mutation sweep. Each phase ends with the owner's live run before the next flag is turned on.
+
+| Part | Goal | Deliverables | Claude Code cloud sandbox | Owner's Docker-capable machine | Gates / tests |
+|---|---|---|---|---|---|
+| **A. Runtime abstraction and sandbox runner** (phase 0) | A `SandboxRuntime` interface, `RunSpec`, pure `buildRunArgs`, runtime CLI wrapper (`execFile`), output capture with caps, labels, kill/remove, janitor, health check, `FakeSandboxRuntime` | `packages/infra/src/sandbox/*` (JSDoc, Zod), config schema entries | **Can build and unit/suite-test this** (fake runtime, argv assertions: ENG-S01/S02/S03/S10/S14) | **Needs the owner's machine to verify** the real runtime applies each flag (ENG-L01), uid mapping (ENG-L02), network (ENG-L03), limits (ENG-L04), orphans (ENG-L05) | `pnpm test:security` with ENG-S01..S03, S10, S14; lint, build |
+| **B. Image catalog and digest pinning** (phase 0) | Lock file format, loader and validator, `--pull=never` rule, provisioning documentation, placeholder entries, self-scan record format | `images.lock.json` schema + loader; docs for the workflow | **Can build and test** the loader/validator and reject-tag/placeholder logic (ENG-S02) | **Needs the owner**: real digests chosen and approved, images provisioned into the runtime store, signature verification (ENG-L15), licence review (OQ-9) | ENG-S02; lock-file consistency check |
+| **C. Archive hardening and pre-extraction validation** (phase 0) | Tree validation walk, per-scan-type deny list of tool-control files, language/file-kind detection, suspicious-path flags, caps | `apps/workers/.../ensemble/tree/*` | **Can build and test** with generated hostile archives (ENG-S07, S03 part) | **Needs the owner** for real-tool behaviour on hostile trees (ENG-L08) | ENG-S07 extends `EXE-049` |
+| **D. Adapter / mapper / merger framework and normalized schema** (phase 0) | Adapter contract, strict parse kit (bounded JSON reader, proto-pollution guard), shared Zod finding schema, severity maps, merger skeleton, roll-up function, `normalizeItems` extension, DB changes proposal turned into a migration (after approval) | `packages/shared` schema files; `ensemble/core/*`; migration + repositories for `scan_tool_runs`, `scan_result_item_details`, `scan_results` columns | **Can build and test** everything including DB parts in the disposable PostgreSQL (ENG-S06, S08, S09, S11) | Nothing live required | ENG-S06, S08, S09, S11; contract snapshot |
+| **E. SBOM ensemble (Syft + cdxgen, `sbom-lite` adapter)** (phase 1) | Tool adapters, raw schemas, mappers, component merge, CycloneDX/SPDX handling decision (OQ-14) | `ensemble/sbom/*` | **Can build and test mapping/merge** against recorded sample outputs (fixtures I write by hand from the tools' documented formats; their fidelity to real output is **not verified** in the cloud sandbox) | **Needs the owner**: real Syft/cdxgen runs, version pins, cdxgen safe-mode proof (ENG-L06), determinism (ENG-L11) | ENG-S06, S09 on SBOM fixtures; live L06, L11 |
+| **F. Vulnerability DB mirror and refresh job** (phase 3) | `DbMirrorStore`, `scan_db_snapshots`, `dbrefresh` worker role, scheduler message, promotion gate with canary, staleness tiers, materialization cache | `packages/infra/src/dbmirror/*`, worker handler, migration | **Can build and test** store, state machine, promotion logic, staleness, atomic switch with a fake downloader and fake runtime (ENG-S12) | **Needs the owner**: the real downloads (network, sizes, hosts), upstream integrity metadata, canary with real Trivy/Grype/OSV, offline host test (ENG-L09) | ENG-S12; live L09 |
+| **G. SCA ensemble (Trivy + Grype + OSV-Scanner)** (phase 3) | Adapters, mappers, alias resolution, advisory merge, CVSS calculator, DB provenance on results | `ensemble/sca/*` | **Can build and test** mapping, alias union-find, severity maps, merge on fixtures (ENG-S06, S09, S11, S12) | **Needs the owner**: real runs offline, `osv-scanner.toml` planting (ENG-L07), data terms, runtime/size calibration (ENG-L10) | Suite + live L07, L09, L10, L11 |
+| **H. SAST ensemble (Semgrep or Opengrep + Bandit; 4b gosec)** (phase 4) | Language detection use, platform rule pack (own rules), adapters, rule-class table, location-tolerance merge, scoping | `ensemble/sast/*`, `/rules` packs | **Can build and test** language detection, mapping, merge, tolerance, scoping logic on fixtures | **Needs the owner**: real tools, rule-pack authoring review, Semgrep-vs-Opengrep comparison (OQ-8), gosec risk test (ENG-L07), autofix/ignore flags (ENG-L06/L07) | Suite + live |
+| **I. Secrets ensemble (Gitleaks + detect-secrets), redaction** (phase 2) | Adapters with value-dropping schemas, type-class table, in-task fingerprint merge, severity-by-type table, snippet masking, log hygiene | `ensemble/secrets/*` | **Can build and test** with canary secrets through the fake runtime (ENG-S05, S06, S09) | **Needs the owner**: real tools' output formats and redaction behaviour, detect-secrets all-files mode, end-to-end canary sweep over DB/logs/queues/sockets (ENG-L14) | ENG-S05; live L14 |
+| **J. Evidence enrichment** (phase 2 links + redaction; phase 4 tree-sitter) | Link builder per provider, evidence caps, line window, block-extractor image + protocol + grammars | `ensemble/evidence/*`, extractor image recipe (ADR-014 exception) | **Can build and test** link builder, windows, caps, redaction, extractor protocol (ENG-S13). The extractor's JS can be unit-tested **if the wasm grammars can be installed in the sandbox** (npm access: not verified) | **Needs the owner** to build/pin the extractor image and verify real parsing per grammar | ENG-S13; live L11 |
+| **K. Integration into the scan worker** (phase 1 core; extended per phase) | Registry wiring by flag, per-tool run records, roll-up, timeouts, cancellation, `untrusted_fork`, incremental scope (CX-8 amendment), scheduler/semaphores, janitor start | `engines/ensemble/index.js`, changes in `scan-handler.js`, `registry.js`, `config.js`, pipeline-worker changed-path artifact | **Can build and test** (fake runtime): ENG-S04, S10, S11, S14, extends `EXE-*` | **Needs the owner**: real cancel/kill, SIGKILL recovery, fork pool (ENG-L05, L12) | Suite; live L05, L12 |
+| **L. T-29 UI additions** (phase 1) | Tools list in task cards, coverage line, notices, tokens, states | `apps/tenant-web/src/features/executions` components, DTO schema | **Can build and check** (lint, build, headless-browser run against a mock API as in earlier modules, if available in the sandbox: not verified) | **Needs the owner** to look at it in the real app, dark theme, keyboard and screen reader (SCREENS matrix) | SCREENS verification matrix by hand |
+| **M. Security suite and mutation sweep** (grows each phase) | ENG-S01..S14 in the suite, ADR-008 area 18 text, mutation sweep of the new functions, backlog file for survivors | `apps/api/scripts/...` suite files, ADR-008 edit | **Can build and run** (Docker-free by design) | Not needed | `pnpm test:security` green; mutation sweep report |
+| **N. Live test plan and rollout** (every phase) | Written live plan (this table), flags, runbook for provisioning images and DB, results recorded in the tracker | `LIVE_TEST_PLAN.md` (written when the first part is built), tracker entries | Cannot run (no Docker daemon expected in the cloud sandbox; **not verified**) | **Entirely the owner's machine** | The ENG-L list below |
+
+**16.2 Live test list (owner's Docker-capable machine; none of this can be verified in the cloud sandbox).**
+
+| Id | Checks |
+|---|---|
+| ENG-L01 | `docker inspect` (or `podman inspect`) of a live probe container: network mode none, read-only rootfs, `CapDrop ALL`, `no-new-privileges`, seccomp profile name, user, pids/memory/cpu limits, mounts all read-only, no socket mount, labels; rootless confirmed by `info` |
+| ENG-L02 | The non-root container user reads the `0600/0700` extracted tree (uid mapping), cannot write it, cannot read the host home or the worker's other temp dirs |
+| ENG-L03 | From inside a probe container: DNS lookup, TCP to a public address, to the host's loopback services (PostgreSQL, Redis, RabbitMQ ports), to the container gateway and to the cloud metadata address all fail |
+| ENG-L04 | Memory bomb OOM-killed (`out_of_memory`), fork bomb stopped by the pids limit, CPU spin killed at wall clock, tmpfs fill stops at its size, stdout flood capped; host stays healthy |
+| ENG-L05 | Abort kills and removes containers; `kill -9` of the worker mid-run leaves containers that the janitor removes within its interval; reclaimed attempt does not collide |
+| ENG-L06 | Repository with `postinstall`/`prepare` scripts, `setup.py`, Maven/Gradle plugins, `go:generate`, Makefile, `.git/hooks`, `.pre-commit-config.yaml`: run every tool; no marker in stdout/stderr, no child processes of package managers or interpreters (`docker top` sampling), no file effect in a test-only writable `/tmp` mount |
+| ENG-L07 | Config planting: `.semgrepignore: *`, `.gitleaks.toml` allowing all, `osv-scanner.toml` ignoring all, `.trivyignore`, `.grype.yaml` ignore rules, `.bandit`, inline `nosec`/`nosemgrep`/`gitleaks:allow`, `.gitattributes`/`.gitignore` hiding files: seeded vulnerable and secret fixtures are still reported |
+| ENG-L08 | Hostile archives against the real tools and the real extractor: bombs, links, traversal, 1 million tiny files, deep trees, giant lines, bidi/NFC names: bounded time and memory, expected codes, worker alive |
+| ENG-L09 | Sealed scan with the host network disabled using a mirrored snapshot; refresh job downloads, verifies, canary-promotes; a corrupted snapshot is rejected; stale tiers; results show snapshot sha and date |
+| ENG-L10 | Calibrate limits and sizes on small, medium and large repositories; record image sizes and DB sizes |
+| ENG-L11 | End-to-end per scan type with fixtures: expected merged counts, provenance, determinism (two runs identical output and manifest hash), Semgrep-vs-Opengrep comparison |
+| ENG-L12 | Fork pull request: no credential in the container environment (`inspect`), runs from `scan-untrusted`, fork pool share and tighter limits honoured |
+| ENG-L13 | Windows (WSL2) and macOS Docker Desktop smoke, if the owner wants them supported (OQ-19) |
+| ENG-L14 | Canary secrets seeded in the repository: sweep the database, task logs, events, outbox, RabbitMQ messages, Redis, Socket.IO frames, API responses, error bodies and the stored evidence for the canary and its encodings: none |
+| ENG-L15 | `--pull=never` fails closed when an image is missing; a digest mismatch is refused; image signature and self-scan results recorded |
+| ENG-L16 | If gVisor or Kata is chosen: repeat L01 to L08 under that runtime |
+
+### 16.3 Implementation notes
+
+None yet: this specification is a draft; no part is built.
+
+## 17. What I verified in the repository (facts this draft relies on)
+
+- Executions SPEC (read: §5.2 ER-5/ER-6/ER-12 to ER-16, §5.3 to §5.9, §6.3, §7.4, §17.ab, §17.ac), SCREENS section 4 (T-29) and scan-decisioning SPEC (§5.5 FT-1 to FT-6, §7.2, §17.g) and SCREENS (sections 1 to 2).
+- Code: `apps/workers/src/execution/engines.js` (registry and adapter contract, `EngineError`), `registry.js` (SBOM-lite only), `engines/sbom/index.js` and `limits.js` (hardening limits), `scan-handler.js` (claim, heartbeat, `AbortController` for deadline, lease and cancel, per-attempt `mkdtemp`, `extractTarGz` with `exclude`, `assertNoCredentials`, `normalizeItems`), `packages/infra/src/archive/tar.js` (skips links and special files, files `0600`, directories `0700`), `apps/workers/src/config.js` (archive caps), `packages/shared/src/pipelines/constants.js` (`ENGINE_CATALOG`: all four types, `default` / `standard`), `packages/shared/src/scan-decisioning/constants.js` (catalog order), `packages/db/prisma/schema/executions.prisma` (`ScanResult`, `ScanResultItem`) and `scm.prisma` (`enum ScmProvider { github }`, `Repository.fullName`, `htmlUrl`), `packages/contracts/src/queues.js` (`SCAN_UNTRUSTED`).
+- `docs/decisions` lists ADR-001 to ADR-013; `docs/modules/findings` does not exist.
+- A `docker` CLI exists on the machine where this draft was written (`/usr/bin/docker`); **I did not run it** (the dev stack is the owner's). `podman` and `runsc` were not found. The cloud sandbox is expected to have no Docker daemon; I did not verify that either.
+
+**Not verified in this draft:** every tool's licence (marked verify), every tool flag name and output format, CycloneDX/SPDX flag names, purl type normalization rules, the SCM link formats, vendor DB download mechanisms and sizes, GitHub Enterprise handling, that npm packages for tree-sitter wasm can be installed in the cloud sandbox, the rootless uid-mapping behaviour, seccomp profile content, any tool's behaviour on hostile input.

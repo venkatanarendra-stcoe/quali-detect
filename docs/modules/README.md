@@ -25,4 +25,6 @@ Specifications written so far (folders in this directory): `access-management`, 
 
 `scan-decisioning` (the Analysis and Scan Decisioning stage, workflow steps 4 and 5, inserted into the Executions `preparing` state; deterministic floor plus an optional LLM agent that can only add scans; with `SCREENS.md` for the T-29 section; **Approved 2026-11-17**, implementation in parts A to G; the LLM layer is ADR-013, Approved).
 
+`scan-engines` (production ensemble scan engines replacing the SBOM-lite engine: pinned containerised tools per scan type, normalized finding schema proposal, dedup and provenance, evidence, offline vulnerability-DB mirror, T-29 tool list; with `SCREENS.md` and ADR-014; **Draft for owner review, 2026-11-19**, nothing implemented; the runtime and isolation choice is the owner's Open decision).
+
 Do not create empty specifications for every module in advance. Complete each specification before implementing that module.

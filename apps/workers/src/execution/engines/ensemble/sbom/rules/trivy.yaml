@@ -1,0 +1,4 @@
+# Platform-owned Trivy configuration for the SBOM role (SPEC scan-engines 11.3). The run passes it with `--config /rules/trivy.yaml`
+# and a working directory of /tmp, so a `trivy.yaml` or `.trivyignore` inside the scanned repository is never read. NOT verified
+# against a real Trivy run (ENG-L06, ENG-L11).
+debug: false

@@ -1,0 +1,67 @@
+[
+  {
+    "kind": "component",
+    "severity": "info",
+    "title": "lodash@4.17.20",
+    "path": "package-lock.json",
+    "componentPurl": "pkg:npm/lodash@4.17.20",
+    "componentVersion": "4.17.20",
+    "data": {
+      "ecosystem": "npm",
+      "name": "lodash",
+      "scope": "prod"
+    }
+  },
+  {
+    "kind": "component",
+    "severity": "info",
+    "title": "express",
+    "path": "package.json",
+    "componentPurl": "pkg:npm/express",
+    "data": {
+      "ecosystem": "npm",
+      "name": "express",
+      "scope": "prod",
+      "range": "^4.18.0"
+    }
+  },
+  {
+    "kind": "component",
+    "severity": "info",
+    "title": "express@4.18.2",
+    "path": "package-lock.json",
+    "componentPurl": "pkg:npm/express@4.18.2",
+    "componentVersion": "4.18.2",
+    "data": {
+      "ecosystem": "npm",
+      "name": "express",
+      "scope": "dev"
+    }
+  },
+  {
+    "kind": "component",
+    "severity": "info",
+    "title": "django@3.2",
+    "path": "py/requirements.txt",
+    "componentPurl": "pkg:pypi/django@3.2",
+    "componentVersion": "3.2",
+    "data": {
+      "ecosystem": "pypi",
+      "name": "django",
+      "scope": "prod"
+    }
+  },
+  {
+    "kind": "component",
+    "severity": "info",
+    "title": "only-lite@0.1.0",
+    "path": "Cargo.lock",
+    "componentPurl": "pkg:cargo/only-lite@0.1.0",
+    "componentVersion": "0.1.0",
+    "data": {
+      "ecosystem": "cargo",
+      "name": "only-lite",
+      "scope": "unknown"
+    }
+  }
+]

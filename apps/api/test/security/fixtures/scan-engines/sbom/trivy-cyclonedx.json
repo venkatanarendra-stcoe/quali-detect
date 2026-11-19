@@ -1,0 +1,264 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:22222222-2222-4222-8222-bbbbbbbbbbbb",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-19T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "group": "aquasecurity",
+          "name": "trivy",
+          "version": "0.76.2"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "root-app",
+      "type": "application",
+      "name": "src",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:SchemaVersion",
+          "value": "2"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "qm:fixture",
+        "value": "hand-written from the documented format; NOT real tool output; fidelity unverified"
+      }
+    ]
+  },
+  "components": [
+    {
+      "bom-ref": "app-root-lock",
+      "type": "application",
+      "name": "package-lock.json",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "npm"
+        }
+      ]
+    },
+    {
+      "bom-ref": "app-web-lock",
+      "type": "application",
+      "name": "web/package-lock.json",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "npm"
+        }
+      ]
+    },
+    {
+      "bom-ref": "app-py",
+      "type": "application",
+      "name": "py/requirements.txt",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "pip"
+        }
+      ]
+    },
+    {
+      "bom-ref": "app-go",
+      "type": "application",
+      "name": "go/go.mod",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "gomod"
+        }
+      ]
+    },
+    {
+      "bom-ref": "app-pom",
+      "type": "application",
+      "name": "java/pom.xml",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "lang-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "pom"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.20",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.20",
+      "purl": "pkg:npm/lodash@4.17.20",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "lodash@4.17.20"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "npm"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/%40babel/core@7.20.0",
+      "type": "library",
+      "name": "@babel/core",
+      "version": "7.20.0",
+      "purl": "pkg:npm/%40babel/core@7.20.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "@babel/core@7.20.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "npm"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/express@4.18.2",
+      "type": "library",
+      "name": "express",
+      "version": "4.18.2",
+      "purl": "pkg:npm/express@4.18.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "express@4.18.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "npm"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/django@3.2",
+      "type": "library",
+      "name": "django",
+      "version": "3.2",
+      "purl": "pkg:pypi/django@3.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "django@3.2"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "pip"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/foo/bar@v1.2.3",
+      "type": "library",
+      "name": "github.com/foo/bar",
+      "version": "v1.2.3",
+      "purl": "pkg:golang/github.com/foo/bar@v1.2.3",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "github.com/foo/bar@v1.2.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "gomod"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/org.apache.commons/commons-lang3@3.12.0",
+      "type": "library",
+      "name": "org.apache.commons:commons-lang3",
+      "version": "3.12.0",
+      "purl": "pkg:maven/org.apache.commons/commons-lang3@3.12.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "org.apache.commons:commons-lang3@3.12.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "pom"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/only-trivy@2.0.0",
+      "type": "library",
+      "name": "only-trivy",
+      "version": "2.0.0",
+      "purl": "pkg:npm/only-trivy@2.0.0",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "only-trivy@2.0.0"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "npm"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "root-app",
+      "dependsOn": ["app-root-lock", "app-web-lock", "app-py", "app-go", "app-pom"]
+    },
+    {
+      "ref": "app-root-lock",
+      "dependsOn": [
+        "pkg:npm/lodash@4.17.20",
+        "pkg:npm/%40babel/core@7.20.0",
+        "pkg:npm/express@4.18.2",
+        "pkg:npm/only-trivy@2.0.0"
+      ]
+    },
+    {
+      "ref": "app-web-lock",
+      "dependsOn": ["pkg:npm/lodash@4.17.20"]
+    },
+    {
+      "ref": "app-py",
+      "dependsOn": ["pkg:pypi/django@3.2"]
+    },
+    {
+      "ref": "app-go",
+      "dependsOn": ["pkg:golang/github.com/foo/bar@v1.2.3"]
+    },
+    {
+      "ref": "app-pom",
+      "dependsOn": ["pkg:maven/org.apache.commons/commons-lang3@3.12.0"]
+    }
+  ]
+}

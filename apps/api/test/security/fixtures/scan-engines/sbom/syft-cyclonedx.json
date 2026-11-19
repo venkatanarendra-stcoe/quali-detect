@@ -1,0 +1,196 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:11111111-1111-4111-8111-aaaaaaaaaaaa",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-19T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "author": "anchore",
+          "name": "syft",
+          "version": "1.57.2"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "root",
+      "type": "file",
+      "name": "/src"
+    },
+    "properties": [
+      {
+        "name": "qm:fixture",
+        "value": "hand-written from the documented format; NOT real tool output; fidelity unverified"
+      }
+    ]
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.20?package-id=fx58418",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.20",
+      "purl": "pkg:npm/lodash@4.17.20",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/package-lock.json"
+        },
+        {
+          "name": "syft:location:1:path",
+          "value": "/web/package-lock.json"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/%40babel/core@7.20.0?package-id=fx541785",
+      "type": "library",
+      "name": "@babel/core",
+      "version": "7.20.0",
+      "purl": "pkg:npm/%40babel/core@7.20.0",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/package-lock.json"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/express@4.18.2?package-id=fx422375",
+      "type": "library",
+      "name": "express",
+      "version": "4.18.2",
+      "purl": "pkg:npm/express@4.18.2",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/package-lock.json"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/Django@3.2?package-id=fx171229",
+      "type": "library",
+      "name": "Django",
+      "version": "3.2",
+      "purl": "pkg:pypi/Django@3.2",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "python-package-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "pypi"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/py/requirements.txt"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/Foo/Bar@v1.2.3?package-id=fx676290",
+      "type": "library",
+      "name": "github.com/Foo/Bar",
+      "version": "v1.2.3",
+      "purl": "pkg:golang/github.com/Foo/Bar@v1.2.3",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "go-module-file-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "golang"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/go/go.mod"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/org.apache.commons/commons-lang3@3.12.0?package-id=fx904550",
+      "type": "library",
+      "name": "commons-lang3",
+      "version": "3.12.0",
+      "purl": "pkg:maven/org.apache.commons/commons-lang3@3.12.0",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "java-pom-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "maven"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/java/pom.xml"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/only-syft@1.0.0?package-id=fx783777",
+      "type": "library",
+      "name": "only-syft",
+      "version": "1.0.0",
+      "purl": "pkg:npm/only-syft@1.0.0",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "javascript-lock-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "npm"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/package-lock.json"
+        }
+      ],
+      "scope": "required"
+    },
+    {
+      "bom-ref": "file-1",
+      "type": "file",
+      "name": "/package-lock.json"
+    },
+    {
+      "bom-ref": "os-1",
+      "type": "operating-system",
+      "name": "debian",
+      "version": "12"
+    }
+  ]
+}

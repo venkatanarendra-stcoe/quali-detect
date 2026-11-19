@@ -301,7 +301,8 @@ export const inspectTarGz = (source, options = {}) => walkTarGz(source, options)
 /**
  * Extracts an archive into `destDir` (created, mode 0755, which must not exist yet and must sit inside a private parent: owned
  * by the process user with no group or other access). Every path is re-resolved and must stay inside `destDir`; existing files
- * are never overwritten (a duplicate entry is skipped); modes are set explicitly, whatever the umask (files 0644, directories
+ * are never overwritten (an exact duplicate path, or an on-disk collision, aborts with `archive_invalid`; names differing only by case or
+ * Unicode normalisation are distinct files and are kept and flagged, see {@link validateExtractedTree}); modes are set explicitly, whatever the umask (files 0644, directories
  * 0755). Entries with a `.git` component are skipped and counted in `gitDenied`. A path over the PATH_MAX-safe limit fails with
  * `tree_path_too_long` before anything is written. After extraction the tree is validated ({@link validateExtractedTree}); on
  * ANY failure the destination is removed and the error is thrown, so no tool can ever receive a partial or doubtful tree.
@@ -381,7 +382,9 @@ export async function extractTarGz(source, { destDir, ...options }) {
         try {
           handle = await open(target, "wx", TREE_FILE_MODE);
         } catch (error) {
-          if (error?.code === "EEXIST") return null; // a duplicate entry: the first one wins
+          // EEXIST = an EXACT duplicate path, or a real on-disk collision (a case-insensitive host file system): abort rather than
+          // let the first entry hide the second from the scan. Names that differ only by case or Unicode form are distinct
+          // files on the case-sensitive Linux target: both are extracted and flagged by the tree walk.
           throw conflict();
         }
         await handle.chmod(TREE_FILE_MODE);

@@ -24,6 +24,7 @@ import {
   ArchiveError,
   TREE_MAX_NAME_BYTES,
   TREE_MAX_PATH_BYTES,
+  TREE_MAX_SUSPICIOUS,
   extractTarGz,
   validateExtractedTree,
 } from "@qmentisai/infra";
@@ -170,7 +171,7 @@ function plantedTree() {
 export const ARCHIVE_CHECKS = [
   {
     id: "ENG-S07a",
-    name: "hardened extraction layout and containment (SPEC scan-engines 6.3, 11.2, D-18, ENG-S07): files are exactly 0644 and directories exactly 0755 whatever the archive says (0755, 0600, setuid 04755, setgid, sticky, world-writable) and whatever the umask (tested under 077 and 0), the tree root is 0755 inside a 0700 parent; a parent that is not private (0755 or group-accessible) and an existing target are refused with tree_invalid before anything is written; a hostile archive with zip-slip names (../, nested ../.., absolute), symbolic links (to /etc and to ../..), a hard link, character and block devices and a FIFO is extracted as only its regular files: nothing appears outside the destination, no link, device or hard link exists in the tree, the skip counters add up; every .git component (.git/config with core.fsmonitor, .git/hooks, a nested sub/.git/hooks, upper and mixed case .GIT and .Git, a .git file as a submodule pointer) is denied at any depth while .github, .gitignore, .gitattributes and gitfoo stay, the denied count is reported and no byte of the git config reaches the tree; a failed extraction leaves no destination directory; the archive module spawns and evals nothing",
+    name: "hardened extraction layout and containment (SPEC scan-engines 6.3, 11.2, D-18, ENG-S07): files are exactly 0644 and directories exactly 0755 whatever the archive says (0755, 0600, setuid 04755, setgid, sticky, world-writable) and whatever the umask (tested under 077 and 0), the tree root is 0755 inside a 0700 parent; a parent that is not private (0755 or group-accessible) and an existing target are refused with tree_invalid before anything is written; an exact duplicate file path aborts with archive_invalid while a duplicate directory entry does not, and names that differ only by case or Unicode form are BOTH extracted with their own content and flagged; a hostile archive with zip-slip names (../, nested ../.., absolute), symbolic links (to /etc and to ../..), a hard link, character and block devices and a FIFO is extracted as only its regular files: nothing appears outside the destination, no link, device or hard link exists in the tree, the skip counters add up; every .git component (.git/config with core.fsmonitor, .git/hooks, a nested sub/.git/hooks, upper and mixed case .GIT and .Git, a .git file as a submodule pointer) is denied at any depth while .github, .gitignore, .gitattributes and gitfoo stay, the denied count is reported and no byte of the git config reaches the tree; a failed extraction leaves no destination directory; the archive module spawns and evals nothing",
     async run() {
       const p = [];
       // ---- modes, under a hostile umask and under umask 0 ----------------------------------------------------------------
@@ -401,7 +402,7 @@ export const ARCHIVE_CHECKS = [
   },
   {
     id: "ENG-S07b",
-    name: "fail-closed validation walk of an extracted tree (SPEC scan-engines 11.2, D-18, ENG-S07): a correct 0644/0755 tree passes with exact totals; a planted symbolic link to a file and to a directory (also a dangling one), a hard link, a unix socket, a FIFO, setuid, setgid and sticky bits, an executable file, group- or world-writable and 0600/0700 modes, a wrong root mode, a root that is a link or a file, an entry named .git in any case at any depth (file or directory), invalid names (backslash, newline, other control characters, U+FFFD), two names that collide after case folding or Unicode normalisation (in one directory only: the same name in two directories is fine) are each refused with tree_invalid and a message without any file name; the walk is bounded (entry, file size, total size and depth caps give archive_too_large, a name over 255 bytes gives tree_path_too_long) and a rejected tree never passes because of an earlier valid file. Device nodes cannot be created without root: they are covered as skipped archive entries in ENG-S07a",
+    name: "fail-closed validation walk of an extracted tree (SPEC scan-engines 11.2, D-18, ENG-S07): a correct 0644/0755 tree passes with exact totals; a planted symbolic link to a file and to a directory (also a dangling one), a hard link, a unix socket, a FIFO, setuid, setgid and sticky bits, an executable file, group- or world-writable and 0600/0700 modes, a wrong root mode, a root that is a link or a file, an entry named .git in any case at any depth (file or directory), invalid names (backslash, newline, other control characters, U+FFFD), are each refused with tree_invalid and a message without any file name; two names of one directory that collide after case folding or Unicode normalisation (files and directories, also three variants, only within one directory) are KEPT and reported exactly once each in suspiciousPaths with the reason case_collision or unicode_collision, the count is exact while the list is capped at TREE_MAX_SUSPICIOUS, innocent names and a clean tree are never flagged (owner decision 2026-11-19); the walk is bounded (entry, file size, total size and depth caps give archive_too_large, a name over 255 bytes gives tree_path_too_long) and a rejected tree never passes because of an earlier valid file. Device nodes cannot be created without root: they are covered as skipped archive entries in ENG-S07a",
     async run() {
       const p = [];
       const ok0 = plantedTree();
@@ -487,24 +488,6 @@ export const ARCHIVE_CHECKS = [
           writeFileSync(path.join(d, `${SECRET}�x`), "x");
           chmodSync(path.join(d, `${SECRET}�x`), 0o644);
         },
-        "case collision": (d) => {
-          writeFileSync(path.join(d, "Readme.MD"), "x");
-          chmodSync(path.join(d, "Readme.MD"), 0o644);
-          writeFileSync(path.join(d, "readme.md"), "x");
-          chmodSync(path.join(d, "readme.md"), 0o644);
-        },
-        "unicode normalisation collision": (d) => {
-          for (const n of ["café.txt", "café.txt"]) {
-            writeFileSync(path.join(d, n), "x");
-            chmodSync(path.join(d, n), 0o644);
-          }
-        },
-        "case collision of directories": (d) => {
-          for (const n of ["Docs", "docs"]) {
-            mkdirSync(path.join(d, n), { mode: 0o755 });
-            chmodSync(path.join(d, n), 0o755);
-          }
-        },
       };
       for (const [label, plant] of Object.entries(plants)) {
         const t = plantedTree();
@@ -513,6 +496,93 @@ export const ARCHIVE_CHECKS = [
           const r = await rejects(t.dest);
           ok(p, r && r.code === "tree_invalid", `${label}: ${JSON.stringify(r)}`);
           ok(p, !r || !r.message.includes(SECRET), `${label}: the message carries a file name`);
+        } finally {
+          t.done();
+        }
+      }
+      // names that collide after case folding or Unicode normalisation are KEPT and FLAGGED (owner decision 2026-11-19, SPEC 11.2)
+      {
+        const t = plantedTree();
+        try {
+          const NFC = "caf\u00e9.txt";
+          const NFD = "cafe\u0301.txt";
+          for (const [d, n] of [
+            ["", "Notes.MD"],
+            ["", "notes.md"],
+            ["", NFC],
+            ["", NFD],
+            ["", "unrelated.txt"],
+            ["", "Docs"],
+            ["", "docs"],
+            ["src", "B.js"],
+            ["src", "b.JS"],
+          ]) {
+            const full = path.join(t.dest, d, n);
+            if (n === "Docs" || n === "docs") {
+              mkdirSync(full, { mode: 0o755 });
+              chmodSync(full, 0o755);
+            } else {
+              writeFileSync(full, "x");
+              chmodSync(full, 0o644);
+            }
+          }
+          const r = await validateExtractedTree(t.dest, DEFAULT_WALK_LIMITS);
+          const byPath = new Map(r.suspiciousPaths.map((x) => [x.path, x.reason]));
+          const want = {
+            "Notes.MD": "case_collision",
+            "notes.md": "case_collision",
+            Docs: "case_collision",
+            docs: "case_collision",
+            [NFC]: "unicode_collision",
+            [NFD]: "unicode_collision",
+            "src/B.js": "case_collision",
+            "src/b.JS": "case_collision",
+          };
+          for (const [k, v] of Object.entries(want))
+            ok(
+              p,
+              byPath.get(k) === v,
+              `collision ${JSON.stringify(k)} not flagged ${v}: ${byPath.get(k)}`,
+            );
+          ok(
+            p,
+            !byPath.has("unrelated.txt") && !byPath.has("README.md") && !byPath.has("src"),
+            "an innocent name was flagged",
+          );
+          ok(
+            p,
+            r.suspiciousCount === 8 && r.suspiciousPaths.length === 8,
+            `suspicious count ${r.suspiciousCount}/${r.suspiciousPaths.length}`,
+          );
+          // a clean tree has nothing to flag; a third variant is flagged once; the list is capped but the count is exact
+          const clean = await validateExtractedTree(plantedTree().dest, DEFAULT_WALK_LIMITS);
+          ok(
+            p,
+            clean.suspiciousCount === 0 && clean.suspiciousPaths.length === 0,
+            "a clean tree is flagged",
+          );
+          writeFileSync(path.join(t.dest, "NOTes.md"), "x");
+          chmodSync(path.join(t.dest, "NOTes.md"), 0o644);
+          const r3 = await validateExtractedTree(t.dest, DEFAULT_WALK_LIMITS);
+          ok(
+            p,
+            r3.suspiciousCount === 9 && r3.suspiciousPaths.length === 9,
+            "a third variant is not flagged exactly once",
+          );
+          for (let i = 0; i < TREE_MAX_SUSPICIOUS + 5; i += 1) {
+            for (const n of [`z${i}.txt`, `Z${i}.txt`]) {
+              writeFileSync(path.join(t.dest, n), "x");
+              chmodSync(path.join(t.dest, n), 0o644);
+            }
+          }
+          ok(p, TREE_MAX_SUSPICIOUS === 100, "the documented cap of 100 changed");
+          const rCap = await validateExtractedTree(t.dest, DEFAULT_WALK_LIMITS);
+          ok(
+            p,
+            rCap.suspiciousPaths.length === TREE_MAX_SUSPICIOUS &&
+              rCap.suspiciousCount === 9 + 2 * (TREE_MAX_SUSPICIOUS + 5),
+            `cap ${rCap.suspiciousPaths.length}/${rCap.suspiciousCount}`,
+          );
         } finally {
           t.done();
         }
@@ -738,21 +808,58 @@ export const ARCHIVE_CHECKS = [
           expectTopDirIncludes: "org-repo",
         },
       );
-      // duplicate entries: the first one wins and nothing fails; a file where a directory is needed is a conflict
+      // an EXACT duplicate file path aborts (the first entry must not hide the second from the scan); a duplicate directory entry is harmless
+      await expect(
+        "exact duplicate file path",
+        tar([
+          { name: "dup.txt", content: "first" },
+          { name: "dup.txt", content: "second" },
+        ]),
+        "archive_invalid",
+      );
       {
         const r = await attempt(
           tar([
-            { name: "dup.txt", content: "first" },
-            { name: "dup.txt", content: "second" },
+            { name: "d/", dir: true },
+            { name: "d/", dir: true },
+            { name: "d/x.txt", content: "x" },
           ]),
         );
-        ok(p, r.ok, `duplicate entries failed: ${r.code}`);
+        ok(p, r.ok, `a duplicate directory entry failed: ${r.code}`);
+        if (r.ok) r.done();
+      }
+      // names that differ only by case or Unicode form are distinct files on the case-sensitive target: both extracted, both flagged
+      {
+        const NFC = "caf\u00e9.txt";
+        const NFD = "cafe\u0301.txt";
+        const r = await attempt(
+          tar([
+            { name: "Notes.MD", content: "upper" },
+            { name: "notes.md", content: "lower" },
+            { name: NFC, content: "nfc" },
+            { name: NFD, content: "nfd" },
+            { name: "plain.txt", content: "p" },
+          ]),
+        );
+        ok(p, r.ok, `case/Unicode variants were refused: ${r.code}`);
         if (r.ok) {
+          const read = (n) => readFileSync(path.join(r.dest, n), "utf8");
           ok(
             p,
-            readFileSync(path.join(r.dest, "dup.txt"), "utf8") === "first",
-            "the second duplicate won",
+            read("Notes.MD") === "upper" &&
+              read("notes.md") === "lower" &&
+              read(NFC) === "nfc" &&
+              read(NFD) === "nfd",
+            "a colliding variant was not extracted with its own content",
           );
+          ok(p, r.stats.tree.files === 5, `files ${r.stats.tree.files}`);
+          const flagged = r.stats.tree.suspiciousPaths.map((x) => x.path).sort();
+          ok(
+            p,
+            JSON.stringify(flagged) === JSON.stringify([NFC, NFD, "Notes.MD", "notes.md"].sort()),
+            `flagged ${JSON.stringify(flagged)}`,
+          );
+          ok(p, r.stats.tree.suspiciousCount === 4, "suspicious count");
           r.done();
         }
       }

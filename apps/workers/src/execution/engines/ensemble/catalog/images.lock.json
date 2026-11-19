@@ -1,0 +1,432 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "docs/modules/scan-engines/IMAGES.md",
+  "images": [
+    {
+      "key": "syft",
+      "imagesMdName": "Syft",
+      "toolId": "syft",
+      "roles": ["sbom"],
+      "scanTypes": ["sbom"],
+      "repository": "anchore/syft",
+      "digest": "sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a",
+      "version": "1.57.2",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "Static catalogers; sealed command and env in IMAGES.md section 2.",
+      "sourceUrl": "https://github.com/anchore/syft",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "trivy",
+      "imagesMdName": "Trivy",
+      "toolId": "trivy",
+      "roles": ["sbom", "sca"],
+      "scanTypes": ["sbom", "sca"],
+      "repository": "aquasec/trivy",
+      "digest": "sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb",
+      "version": "0.76.2",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["data_licence_legal_gate"],
+      "notes": "SBOM mode and SCA; secret scanner not used; fatal on over-long paths (tree guard, D-18). DB data: language ecosystems only in v1 (D-15).",
+      "sourceUrl": "https://github.com/aquasecurity/trivy",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "grype",
+      "imagesMdName": "Grype",
+      "toolId": "grype",
+      "roles": ["sca"],
+      "scanTypes": ["sca"],
+      "repository": "anchore/grype",
+      "digest": "sha256:661583704a253c0448ed63998b5ea2cd9d5a76ee71eedc4aed439b8ce3e93a1c",
+      "version": "0.122.1",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["data_licence_legal_gate", "data_quarantined"],
+      "notes": "Code is adopted; its DB data licence is unstated and QUARANTINED for v1 (D-15, OQ-24): no DB may be shipped or mounted, so the adapter cannot run until OQ-24 is decided.",
+      "sourceUrl": "https://github.com/anchore/grype",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "osv-scanner",
+      "imagesMdName": "OSV-Scanner",
+      "toolId": "osv-scanner",
+      "roles": ["sca"],
+      "scanTypes": ["sca"],
+      "repository": "ghcr.io/google/osv-scanner",
+      "digest": "sha256:a70ffffc2bfd33482953e5d6b64c6fcdb30239717a07b0f0d3ab2859ce3e4cde",
+      "version": "2.7.1",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["data_licence_legal_gate", "mandatory_flags"],
+      "notes": "Only with --offline --no-resolve --no-call-analysis=go --no-ignore --config; OSV core records for npm, PyPI, Go, Maven only (D-15).",
+      "sourceUrl": "https://github.com/google/osv-scanner",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "opengrep",
+      "imagesMdName": "Opengrep",
+      "toolId": "opengrep",
+      "roles": ["sast"],
+      "scanTypes": ["sast"],
+      "repository": null,
+      "digest": null,
+      "version": "2.0.0",
+      "licence": "LGPL-2.1",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "own_build",
+        "baseImageDigest": "sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092",
+        "localImageId": "sha256:20b0e7d34daebcbab52bbf3255407f923e2d8ecd3b9211c44cf47e596a511754",
+        "binarySha256": "37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0"
+      },
+      "flags": ["own_build", "local_build_requires_registry_digest", "mandatory_flags"],
+      "notes": "No upstream image exists. Own build from the release binary (D-14); the registry digest of the mirror replaces the local image id before production. Platform-owned rules only (D-16). `repository` stays null until the image is pushed to the mirror registry and its registry digest is recorded.",
+      "sourceUrl": "https://github.com/opengrep/opengrep",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "bandit",
+      "imagesMdName": "Bandit",
+      "toolId": "bandit",
+      "roles": ["sast"],
+      "scanTypes": ["sast"],
+      "repository": "ghcr.io/pycqa/bandit/bandit",
+      "digest": "sha256:b405a808f5d50156aee921a77fb17c044d69d90ecef6499447a037678967c936",
+      "version": "1.9.4",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["mandatory_flags"],
+      "notes": "With the --ini override and --ignore-nosec.",
+      "sourceUrl": "https://github.com/PyCQA/bandit",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "gosec",
+      "imagesMdName": "gosec",
+      "toolId": "gosec",
+      "roles": ["sast"],
+      "scanTypes": ["sast"],
+      "repository": "ghcr.io/securego/gosec",
+      "digest": "sha256:7bcf1edbab3e80d8006a28d53e7031a9c9775be8eec30679e4adc1f51d272121",
+      "version": "2.30.0",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["mandatory_flags"],
+      "notes": "Phase 4b only (SPEC 17.a): conditions and UNVERIFIED cases in SPEC 17.a.",
+      "sourceUrl": "https://github.com/securego/gosec",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "gitleaks",
+      "imagesMdName": "Gitleaks",
+      "toolId": "gitleaks",
+      "roles": ["secrets"],
+      "scanTypes": ["secrets"],
+      "repository": "ghcr.io/gitleaks/gitleaks",
+      "digest": "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+      "version": "8.30.1",
+      "licence": "MIT",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "Same digest under zricethezav/gitleaks.",
+      "sourceUrl": "https://github.com/gitleaks/gitleaks",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "detect-secrets",
+      "imagesMdName": "detect-secrets",
+      "toolId": "detect-secrets",
+      "roles": ["secrets"],
+      "scanTypes": ["secrets"],
+      "repository": null,
+      "digest": null,
+      "version": "1.5.0",
+      "licence": "Apache-2.0",
+      "user": "65534:65534",
+      "status": "ADOPTED",
+      "source": {
+        "kind": "own_build",
+        "baseImageDigest": "sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1",
+        "localImageId": "sha256:52cddebabaedd466be8a28bd8c0bf271440cf96e5c8940da764e5497704c1c05"
+      },
+      "flags": ["own_build", "local_build_requires_registry_digest"],
+      "notes": "No upstream image exists. Own build (D-14); output carries hashed_secret which the adapter must drop. `repository` stays null until the image is pushed to the mirror registry and its registry digest is recorded.",
+      "sourceUrl": "https://github.com/Yelp/detect-secrets",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "block-extractor",
+      "imagesMdName": "web-tree-sitter + grammars (block extractor, evidence)",
+      "toolId": "block-extractor",
+      "roles": ["evidence"],
+      "scanTypes": ["evidence"],
+      "repository": null,
+      "digest": null,
+      "version": "web-tree-sitter 0.27.2",
+      "licence": "MIT",
+      "user": null,
+      "status": "UNVERIFIED",
+      "source": {
+        "kind": "own_build",
+        "baseImageDigest": "sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402"
+      },
+      "flags": ["own_build"],
+      "notes": "Installable and runnable in the spike; the extractor image itself is not built (Part J). Base node image digest recorded.",
+      "sourceUrl": null,
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "semgrep-oss",
+      "imagesMdName": "Semgrep OSS",
+      "toolId": "semgrep-oss",
+      "roles": ["sast"],
+      "scanTypes": ["sast"],
+      "repository": "semgrep/semgrep",
+      "digest": "sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1",
+      "version": "1.186.0",
+      "licence": "LGPL-2.1",
+      "user": null,
+      "status": "EXCLUDED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": ["not_selected"],
+      "notes": "Works, same results, but its default mode executed .git/config fsmonitor; fallback only if Opengrep is rejected. The spike image was pruned.",
+      "sourceUrl": "https://github.com/semgrep/semgrep",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "cdxgen",
+      "imagesMdName": "cdxgen",
+      "toolId": "cdxgen",
+      "roles": ["sbom"],
+      "scanTypes": ["sbom"],
+      "repository": null,
+      "digest": null,
+      "version": "n/a",
+      "licence": "Apache-2.0",
+      "user": null,
+      "status": "EXCLUDED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "Runs package managers; excluded by the owner (D-3, D-17).",
+      "sourceUrl": "https://github.com/CycloneDX/cdxgen",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "trufflehog",
+      "imagesMdName": "TruffleHog",
+      "toolId": "trufflehog",
+      "roles": ["secrets"],
+      "scanTypes": ["secrets"],
+      "repository": null,
+      "digest": null,
+      "version": "n/a",
+      "licence": "AGPL-3.0",
+      "user": null,
+      "status": "EXCLUDED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "AGPL-3.0; live verification needs network.",
+      "sourceUrl": "https://github.com/trufflesecurity/trufflehog",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "brakeman",
+      "imagesMdName": "Brakeman",
+      "toolId": "brakeman",
+      "roles": ["sast"],
+      "scanTypes": ["sast"],
+      "repository": null,
+      "digest": null,
+      "version": "n/a",
+      "licence": "LicenseRef-Brakeman-Public-Use-License",
+      "user": null,
+      "status": "EXCLUDED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "Non-commercial licence; Ruby SAST deferred (D-17).",
+      "sourceUrl": "https://github.com/presidentbeef/brakeman",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    },
+    {
+      "key": "codeql",
+      "imagesMdName": "CodeQL",
+      "toolId": "codeql",
+      "roles": ["sast", "secrets"],
+      "scanTypes": ["sast"],
+      "repository": null,
+      "digest": null,
+      "version": "n/a",
+      "licence": "LicenseRef-GitHub-CodeQL-Terms",
+      "user": null,
+      "status": "EXCLUDED",
+      "source": {
+        "kind": "upstream"
+      },
+      "flags": [],
+      "notes": "Commercial-licence restriction.",
+      "sourceUrl": "https://github.com/github/codeql-cli-binaries",
+      "licenceReviewedAt": null,
+      "approvedBy": null,
+      "approvedAt": null,
+      "imageSbomSha256": null,
+      "selfScan": null,
+      "signatureVerified": {
+        "verified": false,
+        "method": null
+      }
+    }
+  ]
+}

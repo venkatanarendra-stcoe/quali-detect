@@ -2,6 +2,7 @@ export * from "./errors.js";
 export * from "./policy.js";
 export * from "./config.js";
 export * from "./run-spec.js";
+export * from "./image-catalog.js";
 export * from "./build-run-args.js";
 export * from "./runtime.js";
 export * from "./cli-runtime.js";

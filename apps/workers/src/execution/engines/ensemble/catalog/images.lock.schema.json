@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "images.lock.schema.json",
+  "title": "QmentisAI scan image lock file (build part B)",
+  "description": "Documentation of images.lock.json. The code of record is validateImageLock in packages/infra/src/sandbox/image-catalog.js; the suite (ENG-S02b) checks that the required field list below equals the validator's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedFrom", "images"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedFrom": { "type": "string", "minLength": 1 },
+    "images": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/entry" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "imagesMdName",
+        "toolId",
+        "roles",
+        "scanTypes",
+        "repository",
+        "digest",
+        "version",
+        "licence",
+        "user",
+        "status",
+        "source",
+        "flags",
+        "notes",
+        "sourceUrl",
+        "licenceReviewedAt",
+        "approvedBy",
+        "approvedAt",
+        "imageSbomSha256",
+        "selfScan",
+        "signatureVerified"
+      ],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
+        "imagesMdName": { "type": "string", "minLength": 1 },
+        "toolId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
+        "roles": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "scanTypes": {
+          "type": "array",
+          "items": { "enum": ["sbom", "sca", "sast", "secrets", "evidence"] }
+        },
+        "repository": {
+          "type": ["string", "null"],
+          "description": "registry repository without a tag"
+        },
+        "digest": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "version": { "type": "string", "minLength": 1 },
+        "licence": {
+          "type": "string",
+          "description": "SPDX identifier or expression; LicenseRef-* for non-SPDX licences"
+        },
+        "user": { "type": ["string", "null"], "pattern": "^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$" },
+        "status": { "enum": ["ADOPTED", "EXCLUDED", "UNVERIFIED"] },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["upstream", "own_build"] },
+            "baseImageDigest": { "$ref": "#/$defs/sha256" },
+            "localImageId": { "$ref": "#/$defs/sha256" },
+            "binarySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "local_build_requires_registry_digest",
+              "data_licence_legal_gate",
+              "data_quarantined",
+              "own_build",
+              "not_selected",
+              "mandatory_flags"
+            ]
+          }
+        },
+        "notes": { "type": "string" },
+        "sourceUrl": { "type": ["string", "null"], "pattern": "^https://" },
+        "licenceReviewedAt": { "type": ["string", "null"] },
+        "approvedBy": { "type": ["string", "null"] },
+        "approvedAt": { "type": ["string", "null"] },
+        "imageSbomSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "selfScan": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scannedAt",
+                "scanner",
+                "scannerVersion",
+                "dataSnapshotSha256",
+                "counts"
+              ],
+              "properties": {
+                "scannedAt": { "type": "string" },
+                "scanner": { "type": "string" },
+                "scannerVersion": { "type": "string" },
+                "dataSnapshotSha256": { "$ref": "#/$defs/sha256" },
+                "counts": {
+                  "type": "object",
+                  "required": ["critical", "high", "medium", "low", "unknown"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "critical": { "type": "integer", "minimum": 0 },
+                    "high": { "type": "integer", "minimum": 0 },
+                    "medium": { "type": "integer", "minimum": 0 },
+                    "low": { "type": "integer", "minimum": 0 },
+                    "unknown": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "signatureVerified": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verified", "method"],
+          "properties": {
+            "verified": { "type": "boolean" },
+            "method": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

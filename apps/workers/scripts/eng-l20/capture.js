@@ -34,7 +34,7 @@ import {
 import { loadImageLock } from "../../src/execution/engines/ensemble/catalog/index.js";
 import { createSyftAdapter } from "../../src/execution/engines/ensemble/sbom/syft.js";
 import { createTrivySbomAdapter } from "../../src/execution/engines/ensemble/sbom/trivy-sbom.js";
-import { buildSampleTarGz } from "./sample-tree.js";
+import { EXTRA_TREES, buildSampleTarGz } from "./sample-tree.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES_SRC = path.resolve(HERE, "../../src/execution/engines/ensemble/sbom/rules");
@@ -153,6 +153,12 @@ async function cmdPrepare(options) {
   }
   const clean = await extractInto(tarball, path.join(trees, "clean"));
   const planted = await extractInto(tarball, path.join(trees, "planted"));
+  // the small trees of the applicability and database experiments (a tree with nothing to catalog, a tree with one .jar)
+  for (const [name, files] of Object.entries(EXTRA_TREES)) {
+    const extra = path.join(work, `${name}.tar.gz`);
+    writeFileSync(extra, buildSampleTarGz(files), { mode: 0o600 });
+    await extractInto(extra, path.join(trees, name));
+  }
   for (const [name, text] of Object.entries(PLANTED))
     writeFileSync(path.join(trees, "planted", name), text, { mode: 0o644 });
   const rulesDir = path.join(work, "rules");
@@ -261,6 +267,60 @@ function experiments() {
       purpose: "unknown-flag",
       argv: [...sealed("trivy").plan(dummyCtx()).argv, flag],
     },
+    // ---- applicability, memory and database experiments (added after the first real run, 2026-11-20)
+    ...["syft", "trivy"].map((tool) => ({
+      id: `${tool}-nolock`,
+      tool,
+      purpose: "no-applicable-files",
+      tree: "nolock",
+      argv: [...sealed(tool).plan(dummyCtx()).argv],
+    })),
+    ...["syft", "trivy"].map((tool) => ({
+      id: `${tool}-jar`,
+      tool,
+      purpose: "jar-archive",
+      tree: "jar",
+      argv: [...sealed(tool).plan(dummyCtx()).argv],
+    })),
+    ...["syft", "trivy"].map((tool) => ({
+      id: `${tool}-oom`,
+      tool,
+      purpose: "memory-limit",
+      limits: { memoryMiB: 8 },
+      argv: [...sealed(tool).plan(dummyCtx()).argv],
+    })),
+    {
+      id: "trivy-vuln-nodb",
+      tool: "trivy",
+      purpose: "vuln-no-database",
+      argv: [
+        "fs",
+        "--config",
+        "/rules/trivy.yaml",
+        "--scanners",
+        "vuln",
+        "--format",
+        "cyclonedx",
+        "/src",
+      ],
+    },
+    {
+      id: "trivy-vuln-skipdb",
+      tool: "trivy",
+      purpose: "vuln-skip-db-update",
+      argv: [
+        "fs",
+        "--config",
+        "/rules/trivy.yaml",
+        "--scanners",
+        "vuln",
+        "--skip-db-update",
+        "--skip-java-db-update",
+        "--format",
+        "cyclonedx",
+        "/src",
+      ],
+    },
   ];
 }
 
@@ -283,7 +343,11 @@ function specFor(exp, work, attempt, resolver) {
     archiveDir: path.join(work, "trees", exp.tree ?? "clean"),
     rulesDir: path.join(work, exp.rules ?? "rules"),
   });
-  return resolveRunSpecImage({ ...base, argv: exp.argv }, resolver, { scanType: "sbom" });
+  return resolveRunSpecImage(
+    { ...base, argv: exp.argv, limits: { ...base.limits, ...(exp.limits ?? {}) } },
+    resolver,
+    { scanType: "sbom" },
+  );
 }
 
 function sandboxConfig(runtimeBin, work) {

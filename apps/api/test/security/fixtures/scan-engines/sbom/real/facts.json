@@ -1,0 +1,271 @@
+{
+  "capturedOn": "2026-11-20",
+  "sandbox": "rootful Docker 29.1.3, containerd image store, Linux x86_64",
+  "runs": {
+    "sample": {
+      "syft-version": {
+        "tool": "syft",
+        "purpose": "version",
+        "exitCode": 0,
+        "wallMs": 511,
+        "stdoutBytes": 12,
+        "stderr": ""
+      },
+      "trivy-version": {
+        "tool": "trivy",
+        "purpose": "version",
+        "exitCode": 0,
+        "wallMs": 580,
+        "stdoutBytes": 16,
+        "stderr": ""
+      },
+      "syft-sealed": {
+        "tool": "syft",
+        "purpose": "sealed",
+        "exitCode": 0,
+        "wallMs": 2214,
+        "stdoutBytes": 22801,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-sealed": {
+        "tool": "trivy",
+        "purpose": "sealed",
+        "exitCode": 0,
+        "wallMs": 553,
+        "stdoutBytes": 13893,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"node_modules\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tDetected OS\tfamily=\"none\" version=\"\"\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-planted": {
+        "tool": "syft",
+        "purpose": "planted-repo-config",
+        "exitCode": 0,
+        "wallMs": 2220,
+        "stdoutBytes": 22801,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-planted": {
+        "tool": "trivy",
+        "purpose": "planted-repo-config",
+        "exitCode": 0,
+        "wallMs": 561,
+        "stdoutBytes": 13893,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"node_modules\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tDetected OS\tfamily=\"none\" version=\"\"\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-config-missing": {
+        "tool": "syft",
+        "purpose": "config-missing",
+        "exitCode": 1,
+        "wallMs": 513,
+        "stdoutBytes": 0,
+        "stderr": "invalid application config: file does not exist: /rules/missing.yaml\n"
+      },
+      "trivy-config-missing": {
+        "tool": "trivy",
+        "purpose": "config-missing",
+        "exitCode": 1,
+        "wallMs": 527,
+        "stdoutBytes": 0,
+        "stderr": "<time>\tFATAL\tFatal error\tconfig file \"/rules/missing.yaml\" loading error: open /rules/missing.yaml: no such file or directory\n"
+      },
+      "syft-config-unknown-key": {
+        "tool": "syft",
+        "purpose": "config-unknown-key",
+        "exitCode": 0,
+        "wallMs": 2005,
+        "stdoutBytes": 22801,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-config-unknown-key": {
+        "tool": "trivy",
+        "purpose": "config-unknown-key",
+        "exitCode": 0,
+        "wallMs": 546,
+        "stdoutBytes": 13893,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"node_modules\"\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tDetected OS\tfamily=\"none\" version=\"\"\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-unknown-flag": {
+        "tool": "syft",
+        "purpose": "unknown-flag",
+        "exitCode": 1,
+        "wallMs": 526,
+        "stdoutBytes": 0,
+        "stderr": "unknown flag: --qm-no-such-flag\n"
+      },
+      "trivy-unknown-flag": {
+        "tool": "trivy",
+        "purpose": "unknown-flag",
+        "exitCode": 1,
+        "wallMs": 534,
+        "stdoutBytes": 14302,
+        "stderr": "\n<time>\tFATAL\tFatal error\tunknown flag: --qm-no-such-flag\n"
+      },
+      "syft-nolock": {
+        "tool": "syft",
+        "purpose": "no-applicable-files",
+        "exitCode": 0,
+        "wallMs": 2092,
+        "stdoutBytes": 400,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-nolock": {
+        "tool": "trivy",
+        "purpose": "no-applicable-files",
+        "exitCode": 0,
+        "wallMs": 561,
+        "stdoutBytes": 974,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tINFO\tNumber of language-specific files\tnum=0\n"
+      },
+      "syft-jar": {
+        "tool": "syft",
+        "purpose": "jar-archive",
+        "exitCode": 0,
+        "wallMs": 1944,
+        "stdoutBytes": 1511,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-jar": {
+        "tool": "trivy",
+        "purpose": "jar-archive",
+        "exitCode": 0,
+        "wallMs": 543,
+        "stdoutBytes": 974,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tINFO\tNumber of language-specific files\tnum=0\n"
+      },
+      "syft-oom": {
+        "tool": "syft",
+        "purpose": "memory-limit",
+        "exitCode": 137,
+        "wallMs": 412,
+        "stdoutBytes": 0,
+        "stderr": ""
+      },
+      "trivy-oom": {
+        "tool": "trivy",
+        "purpose": "memory-limit",
+        "exitCode": 137,
+        "wallMs": 456,
+        "stdoutBytes": 0,
+        "stderr": ""
+      },
+      "trivy-vuln-nodb": {
+        "tool": "trivy",
+        "purpose": "vuln-no-database",
+        "exitCode": 1,
+        "wallMs": 4715,
+        "stdoutBytes": 0,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[vulndb] Need to update DB\n<time>\tINFO\t[vulndb] Downloading vulnerability DB...\n<time>\tINFO\t[vulndb] Downloading artifact...\trepo=\"mirror.gcr.io/aquasec/trivy-db:2\"\n<time>\tFATAL\tFatal error\trun error: init error: DB error: failed to download vulnerability DB: OCI artifact error: failed to download vulnerability DB: failed to download artifact from mirror.gcr.io/aquasec/trivy-db:2: OCI repository error: 1 error occurred:\n\t* Get \"https://mirror.gcr.io/v2/\": dial tcp: lookup mirror.gcr.io on 4.2.2.2:53: dial udp 4.2.2.2:53: connect: network is unreachable\n\n\n"
+      },
+      "trivy-vuln-skipdb": {
+        "tool": "trivy",
+        "purpose": "vuln-skip-db-update",
+        "exitCode": 1,
+        "wallMs": 605,
+        "stdoutBytes": 0,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tERROR\t[vulndb] The first run cannot skip downloading DB\n<time>\tFATAL\tFatal error\trun error: init error: DB error: database error: --skip-db-update cannot be specified on the first run\n"
+      }
+    },
+    "treeB": {
+      "syft-version": {
+        "tool": "syft",
+        "purpose": "version",
+        "exitCode": 0,
+        "wallMs": 447,
+        "stdoutBytes": 12,
+        "stderr": ""
+      },
+      "trivy-version": {
+        "tool": "trivy",
+        "purpose": "version",
+        "exitCode": 0,
+        "wallMs": 480,
+        "stdoutBytes": 16,
+        "stderr": ""
+      },
+      "syft-sealed": {
+        "tool": "syft",
+        "purpose": "sealed",
+        "exitCode": 0,
+        "wallMs": 2421,
+        "stdoutBytes": 27570,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-sealed": {
+        "tool": "trivy",
+        "purpose": "sealed",
+        "exitCode": 0,
+        "wallMs": 578,
+        "stdoutBytes": 15953,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-planted": {
+        "tool": "syft",
+        "purpose": "planted-repo-config",
+        "exitCode": 0,
+        "wallMs": 2401,
+        "stdoutBytes": 27570,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-planted": {
+        "tool": "trivy",
+        "purpose": "planted-repo-config",
+        "exitCode": 0,
+        "wallMs": 561,
+        "stdoutBytes": 15953,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-config-missing": {
+        "tool": "syft",
+        "purpose": "config-missing",
+        "exitCode": 1,
+        "wallMs": 489,
+        "stdoutBytes": 0,
+        "stderr": "invalid application config: file does not exist: /rules/missing.yaml\n"
+      },
+      "trivy-config-missing": {
+        "tool": "trivy",
+        "purpose": "config-missing",
+        "exitCode": 1,
+        "wallMs": 527,
+        "stdoutBytes": 0,
+        "stderr": "<time>\tFATAL\tFatal error\tconfig file \"/rules/missing.yaml\" loading error: open /rules/missing.yaml: no such file or directory\n"
+      },
+      "syft-config-unknown-key": {
+        "tool": "syft",
+        "purpose": "config-unknown-key",
+        "exitCode": 0,
+        "wallMs": 2314,
+        "stdoutBytes": 27570,
+        "stderr": "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n"
+      },
+      "trivy-config-unknown-key": {
+        "tool": "trivy",
+        "purpose": "config-unknown-key",
+        "exitCode": 0,
+        "wallMs": 560,
+        "stdoutBytes": 15953,
+        "stderr": "<time>\tINFO\tLoaded\tfile_path=\"/rules/trivy.yaml\"\n<time>\tINFO\t[license] License scanning is enabled\n<time>\tINFO\t[npm] Run \"npm install\" to collect the license information of packages\tdir=\"web/node_modules\"\n<time>\tWARN\t[pip] Unable to find python `site-packages` directory. License detection is skipped.\terr=\"unable to find path to Python executable\"\n<time>\tINFO\tSuppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.\n<time>\tINFO\tNumber of language-specific files\tnum=5\n"
+      },
+      "syft-unknown-flag": {
+        "tool": "syft",
+        "purpose": "unknown-flag",
+        "exitCode": 1,
+        "wallMs": 557,
+        "stdoutBytes": 0,
+        "stderr": "unknown flag: --qm-no-such-flag\n"
+      },
+      "trivy-unknown-flag": {
+        "tool": "trivy",
+        "purpose": "unknown-flag",
+        "exitCode": 1,
+        "wallMs": 547,
+        "stdoutBytes": 14302,
+        "stderr": "\n<time>\tFATAL\tFatal error\tunknown flag: --qm-no-such-flag\n"
+      }
+    }
+  },
+  "runtimeServerVersion": "29.1.3",
+  "images": {
+    "syft": "sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a",
+    "trivy": "sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
+  }
+}

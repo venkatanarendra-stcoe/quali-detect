@@ -1,0 +1,397 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:8a06550d-4ae8-46bb-871c-0552f856deac",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-20T17:06:57+00:00",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "manufacturer": { "name": "Aqua Security Software Ltd." },
+          "group": "aquasecurity",
+          "name": "trivy",
+          "version": "0.76.2"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "347fcab7-35b0-48c3-91f4-b9dc7a171037",
+      "type": "application",
+      "name": "/src",
+      "properties": [{ "name": "aquasecurity:trivy:SchemaVersion", "value": "2" }]
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "1ebe15f1-2a04-4dec-93b9-2b8e37a635da",
+      "type": "application",
+      "name": "svc/go.mod",
+      "properties": [
+        { "name": "aquasecurity:trivy:Class", "value": "lang-pkgs" },
+        { "name": "aquasecurity:trivy:Type", "value": "gomod" }
+      ]
+    },
+    {
+      "bom-ref": "afae1a67-484c-4d39-be17-f832fe13d11d",
+      "type": "application",
+      "name": "py/requirements.txt",
+      "properties": [
+        { "name": "aquasecurity:trivy:Class", "value": "lang-pkgs" },
+        { "name": "aquasecurity:trivy:Type", "value": "pip" }
+      ]
+    },
+    {
+      "bom-ref": "b5f2cb0e-707b-44a0-b7ae-a32178a6e9cb",
+      "type": "application",
+      "name": "py/poetry.lock",
+      "properties": [
+        { "name": "aquasecurity:trivy:Class", "value": "lang-pkgs" },
+        { "name": "aquasecurity:trivy:Type", "value": "poetry" }
+      ]
+    },
+    {
+      "bom-ref": "b7b9ffe4-44c9-4785-a8da-f9439c5fe51e",
+      "type": "application",
+      "name": "java/pom.xml",
+      "properties": [
+        { "name": "aquasecurity:trivy:Class", "value": "lang-pkgs" },
+        { "name": "aquasecurity:trivy:Type", "value": "pom" }
+      ]
+    },
+    {
+      "bom-ref": "ccbf405d-8af1-4b5a-9c11-d502bd7b0eaa",
+      "type": "application",
+      "name": "web/package-lock.json",
+      "properties": [
+        { "name": "aquasecurity:trivy:Class", "value": "lang-pkgs" },
+        { "name": "aquasecurity:trivy:Type", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/example.invalid/svc",
+      "type": "library",
+      "name": "example.invalid/svc",
+      "purl": "pkg:golang/example.invalid/svc",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "example.invalid/svc" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "gomod" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/burntsushi/toml@v1.6.0",
+      "type": "library",
+      "name": "github.com/BurntSushi/toml",
+      "version": "v1.6.0",
+      "purl": "pkg:golang/github.com/burntsushi/toml@v1.6.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "github.com/BurntSushi/toml@v1.6.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "gomod" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/masterminds/semver/v3@v3.5.0",
+      "type": "library",
+      "name": "github.com/Masterminds/semver/v3",
+      "version": "v3.5.0",
+      "purl": "pkg:golang/github.com/masterminds/semver/v3@v3.5.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "github.com/Masterminds/semver/v3@v3.5.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "gomod" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/golang.org/x/text@v0.44.0",
+      "type": "library",
+      "name": "golang.org/x/text",
+      "version": "v0.44.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.44.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "golang.org/x/text@v0.44.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "gomod" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2",
+      "type": "library",
+      "group": "com.fasterxml.jackson.core",
+      "name": "jackson-databind",
+      "version": "2.15.2",
+      "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "com.fasterxml.jackson.core:jackson-databind:2.15.2::993242d1"
+        },
+        { "name": "aquasecurity:trivy:PkgType", "value": "pom" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/invalid.example/svc-java@2.0.0",
+      "type": "library",
+      "group": "invalid.example",
+      "name": "svc-java",
+      "version": "2.0.0",
+      "purl": "pkg:maven/invalid.example/svc-java@2.0.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "invalid.example:svc-java:2.0.0::3d37d36a" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "pom" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "type": "library",
+      "group": "org.apache.logging.log4j",
+      "name": "log4j-core",
+      "version": "2.17.1",
+      "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "org.apache.logging.log4j:log4j-core:2.17.1::399d754b"
+        },
+        { "name": "aquasecurity:trivy:PkgType", "value": "pom" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/debug@4.3.4",
+      "type": "library",
+      "name": "debug",
+      "version": "4.3.4",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/debug@4.3.4",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "debug@4.3.4" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/fsevents@2.3.3",
+      "type": "library",
+      "name": "fsevents",
+      "version": "2.3.3",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/fsevents@2.3.3",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "fsevents@2.3.3" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/js-tokens@4.0.0",
+      "type": "library",
+      "name": "js-tokens",
+      "version": "4.0.0",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/js-tokens@4.0.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "js-tokens@4.0.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.21",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.21",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/lodash@4.17.21",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "lodash@4.17.21" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/loose-envify@1.4.0",
+      "type": "library",
+      "name": "loose-envify",
+      "version": "1.4.0",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/loose-envify@1.4.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "loose-envify@1.4.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/minimist@1.2.8",
+      "type": "library",
+      "name": "minimist",
+      "version": "1.2.8",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/minimist@1.2.8",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "minimist@1.2.8" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/ms@2.1.2",
+      "type": "library",
+      "name": "ms",
+      "version": "2.1.2",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/ms@2.1.2",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "ms@2.1.2" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/react@18.2.0",
+      "type": "library",
+      "name": "react",
+      "version": "18.2.0",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "purl": "pkg:npm/react@18.2.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "react@18.2.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "npm" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/click@8.1.7",
+      "type": "library",
+      "name": "Click",
+      "version": "8.1.7",
+      "purl": "pkg:pypi/click@8.1.7",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "Click@8.1.7" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "poetry" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/flask@2.3.3",
+      "type": "library",
+      "name": "Flask",
+      "version": "2.3.3",
+      "purl": "pkg:pypi/flask@2.3.3",
+      "properties": [{ "name": "aquasecurity:trivy:PkgType", "value": "pip" }]
+    },
+    {
+      "bom-ref": "pkg:pypi/jinja2@3.1.2",
+      "type": "library",
+      "name": "Jinja2",
+      "version": "3.1.2",
+      "purl": "pkg:pypi/jinja2@3.1.2",
+      "properties": [{ "name": "aquasecurity:trivy:PkgType", "value": "pip" }]
+    },
+    {
+      "bom-ref": "pkg:pypi/pytest@7.4.0",
+      "type": "library",
+      "name": "pytest",
+      "version": "7.4.0",
+      "purl": "pkg:pypi/pytest@7.4.0",
+      "properties": [
+        { "name": "aquasecurity:trivy:PkgID", "value": "pytest@7.4.0" },
+        { "name": "aquasecurity:trivy:PkgType", "value": "poetry" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/python-dateutil@2.8.2",
+      "type": "library",
+      "name": "python_dateutil",
+      "version": "2.8.2",
+      "purl": "pkg:pypi/python-dateutil@2.8.2",
+      "properties": [{ "name": "aquasecurity:trivy:PkgType", "value": "pip" }]
+    },
+    {
+      "bom-ref": "pkg:pypi/pyyaml@6.0.1",
+      "type": "library",
+      "name": "PyYAML",
+      "version": "6.0.1",
+      "purl": "pkg:pypi/pyyaml@6.0.1",
+      "properties": [{ "name": "aquasecurity:trivy:PkgType", "value": "pip" }]
+    },
+    {
+      "bom-ref": "pkg:pypi/zope.interface@6.0",
+      "type": "library",
+      "name": "zope.interface",
+      "version": "6.0",
+      "purl": "pkg:pypi/zope.interface@6.0",
+      "properties": [{ "name": "aquasecurity:trivy:PkgType", "value": "pip" }]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "1ebe15f1-2a04-4dec-93b9-2b8e37a635da",
+      "dependsOn": ["pkg:golang/example.invalid/svc"]
+    },
+    {
+      "ref": "347fcab7-35b0-48c3-91f4-b9dc7a171037",
+      "dependsOn": [
+        "1ebe15f1-2a04-4dec-93b9-2b8e37a635da",
+        "afae1a67-484c-4d39-be17-f832fe13d11d",
+        "b5f2cb0e-707b-44a0-b7ae-a32178a6e9cb",
+        "b7b9ffe4-44c9-4785-a8da-f9439c5fe51e",
+        "ccbf405d-8af1-4b5a-9c11-d502bd7b0eaa"
+      ]
+    },
+    {
+      "ref": "afae1a67-484c-4d39-be17-f832fe13d11d",
+      "dependsOn": [
+        "pkg:pypi/flask@2.3.3",
+        "pkg:pypi/jinja2@3.1.2",
+        "pkg:pypi/python-dateutil@2.8.2",
+        "pkg:pypi/pyyaml@6.0.1",
+        "pkg:pypi/zope.interface@6.0"
+      ]
+    },
+    {
+      "ref": "b5f2cb0e-707b-44a0-b7ae-a32178a6e9cb",
+      "dependsOn": ["pkg:pypi/click@8.1.7", "pkg:pypi/pytest@7.4.0"]
+    },
+    {
+      "ref": "b7b9ffe4-44c9-4785-a8da-f9439c5fe51e",
+      "dependsOn": ["pkg:maven/invalid.example/svc-java@2.0.0"]
+    },
+    {
+      "ref": "ccbf405d-8af1-4b5a-9c11-d502bd7b0eaa",
+      "dependsOn": [
+        "pkg:npm/debug@4.3.4",
+        "pkg:npm/fsevents@2.3.3",
+        "pkg:npm/lodash@4.17.21",
+        "pkg:npm/minimist@1.2.8",
+        "pkg:npm/react@18.2.0"
+      ]
+    },
+    {
+      "ref": "pkg:golang/example.invalid/svc",
+      "dependsOn": [
+        "pkg:golang/github.com/burntsushi/toml@v1.6.0",
+        "pkg:golang/github.com/masterminds/semver/v3@v3.5.0",
+        "pkg:golang/golang.org/x/text@v0.44.0"
+      ]
+    },
+    { "ref": "pkg:golang/github.com/burntsushi/toml@v1.6.0", "dependsOn": [] },
+    { "ref": "pkg:golang/github.com/masterminds/semver/v3@v3.5.0", "dependsOn": [] },
+    { "ref": "pkg:golang/golang.org/x/text@v0.44.0", "dependsOn": [] },
+    { "ref": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2", "dependsOn": [] },
+    {
+      "ref": "pkg:maven/invalid.example/svc-java@2.0.0",
+      "dependsOn": [
+        "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2",
+        "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1"
+      ]
+    },
+    { "ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1", "dependsOn": [] },
+    { "ref": "pkg:npm/debug@4.3.4", "dependsOn": ["pkg:npm/ms@2.1.2"] },
+    { "ref": "pkg:npm/fsevents@2.3.3", "dependsOn": [] },
+    { "ref": "pkg:npm/js-tokens@4.0.0", "dependsOn": [] },
+    { "ref": "pkg:npm/lodash@4.17.21", "dependsOn": [] },
+    { "ref": "pkg:npm/loose-envify@1.4.0", "dependsOn": ["pkg:npm/js-tokens@4.0.0"] },
+    { "ref": "pkg:npm/minimist@1.2.8", "dependsOn": [] },
+    { "ref": "pkg:npm/ms@2.1.2", "dependsOn": [] },
+    { "ref": "pkg:npm/react@18.2.0", "dependsOn": ["pkg:npm/loose-envify@1.4.0"] },
+    { "ref": "pkg:pypi/click@8.1.7", "dependsOn": [] },
+    { "ref": "pkg:pypi/flask@2.3.3", "dependsOn": [] },
+    { "ref": "pkg:pypi/jinja2@3.1.2", "dependsOn": [] },
+    { "ref": "pkg:pypi/pytest@7.4.0", "dependsOn": [] },
+    { "ref": "pkg:pypi/python-dateutil@2.8.2", "dependsOn": [] },
+    { "ref": "pkg:pypi/pyyaml@6.0.1", "dependsOn": [] },
+    { "ref": "pkg:pypi/zope.interface@6.0", "dependsOn": [] }
+  ],
+  "vulnerabilities": []
+}

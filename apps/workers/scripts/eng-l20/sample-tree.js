@@ -1,4 +1,4 @@
-import { gzipSync } from "node:zlib";
+import { crc32, gzipSync } from "node:zlib";
 
 /**
  * A tiny sample repository for the ENG-L20 live check (docs/modules/scan-engines/ENG_L20_RUNBOOK.md). It covers the package
@@ -118,6 +118,57 @@ export const SAMPLE_FILES = Object.freeze({
   "lib/apk/db/installed": APK_INSTALLED,
 });
 
+/** A minimal stored (uncompressed) ZIP: enough for a `.jar` with a manifest and Maven metadata. */
+function storedZip(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const n = Buffer.from(name, "utf8");
+    const body = Buffer.from(text, "utf8");
+    const crc = crc32(body);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(body.length, 22);
+    local.writeUInt16LE(n.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(body.length, 24);
+    central.writeUInt16LE(n.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, n, body);
+    centrals.push(central, n);
+    offset += 30 + n.length + body.length;
+  }
+  const centralBytes = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(centralBytes.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, centralBytes, end]);
+}
+
+/** Small trees for the applicability and database experiments of `capture.js` (name to repository-relative path to content). */
+export const EXTRA_TREES = Object.freeze({
+  nolock: Object.freeze({ "README.md": "# nothing to catalog\n", "src/main.txt": "hello\n" }),
+  jar: Object.freeze({
+    "lib/demo.jar": storedZip({
+      "META-INF/MANIFEST.MF": "Manifest-Version: 1.0\n",
+      "META-INF/maven/invalid.example/demo/pom.properties":
+        "groupId=invalid.example\nartifactId=demo\nversion=1.2.3\n",
+    }),
+  }),
+});
+
 const BLOCK = 512;
 const octal = (value, width) => `${value.toString(8).padStart(width - 1, "0")}\0`;
 
@@ -153,7 +204,7 @@ export function buildSampleTarGz(files = SAMPLE_FILES, topDir = "eng-l20-sample-
   }
   for (const dir of [...dirs].sort()) parts.push(header(`${topDir}/${dir}/`, 0, "5"));
   for (const [rel, text] of Object.entries(files)) {
-    const body = Buffer.from(text, "utf8");
+    const body = Buffer.isBuffer(text) ? text : Buffer.from(text, "utf8");
     parts.push(header(`${topDir}/${rel}`, body.length, "0"), body);
     const pad = (BLOCK - (body.length % BLOCK)) % BLOCK;
     if (pad) parts.push(Buffer.alloc(pad));

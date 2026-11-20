@@ -1236,6 +1236,14 @@ export const ENG_L20_CHECKS = [
           "trivy-config-unknown-key",
           "syft-unknown-flag",
           "trivy-unknown-flag",
+          "syft-nolock",
+          "trivy-nolock",
+          "syft-jar",
+          "trivy-jar",
+          "syft-oom",
+          "trivy-oom",
+          "trivy-vuln-nodb",
+          "trivy-vuln-skipdb",
         ];
         same(
           p,

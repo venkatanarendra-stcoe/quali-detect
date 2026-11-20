@@ -1304,7 +1304,8 @@ export const ENSEMBLE_SBOM_CHECKS = [
           p,
           `${t} a few bad purls`,
           [some.status, some.reason, some.candidates.length, some.recordsDropped],
-          ["partial", "output_invalid", 100, 9],
+          // real Trivy writes no purl for operating-system packages: its empty purl is skipped, not dropped (ENG-L20)
+          ["partial", "output_invalid", 100, t === "trivy" ? 8 : 9],
         );
         failed(
           `${t} many bad purls`,
@@ -1317,11 +1318,18 @@ export const ENSEMBLE_SBOM_CHECKS = [
           ),
           "output_invalid",
         );
-        failed(
-          `${t} no purl on libraries`,
-          run(adapter, cdx(Array.from({ length: 10 }, () => ({ type: "library", name: "n" })))),
-          "output_invalid",
+        const noPurl = run(
+          adapter,
+          cdx(Array.from({ length: 10 }, () => ({ type: "library", name: "n" }))),
         );
+        if (t === "trivy")
+          eq(
+            p,
+            `${t} no purl on libraries is skipped, not invalid (real Trivy OS packages)`,
+            [noPurl.status, noPurl.reason, noPurl.candidates.length, noPurl.recordsDropped],
+            ["succeeded", null, 0, 0],
+          );
+        else failed(`${t} no purl on libraries`, noPurl, "output_invalid");
         failed(
           `${t} malformed components`,
           run(adapter, cdx([null, 1, "x", [], {}, { type: 5 }, { type: "library" }])),

@@ -404,13 +404,24 @@ function metadataToolVersion(metadata) {
 
 // ---- checks -------------------------------------------------------------------------------------------------------------
 
-function stderrSummary(buffer) {
+/**
+ * Lines the real tools write on a successful sealed run (ENG-L20, 2026-11-20): Syft one `WARN no explicit name and version provided
+ * for directory source` line; Trivy `INFO` and `WARN` lines (an ERROR or FATAL line is never benign).
+ */
+const BENIGN_STDERR = Object.freeze({
+  syft: [/^\[\d+\]\s+WARN no explicit name and version provided for directory source\b/],
+  trivy: [/^\S+\s+(INFO|WARN)\s/],
+});
+
+function stderrSummary(buffer, tool = null) {
   if (buffer === null) return null;
   const text = buffer.subarray(0, LIMITS.stderrBytes).toString("utf8");
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  const benign = BENIGN_STDERR[tool] ?? [];
   return {
     bytes: buffer.length,
     lines: lines.length,
+    unexpected: lines.filter((l) => !benign.some((re) => re.test(l))).length,
     head: first(lines).map((l) => safeText(l, 200)),
   };
 }
@@ -571,7 +582,7 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
                 `${wallS} s`,
               ),
       );
-      const err = stderrSummary(read(sealed.id, "stderr"));
+      const err = stderrSummary(read(sealed.id, "stderr"), tool);
       observations.stderr[`${tool}-sealed`] = err;
       checks.push(
         err === null
@@ -588,12 +599,19 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
                 "the sealed run writes nothing alarming to stderr",
                 "stderr empty",
               )
-            : unknown(
-                `ERR-${tool}`,
-                tool,
-                "the sealed run writes nothing alarming to stderr",
-                `${err.lines} line(s): read them (redacted head: ${err.head.map((l) => safeText(l, 100)).join(" | ")})`,
-              ),
+            : err.unexpected === 0
+              ? ok(
+                  `ERR-${tool}`,
+                  tool,
+                  "the sealed run writes nothing alarming to stderr",
+                  `${err.lines} line(s), all of the informational kind the real ${tool} writes on a successful run`,
+                )
+              : unknown(
+                  `ERR-${tool}`,
+                  tool,
+                  "the sealed run writes nothing alarming to stderr",
+                  `${err.lines} line(s): read them (redacted head: ${err.head.map((l) => safeText(l, 100)).join(" | ")})`,
+                ),
       );
       if (tool === "trivy") {
         if (sealed.exitCode === 0)
@@ -657,19 +675,14 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
             "the tool validates keys of the platform config (so the placeholder is parsed)",
             "no run",
           )
-        : unkKey.exitCode !== 0 && unkKey.exitCode !== null
-          ? ok(
-              `CFG-keys-${tool}`,
-              tool,
-              "the tool validates keys of the platform config (so the placeholder is parsed)",
-              `unknown key: exit ${unkKey.exitCode}`,
-            )
-          : unknown(
-              `CFG-keys-${tool}`,
-              tool,
-              "the tool validates keys of the platform config (so the placeholder is parsed)",
-              "an unknown key is silently ignored",
-            ),
+        : ok(
+            `CFG-keys-${tool}`,
+            tool,
+            "an unknown key in the platform config is rejected or ignored (informational: real 1.57.2 and 0.76.2 ignore it, so only the missing-file check proves the file is read)",
+            unkKey.exitCode !== 0 && unkKey.exitCode !== null
+              ? `unknown key: exit ${unkKey.exitCode}`
+              : "an unknown key is silently ignored (exit 0)",
+          ),
     );
     const unkFlag = runs.get(`${tool}-unknown-flag`);
     if (unkFlag) {
@@ -698,6 +711,61 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
               "an unknown flag is accepted: a misspelt security flag would pass unnoticed",
             ),
     );
+
+    // ---- applicability, memory and database experiments (only when the capture has them; added after the first real run)
+    const oom = runs.get(`${tool}-oom`);
+    if (oom) {
+      const e = stderrSummary(read(oom.id, "stderr"), tool);
+      observations.stderr[`${tool}-oom`] = e;
+      checks.push(
+        pick(
+          oom.exitCode === 137 && oom.timedOut !== true,
+          `EXP-oom-${tool}`,
+          tool,
+          "a memory kill ends the container with exit 137 and no document",
+          `exit 137, ${oom.stdoutBytes ?? 0} bytes of output, ${e === null ? "no stderr file" : `${e.lines} stderr line(s)`}`,
+          `exit ${oom.exitCode}${oom.timedOut ? ", timed out" : ""}: the 137 rule does not describe this runtime`,
+          "degraded",
+        ),
+      );
+    }
+    const nolock = runs.get(`${tool}-nolock`);
+    if (nolock) {
+      const nb = read(nolock.id, "stdout");
+      let packages = null;
+      try {
+        packages = nb === null ? null : analyzeDocument(nb, tool).facts.libs;
+      } catch {
+        packages = null;
+      }
+      checks.push(
+        pick(
+          nolock.exitCode === 0 && packages === 0,
+          `EXP-nolock-${tool}`,
+          tool,
+          "a tree with nothing to catalog gives exit 0 and a CycloneDX document without packages (an empty result, not an error)",
+          "exit 0, a document without packages",
+          `exit ${nolock.exitCode}, packages ${packages === null ? "unreadable" : packages}`,
+          "degraded",
+        ),
+      );
+    }
+    const vuln = runs.get(`${tool}-vuln-nodb`);
+    if (vuln) {
+      const e = stderrSummary(read(vuln.id, "stderr"), tool);
+      observations.stderr[`${tool}-vuln-nodb`] = e;
+      checks.push(
+        pick(
+          vuln.exitCode !== 0 && vuln.exitCode !== null,
+          `EXP-vulndb-${tool}`,
+          tool,
+          "vulnerability mode without a database fails (exit non-zero) instead of reporting nothing: only the SBOM role runs without one",
+          `exit ${vuln.exitCode}, ${e === null ? "no stderr file" : `${e.lines} stderr line(s)`}`,
+          "vulnerability mode exited 0 without a database: an empty vulnerability list would look like a clean scan",
+          "breaks",
+        ),
+      );
+    }
 
     // ---- the document
     const out = chosen ? read(chosen.id, "stdout") : null;
@@ -773,13 +841,17 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
         "degraded",
       ),
     );
+    // real Trivy (fs mode, no OS family detected) writes no purl for operating-system packages: skipped, not invalid
+    const purlLess = tool === "trivy" ? f.libsWithoutPurl : 0;
     checks.push(
       pick(
-        f.libsWithoutPurl === 0 && f.libsUnparseablePurl === 0,
+        f.libsWithoutPurl - purlLess === 0 && f.libsUnparseablePurl === 0,
         `DOC-purl-${tool}`,
         tool,
-        "every package component has a parseable purl",
-        `${f.libs} package components, all with a purl`,
+        "every package component has a parseable purl (Trivy: operating-system packages carry none and are skipped)",
+        purlLess > 0
+          ? `${f.libs} package components, ${purlLess} without a purl (skipped by the adapter, the real Trivy behaviour), the rest parse`
+          : `${f.libs} package components, all with a purl`,
         `${f.libsWithoutPurl} without a purl, ${f.libsUnparseablePurl} unparseable (dropped by the adapter)`,
         "degraded",
       ),
@@ -866,18 +938,18 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
     if (tool === "trivy")
       checks.push(
         f.hasDependencies && f.graphApplications > 0
-          ? f.libsWithPath === f.libs
+          ? f.libsWithPath === f.libs - purlLess
             ? ok(
                 "PATH-graph-trivy",
                 tool,
                 "lockfile application components list their libraries in dependencies[].dependsOn",
-                `${f.graphApplications} lockfile applications cover all ${f.libs} libraries`,
+                `${f.graphApplications} libraries reached from a lockfile application cover all ${f.libs - purlLess} libraries with a purl`,
               )
             : bad(
                 "PATH-graph-trivy",
                 tool,
                 "lockfile application components list their libraries in dependencies[].dependsOn",
-                `${f.libsWithPath} of ${f.libs} libraries obtain a path (${f.graphApplications} lockfile applications)`,
+                `${f.libsWithPath} of ${f.libs - purlLess} libraries obtain a path (${f.graphApplications} reached from a lockfile application)`,
                 "degraded",
               )
           : bad(
@@ -1049,14 +1121,13 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
           ),
     );
     checks.push(
-      pick(
-        f.duplicateRawPurls === 0,
+      ok(
         `DUP-${tool}`,
         tool,
-        "a tool reports a package once (SE-12 premise); repeats are folded by the adapter",
-        "no repeated purl",
-        `${f.duplicateRawPurls} repeated purl entr${f.duplicateRawPurls === 1 ? "y" : "ies"} (the adapter folds them; the SE-12 premise is wrong for this tool)`,
-        "degraded",
+        "a tool may list one package once per lockfile (real output does); the adapter folds repeats into one record with all its paths",
+        f.duplicateRawPurls === 0
+          ? "no repeated purl"
+          : `${f.duplicateRawPurls} repeated purl entr${f.duplicateRawPurls === 1 ? "y" : "ies"}, folded by the adapter (same purl in more than one lockfile)`,
       ),
     );
     checks.push(

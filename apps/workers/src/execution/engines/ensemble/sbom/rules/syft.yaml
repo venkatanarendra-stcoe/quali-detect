@@ -1,3 +1,3 @@
 # Platform-owned Syft configuration (SPEC scan-engines 11.3). The run passes it with `-c /rules/syft.yaml` and a working directory of
-# /tmp, so a `.syft.yaml` inside the scanned repository is never read. NOT verified against a real Syft run (ENG-L06, ENG-L11).
+# /tmp, so a `.syft.yaml` inside the scanned repository is never read. Verified by a real run on 2026-11-20 (ENG-L20): the tool reads this file and silently ignores an UNKNOWN key, so keep it minimal.
 check-for-app-update: false

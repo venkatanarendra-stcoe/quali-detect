@@ -10,9 +10,14 @@ import { canonicalPurl, sbomKey } from "../core/merge-keys.js";
  * and one RECORD is produced per canonical purl (SE-12 read strictly: a tool never reports one component twice; occurrences become
  * `paths` of the one record).
  *
- * FIDELITY IS NOT VERIFIED: the property names and the shape used below (`syft:location:<n>:path`, CycloneDX 1.5+
- * `evidence.occurrences[].location`, `aquasecurity:trivy:FilePath`, Trivy's per-lockfile `application` components and the
- * `dependencies` graph) are taken from the tools' documented formats and from memory, not from a real run (ENG-L11).
+ * FIDELITY WAS CHECKED AGAINST REAL OUTPUT on 2026-11-20 (ENG-L20, `docs/modules/scan-engines/ENG_L20_RESULT.md`, Syft 1.57.2 and Trivy
+ * 0.76.2, CycloneDX 1.7): Syft writes `syft:location:<n>:path` with a leading slash and `syft:package:foundBy`; Trivy writes no path
+ * property for these package types and gives the lockfile only as the NAME of an `application` component, reachable from a library
+ * through the `dependencies` graph (for Go and Maven through the root module or project, so the walk below is transitive); Trivy writes
+ * no `purl` for operating-system packages in filesystem mode (no OS family is detected), so a purl-less Trivy library is not a record.
+ * Neither tool wrote `scope`, `evidence.occurrences` or `aquasecurity:trivy:FilePath` for any package of the captured trees: those
+ * three readers stay (the documented formats) but are UNVERIFIED by real output. A package listed once per lockfile is a real case
+ * (same purl, different `bom-ref`): repeats are folded.
  */
 
 /** Components examined per document; more is refused (`output_too_large`) before any work is done. */
@@ -105,7 +110,8 @@ export function isPackageComponent(c) {
  * CycloneDX 1.x JSON or that is too large; a component that fails its schema yields `null` (dropped and counted by the framework).
  * @param {unknown} doc
  * @param {{ ToolOutputError: new (reason: string, detail: string) => Error }} kit
- * @param {{ refPaths?: (doc: any) => Map<string, string[]> }} [flavor] Trivy: the lockfile path of a library from the dependency graph
+ * @param {{ refPaths?: (doc: any) => Map<string, string[]>, purlOptional?: boolean }} [flavor] Trivy: the lockfile path of a library from
+ *   the dependency graph; `purlOptional`: a library without a purl is skipped, not counted as invalid (real Trivy output for OS packages)
  * @returns {(object | null)[]}
  */
 export function cyclonedxRecords(doc, kit, flavor = {}) {
@@ -134,6 +140,7 @@ export function cyclonedxRecords(doc, kit, flavor = {}) {
     }
     const c = parsed.data;
     if (!isPackageComponent(c)) continue;
+    if (flavor.purlOptional === true && (c.purl === undefined || c.purl === "")) continue;
     const canonical = typeof c.purl === "string" ? canonicalPurl(c.purl) : null;
     if (canonical === null) {
       invalid.push(null);
@@ -180,10 +187,15 @@ export function cyclonedxRecords(doc, kit, flavor = {}) {
   return [...records, ...invalid];
 }
 
+/** Most graph nodes the lockfile walks may visit in total per document (a hostile graph cannot cost more than this). */
+export const TRIVY_GRAPH_VISIT_CAP = 2_000_000;
+
 /**
  * Trivy puts a library under the `application` component of its lockfile (the component name is the lockfile path) and lists the
- * libraries in the `dependencies` graph. Returns bom-ref of a library to the paths of the lockfiles that list it (direct
- * `dependsOn` of an application component only; no graph walk).
+ * libraries in the `dependencies` graph. Real output (ENG-L20): an application lists its direct packages, but for Go and Maven it
+ * lists the root module or project, which lists the dependencies, so each lockfile is walked transitively over the `dependsOn` edges,
+ * never through another lockfile application (one lockfile's packages never take the path of another) and never revisiting a node.
+ * Returns bom-ref of a library to the paths of the lockfiles that reach it. At most {@link TRIVY_GRAPH_VISIT_CAP} visits in total.
  * @param {any} doc
  * @returns {Map<string, string[]>}
  */
@@ -203,15 +215,30 @@ export function trivyRefPaths(doc) {
     }
   }
   /** @type {Map<string, string[]>} */
+  const edges = new Map();
+  for (const dep of Array.isArray(doc.dependencies) ? doc.dependencies : [])
+    if (typeof dep?.ref === "string" && Array.isArray(dep.dependsOn))
+      edges.set(
+        dep.ref,
+        dep.dependsOn.filter((r) => typeof r === "string"),
+      );
+  /** @type {Map<string, string[]>} */
   const out = new Map();
-  for (const dep of Array.isArray(doc.dependencies) ? doc.dependencies : []) {
-    const file = apps.get(dep?.ref);
-    if (file === undefined || !Array.isArray(dep.dependsOn)) continue;
-    for (const ref of dep.dependsOn) {
-      if (typeof ref !== "string") continue;
+  let visits = 0;
+  // bounded: one walk per lockfile application; each walk visits a node at most once and all walks share one visit cap
+  for (const [appRef, file] of apps) {
+    const seen = new Set([appRef]);
+    const queue = [...(edges.get(appRef) ?? [])];
+    for (let i = 0; i < queue.length; i += 1) {
+      const ref = queue[i];
+      if (seen.has(ref) || apps.has(ref)) continue;
+      seen.add(ref);
+      visits += 1;
+      if (visits > TRIVY_GRAPH_VISIT_CAP) return out;
       const list = out.get(ref) ?? [];
       if (!list.includes(file)) list.push(file);
       out.set(ref, list);
+      for (const next of edges.get(ref) ?? []) queue.push(next);
     }
   }
   return out;

@@ -138,6 +138,42 @@ purl normalization (changed purls only, 3 row(s)):
 9. **Exit code 137 and an empty output on a memory kill; exit 1 with a text on stderr for every startup error.** Nothing was ever written on stdout in a failing run except the Trivy usage text after an unknown flag.
 10. **stderr is informational on success.** Syft: one `WARN no explicit name and version provided for directory source` line. Trivy: `INFO`/`WARN` lines (`Loaded`, `License scanning is enabled`, `[npm] Run "npm install" ...`, `[pip] Unable to find python site-packages directory. License detection is skipped.`, `Detected OS`, `Number of language-specific files`). None indicates a failure.
 
-## 4. Open after the first commit
+## 4. Reconciliation (commit "reconcile Syft/Trivy adapters to real output")
 
-Sections 4 to 6 are filled in by the following commits (what was changed in the adapters, what was released from the held list of SPEC 17.i, what remains for the owner's machine).
+Comparison after the changes below, tree A: `PASS 61, MISMATCH 0, UNKNOWN 5`; the five UNKNOWN are the two `scope` checks (no real component carries a scope) and the three OQ-5 rows deb, rpm and apk (Trivy writes no purl for operating-system packages, so there is nothing to compare across the tools).
+
+| What the real output showed | Change |
+|---|---|
+| Trivy lockfile graph is deeper than direct `dependsOn` (Go root module, Maven project) | `trivyRefPaths` walks each lockfile transitively (never through another lockfile application, a node once, a visit cap of 2,000,000 per document); `PATH-graph-trivy` now PASS (14 of 14 libraries with a purl on tree A) |
+| Trivy writes no purl for OS packages in fs mode | a purl-less library of the Trivy adapter is skipped (`purlOptional`), not counted as invalid: the 3 dropped records and the `partial` / `output_invalid` status are gone. Syft keeps the strict rule (a purl-less Syft library stays invalid) |
+| A package listed once per lockfile | the adapter already folded repeats; the SE-12 wording of the comparison and the adapter comments were corrected (`DUP-*` is an observation) |
+| Both tools ignore an unknown key of the platform config; only a missing file is an error | `CFG-keys-*` is an informational PASS; the placeholder files are kept minimal and checked by our own suite |
+| The informational stderr of both tools | `ERR-*` is PASS when every line is of the known informational kind (Syft one WARN; Trivy INFO and WARN lines), an ERROR or FATAL line stays UNKNOWN |
+| CycloneDX 1.7 | no change (the `1.x` rule accepts it); fixtures supplemented, not replaced (see below) |
+| Sealed command lines, flags, config acceptance | **no change**: both ran as written (IMAGES.md section 2 and the adapters agree, `ENG-S03c`) |
+
+Fixtures: the three hand-written documents stay (they are the only inputs that exercise `scope`, `evidence.occurrences` and `aquasecurity:trivy:FilePath`, which real output never wrote, and the hostile and hand-built cases); the real documents under `fixtures/scan-engines/sbom/real/` supplement them and are asserted by the new check `ENG-S15f` (counts, path forms, cross-tool agreement, empty and archive results, the recorded exit codes and failure texts). The comparison tool gained checks for the new experiments (`EXP-oom-*`, `EXP-nolock-*`, `EXP-vulndb-trivy`); they appear only when the capture contains the run.
+
+Differences between the tools that are real and are kept: Syft lists the project roots (`pkg:npm/web@1.0.0`) and test-scope Maven dependencies (`junit`), Trivy omits both and lists the Go root module (`pkg:golang/example.invalid/svc`, no version); both omit npm dev dependencies by default.
+
+## 5. OQ-5 purl rules against real output
+
+VERIFIED = both real tools were compared and the rule is needed or confirmed; UNVERIFIED = no real output exercised the rule.
+
+| Rule | Status | Evidence |
+|---|---|---|
+| PyPI: lower case, `_` and `.` to `-` | **VERIFIED** | Trivy `pkg:pypi/zope.interface@5.5.2`, Syft `pkg:pypi/zope-interface@5.5.2`; `_` was already normalized by both (`typing-extensions`) |
+| Go: lower-case namespace and name | **VERIFIED** | Syft `github.com/BurntSushi/toml`, Trivy `github.com/burntsushi/toml` (the purl specification lowercases; the caveat that Go module paths are case sensitive stays a design risk) |
+| Go: the `v` prefix kept | **VERIFIED** | both write `@v1.3.2` |
+| npm: scope encoded `%40` | **VERIFIED** | both write `pkg:npm/%40babel/core@7.20.0` |
+| npm: name and scope lower case | UNVERIFIED | all captured npm names were already lower case |
+| npm and PyPI: a leading `v` stripped | UNVERIFIED | no such version appeared |
+| Maven: case kept, `group/artifact` | **VERIFIED** | both `pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1` |
+| Maven: qualifiers `type`, `classifier` kept | UNVERIFIED | none emitted |
+| deb and apk: vendor namespace and the kept qualifiers `arch`, `distro`; other qualifiers dropped | Syft side **VERIFIED**, cross-tool UNVERIFIED | Syft `pkg:deb/debian/libssl3@3.0.11-1~deb12u2?arch=amd64&distro=debian-12&upstream=openssl` (`upstream` is dropped, `+` in a version is written `%2B`); Trivy writes no purl for these packages in fs mode |
+| rpm | UNVERIFIED | no rpm database in the captured trees |
+| `package-id` qualifier | not seen in a purl | Syft puts `?package-id=` only in `bom-ref`; the rule that drops every other qualifier is unaffected |
+
+## 6. What remains for the owner's machine
+
+Rootless Docker or Podman (`--userns` mapping, ENG-L18), a second operating system or an ARM host, a repository with rpm, Python virtual-environment and `.jar` content, a real private repository tree (Option B of the runbook needs a token and was not run), Trivy and Syft in newer versions than the locked ones, calibration of limits and timing under load (ENG-L10), cancellation of a real container (ENG-L05).

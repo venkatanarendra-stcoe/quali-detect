@@ -64,7 +64,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 834;
+const EXPECTED_CHECKS = 835;
 const env = (name) => {
   const value = process.env[name];
   if (!value)

@@ -24,12 +24,18 @@ import {
   readManifest,
   safeText,
 } from "../../../../workers/scripts/eng-l20/compare-lib.js";
-import { canonicalPurl } from "../../../../workers/src/execution/engines/ensemble/core/index.js";
+import {
+  canonicalPurl,
+  mergeTaskCandidates,
+  runToolParse,
+} from "../../../../workers/src/execution/engines/ensemble/core/index.js";
 import { compareDirectory } from "../../../../workers/scripts/eng-l20/compare.js";
 import { SAMPLE_FILES, buildSampleTarGz } from "../../../../workers/scripts/eng-l20/sample-tree.js";
 import {
   SYFT_ARGV,
   TRIVY_SBOM_ARGV,
+  createSyftAdapter,
+  createTrivySbomAdapter,
 } from "../../../../workers/src/execution/engines/ensemble/sbom/index.js";
 
 /**
@@ -474,7 +480,7 @@ export const ENG_L20_CHECKS = [
         p,
         "PATH-graph-trivy",
         obs("PATH-graph-trivy"),
-        "7 lockfile applications cover all 7 libraries",
+        "7 libraries reached from a lockfile application cover all 7 libraries with a purl",
       );
       same(p, "PATH-form-syft", obs("PATH-form-syft"), '8 locations: {"leading-slash":8}');
       same(p, "PATH-form-trivy", obs("PATH-form-trivy"), '8 locations: {"bare-relative":8}');
@@ -550,7 +556,6 @@ export const ENG_L20_CHECKS = [
           "DOC-purl-syft",
           "DOC-scope-syft",
           "DOC-types-syft",
-          "DUP-syft",
           "ENS-merge",
           "EXIT-trivy",
           "IMG-trivy",
@@ -612,8 +617,10 @@ export const ENG_L20_CHECKS = [
       );
       ok(
         p,
-        bad.checks.find((c) => c.id === "DUP-syft").observed.startsWith("1 repeated purl entry "),
-        "one repeat is worded in the singular",
+        bad.checks
+          .find((c) => c.id === "DUP-syft")
+          .observed.startsWith("1 repeated purl entry, folded by the adapter"),
+        "one repeat is worded in the singular and is an observation, not a mismatch",
       );
       ok(
         p,
@@ -687,9 +694,17 @@ export const ENG_L20_CHECKS = [
         "unknown flag: --qm-no-such-flag",
       ]);
       const silent = compare(full(0));
-      for (const id of ["CFG-read", "CFG-keys", "FLAG"])
+      for (const id of ["CFG-read", "FLAG"])
         for (const tool of ["syft", "trivy"])
           same(p, `${id}-${tool} with a silent tool`, statusOf(silent)[`${id}-${tool}`], "UNKNOWN");
+      // an unknown platform-config key is an observation, ignored or rejected (real tools ignore it, ENG-L20)
+      for (const tool of ["syft", "trivy"])
+        same(
+          p,
+          `CFG-keys-${tool} with a silent tool`,
+          statusOf(silent)[`CFG-keys-${tool}`],
+          "PASS",
+        );
       // missing evidence is UNKNOWN, a boundary is a MISMATCH
       const lacking = clone(fixtureCapture());
       lacking.manifest.runs = lacking.manifest.runs.filter((r) => !r.id.endsWith("-version"));
@@ -1360,6 +1375,193 @@ export const ENG_L20_CHECKS = [
       } finally {
         rmSync(tmp, { recursive: true, force: true });
       }
+      return p;
+    },
+  },
+  {
+    id: "ENG-S15f",
+    name: "the Part E adapters read the REAL Syft 1.57.2 and Trivy 0.76.2 output recorded by ENG-L20 on 2026-11-20 (SPEC scan-engines 16.2 ENG-L20, 17.m, OQ-5; fixtures under fixtures/scan-engines/sbom/real): on the bundled sample tree and on a second tree with real npm, Go, Maven and PyPI lockfiles both tools parse as `succeeded` with nothing dropped (CycloneDX 1.7), the operating-system packages Trivy writes without a purl are skipped and not counted as invalid, every Syft path is the slash-prefixed repository path and every Trivy path comes from the lockfile graph (transitively through the Go module and the Maven project), a package listed in two lockfiles keeps both paths, the tools agree on the canonical purl of every shared package (Go upper case, PyPI dot and underscore, scoped npm) and differ only in the pinned way (Syft lists the project roots and test-scope Maven dependencies, Trivy the Go root module), a tree with nothing to catalog and a tree with a .jar give the recorded empty and one-package results, and the recorded exit codes (137 on an 8 MiB memory limit, 1 for a missing config and an unknown flag, 1 for Trivy vulnerability mode without a database) are the ones the engine's classification assumes",
+    async run() {
+      const p = [];
+      const REAL = path.join(FIX, "sbom/real");
+      const ctx = {
+        taskRef: "00000000-0000-4000-8000-000000000000",
+        toolRunId: "00000000-0000-4000-8000-0000000000a1",
+        toolVersion: "real",
+        imageDigest: null,
+      };
+      const adapters = { syft: createSyftAdapter(), trivy: createTrivySbomAdapter() };
+      const parse = (dir, name, tool) =>
+        runToolParse(
+          adapters[tool],
+          { stdout: readFileSync(path.join(REAL, dir, `${tool}-${name}.cdx.json`)), exitCode: 0 },
+          { ...ctx, toolRunId: ctx.toolRunId },
+        );
+      const purls = (o) => o.candidates.map((c) => c.component.purl).sort();
+      const pathsOf = (o, purl) =>
+        o.candidates.find((c) => c.component.purl === purl)?.locations?.map((l) => l.path) ?? null;
+      const diff = (a, b) => a.filter((x) => !b.includes(x));
+      for (const dir of ["sample", "treeB"])
+        for (const tool of ["syft", "trivy"]) {
+          const doc = JSON.parse(
+            readFileSync(path.join(REAL, dir, `${tool}-sealed.cdx.json`), "utf8"),
+          );
+          same(p, `${dir} ${tool} specVersion`, doc.specVersion, "1.7");
+          const o = parse(dir, "sealed", tool);
+          same(
+            p,
+            `${dir} ${tool} status`,
+            [o.status, o.reason, o.recordsDropped],
+            ["succeeded", null, 0],
+          );
+          for (const c of o.candidates)
+            ok(
+              p,
+              (c.locations ?? []).length > 0 && c.locations.every((l) => !l.path.startsWith("/")),
+              `${dir} ${tool} ${c.component.purl}: a record without a repository-relative path`,
+            );
+        }
+      const sSyft = parse("sample", "sealed", "syft");
+      const sTrivy = parse("sample", "sealed", "trivy");
+      same(
+        p,
+        "sample record counts",
+        [sSyft.candidates.length, sTrivy.candidates.length],
+        [17, 13],
+      );
+      same(p, "sample: Trivy only", diff(purls(sTrivy), purls(sSyft)), [
+        "pkg:golang/example.invalid/sample",
+      ]);
+      same(p, "sample: Syft only", diff(purls(sSyft), purls(sTrivy)), [
+        "pkg:apk/debian/busybox@1.36.1-r5?arch=x86_64&distro=debian-12",
+        "pkg:deb/debian/curl@7.88.1-10%2Bdeb12u5?arch=amd64&distro=debian-12",
+        "pkg:deb/debian/libssl3@3.0.11-1~deb12u2?arch=amd64&distro=debian-12",
+        "pkg:npm/eng-l20-sample@1.0.0",
+        "pkg:npm/web@1.0.0",
+      ]);
+      for (const [tool, o] of [
+        ["syft", sSyft],
+        ["trivy", sTrivy],
+      ]) {
+        same(p, `sample ${tool} lodash in two lockfiles`, pathsOf(o, "pkg:npm/lodash@4.17.20"), [
+          "package-lock.json",
+          "web/package-lock.json",
+        ]);
+        same(p, `sample ${tool} PyPI`, pathsOf(o, "pkg:pypi/zope-interface@5.5.2"), [
+          "py/requirements.txt",
+        ]);
+        same(p, `sample ${tool} Go`, pathsOf(o, "pkg:golang/github.com/burntsushi/toml@v1.3.2"), [
+          "go/go.mod",
+        ]);
+        same(
+          p,
+          `sample ${tool} Maven`,
+          pathsOf(o, "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1"),
+          ["java/pom.xml"],
+        );
+        same(p, `sample ${tool} scoped npm`, pathsOf(o, "pkg:npm/%40babel/core@7.20.0"), [
+          "package-lock.json",
+        ]);
+      }
+      const bSyft = parse("treeB", "sealed", "syft");
+      const bTrivy = parse("treeB", "sealed", "trivy");
+      same(p, "treeB record counts", [bSyft.candidates.length, bTrivy.candidates.length], [23, 22]);
+      same(p, "treeB: Trivy only", diff(purls(bTrivy), purls(bSyft)), [
+        "pkg:golang/example.invalid/svc",
+      ]);
+      same(p, "treeB: Syft only", diff(purls(bSyft), purls(bTrivy)), [
+        "pkg:maven/junit/junit@4.13.2",
+        "pkg:npm/eng-l20-web@0.1.0",
+      ]);
+      ok(
+        p,
+        !purls(bSyft).some((x) => /types\/node|semver@7/.test(x)) &&
+          !purls(bTrivy).some((x) => /types\/node|semver@7/.test(x)),
+        "neither tool lists the npm dev dependencies by default",
+      );
+      // the cross-tool merge: shared packages become one finding with two provenance entries
+      const merged = mergeTaskCandidates({
+        taskRef: ctx.taskRef,
+        scanType: "sbom",
+        candidates: [...sSyft.candidates, ...sTrivy.candidates],
+      });
+      same(
+        p,
+        "sample merge: findings, confirmed by both tools",
+        [merged.findings.length, merged.findings.filter((f) => f.provenance.length === 2).length],
+        [18, 12],
+      );
+      // empty and archive results
+      for (const tool of ["syft", "trivy"]) {
+        const none = parse("sample", "nolock", tool);
+        same(
+          p,
+          `${tool} no catalogable file`,
+          [none.status, none.candidates.length],
+          ["succeeded", 0],
+        );
+      }
+      const jar = parse("sample", "jar", "syft");
+      same(
+        p,
+        "syft jar",
+        [jar.candidates.length, pathsOf(jar, "pkg:maven/invalid.example/demo@1.2.3")],
+        [1, ["lib/demo.jar"]],
+      );
+      same(
+        p,
+        "trivy jar (licence mode does not open archives)",
+        parse("sample", "jar", "trivy").candidates.length,
+        0,
+      );
+      // the recorded exit codes and failure text (facts.json)
+      const facts = JSON.parse(readFileSync(path.join(REAL, "facts.json"), "utf8"));
+      const runs = facts.runs.sample;
+      for (const [id, code] of [
+        ["syft-sealed", 0],
+        ["trivy-sealed", 0],
+        ["syft-oom", 137],
+        ["trivy-oom", 137],
+        ["syft-config-missing", 1],
+        ["trivy-config-missing", 1],
+        ["syft-unknown-flag", 1],
+        ["trivy-unknown-flag", 1],
+        ["trivy-vuln-nodb", 1],
+        ["trivy-vuln-skipdb", 1],
+      ])
+        same(p, `${id} exit code`, runs[id]?.exitCode, code);
+      same(
+        p,
+        "oom runs write nothing",
+        [runs["syft-oom"].stderr, runs["trivy-oom"].stderr],
+        ["", ""],
+      );
+      ok(
+        p,
+        /invalid application config: file does not exist/.test(runs["syft-config-missing"].stderr),
+        "syft missing-config text",
+      );
+      ok(
+        p,
+        /config file .* loading error/.test(runs["trivy-config-missing"].stderr),
+        "trivy missing-config text",
+      );
+      ok(
+        p,
+        /failed to download vulnerability DB/.test(runs["trivy-vuln-nodb"].stderr),
+        "trivy no-database text",
+      );
+      ok(
+        p,
+        /--skip-db-update cannot be specified on the first run/.test(
+          runs["trivy-vuln-skipdb"].stderr,
+        ),
+        "trivy skip-db text",
+      );
+      same(p, "recorded digests are the locked ones", facts.images, {
+        syft: digestOf("syft"),
+        trivy: digestOf("trivy"),
+      });
       return p;
     },
   },

@@ -141,6 +141,7 @@ export const TASK_REASONS = Object.freeze({
   worker_lost: "The worker running this scan was lost.",
   walk_limit: "The repository is larger than the scan limit.",
   storage_error: "Results could not be stored.",
+  tools_failed: "All tools failed.",
 });
 export const taskReasonText = (code) =>
   code ? (TASK_REASONS[code] ?? `${humanize(code)}.`) : null;

@@ -1,66 +1,19 @@
-import {
-  ChevronDown,
-  ChevronRight,
-  CircleDot,
-  Info,
-  ShieldAlert,
-  TriangleAlert,
-  CircleAlert,
-} from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { Badge } from "@/components/ui/badge.jsx";
 import { Button } from "@/components/ui/button.jsx";
 import { TASK_ORDER, TASK_TITLES, taskReasonText, taskToggleId } from "../constants/index.js";
 import { TaskStatusChip, formatDuration } from "./execution-bits.jsx";
-
-const SEVERITIES = [
-  ["critical", "Critical", ShieldAlert],
-  ["high", "High", TriangleAlert],
-  ["medium", "Medium", CircleAlert],
-  ["low", "Low", Info],
-  ["info", "Info", CircleDot],
-];
-const SEVERITY_CLASS = {
-  critical: "bg-sev-critical-bg text-sev-critical-fg",
-  high: "bg-sev-high-bg text-sev-high-fg",
-  medium: "bg-sev-medium-bg text-sev-medium-fg",
-  low: "bg-sev-low-bg text-sev-low-fg",
-  info: "bg-sev-info-bg text-sev-info-fg",
-};
-
-/** Severity pill: tinted fill + icon + label (never colour alone). */
-function SeverityPill({ severity, label, icon: Icon, count }) {
-  return (
-    <span
-      className={`inline-flex h-5 items-center gap-1 rounded-full px-2 text-xs font-medium ${SEVERITY_CLASS[severity]}`}
-    >
-      <Icon aria-hidden="true" className="size-3" />
-      {label} {count}
-    </span>
-  );
-}
+import { SeverityPills } from "./severity-pills.jsx";
+import { ToolsSection, ToolsSummaryLine } from "./task-tools.jsx";
 
 function ResultSummary({ result }) {
-  const shown = SEVERITIES.filter(([key]) => (result.severityCounts?.[key] ?? 0) > 0);
   return (
     <div className="mt-2 space-y-1.5 text-sm">
       <p>
         {result.itemCount} {result.itemCount === 1 ? "item" : "items"}
       </p>
-      {shown.length ? (
-        <ul className="flex flex-wrap gap-1" aria-label="Items by severity">
-          {shown.map(([key, label, icon]) => (
-            <li key={key}>
-              <SeverityPill
-                severity={key}
-                label={label}
-                icon={icon}
-                count={result.severityCounts[key]}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <SeverityPills counts={result.severityCounts} label="Items by severity" />
       {result.truncated || result.completeness !== "complete" ? (
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {result.truncated ? <Badge tone="warning">Truncated</Badge> : null}
@@ -110,6 +63,7 @@ function TaskCard({ task, onViewLog }) {
                 {task.attempt > 1 && duration !== null ? " · " : null}
                 {duration !== null ? formatDuration(duration) : null}
               </span>
+              <ToolsSummaryLine task={task} />
             </>
           )}
         </span>
@@ -150,6 +104,7 @@ function TaskCard({ task, onViewLog }) {
               <p>Reason: {taskReasonText("engine_not_registered")} This is not a failure.</p>
             ) : (
               <>
+                <ToolsSection task={task} />
                 <p>
                   Attempt {task.attempt} of {task.maxAttempts}
                   {duration !== null ? `, ${formatDuration(duration)}` : ""}

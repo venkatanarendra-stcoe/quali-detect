@@ -1,0 +1,89 @@
+{
+  "manifestVersion": 1,
+  "images": {
+    "syft": {
+      "digest": "sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a",
+      "repoDigests": [
+        "anchore/syft@sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a"
+      ]
+    },
+    "trivy": {
+      "digest": "sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb",
+      "repoDigests": [
+        "aquasec/trivy@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    }
+  },
+  "runs": [
+    {
+      "id": "syft-version",
+      "tool": "syft",
+      "purpose": "syft-version",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "syft-version.stdout",
+      "stderrFile": "syft-version.stderr"
+    },
+    {
+      "id": "trivy-version",
+      "tool": "trivy",
+      "purpose": "trivy-version",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "trivy-version.stdout",
+      "stderrFile": "trivy-version.stderr"
+    },
+    {
+      "id": "syft-sealed",
+      "tool": "syft",
+      "purpose": "syft-sealed",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "syft-sealed.stdout",
+      "stderrFile": "syft-sealed.stderr"
+    },
+    {
+      "id": "trivy-sealed",
+      "tool": "trivy",
+      "purpose": "trivy-sealed",
+      "exitCode": 1,
+      "wallMs": 400000,
+      "timedOut": false,
+      "stdoutFile": "trivy-sealed.stdout",
+      "stderrFile": "trivy-sealed.stderr"
+    },
+    {
+      "id": "syft-planted",
+      "tool": "syft",
+      "purpose": "syft-planted",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "syft-planted.stdout",
+      "stderrFile": "syft-planted.stderr"
+    },
+    {
+      "id": "syft-config-missing",
+      "tool": "syft",
+      "purpose": "syft-config-missing",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "syft-config-missing.stdout",
+      "stderrFile": "syft-config-missing.stderr"
+    },
+    {
+      "id": "syft-unknown-flag",
+      "tool": "syft",
+      "purpose": "syft-unknown-flag",
+      "exitCode": 0,
+      "wallMs": 1200,
+      "timedOut": false,
+      "stdoutFile": "syft-unknown-flag.stdout",
+      "stderrFile": "syft-unknown-flag.stderr"
+    }
+  ]
+}

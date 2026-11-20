@@ -13,7 +13,7 @@
  */
 
 /** The longest stretch of work between two event-loop turns (milliseconds). */
-export const YIELD_SLICE_MS = 0;
+export const YIELD_SLICE_MS = 8;
 
 /**
  * Runs a checkpointed generator to completion in one synchronous call.

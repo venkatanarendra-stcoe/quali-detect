@@ -83,8 +83,8 @@ const bestOf = (members) =>
       cmp(refOf(a), refOf(b)),
   )[0];
 
-/** Greedy grouping: a candidate joins the first group that accepts it and holds no candidate of the same tool (SE-12). */
-function* greedy(sorted, accepts) {
+/** Greedy grouping (exported for the suite, which counts its checkpoints): a candidate joins the first group that accepts it and holds no candidate of the same tool (SE-12). */
+export function* greedy(sorted, accepts) {
   const groups = [];
   for (const c of sorted) {
     const tool = toolOf(c);
@@ -232,7 +232,7 @@ function* groupSast(candidates) {
 }
 
 const isGeneric = (t) => GENERIC_SECRET_TYPE_CLASSES.includes(t);
-function* groupSecrets(candidates) {
+export function* groupSecrets(candidates) {
   const sorted = yield* sortYielding(candidates, byLocation);
   const groups = [];
   for (const c of sorted) {

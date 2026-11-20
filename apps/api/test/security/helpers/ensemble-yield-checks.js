@@ -4,6 +4,9 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import {
   MergeBoundaryError,
+  YIELD_SLICE_MS,
+  greedy,
+  groupSecrets,
   mergeTaskCandidates,
   mergeTaskCandidatesAsync,
   runSync,
@@ -437,7 +440,215 @@ export async function yieldEquivalenceProblems() {
     const async = await codeOf(() => mergeTaskCandidatesAsync(bad));
     ok(p, sync !== null && sync === async, `refusal differs: sync ${sync}, async ${async}`);
   }
+  checkpointProblems(p);
+  await defaultSliceProblems(p);
+  await parseCheckpointProblems(p);
   return p;
+}
+
+/** Runs a checkpointed generator by hand and returns how many checkpoints (yields) it passed. */
+const countYields = (generator) => {
+  let n = 0;
+  let step = generator.next();
+  while (!step.done) {
+    n += 1;
+    step = generator.next();
+  }
+  return { n, value: step.value };
+};
+
+/** The checkpoints of `sortYielding` for presorted input: one per run, then per pair of runs one per 256 compare steps plus one. */
+const sortYieldsModel = (n, mergeSteps) => {
+  let runs = Array.from({ length: Math.ceil(n / 256) }, (_, i) => Math.min(256, n - i * 256));
+  let yields = runs.length;
+  while (runs.length > 1) {
+    const next = [];
+    for (let r = 0; r < runs.length; r += 2) {
+      if (r + 1 === runs.length) {
+        next.push(runs[r]);
+        continue;
+      }
+      yields += Math.floor(mergeSteps(runs[r], runs[r + 1]) / 256) + 1;
+      next.push(runs[r] + runs[r + 1]);
+    }
+    runs = next;
+  }
+  return yields;
+};
+
+/**
+ * EXACT checkpoint counts (clock-free: a generator is driven by hand and its yields are counted), so a redundant checkpoint cannot be
+ * moved or removed unnoticed. Mutants that only change WHEN the loop yields leave every result identical; only a count can see them.
+ */
+function checkpointProblems(p) {
+  // ---- sortYielding: ascending input (a merge consumes the whole left run) and descending input (the whole right run)
+  for (const n of [0, 1, 2, 255, 256, 257, 511, 512, 513, 768, 1000, 1025, 5000]) {
+    const asc = Array.from({ length: n }, (_, i) => i);
+    const desc = [...asc].reverse();
+    same(
+      p,
+      `sort checkpoints, ${n} ascending items`,
+      countYields(sortYielding(asc, (a, b) => a - b)).n,
+      sortYieldsModel(n, (left) => left),
+    );
+    same(
+      p,
+      `sort checkpoints, ${n} descending items`,
+      countYields(sortYielding(desc, (a, b) => a - b)).n,
+      sortYieldsModel(n, (_left, right) => right),
+    );
+  }
+  // hand-derived anchors (so the model above cannot drift together with the code)
+  same(p, "sort of 0 items", countYields(sortYielding([], (a, b) => a - b)).n, 0);
+  same(
+    p,
+    "sort of 256 items: one run",
+    countYields(
+      sortYielding(
+        Array.from({ length: 256 }, (_, i) => i),
+        (a, b) => a - b,
+      ),
+    ).n,
+    1,
+  );
+  same(
+    p,
+    "sort of 257 items, right run smaller: 2 runs, 1 compare step, 1 pair",
+    countYields(
+      sortYielding([...Array.from({ length: 256 }, (_, i) => i + 10), 0], (a, b) => a - b),
+    ).n,
+    3,
+  );
+  same(
+    p,
+    "sort of 257 items, right run larger: 2 runs, 256 compare steps (1 step checkpoint), 1 pair",
+    countYields(
+      sortYielding(
+        Array.from({ length: 257 }, (_, i) => i),
+        (a, b) => a - b,
+      ),
+    ).n,
+    4,
+  );
+  // ---- greedy: one checkpoint per candidate plus one per 512 open groups scanned
+  const tools = (n) =>
+    Array.from({ length: n }, (_, i) => ({ k: i, provenance: [{ toolId: "t" }] }));
+  const sameKey = (g, c) => g.first.k === c.k;
+  for (const n of [0, 1, 2, 511, 512, 513, 1023, 1024, 1025, 1100]) {
+    let inner = 0;
+    for (let j = 0; j < n; j += 1) inner += Math.floor(j / 512);
+    const r = countYields(greedy(tools(n), sameKey));
+    same(p, `greedy over ${n} distinct candidates`, r.n, n + inner);
+    same(p, `greedy groups over ${n} distinct candidates`, r.value.length, n);
+  }
+  {
+    // a candidate that matches group 600 stops its scan there (one inner checkpoint at 511), and one that matches group 3 has none
+    const open = tools(1000);
+    const late = { k: 600, provenance: [{ toolId: "u" }] };
+    const early = { k: 3, provenance: [{ toolId: "u" }] };
+    let inner = 0;
+    for (let j = 0; j < 1000; j += 1) inner += Math.floor(j / 512);
+    const r = countYields(greedy([...open, late, early], sameKey));
+    same(p, "greedy with two matches", r.n, 1000 + inner + (1 + 1) + (0 + 1));
+    same(
+      p,
+      "greedy merged the matches",
+      [r.value.length, r.value[600].length, r.value[3].length],
+      [1000, 2, 2],
+    );
+  }
+  // ---- groupSecrets: the sort, one checkpoint per candidate and one per 512 open groups scanned
+  for (const n of [0, 1, 511, 512, 513, 1100]) {
+    const secrets = Array.from({ length: n }, (_, i) => ({
+      location: { path: `cfg/f${String(i).padStart(5, "0")}.env`, startLine: 1 },
+      provenance: [{ toolId: "gitleaks" }],
+      mergeHints: { typeClass: "github_token" },
+      rawRef: { toolRunId: "22222222-1111-4111-8111-111111111111", ordinal: i },
+    }));
+    let inner = 0;
+    for (let j = 0; j < n; j += 1) inner += Math.floor(j / 512);
+    const r = countYields(groupSecrets(secrets));
+    same(
+      p,
+      `groupSecrets over ${n} distinct paths`,
+      r.n,
+      sortYieldsModel(n, (left) => left) + n + inner,
+    );
+    same(p, `groupSecrets groups over ${n} distinct paths`, r.value.length, n);
+  }
+}
+
+/** The default time slice is the documented 8 ms, and the default driver uses it. */
+async function defaultSliceProblems(p) {
+  same(p, "the default time slice (ms)", YIELD_SLICE_MS, 8);
+  function* work() {
+    for (let i = 0; i < 6; i += 1) yield;
+    return "done";
+  }
+  let clock = 0;
+  const realImmediate = globalThis.setImmediate;
+  let turns = 0;
+  globalThis.setImmediate = (fn, ...args) => {
+    turns += 1;
+    return realImmediate(fn, ...args);
+  };
+  try {
+    // every clock read advances 5 ms: with the default slice of 8 ms a turn is due at every second checkpoint
+    await runYielding(work(), { now: () => (clock += 5) });
+    same(p, "turns with the default slice at 5 ms per clock read", turns, 3);
+    // 4 ms per read: the slice of 8 ms is used up exactly at every second read (the boundary is inclusive)
+    turns = 0;
+    clock = 0;
+    await runYielding(work(), { now: () => (clock += 4) });
+    same(p, "turns with the default slice at 4 ms per clock read (exactly 8 ms: a turn)", turns, 3);
+    turns = 0;
+    clock = 0;
+    await runYielding(work(), { now: () => (clock += 3) });
+    same(p, "turns with the default slice at 3 ms per clock read", turns, 2);
+  } finally {
+    globalThis.setImmediate = realImmediate;
+  }
+}
+
+/** One checkpoint per parsed record, dropped or kept; the drop ratio limit is exclusive. */
+async function parseCheckpointProblems(p) {
+  const adapter = fakeAdapter("syft", "sbom", { maxRecords: 100_000 });
+  const good = (i) => ({ purl: `pkg:npm/p${i}@1.0.0`, path: "d/package-lock.json", scope: "prod" });
+  const bad = { line: -5 };
+  const turnsOf = async (records) => {
+    let reads = 0;
+    const outcome = await runToolParseAsync(
+      adapter,
+      out(records),
+      ctxFor(TASK_A),
+      {},
+      { sliceMs: Infinity, now: () => (reads += 1) },
+    );
+    return { yields: reads - 1, outcome };
+  };
+  for (const [label, records] of [
+    ["no record", []],
+    ["kept records", [good(1), good(2), good(3)]],
+    [
+      "a dropped record among kept ones",
+      [good(1), bad, good(2), good(3), good(4), good(5), good(6), good(7), good(8), good(9)],
+    ],
+    ["only dropped records", [bad]],
+  ]) {
+    const r = await turnsOf(records);
+    same(p, `parse checkpoints, ${label}`, r.yields, records.length);
+  }
+  // the limit: 2 of 10 dropped is exactly 20 percent (partial), 3 of 10 fails the tool
+  const tenWith = (dropped) => Array.from({ length: 10 }, (_, i) => (i < dropped ? bad : good(i)));
+  const atLimit = (await turnsOf(tenWith(2))).outcome;
+  same(
+    p,
+    "2 of 10 dropped",
+    [atLimit.status, atLimit.reason, atLimit.recordsDropped],
+    ["partial", "output_invalid", 2],
+  );
+  const over = (await turnsOf(tenWith(3))).outcome;
+  same(p, "3 of 10 dropped", [over.status, over.reason], ["failed", "output_invalid"]);
 }
 
 /** The timed part of ENG-S17a: the longest event-loop gap while 50000 candidates are merged, stored and parsed. */

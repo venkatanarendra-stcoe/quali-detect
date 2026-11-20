@@ -79,7 +79,7 @@ function pax(name) {
  * entries: { name, content?, type?, mode?, linkname?, raw? } ; `raw` = name used as is (no top directory). Names over 99 bytes go
  * through a pax `path` record so any length can be built.
  */
-function tar(entries, { topDir = "org-repo-abcdef0" } = {}) {
+export function tar(entries, { topDir = "org-repo-abcdef0" } = {}) {
   const parts = [header(`${topDir}/`, { type: "5", mode: 0o755 })];
   for (const e of entries) {
     const name = e.raw ? e.name : `${topDir}/${e.name}`;

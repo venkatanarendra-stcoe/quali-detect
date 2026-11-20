@@ -65,7 +65,7 @@ export function createScanToolRunRepository({ db }) {
         attempt === undefined ? Prisma.empty : Prisma.sql`AND attempt = ${attempt}::int`;
       return client.$queryRaw`
         SELECT id, scan_task_id AS "scanTaskId", attempt, tool_id AS "toolId", tool_version AS "toolVersion", image_digest AS "imageDigest",
-          status, reason, exit_code AS "exitCode", started_at AS "startedAt", finished_at AS "finishedAt", duration_ms AS "durationMs",
+          db_snapshot_sha256 AS "dbSnapshotSha256", db_built_at AS "dbBuiltAt", status, reason, exit_code AS "exitCode", started_at AS "startedAt", finished_at AS "finishedAt", duration_ms AS "durationMs",
           records_seen AS "recordsSeen", records_dropped AS "recordsDropped", findings_mapped AS "findingsMapped",
           severity_counts AS "severityCounts", truncated, capacity_wait_ms AS "capacityWaitMs"
         FROM scan_tool_runs

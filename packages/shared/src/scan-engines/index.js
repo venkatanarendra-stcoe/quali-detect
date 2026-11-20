@@ -4,3 +4,4 @@ export * from "./finding.js";
 export * from "./rollup.js";
 export * from "./json-size.js";
 export * from "./tool-dto.js";
+export * from "./db-mirror.js";

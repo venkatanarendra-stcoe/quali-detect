@@ -15,6 +15,7 @@ const ALLOWED = [
   "scheduler",
   "outbox",
   "scm",
+  "dbrefresh",
 ];
 const names = (process.env.WORKERS ? process.env.WORKERS.split(",") : DEFAULT)
   .map((n) => n.trim())

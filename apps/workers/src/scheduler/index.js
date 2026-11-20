@@ -108,6 +108,25 @@ export function start() {
         void purgeTick();
         timers.push(setInterval(purgeTick, r.purgeIntervalSeconds * 1000));
       }
+      // Vulnerability DB mirror refresh (SPEC scan-engines SE-34, part F): OFF unless SCAN_DB_REFRESH_ENABLED=true. One platform job per
+      // interval bucket to the `dbrefresh` queue; the job carries tool ids only (no URL or credential) and the dbrefresh worker
+      // refuses it again in a process where the flag is off.
+      if (config.scanDb?.refreshEnabled) {
+        const d = config.scanDb;
+        const refreshTick = () =>
+          enqueuePlatformJob({
+            db,
+            queue: QUEUE_NAMES.DBREFRESH,
+            type: "maintenance.scan_db.refresh_requested",
+            prefix: "scan-db-refresh",
+            intervalSeconds: d.intervalSeconds,
+            payload: { tools: [...d.tools] },
+          }).catch((error) =>
+            logger.error({ err: error }, "Could not enqueue the vulnerability DB refresh job"),
+          );
+        void refreshTick();
+        timers.push(setInterval(refreshTick, d.intervalSeconds * 1000));
+      }
       if (config.scm.enabled) {
         // GitHub reconciliation and retention (SPEC §6.5): the scm worker consumes these platform jobs.
         const schedule = (name, seconds, build) => {

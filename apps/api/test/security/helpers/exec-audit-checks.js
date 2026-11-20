@@ -106,6 +106,9 @@ async function compositeKeyProblems(db) {
   const found = new Set(owners.map((r) => r.t).filter((t) => t !== "executions"));
   // the orchestrator marker table is a platform singleton (no tenant, no execution): the only table allowed to hold neither
   found.delete("execution_orchestrator_markers");
+  // the vulnerability DB mirror's snapshot table (scan engines part F) is public platform data: no tenant, no execution
+  // (ENG-S12h proves it has no tenant-owned column and no foreign key)
+  found.delete("scan_db_snapshots");
   const expected = new Set(EXECUTION_CHILD_TABLES);
   for (const t of found)
     if (!expected.has(t))

@@ -115,6 +115,25 @@ const envSchema = z.object({
   SCAN_UNTRUSTED_CAPACITY_SHARE: z.coerce.number().int().min(1).max(100).default(50),
   SCAN_RUNNER_WAIT_SECONDS: z.coerce.number().int().min(1).max(900).default(120),
   SCAN_RUNNER_JANITOR_SECONDS: z.coerce.number().int().min(10).max(3600).default(60),
+  // Vulnerability DB mirror (docs/modules/scan-engines/SPEC.md 5.12, part F). OFF BY DEFAULT: the refresh job is neither scheduled nor
+  // handled unless SCAN_DB_REFRESH_ENABLED=true. The roots are required (and checked) only while it is on. No URL, host or credential
+  // is configured here: the downloader (the only component with network egress) is wired outside this schema.
+  SCAN_DB_REFRESH_ENABLED: z.enum(["true", "false"]).default("false"),
+  SCAN_DB_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(300).max(604800).default(21600),
+  SCAN_DB_REFRESH_TOOLS: z.string().max(100).default("trivy,osv-scanner"),
+  SCAN_DB_MIRROR_ROOT: z.string().optional(),
+  SCAN_DB_CACHE_ROOT: z.string().optional(),
+  SCAN_DB_MAX_BYTES: z.coerce.number().int().min(1048576).max(68719476736).default(4294967296),
+  SCAN_DB_MIN_SIZE_PERCENT: z.coerce.number().int().min(1).max(100).default(50),
+  SCAN_DB_MAX_UPSTREAM_AGE_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  SCAN_DB_KEEP_RETIRED: z.coerce.number().int().min(0).max(20).default(3),
+  SCAN_DB_CANDIDATE_ABANDON_SECONDS: z.coerce.number().int().min(60).max(604800).default(3600),
+  SCAN_DB_LOCK_TTL_SECONDS: z.coerce.number().int().min(60).max(86400).default(3600),
+  // Staleness tiers of the active snapshot (SE-38; 3 and 14 days are the SPEC numbers, 30 is the added `expired` tier). Staleness never
+  // fails a scan: every tier above fresh makes the tool run partial and the result incomplete.
+  SCAN_DB_STALE_AGING_DAYS: z.coerce.number().int().min(1).max(365).default(3),
+  SCAN_DB_STALE_STALE_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+  SCAN_DB_STALE_EXPIRED_DAYS: z.coerce.number().int().min(1).max(730).default(30),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -280,6 +299,53 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
         message: "must not exceed SCAN_RUNNER_MAX_CONTAINERS",
       });
   }
+  // Vulnerability DB mirror (part F): thresholds always checked; roots and tools only matter while the refresh is on.
+  const scanDbTools = e.SCAN_DB_REFRESH_TOOLS.split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (!(
+    e.SCAN_DB_STALE_AGING_DAYS < e.SCAN_DB_STALE_STALE_DAYS &&
+    e.SCAN_DB_STALE_STALE_DAYS < e.SCAN_DB_STALE_EXPIRED_DAYS
+  ))
+    executionProblems.push({
+      variable: "SCAN_DB_STALE_AGING_DAYS / SCAN_DB_STALE_STALE_DAYS / SCAN_DB_STALE_EXPIRED_DAYS",
+      message: "must be strictly increasing",
+    });
+  if (e.SCAN_DB_REFRESH_ENABLED === "true") {
+    if (!e.DATABASE_URL)
+      executionProblems.push({
+        variable: "DATABASE_URL",
+        message: "required while SCAN_DB_REFRESH_ENABLED=true",
+      });
+    for (const [variable, value] of [
+      ["SCAN_DB_MIRROR_ROOT", e.SCAN_DB_MIRROR_ROOT],
+      ["SCAN_DB_CACHE_ROOT", e.SCAN_DB_CACHE_ROOT],
+    ])
+      if (!value || !path.isAbsolute(value))
+        executionProblems.push({
+          variable,
+          message: "an absolute path is required while SCAN_DB_REFRESH_ENABLED=true",
+        });
+    if (e.SCAN_DB_MIRROR_ROOT && e.SCAN_DB_MIRROR_ROOT === e.SCAN_DB_CACHE_ROOT)
+      executionProblems.push({
+        variable: "SCAN_DB_CACHE_ROOT",
+        message: "must differ from SCAN_DB_MIRROR_ROOT",
+      });
+    for (const t of scanDbTools)
+      if (!["trivy", "osv-scanner"].includes(t))
+        executionProblems.push({
+          variable: "SCAN_DB_REFRESH_TOOLS",
+          message:
+            t === "grype"
+              ? "grype has no mirror in v1 (SPEC D-21)"
+              : "must list only trivy and osv-scanner",
+        });
+    if (scanDbTools.length === 0)
+      executionProblems.push({
+        variable: "SCAN_DB_REFRESH_TOOLS",
+        message: "must list at least one tool",
+      });
+  }
   if (executionProblems.length > 0) throw new ConfigError(executionProblems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
@@ -321,6 +387,24 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
         maxLatenessSeconds: e.PIPELINE_SCHEDULE_MAX_LATENESS_SECONDS,
         onTimeGraceSeconds: e.PIPELINE_SCHEDULE_ON_TIME_GRACE_SECONDS,
         jitterSeconds: e.PIPELINE_SCHEDULE_JITTER_SECONDS,
+      }),
+    }),
+    scanDb: Object.freeze({
+      refreshEnabled: e.SCAN_DB_REFRESH_ENABLED === "true",
+      intervalSeconds: e.SCAN_DB_REFRESH_INTERVAL_SECONDS,
+      tools: Object.freeze([...new Set(scanDbTools)]),
+      mirrorRoot: e.SCAN_DB_MIRROR_ROOT ?? null,
+      cacheRoot: e.SCAN_DB_CACHE_ROOT ?? null,
+      maxBytes: e.SCAN_DB_MAX_BYTES,
+      minSizePercent: e.SCAN_DB_MIN_SIZE_PERCENT,
+      maxUpstreamAgeDays: e.SCAN_DB_MAX_UPSTREAM_AGE_DAYS,
+      keepRetired: e.SCAN_DB_KEEP_RETIRED,
+      candidateAbandonSeconds: e.SCAN_DB_CANDIDATE_ABANDON_SECONDS,
+      lockTtlSeconds: e.SCAN_DB_LOCK_TTL_SECONDS,
+      stalenessDays: Object.freeze({
+        aging: e.SCAN_DB_STALE_AGING_DAYS,
+        stale: e.SCAN_DB_STALE_STALE_DAYS,
+        expired: e.SCAN_DB_STALE_EXPIRED_DAYS,
       }),
     }),
     execution: Object.freeze({

@@ -459,6 +459,24 @@ export const MESSAGE_TYPES = Object.freeze({
       })
       .strict(),
   }),
+  /**
+   * Scheduled refresh of the vulnerability DB mirror (docs/modules/scan-engines/SPEC.md SE-34, part F). Platform job (no tenant) for
+   * the `dbrefresh` worker, enqueued only while SCAN_DB_REFRESH_ENABLED=true; the handler refuses it in a process where the flag is
+   * off. The payload names tools only: no URL, host, path or credential ever travels in it (the process configuration is the authority).
+   */
+  "maintenance.scan_db.refresh_requested": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        tools: z
+          .array(z.enum(["trivy", "osv-scanner"]))
+          .min(1)
+          .max(2),
+      })
+      .strict(),
+  }),
   /** Scheduled maintenance: delete expired and revoked sessions older than the retention period. */
   "maintenance.sessions.purge_requested": Object.freeze({
     kind: "job",

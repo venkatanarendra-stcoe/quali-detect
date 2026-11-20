@@ -1,0 +1,28 @@
+// ---------------------------------------------------------------- Vulnerability DB mirror (scan engines, part F)
+// docs/modules/scan-engines/SPEC.md 5.12 (SE-32..SE-39, SE-45, SE-46), 7.3. PLATFORM-LEVEL: public vulnerability data, NOT tenant
+// data, so the table has NO tenant column (like `execution_orchestrator_markers`) and is never exposed by an API. One `active`
+// snapshot per tool (partial unique index), status changes are one-way (trigger), the identifying columns are immutable, DELETE and
+// TRUNCATE are refused. The migration adds the CHECK constraints, the index and the triggers Prisma cannot express.
+model ScanDbSnapshot {
+  id              String    @id @default(uuid()) @db.Uuid
+  toolId          String    @map("tool_id")
+  sourceVersion   String    @map("source_version")
+  upstreamBuiltAt DateTime  @map("upstream_built_at") @db.Timestamptz(6)
+  fetchedAt       DateTime  @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  sizeBytes       BigInt    @map("size_bytes")
+  sha256          String
+  status          String    @default("candidate")
+  promotedAt      DateTime? @map("promoted_at") @db.Timestamptz(6)
+  retiredAt       DateTime? @map("retired_at") @db.Timestamptz(6)
+  rejectedReason  String?   @map("rejected_reason")
+  contentPrunedAt DateTime? @map("content_pruned_at") @db.Timestamptz(6)
+  /// Allowlisted sources with their licence and whether attribution is mandatory (GHSA, SE-47). Never a URL.
+  sources         Json      @default("[]")
+  /// Record counts by source, quarantined and refused counts. Counts only.
+  recordCounts    Json      @default("{}") @map("record_counts")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([toolId, sha256], map: "scan_db_snapshots_tool_sha256_key")
+  @@index([toolId, status, upstreamBuiltAt(sort: Desc)], map: "scan_db_snapshots_tool_status_built_idx")
+  @@map("scan_db_snapshots")
+}

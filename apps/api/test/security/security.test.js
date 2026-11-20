@@ -44,6 +44,8 @@ import { ENSEMBLE_SBOM_CHECKS } from "./helpers/ensemble-sbom-checks.js";
 import { ENG_L20_CHECKS } from "./helpers/eng-l20-checks.js";
 import { ENSEMBLE_ENGINE_CHECKS, ENSEMBLE_WORLD_CHECKS } from "./helpers/ensemble-engine-checks.js";
 import { ENSEMBLE_YIELD_CHECKS } from "./helpers/ensemble-yield-checks.js";
+import { DBMIRROR_CHECKS } from "./helpers/dbmirror-checks.js";
+import { DBMIRROR_DB_CHECKS } from "./helpers/dbmirror-db-checks.js";
 import { IMAGE_CATALOG_CHECKS } from "./helpers/image-catalog-checks.js";
 import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
@@ -64,7 +66,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 836;
+const EXPECTED_CHECKS = 849;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5696,7 +5698,12 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
 {
   const add = group("Executions: database integrity and state-machine helpers");
   const execdbWorld = () => once("execdb", () => buildExecutionDbWorld(suiteDb()));
-  for (const { id, name, run } of [...EXECDB_CHECKS, ...LOGDB_CHECKS, ...ENSEMBLE_DB_CHECKS])
+  for (const { id, name, run } of [
+    ...EXECDB_CHECKS,
+    ...LOGDB_CHECKS,
+    ...ENSEMBLE_DB_CHECKS,
+    ...DBMIRROR_DB_CHECKS,
+  ])
     add(
       id,
       name,
@@ -10419,6 +10426,7 @@ const schWorld = () =>
     ...ENG_L20_CHECKS,
     ...ENSEMBLE_ENGINE_CHECKS,
     ...ENSEMBLE_YIELD_CHECKS,
+    ...DBMIRROR_CHECKS,
   ])
     add(
       id,

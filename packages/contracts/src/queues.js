@@ -22,6 +22,8 @@ export const QUEUE_NAMES = Object.freeze({
   REALTIME: "realtime",
   /** Scan tasks of `untrusted_fork` executions: same handler as `scan`, separate consumers (SPEC ER-7, EQ-7b). */
   SCAN_UNTRUSTED: "scan-untrusted",
+  /** The vulnerability DB mirror refresh job (docs/modules/scan-engines/SPEC.md SE-34); platform worker role `dbrefresh`. */
+  DBREFRESH: "dbrefresh",
 });
 
 /** Topic exchange for webhook-derived SCM events; routing key `scm.github.<event>` (SPEC Q11). */

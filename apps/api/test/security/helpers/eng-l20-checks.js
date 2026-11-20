@@ -36,6 +36,7 @@ import {
   TRIVY_SBOM_ARGV,
   createSyftAdapter,
   createTrivySbomAdapter,
+  trivyRefPaths,
 } from "../../../../workers/src/execution/engines/ensemble/sbom/index.js";
 
 /**
@@ -1562,6 +1563,235 @@ export const ENG_L20_CHECKS = [
         syft: digestOf("syft"),
         trivy: digestOf("trivy"),
       });
+      // ---- Trivy's lockfile graph walk on a hand-built graph: transitive, cycle-safe, never through another lockfile, bounded
+      {
+        const app = (ref, name) => ({ "bom-ref": ref, type: "application", name });
+        const doc = {
+          components: [
+            app("A1", "one/package-lock.json"),
+            app("A2", "two/go.mod"),
+            { "bom-ref": "L7", type: "library", name: "curl" },
+          ],
+          dependencies: [
+            { ref: "A1", dependsOn: ["L1", "L2", "A2"] },
+            { ref: "L1", dependsOn: ["L3"] },
+            { ref: "L3", dependsOn: ["L1", "L2", "L4"] },
+            { ref: "A2", dependsOn: ["L4", "L5", "L7"] },
+            { ref: "L7", dependsOn: ["L8"] },
+            { ref: "L5", dependsOn: [7, null, "L6"] },
+            { ref: 5, dependsOn: ["L9"] },
+            { ref: "X", dependsOn: "L9" },
+          ],
+        };
+        const got = Object.fromEntries([...trivyRefPaths(doc)].sort());
+        same(p, "transitive, cyclic and two lockfiles", got, {
+          L1: ["one/package-lock.json"],
+          L2: ["one/package-lock.json"],
+          L3: ["one/package-lock.json"],
+          L4: ["one/package-lock.json", "two/go.mod"],
+          L5: ["two/go.mod"],
+          L6: ["two/go.mod"],
+          L7: ["two/go.mod"],
+          L8: ["two/go.mod"],
+        });
+        ok(p, !("A2" in got) && !("A1" in got), "an application is never a library of a lockfile");
+        for (const [max, want] of [
+          [0, 0],
+          [1, 1],
+          [3, 3],
+          [99, 8],
+        ])
+          same(p, `visit cap ${max}`, trivyRefPaths(doc, max).size, want);
+        same(
+          p,
+          "no graph",
+          [trivyRefPaths({}).size, trivyRefPaths({ components: [] }).size],
+          [0, 0],
+        );
+      }
+      // ---- the comparison's new checks (experiments added after the first real run, informational stderr, purl-less Trivy libraries)
+      const base = fixtureCapture();
+      const emptyDoc = JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.7", version: 1 });
+      const add = (cap, id, tool, over, stdout, stderr) => {
+        cap.manifest.runs.push(run(id, tool, over));
+        cap.files.set(`${id}.stdout`, Buffer.from(stdout));
+        cap.files.set(`${id}.stderr`, Buffer.from(stderr));
+      };
+      const good = clone(base);
+      add(good, "syft-oom", "syft", { exitCode: 137 }, "", "");
+      add(good, "trivy-oom", "trivy", { exitCode: 137 }, "", "");
+      add(good, "syft-nolock", "syft", {}, emptyDoc, "");
+      add(good, "trivy-nolock", "trivy", {}, emptyDoc, "");
+      add(
+        good,
+        "trivy-vuln-nodb",
+        "trivy",
+        { exitCode: 1 },
+        "",
+        "FATAL DB error: failed to download vulnerability DB\n",
+      );
+      const goodStatus = statusOf(compare(good));
+      for (const id of [
+        "EXP-oom-syft",
+        "EXP-oom-trivy",
+        "EXP-nolock-syft",
+        "EXP-nolock-trivy",
+        "EXP-vulndb-trivy",
+      ])
+        same(p, `${id} on the recorded behaviour`, goodStatus[id], "PASS");
+      same(
+        p,
+        "no experiment run, no experiment check",
+        Object.keys(statusOf(compare(base))).filter((id) => id.startsWith("EXP-")),
+        [],
+      );
+      const odd = clone(base);
+      add(odd, "syft-oom", "syft", { exitCode: 1 }, "", "");
+      add(odd, "trivy-oom", "trivy", { exitCode: 137, timedOut: true }, "", "");
+      add(
+        odd,
+        "syft-nolock",
+        "syft",
+        {},
+        readFileSync(path.join(FIX, "sbom/syft-cyclonedx.json"), "utf8"),
+        "",
+      );
+      add(odd, "trivy-nolock", "trivy", { exitCode: 2 }, emptyDoc, "");
+      add(odd, "trivy-vuln-nodb", "trivy", { exitCode: 0 }, "{}", "");
+      const oddStatus = statusOf(compare(odd));
+      for (const id of [
+        "EXP-oom-syft",
+        "EXP-oom-trivy",
+        "EXP-nolock-syft",
+        "EXP-nolock-trivy",
+        "EXP-vulndb-trivy",
+      ])
+        same(p, `${id} on a different behaviour`, oddStatus[id], "MISMATCH");
+      const obsOf = (report, id) => report.checks.find((c) => c.id === id)?.observed;
+      const goodReport = compare(good);
+      same(
+        p,
+        "oom evidence",
+        obsOf(goodReport, "EXP-oom-syft"),
+        "exit 137, 0 bytes of output, 0 stderr line(s)",
+      );
+      same(
+        p,
+        "nolock evidence",
+        obsOf(goodReport, "EXP-nolock-trivy"),
+        "exit 0, a document without packages",
+      );
+      same(p, "vuln evidence", obsOf(goodReport, "EXP-vulndb-trivy"), "exit 1, 1 stderr line(s)");
+      // missing files are evidence of nothing: never a crash, never a PASS by accident
+      const bare = clone(good);
+      for (const id of ["syft-oom", "trivy-vuln-nodb", "trivy-nolock"])
+        for (const stream of ["stderr", "stdout"]) bare.files.delete(`${id}.${stream}`);
+      bare.files.delete("syft-sealed.stderr");
+      const bareReport = compare(bare);
+      same(
+        p,
+        "oom without stderr file",
+        obsOf(bareReport, "EXP-oom-syft"),
+        "exit 137, 0 bytes of output, no stderr file",
+      );
+      same(
+        p,
+        "vuln without stderr file",
+        obsOf(bareReport, "EXP-vulndb-trivy"),
+        "exit 1, no stderr file",
+      );
+      same(p, "nolock without stdout", statusOf(bareReport)["EXP-nolock-trivy"], "MISMATCH");
+      ok(
+        p,
+        obsOf(bareReport, "EXP-nolock-trivy").includes("unreadable"),
+        "unreadable nolock document is said so",
+      );
+      same(p, "missing stderr is UNKNOWN", statusOf(bareReport)["ERR-syft"], "UNKNOWN");
+      const killed = clone(good);
+      runOf(killed, "trivy-vuln-nodb").exitCode = null;
+      same(
+        p,
+        "a killed vulnerability run decides nothing",
+        statusOf(compare(killed))["EXP-vulndb-trivy"],
+        "MISMATCH",
+      );
+      const lib0 = clone(base);
+      const d0 = jsonOf(lib0, "trivy-sealed.stdout");
+      d0.components.push({ "bom-ref": "np", type: "library", name: "curl", version: "7" });
+      setJson(lib0, "trivy-sealed.stdout", d0);
+      ok(
+        p,
+        obsOf(compare(lib0), "DOC-purl-trivy").includes("1 without a purl (skipped by the adapter"),
+        "purl-less count is reported",
+      );
+      ok(
+        p,
+        !obsOf(compare(base), "DOC-purl-trivy").includes("skipped"),
+        "no purl-less library, nothing skipped",
+      );
+      // stderr: the informational lines of the real tools are PASS, an error line is read by a human (UNKNOWN)
+      for (const [tool, text, want] of [
+        [
+          "syft",
+          "[0000]  WARN no explicit name and version provided for directory source, deriving artifact ID from the given path (which is not ideal)\n",
+          "PASS",
+        ],
+        ["syft", "[0000]  WARN something else\n", "UNKNOWN"],
+        ["syft", "[0000] ERROR boom\n", "UNKNOWN"],
+        [
+          "trivy",
+          '2026-11-20T17:04:36Z\tINFO\tLoaded\tfile_path="/rules/trivy.yaml"\n2026-11-20T17:04:36Z\tWARN\t[pip] x\n',
+          "PASS",
+        ],
+        [
+          "trivy",
+          "2026-11-20T17:04:36Z\tINFO\tLoaded\n2026-11-20T17:04:36Z\tERROR\tboom\n",
+          "UNKNOWN",
+        ],
+        ["trivy", "2026-11-20T17:04:36Z\tFATAL\tFatal error\n", "UNKNOWN"],
+        [
+          "trivy",
+          "[0000]  WARN no explicit name and version provided for directory source\n",
+          "UNKNOWN",
+        ],
+      ]) {
+        const cap = clone(base);
+        cap.files.set(`${tool}-sealed.stderr`, Buffer.from(text));
+        same(
+          p,
+          `ERR-${tool} for ${JSON.stringify(text.slice(0, 40))}`,
+          statusOf(compare(cap))[`ERR-${tool}`],
+          want,
+        );
+      }
+      // a purl-less library: skipped for Trivy (real operating-system packages), a mismatch for Syft
+      for (const [tool, want] of [
+        ["trivy", "PASS"],
+        ["syft", "MISMATCH"],
+      ]) {
+        const cap = clone(base);
+        const doc = jsonOf(cap, `${tool}-sealed.stdout`);
+        doc.components.push({
+          "bom-ref": "no-purl-1",
+          type: "library",
+          name: "curl",
+          version: "7",
+        });
+        setJson(cap, `${tool}-sealed.stdout`, doc);
+        const report = compare(cap);
+        same(
+          p,
+          `DOC-purl-${tool} with a purl-less library`,
+          statusOf(report)[`DOC-purl-${tool}`],
+          want,
+        );
+        same(
+          p,
+          `ADAPTER-${tool} with a purl-less library`,
+          statusOf(report)[`ADAPTER-${tool}`],
+          tool === "trivy" ? "PASS" : "MISMATCH",
+        );
+      }
       return p;
     },
   },

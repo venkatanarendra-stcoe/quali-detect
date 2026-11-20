@@ -7,6 +7,7 @@ import {
 import { createScanTaskRepository } from "@qmentisai/db";
 import { loadImageLock } from "../catalog/index.js";
 import { createEnsembleSbomEngine } from "./engine.js";
+import { createTreePathExists } from "./tree-paths.js";
 
 /**
  * Builds the ensemble engine and the pieces around it from the validated worker configuration (docs/modules/scan-engines/SPEC.md
@@ -38,6 +39,7 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
     resolver,
     rulesDir: s.rulesDir,
     toolWaitMs: s.waitSeconds * 1000,
+    treePathExists: createTreePathExists,
   });
   const tasks = createScanTaskRepository({ db });
   const janitor = createJanitor({

@@ -410,7 +410,7 @@ function metadataToolVersion(metadata) {
  */
 const BENIGN_STDERR = Object.freeze({
   syft: [/^\[\d+\]\s+WARN no explicit name and version provided for directory source\b/],
-  trivy: [/^\S+\s+(INFO|WARN)\s/],
+  trivy: [/^\d{4}-\d\d-\d\dT\S+\s+(INFO|WARN)\s/],
 });
 
 function stderrSummary(buffer, tool = null) {

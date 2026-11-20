@@ -195,11 +195,13 @@ export const TRIVY_GRAPH_VISIT_CAP = 2_000_000;
  * libraries in the `dependencies` graph. Real output (ENG-L20): an application lists its direct packages, but for Go and Maven it
  * lists the root module or project, which lists the dependencies, so each lockfile is walked transitively over the `dependsOn` edges,
  * never through another lockfile application (one lockfile's packages never take the path of another) and never revisiting a node.
- * Returns bom-ref of a library to the paths of the lockfiles that reach it. At most {@link TRIVY_GRAPH_VISIT_CAP} visits in total.
+ * Returns bom-ref of a library to the paths of the lockfiles that reach it. At most `maxVisits` (default
+ * {@link TRIVY_GRAPH_VISIT_CAP}) visits in total.
  * @param {any} doc
+ * @param {number} [maxVisits]
  * @returns {Map<string, string[]>}
  */
-export function trivyRefPaths(doc) {
+export function trivyRefPaths(doc, maxVisits = TRIVY_GRAPH_VISIT_CAP) {
   const apps = new Map();
   for (const c of Array.isArray(doc.components) ? doc.components : []) {
     if (
@@ -234,7 +236,7 @@ export function trivyRefPaths(doc) {
       if (seen.has(ref) || apps.has(ref)) continue;
       seen.add(ref);
       visits += 1;
-      if (visits > TRIVY_GRAPH_VISIT_CAP) return out;
+      if (visits > maxVisits) return out;
       const list = out.get(ref) ?? [];
       if (!list.includes(file)) list.push(file);
       out.set(ref, list);

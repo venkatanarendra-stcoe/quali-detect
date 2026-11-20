@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -41,6 +42,12 @@ import {
   redactedSbomDocument,
 } from "../../../../workers/src/execution/engines/ensemble/engine/engine.js";
 import { runManifestSha256 } from "../../../../workers/src/execution/engines/ensemble/engine/run-manifest.js";
+import { classifyToolExit } from "../../../../workers/src/execution/engines/ensemble/engine/tool-exit.js";
+import {
+  TREE_PATH_CACHE_MAX,
+  createTreePathExists,
+} from "../../../../workers/src/execution/engines/ensemble/engine/tree-paths.js";
+import { SAMPLE_FILES } from "../../../../workers/scripts/eng-l20/sample-tree.js";
 import { buildEnsembleEngine } from "../../../../workers/src/execution/engines/ensemble/engine/wiring.js";
 import { buildEngineRegistry, engineRegistry } from "../../../../workers/src/execution/registry.js";
 
@@ -88,7 +95,14 @@ const TREE_FILES = {
 };
 
 /** A disposable environment: tree root, rules directory, fake runtime, runner, gate, engine. */
-export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts, redactDocument } = {}) {
+export function makeEnv({
+  gate = {},
+  toolWaitMs = 500,
+  inventory,
+  scripts,
+  redactDocument,
+  treePathExists,
+} = {}) {
   const base = mkdtempSync(path.join(os.tmpdir(), "qm-ens-s10-"));
   const archiveRoot = path.join(base, "scan");
   const rulesDir = path.join(base, "rules");
@@ -125,6 +139,7 @@ export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts, redac
     toolWaitMs,
     inventory,
     ...(redactDocument ? { redactDocument } : {}),
+    ...(treePathExists ? { treePathExists } : {}),
   });
   let n = 0;
   const tree = (files = TREE_FILES) => {
@@ -146,6 +161,7 @@ export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts, redac
     fork = false,
     signal,
     files,
+    changedPaths,
   } = {}) =>
     engine.runTask(
       Object.freeze({
@@ -165,6 +181,7 @@ export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts, redac
           secondsToDeadline,
           fork,
           maxItems: 50_000,
+          ...(changedPaths ? { changedPaths } : {}),
         },
       },
     );
@@ -262,6 +279,17 @@ export function toolRunProblems(r) {
 }
 
 const FIXED = { syftFindings: 8 };
+
+const throwsOn = (fn) => {
+  try {
+    fn();
+  } catch {
+    return true;
+  }
+  return false;
+};
+const REAL = path.join(FIX, "real");
+const realDoc = (dir, name) => readFileSync(path.join(REAL, dir, name), "utf8");
 
 export const ENSEMBLE_ENGINE_CHECKS = [
   {
@@ -2589,6 +2617,265 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           globalThis.setImmediate = real;
         }
         same(p, "no turn while the slice is not used up", immediates, 0);
+      }
+      return p;
+    },
+  },
+  {
+    id: "ENG-S16d",
+    name: "the ensemble engine on REAL Syft and Trivy output with the released ENG-L20 behaviour (SPEC scan-engines 5.3, 5.9, SE-27, 17.n, fake runtime, real recorded documents and a tree laid out like the sample): with the tree path filter every record of both tools is kept (17 and 13 records, nothing dropped) and the incremental changed-path list narrows nothing (the SBOM scope stays full, packages of manifests that did not change are still reported); a tree that lacks a manifest the tools reported drops exactly the records that name it and marks the tool partial, never failed; the worker wiring always installs the filter; an exit code of 137 ends the tool failed / out_of_memory, a bad platform configuration (the recorded Syft and Trivy texts) failed / config_invalid, any other non-zero exit and Trivy's database error failed / exit_code (never db_unavailable in the SBOM role), the tool run keeps the numeric exit code and none of the stderr text, and an accepted exit code is never reclassified; one failed tool degrades the task and the other tool's records are kept; the tree path filter answers existence only (a file or directory under the root, never `..`, an absolute path, a symbolic link or a non-string) and caches at most its cap",
+    async run() {
+      const p = [];
+      const facts = JSON.parse(readFileSync(path.join(REAL, "facts.json"), "utf8")).runs.sample;
+      const real = {
+        syft: { exitCode: 0, stdout: realDoc("sample", "syft-sealed.cdx.json") },
+        trivy: { exitCode: 0, stdout: realDoc("sample", "trivy-sealed.cdx.json") },
+      };
+      // ---- real documents, the filter on
+      {
+        const env = makeEnv({ scripts: real, treePathExists: createTreePathExists });
+        try {
+          const r = await env.run({ files: SAMPLE_FILES });
+          const t = runs(r);
+          same(p, "statuses", statusOf(r), {
+            syft: "succeeded",
+            trivy: "succeeded",
+            "sbom-lite": "succeeded",
+          });
+          same(p, "syft records", [t.syft.recordsSeen, t.syft.recordsDropped], [17, 0]);
+          same(p, "trivy records", [t.trivy.recordsSeen, t.trivy.recordsDropped], [13, 0]);
+          same(
+            p,
+            "scope stays full",
+            [t.syft.scope, t.trivy.scope],
+            [
+              { kind: "full", paths: 0 },
+              { kind: "full", paths: 0 },
+            ],
+          );
+          const full = r.items.length;
+          // an incremental run with a complete changed-path list: the same result, nothing narrowed
+          const inc = await env.run({
+            files: SAMPLE_FILES,
+            changedPaths: { status: "complete", paths: ["README.md"] },
+          });
+          same(p, "incremental item count", inc.items.length, full);
+          same(
+            p,
+            "incremental scope",
+            [runs(inc).syft.scope, runs(inc).trivy.scope],
+            [
+              { kind: "full", paths: 0 },
+              { kind: "full", paths: 0 },
+            ],
+          );
+          same(p, "incremental status", inc.ensemble.changedPathsStatus, "complete");
+          ok(
+            p,
+            inc.items.some((i) => /lodash/.test(i.title ?? i.component?.name ?? JSON.stringify(i))),
+            "packages of unchanged manifests must still be reported",
+          );
+          // a manifest the tools reported is absent from the tree
+          const { "web/package-lock.json": _gone, ...without } = SAMPLE_FILES;
+          const lacking = await env.run({ files: without });
+          const lt = runs(lacking);
+          same(
+            p,
+            "missing manifest: syft",
+            [lt.syft.status, lt.syft.reason, lt.syft.recordsDropped],
+            ["partial", "output_invalid", 2],
+          );
+          same(
+            p,
+            "missing manifest: trivy",
+            [lt.trivy.status, lt.trivy.reason, lt.trivy.recordsDropped],
+            ["partial", "output_invalid", 1],
+          );
+        } finally {
+          env.cleanup();
+        }
+      }
+      // ---- the wiring installs the filter
+      {
+        const env = makeEnv({ scripts: real });
+        try {
+          const built = buildEnsembleEngine({
+            config: {
+              scanEngines: {
+                sandbox: {
+                  runtimeBin: "podman",
+                  containerUser: "65534:65534",
+                  usernsMode: "keep-id",
+                  uidMap: [],
+                  gidMap: [],
+                  seccompProfile: null,
+                },
+                archiveRoot: path.join(env.base, "scan"),
+                rulesDir: env.rulesDir,
+                maxContainers: 4,
+                maxContainersPerTenant: 2,
+                untrustedCapacityShare: 50,
+                toolParallelism: 2,
+                waitSeconds: 1,
+                janitorSeconds: 30,
+                production: false,
+              },
+            },
+            db: { $queryRaw: async () => [] },
+            runtime: env.runtime,
+          });
+          const { "web/package-lock.json": _gone, ...without } = SAMPLE_FILES;
+          const r = await built.engine.runTask(
+            Object.freeze({
+              executionId: uuid(9),
+              taskId: uuid(1),
+              attempt: 0,
+              scanType: "sbom",
+              sourceDir: env.tree(without),
+            }),
+            {
+              signal: new AbortController().signal,
+              log() {},
+              emit() {},
+              platform: {
+                tenantId: TENANT_A,
+                deadlineEpoch: Math.floor(Date.now() / 1000) + 120,
+                secondsToDeadline: 120,
+                maxItems: 50_000,
+              },
+            },
+          );
+          same(
+            p,
+            "wired engine drops the records of the missing manifest",
+            runs(r).syft.recordsDropped,
+            2,
+          );
+        } finally {
+          env.cleanup();
+        }
+      }
+      // ---- exit codes
+      for (const [label, script, want] of [
+        ["137 memory kill", { exitCode: 137, stdout: "", stderr: "" }, "failed/out_of_memory"],
+        [
+          "syft bad config",
+          { exitCode: 1, stdout: "", stderr: facts["syft-config-missing"].stderr },
+          "failed/config_invalid",
+        ],
+        [
+          "trivy bad config",
+          { exitCode: 1, stdout: "", stderr: facts["trivy-config-missing"].stderr },
+          "failed/config_invalid",
+        ],
+        [
+          "trivy database error",
+          { exitCode: 1, stdout: "", stderr: facts["trivy-vuln-nodb"].stderr },
+          "failed/exit_code",
+        ],
+        [
+          "unknown flag",
+          { exitCode: 1, stdout: "", stderr: "FATAL unknown flag" },
+          "failed/exit_code",
+        ],
+        ["exit 2", { exitCode: 2, stdout: "{}", stderr: "" }, "failed/exit_code"],
+        [
+          "exit 0 stays accepted",
+          { exitCode: 0, stdout: real.syft.stdout, stderr: "Killed" },
+          "succeeded",
+        ],
+      ]) {
+        const tool = label.startsWith("trivy") ? "trivy" : "syft";
+        const env = makeEnv({ scripts: { [tool]: script }, treePathExists: createTreePathExists });
+        try {
+          const r = await env.run({ files: SAMPLE_FILES });
+          const t = runs(r)[tool];
+          same(p, `${label}: ${tool}`, `${t.status}${t.reason ? `/${t.reason}` : ""}`, want);
+          if (want.startsWith("failed")) {
+            same(p, `${label}: exit code kept`, t.exitCode, script.exitCode);
+            ok(
+              p,
+              !JSON.stringify(r.ensemble).includes("loading error") &&
+                !JSON.stringify(r.ensemble).includes("file does not exist"),
+              `${label}: tool text reached the result`,
+            );
+            const other = tool === "syft" ? "trivy" : "syft";
+            ok(p, runs(r)[other].status === "succeeded", `${label}: the other tool must succeed`);
+            same(
+              p,
+              `${label}: degraded`,
+              [r.ensemble.rollup.matchedRow, r.status],
+              [6, "succeeded"],
+            );
+          }
+        } finally {
+          env.cleanup();
+        }
+      }
+      // ---- the classifier, pure
+      for (const [input, want] of [
+        [{ exitCode: 0 }, null],
+        [{ exitCode: 137 }, "out_of_memory"],
+        [{ exitCode: 137, accepted: [0, 137] }, null],
+        [{ exitCode: 1, stderr: "invalid application config: x" }, "config_invalid"],
+        [{ exitCode: 2, stderr: "invalid application config: x" }, "exit_code"],
+        [{ exitCode: 1, stderr: "nothing\ninvalid application config: x" }, "config_invalid"],
+        [{ exitCode: 1, stderr: "my invalid application config: x" }, "exit_code"],
+        [{ exitCode: null }, "exit_code"],
+        [
+          { exitCode: 1, stderr: `${"x".repeat(20_000)}\ninvalid application config: ` },
+          "exit_code",
+        ],
+      ])
+        same(
+          p,
+          `classifyToolExit ${JSON.stringify(input).slice(0, 60)}`,
+          classifyToolExit(input),
+          want,
+        );
+      // ---- the tree path filter
+      {
+        const dir = mkdtempSync(path.join(os.tmpdir(), "qm-ens-tp-"));
+        try {
+          mkdirSync(path.join(dir, "a/b"), { recursive: true });
+          writeFileSync(path.join(dir, "a/b/c.txt"), "x");
+          writeFileSync(path.join(dir, "top.txt"), "x");
+          symlinkSync(path.join(dir, "top.txt"), path.join(dir, "link.txt"));
+          const exists = createTreePathExists(dir);
+          for (const [rel, want] of [
+            ["a/b/c.txt", true],
+            ["a/b", true],
+            ["top.txt", true],
+            ["missing.txt", false],
+            ["a/missing", false],
+            ["link.txt", false],
+            ["../top.txt", false],
+            ["/top.txt", false],
+            ["a/../top.txt", false],
+            ["", false],
+            ["a\u0000b", false],
+            [undefined, false],
+            [42, false],
+          ])
+            same(p, `exists ${JSON.stringify(rel)}`, exists(rel), want);
+          writeFileSync(path.join(dir, "late.txt"), "x");
+          same(
+            p,
+            "a first answer is cached",
+            [exists("late.txt"), exists("late.txt")],
+            [true, true],
+          );
+          rmSync(path.join(dir, "late.txt"));
+          same(p, "the cached answer is kept", exists("late.txt"), true);
+          ok(
+            p,
+            throwsOn(() => createTreePathExists("relative/dir")),
+            "a relative root must be refused",
+          );
+          ok(p, TREE_PATH_CACHE_MAX === 100_000, "the cache cap");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }
       return p;
     },

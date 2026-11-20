@@ -18,6 +18,7 @@ import {
 } from "./constants.js";
 import { runManifestSha256 } from "./run-manifest.js";
 import { redactedSbomDocument } from "./sbom-redaction.js";
+import { classifyToolExit } from "./tool-exit.js";
 
 /**
  * The tools left out of the retry-class decision of table 5.4 row 7 (owner decision 2026-11-20, option A): the in-process inventory's
@@ -37,9 +38,12 @@ export { redactedSbomDocument };
  * for a tool-originated problem; only a programming error escapes. Pure of the environment: every dependency is injected, so the
  * Docker-free suite drives it with a `FakeSandboxRuntime`.
  *
- * HELD (blocked on ENG-L20, SPEC 17.i): no `pathExists` filter is passed to the parse (so no record is dropped for a path form),
- * the changed-path list is not used to narrow anything (every tool scans the whole tree, `scope.kind = "full"`), and the adapters
- * are used exactly as Part E wrote them.
+ * Released by ENG-L20 (2026-11-20, SPEC 17.n): `treePathExists` (when given, a record whose reported path is not in the extracted tree is
+ * dropped by the parse, SE-27; the worker wiring always gives it), the exit-code classification of `classifyToolExit` (137 is
+ * `out_of_memory`, a bad platform configuration `config_invalid`, anything else `exit_code`; stderr is read for the word only). Settled for
+ * the SBOM scan type: every tool scans the WHOLE tree and `scope.kind` stays `full` (SPEC 5.9: SBOM and SCA are whole-tree by nature;
+ * the changed-path list is carried for later scan types, narrowing and explicit targets stay HELD with them), and Trivy's SBOM mode needs
+ * no vulnerability database (no database classification here, Part G owns it).
  *
  * @param {{
  *   runner: ReturnType<typeof import("@qmentisai/infra").createSandboxRunner>,
@@ -50,7 +54,8 @@ export { redactedSbomDocument };
  *   now?: () => number,
  *   newId?: () => string,
  *   inventory?: Function,
- *   redactDocument?: typeof redactedSbomDocument
+ *   redactDocument?: typeof redactedSbomDocument,
+ *   treePathExists?: (sourceDir: string) => (relativePath: string) => boolean
  * }} deps `rulesDir` holds the platform tool configuration (`syft.yaml`, `trivy.yaml`), mounted read-only at `/rules`; its files
  *   are read ONCE here (fail fast) to compute the configuration digests of the run manifest.
  */
@@ -64,6 +69,7 @@ export function createEnsembleSbomEngine({
   newId = randomUUID,
   inventory,
   redactDocument = redactedSbomDocument,
+  treePathExists,
 }) {
   if (typeof rulesDir !== "string" || !path.isAbsolute(rulesDir))
     throw new TypeError("rulesDir must be an absolute path");
@@ -187,6 +193,13 @@ export function createEnsembleSbomEngine({
       return finish({ ...common, status: "failed", reason: "output_too_large" });
     if (result.status === "runtime_error")
       return finish({ ...common, status: "failed", reason: "sandbox_error" });
+    // an exit code the adapter does not accept: one fixed word, the output is never parsed (the stderr only chooses the word)
+    const exitReason = classifyToolExit({
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+      accepted: adapter.acceptedExitCodes,
+    });
+    if (exitReason !== null) return finish({ ...common, status: "failed", reason: exitReason });
     return finish(
       { ...common, status: "succeeded", reason: null },
       {
@@ -198,13 +211,14 @@ export function createEnsembleSbomEngine({
   }
 
   /** Parses one tool's output with the REAL adapter and folds the outcome into the record. */
-  async function parseTool(adapter, { record, streams }, taskRef) {
+  async function parseTool(adapter, { record, streams }, taskRef, pathExists) {
     if (streams === null) return { record, candidates: [], stdout: null };
     const outcome = await runToolParseAsync(adapter, streams, {
       taskRef,
       toolRunId: record.id,
       toolVersion: record.toolVersion,
       imageDigest: record.imageDigest,
+      ...(pathExists ? { pathExists } : {}),
     });
     return {
       record: {
@@ -318,9 +332,11 @@ export function createEnsembleSbomEngine({
       // every heavy step below awaits and gives the event loop a turn every few milliseconds, so the lease heartbeat of the handler
       // (a timer on this loop) is never starved by a large result (owner decision 2026-11-20)
       const parsed = [];
+      // a record whose path is not in the extracted tree is dropped (SE-27); the in-process inventory walks the tree itself
+      const pathExists = treePathExists ? treePathExists(context.sourceDir) : undefined;
       // bounded: one entry per tool (three); each parse below checkpoints per record
       for (const s of settled)
-        parsed.push(s.lite ? s.lite : await parseTool(s.adapter, s.ran, taskRef));
+        parsed.push(s.lite ? s.lite : await parseTool(s.adapter, s.ran, taskRef, pathExists));
       // bounded: one record per tool (three)
       const toolRuns = parsed.map((p) => p.record);
       const reason = String(signal.reason?.message);

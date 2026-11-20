@@ -177,3 +177,15 @@ VERIFIED = both real tools were compared and the rule is needed or confirmed; UN
 ## 6. What remains for the owner's machine
 
 Rootless Docker or Podman (`--userns` mapping, ENG-L18), a second operating system or an ARM host, a repository with rpm, Python virtual-environment and `.jar` content, a real private repository tree (Option B of the runbook needs a token and was not run), Trivy and Syft in newer versions than the locked ones, calibration of limits and timing under load (ENG-L10), cancellation of a real container (ENG-L05).
+
+## 7. Held items of SPEC 17.i after this run (commit "release held part K items confirmed by ENG-L20")
+
+| Held item | Outcome |
+|---|---|
+| (a) `pathExists` and path-based filtering | **Released.** `createTreePathExists` is installed by the worker wiring; real paths are `/<relative>` (Syft) and `<relative>` (Trivy) and all of them exist in the tree |
+| (b) incremental scope narrowing | **Settled for SBOM: whole tree** (SPEC 5.9); `scope.kind` stays `full`. `targets`, `full_filtered`, the SE-24 filter and SE-27 file targets stay held for SAST and secrets (their output was not part of this run) |
+| (c) change of the Part E adapters | **Done** (section 4) |
+| (d) applicability, `no_applicable_files`, rows 3 and 4 | **Held.** Rows 3 and 4 are still Recommended (OQ-17); a name allowlist would miss what Syft really catalogs (`.jar`, OS databases); the empty-tree result (exit 0, empty document) is reported as `succeeded` / `complete` with no items |
+| (d) exit 137 and out-of-memory | **Released.** Real: exit 137, no output (both tools); `classifyToolExit` gives `out_of_memory` |
+| (d) real stderr | **Released** for the fixed-word classification (`config_invalid` from the recorded Syft and Trivy texts); stderr is never stored or returned |
+| (d) Trivy database behaviour | **Settled for the SBOM role** (no database, no network); the failure texts of the vulnerability mode are recorded in `real/facts.json` for Part G, whose `db_unavailable` mapping stays held with it |

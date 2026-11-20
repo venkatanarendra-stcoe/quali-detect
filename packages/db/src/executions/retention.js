@@ -7,6 +7,9 @@ export const RETENTION_DEFAULTS = Object.freeze({
   metadataRetentionMonths: 13,
 });
 
+/** The fixed name of the changed-paths artifact (scan engines D-7); the workers module `changed-paths.js` holds the same constant (asserted by the suite). */
+export const CHANGED_PATHS_ARTIFACT_NAME = "changed-paths.json";
+
 const positiveInt = (value, name, max) => {
   if (!Number.isInteger(value) || value < 1 || value > max)
     throw new TypeError(`${name} must be an integer between 1 and ${max}`);
@@ -22,6 +25,10 @@ const positiveInt = (value, name, max) => {
  *
  * - logs (`execution_logs`): older than the log retention, of TERMINAL executions; their counters go once no line is left;
  * - artifacts (`execution_artifacts`): older than the artifact retention (raw outputs, 90 days), terminal executions;
+ * - orphan changed-paths artifacts (scan engines, owner decision 2026-11-20): the artifact is written BEFORE the decision transaction
+ *   (SPEC 5.9 SE-22), so a rolled-back or never-committed decision can leave one behind. Of a TERMINAL execution (no decision can
+ *   commit any more) an artifact named `changed-paths.json` that no committed decision of that execution references is removed at once,
+ *   whatever its age; it is never read without a committed decision (the reader goes through the decision row);
  * - metadata: terminal executions finished more than the metadata retention (13 months) ago and no longer the original of a
  *   retry, with all their children, one execution per transaction. Optional (`metadataRetentionMonths: null` skips it).
  * @param {{ db: any }} deps Prisma client
@@ -43,7 +50,7 @@ export function createExecutionRetentionRepository({ db }) {
      * One purge run.
      * @param {{ logRetentionDays?: number, artifactRetentionDays?: number, metadataRetentionMonths?: number | null, batchSize?: number, maxBatches?: number }} [options]
      * @param {any} [client]
-     * @returns {Promise<{ logs: number, logCounters: number, artifacts: number, executions: number, executionsSkipped: number }>}
+     * @returns {Promise<{ logs: number, logCounters: number, artifacts: number, orphanChangedPaths: number, executions: number, executionsSkipped: number }>}
      */
     async purgeExpired(options = {}, client = db) {
       const logDays = positiveInt(
@@ -116,6 +123,23 @@ export function createExecutionRetentionRepository({ db }) {
         maxBatches,
       );
 
+      const orphanChangedPaths = await inBatches(
+        () =>
+          client.$executeRaw`
+            WITH doomed AS (
+              SELECT a.id FROM execution_artifacts a
+              JOIN executions e ON e.tenant_id = a.tenant_id AND e.id = a.execution_id
+              WHERE a.name = ${CHANGED_PATHS_ARTIFACT_NAME} AND execution_status_is_terminal(e.status)
+                AND NOT EXISTS (
+                  SELECT 1 FROM scan_decisions d
+                  WHERE d.tenant_id = a.tenant_id AND d.execution_id = a.execution_id
+                    AND d.changed_paths_status = 'complete' AND d.changed_paths_ref = a.name)
+              ORDER BY a.created_at, a.id LIMIT ${batchSize}::int FOR UPDATE OF a SKIP LOCKED)
+            DELETE FROM execution_artifacts a USING doomed WHERE a.id = doomed.id`,
+        batchSize,
+        maxBatches,
+      );
+
       let executions = 0;
       let executionsSkipped = 0;
       if (months !== null) {
@@ -168,6 +192,7 @@ export function createExecutionRetentionRepository({ db }) {
         logs,
         logCounters: taskCounters + execCounters,
         artifacts,
+        orphanChangedPaths,
         executions,
         executionsSkipped,
       };

@@ -1,6 +1,7 @@
 import { OUTPUT_DROP_RATIO_LIMIT, candidateSchema } from "@qmentisai/shared";
 import { PARSE_KIT, PARSE_LIMITS, ToolOutputError } from "./parse-kit.js";
 import { scrubDeep, secretVariants } from "./scrub.js";
+import { runSync, runYielding } from "./yield.js";
 
 /**
  * Runs the parse, validate and map pipeline of ONE tool adapter over ONE tool output (docs/modules/scan-engines/SPEC.md 7.2
@@ -12,7 +13,10 @@ import { scrubDeep, secretVariants } from "./scrub.js";
  * - more records than `maxRecords` are cut (`partial`, `output_too_large`); over 20 percent dropped is `failed` `output_invalid`;
  * - the provenance, scan type, task reference and raw reference of a candidate are set HERE from trusted context, never by the
  *   mapper; secret fields are removed from the record before the mapper sees it, and every string is scrubbed of their values.
- * Pure apart from reading the supplied streams; no I/O, no clock.
+ * Pure apart from reading the supplied streams; no I/O, no clock. The per-record loop is checkpointed (one checkpoint per record):
+ * {@link runToolParse} is the synchronous reference, {@link runToolParseAsync} gives the event loop a turn every few milliseconds.
+ * `adapter.parse` itself is one synchronous call by contract (the Part E adapters are held, SPEC 17.i); it is bounded by the 64 MiB
+ * output cap and measured (SPEC 17.j).
  */
 
 /**
@@ -52,13 +56,11 @@ const shortDigest = (digest) => {
 };
 
 /**
- * @param {Readonly<any>} adapter a {@link defineToolAdapter} result
- * @param {{ stdout: Buffer | string, exitCode: number | null, truncated?: boolean }} streams
- * @param {ParseContext} ctx
- * @param {Partial<typeof PARSE_LIMITS>} [limits]
- * @returns {ParseOutcome}
+ * @param {Readonly<any>} adapter @param {{ stdout: Buffer | string, exitCode: number | null, truncated?: boolean }} streams
+ * @param {ParseContext} ctx @param {Partial<typeof PARSE_LIMITS>} limits
+ * @returns {Generator<void, ParseOutcome, void>}
  */
-export function runToolParse(adapter, streams, ctx, limits = {}) {
+function* parseSteps(adapter, streams, ctx, limits) {
   const cap = { ...PARSE_LIMITS, ...limits };
   if (!adapter.acceptedExitCodes.includes(streams.exitCode)) return failed("exit_code");
   if (streams.truncated === true) return failed("output_too_large", { truncated: true });
@@ -80,10 +82,12 @@ export function runToolParse(adapter, streams, ctx, limits = {}) {
     const candidate = oneRecord(adapter, records[i], i, ctx);
     if (candidate === null) {
       dropped += 1;
+      yield;
       continue;
     }
     candidates.push(candidate);
     severityCounts[candidate.severity] += 1;
+    yield;
   }
   if (seen > 0 && dropped / seen > OUTPUT_DROP_RATIO_LIMIT)
     return failed("output_invalid", { recordsSeen: seen, recordsDropped: dropped, truncated });
@@ -100,6 +104,27 @@ export function runToolParse(adapter, streams, ctx, limits = {}) {
   };
 }
 
+/**
+ * @param {Readonly<any>} adapter a {@link defineToolAdapter} result
+ * @param {{ stdout: Buffer | string, exitCode: number | null, truncated?: boolean }} streams
+ * @param {ParseContext} ctx
+ * @param {Partial<typeof PARSE_LIMITS>} [limits]
+ * @returns {ParseOutcome}
+ */
+export function runToolParse(adapter, streams, ctx, limits = {}) {
+  return runSync(parseSteps(adapter, streams, ctx, limits));
+}
+
+/**
+ * The same parse, yielding to the event loop every few milliseconds (same arguments as {@link runToolParse}).
+ * @param {Readonly<any>} adapter @param {{ stdout: Buffer | string, exitCode: number | null, truncated?: boolean }} streams
+ * @param {ParseContext} ctx @param {Partial<typeof PARSE_LIMITS>} [limits] @param {Parameters<typeof runYielding>[1]} [options]
+ * @returns {Promise<ParseOutcome>}
+ */
+export function runToolParseAsync(adapter, streams, ctx, limits = {}, options) {
+  return runYielding(parseSteps(adapter, streams, ctx, limits), options);
+}
+
 /** @returns {object | null} the validated candidate, or null when the record is dropped */
 function oneRecord(adapter, raw, ordinal, ctx) {
   try {
@@ -109,6 +134,7 @@ function oneRecord(adapter, raw, ordinal, ctx) {
     const secrets = [];
     let maxLength = 0;
     let fingerprint;
+    // bounded: the secret field names of ONE adapter (a fixed, short list)
     for (const field of adapter.secretFields) {
       const value = record[field];
       delete record[field];

@@ -21,6 +21,7 @@ import {
   scaKey,
   secretsKey,
 } from "./merge-keys.js";
+import { runSync, runYielding, sortYielding } from "./yield.js";
 
 /**
  * The merger (docs/modules/scan-engines/SPEC.md 5.6, SE-10 to SE-15, ENG-S06): folds the candidates of ONE task attempt into
@@ -33,6 +34,11 @@ import {
  * - one `provenance[]` entry per tool; confidence rises one step when two distinct tools agree (SE-13);
  * - output order is deterministic (SE-14).
  * A `dedupKey` is a MERGE key inside the task, never a finding identity (ADR-004, ER-26).
+ *
+ * Yielding (owner decision 2026-11-20): the merge is written ONCE as a checkpointed generator (`mergeSteps`). {@link mergeTaskCandidates}
+ * runs it synchronously (the reference) and {@link mergeTaskCandidatesAsync} gives the event loop a turn every few milliseconds, so a
+ * merge of tens of thousands of candidates can never starve the lease heartbeat. Both return identical results (SE-14). Every loop
+ * over candidates, groups or findings below contains a `yield`; the source guard of the suite (ENG-S17b) enforces it.
  */
 
 export class MergeBoundaryError extends Error {
@@ -78,47 +84,58 @@ const bestOf = (members) =>
   )[0];
 
 /** Greedy grouping: a candidate joins the first group that accepts it and holds no candidate of the same tool (SE-12). */
-function greedy(sorted, accepts) {
+function* greedy(sorted, accepts) {
   const groups = [];
   for (const c of sorted) {
     const tool = toolOf(c);
-    const group = groups.find((g) => !g.tools.has(tool) && accepts(g, c));
+    let group;
+    for (let g = 0; g < groups.length; g += 1) {
+      // the scan over the open groups is the long inner loop: checkpoint inside it too
+      if (g % 512 === 511) yield;
+      if (!groups[g].tools.has(tool) && accepts(groups[g], c)) {
+        group = groups[g];
+        break;
+      }
+    }
     if (group) {
       group.members.push(c);
       group.tools.add(tool);
     } else groups.push({ first: c, members: [c], tools: new Set([tool]) });
+    yield;
   }
-  return groups.map((g) => g.members);
+  return groups.map((g) => g.members); // bounded: one pass over the groups, no per-item work beyond a property read
 }
 
 const dirOf = (p) => (p && p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 
-function groupSbom(candidates) {
+function* groupSbom(candidates) {
   // a component with no version is redundant when a versioned one of the same (type, namespace, name) was found in the same directory
   const versioned = new Set();
   for (const c of candidates) {
     const parsed = canonicalPurl(c.component.purl);
     if (parsed?.version) versioned.add(`${parsed.unversioned}|${dirOf(c.location?.path)}`);
+    yield;
   }
   let redundant = 0;
-  const kept = candidates.filter((c) => {
+  const kept = [];
+  for (const c of candidates) {
     const parsed = canonicalPurl(c.component.purl);
     if (
       parsed &&
       !parsed.version &&
       versioned.has(`${parsed.unversioned}|${dirOf(c.location?.path)}`)
-    ) {
+    )
       redundant += 1;
-      return false;
-    }
-    return true;
-  });
+    else kept.push(c);
+    yield;
+  }
   const key = (c) => canonicalPurl(c.component.purl)?.canonical ?? c.component.purl;
-  const sorted = [...kept].sort(
+  const sorted = yield* sortYielding(
+    kept,
     (a, b) =>
       cmp(key(a), key(b)) || toolIndex(toolOf(a)) - toolIndex(toolOf(b)) || cmp(refOf(a), refOf(b)),
   );
-  return { groups: greedy(sorted, (g, c) => key(g.first) === key(c)), redundant };
+  return { groups: yield* greedy(sorted, (g, c) => key(g.first) === key(c)), redundant };
 }
 
 const aliasesOf = (c) =>
@@ -134,27 +151,38 @@ const aliasesOf = (c) =>
       .map((a) => [a.id, a]),
   );
 
-function groupSca(candidates) {
-  const sorted = [...candidates].sort(byKeyToolRef);
-  const parent = sorted.map((_, i) => i);
+function* groupSca(candidates) {
+  const sorted = yield* sortYielding(candidates, byKeyToolRef);
+  const parent = sorted.map((_, i) => i); // bounded: one cheap pass of integers
   const find = (i) => {
     let r = i;
-    while (parent[r] !== r) r = parent[r];
-    while (parent[i] !== r) [parent[i], i] = [r, parent[i]];
+    while (parent[r] !== r) r = parent[r]; // bounded: a union-find chain, path-compressed below
+    while (parent[i] !== r) [parent[i], i] = [r, parent[i]]; // bounded: the same chain
     return r;
   };
-  const toolsOf = new Map(sorted.map((c, i) => [i, new Set([toolOf(c)])]));
-  const aliasSets = sorted.map(aliasesOf);
-  const compKey = sorted.map((c) => canonicalPurl(c.component.purl)?.canonical ?? c.component.purl);
+  const toolsOf = new Map();
+  const aliasSets = [];
+  const compKey = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    toolsOf.set(i, new Set([toolOf(sorted[i])]));
+    aliasSets.push(aliasesOf(sorted[i]));
+    compKey.push(canonicalPurl(sorted[i].component.purl)?.canonical ?? sorted[i].component.purl);
+    yield;
+  }
   /** @type {Map<string, number[]>} */
   const byAlias = new Map();
-  sorted.forEach((_, i) => {
+  for (let i = 0; i < sorted.length; i += 1) {
+    // bounded: the aliases of ONE candidate (capped by the candidate schema)
     for (const id of aliasSets[i].keys()) {
       const k = `${compKey[i]}\u0000${id}`;
-      byAlias.set(k, [...(byAlias.get(k) ?? []), i]);
+      const list = byAlias.get(k);
+      if (list) list.push(i);
+      else byAlias.set(k, [i]);
     }
-  });
+    yield;
+  }
   for (const members of byAlias.values()) {
+    // bounded: the candidates sharing one (component, advisory) key; one checkpoint per key below
     for (let j = 1; j < members.length; j += 1) {
       const a = find(members[0]);
       const b = find(members[j]);
@@ -167,23 +195,30 @@ function groupSca(candidates) {
       parent[hi] = lo;
       toolsOf.set(lo, new Set([...ta, ...tb]));
     }
+    yield;
   }
   /** @type {Map<number, object[]>} */
   const groups = new Map();
-  sorted.forEach((c, i) => {
+  for (let i = 0; i < sorted.length; i += 1) {
     const r = find(i);
-    groups.set(r, [...(groups.get(r) ?? []), c]);
-  });
-  return [...groups.values()];
+    const list = groups.get(r);
+    if (list) list.push(sorted[i]);
+    else groups.set(r, [sorted[i]]);
+    yield;
+  }
+  return [...groups.values()]; // bounded: one copy of the group list
 }
 
 const overlap = (a, b) => lineOf(a) <= endOf(b) && lineOf(b) <= endOf(a);
-function groupSast(candidates) {
+function* groupSast(candidates) {
   const classOf = (c) => c.mergeHints?.ruleClass ?? sastRuleClass(c.cwe, toolOf(c), c.rule.id);
-  const sorted = [...candidates]
-    .map((c) => ({ ...c, mergeHints: { ...c.mergeHints, ruleClass: classOf(c) } }))
-    .sort(byLocation);
-  return greedy(
+  const classed = [];
+  for (const c of candidates) {
+    classed.push({ ...c, mergeHints: { ...c.mergeHints, ruleClass: classOf(c) } });
+    yield;
+  }
+  const sorted = yield* sortYielding(classed, byLocation);
+  return yield* greedy(
     sorted,
     // anchored at the FIRST member: no chaining of far lines
     (g, c) =>
@@ -197,24 +232,29 @@ function groupSast(candidates) {
 }
 
 const isGeneric = (t) => GENERIC_SECRET_TYPE_CLASSES.includes(t);
-function groupSecrets(candidates) {
-  const sorted = [...candidates].sort(byLocation);
+function* groupSecrets(candidates) {
+  const sorted = yield* sortYielding(candidates, byLocation);
   const groups = [];
   for (const c of sorted) {
     const tool = toolOf(c);
     const type = c.mergeHints?.typeClass ?? "other";
     const fp = c.mergeHints?.fingerprint;
-    const group = groups.find((g) => {
+    let group;
+    for (let gi = 0; gi < groups.length; gi += 1) {
+      if (gi % 512 === 511) yield;
+      const g = groups[gi];
       if (g.tools.has(tool) || pathOf(g.first) !== pathOf(c) || lineOf(g.first) !== lineOf(c))
-        return false;
+        continue;
       const gType = g.type;
       const sameType = gType === type;
       const genericMeetsSpecific =
         (isGeneric(gType) && !isGeneric(type)) || (!isGeneric(gType) && isGeneric(type));
-      if (!sameType && !genericMeetsSpecific) return false;
+      if (!sameType && !genericMeetsSpecific) continue;
       // two secrets on one line with different fingerprints stay separate
-      return !(fp && g.fingerprints.size > 0 && !g.fingerprints.has(fp));
-    });
+      if (fp && g.fingerprints.size > 0 && !g.fingerprints.has(fp)) continue;
+      group = g;
+      break;
+    }
     if (group) {
       group.members.push(c);
       group.tools.add(tool);
@@ -228,12 +268,14 @@ function groupSecrets(candidates) {
         type,
         fingerprints: new Set(fp ? [fp] : []),
       });
+    yield;
   }
-  return groups.map((g) => ({ members: g.members, type: g.type }));
+  return groups.map((g) => ({ members: g.members, type: g.type })); // bounded: one pass over the groups, a property read each
 }
 
 const unionBy = (lists, keyFn) => {
   const seen = new Map();
+  // bounded: the locations of the members of ONE group (each list capped by the candidate schema)
   for (const item of lists.flat()) if (!seen.has(keyFn(item))) seen.set(keyFn(item), item);
   return [...seen.values()];
 };
@@ -290,6 +332,7 @@ function buildFinding(scanType, members, extra = {}) {
     finding.locationCount = extra.locations.count;
   }
   if (extra.fix) finding.fix = extra.fix;
+  // bounded: three fixed field names
   for (const field of ["evidence", "scmRef", "url"]) {
     const found = [base, ...members].find((m) => m[field] !== null && m[field] !== undefined);
     if (found) finding[field] = found[field];
@@ -366,13 +409,8 @@ function finishSast(members) {
   return { dedupKey: sastKey(base.location.path, cls, start), location };
 }
 
-/**
- * Merges the candidates of one task.
- * @param {{ taskRef: string, scanType: "sbom" | "sca" | "sast" | "secrets", candidates: unknown[] }} input
- * @returns {{ findings: object[], stats: { candidates: number, findings: number, merged: number, redundantComponents: number } }}
- * @throws {MergeBoundaryError} a candidate of another task or scan type, or an invalid candidate: never merged, never silently dropped
- */
-export function mergeTaskCandidates({ taskRef, scanType, candidates }) {
+/** The checkpointed merge (see the header). @returns {Generator<void, ReturnType<typeof mergeTaskCandidates>, void>} */
+function* mergeSteps({ taskRef, scanType, candidates }) {
   if (
     typeof taskRef !== "string" ||
     !ENSEMBLE_SCAN_TYPES.includes(scanType) ||
@@ -392,25 +430,39 @@ export function mergeTaskCandidates({ taskRef, scanType, candidates }) {
         "A candidate belongs to another scan type.",
       );
     valid.push(parsed.data);
+    yield;
   }
   let redundant = 0;
   /** @type {object[]} */
-  let findings = [];
+  const findings = [];
   if (scanType === "sbom") {
-    const { groups, redundant: r } = groupSbom(valid);
+    const { groups, redundant: r } = yield* groupSbom(valid);
     redundant = r;
-    findings = groups.map((g) => buildFinding(scanType, g, finishSbom(g)));
+    for (const g of groups) {
+      findings.push(buildFinding(scanType, g, finishSbom(g)));
+      yield;
+    }
   } else if (scanType === "sca")
-    findings = groupSca(valid).map((g) => buildFinding(scanType, g, finishSca(g)));
+    for (const g of yield* groupSca(valid)) {
+      findings.push(buildFinding(scanType, g, finishSca(g)));
+      yield;
+    }
   else if (scanType === "sast")
-    findings = groupSast(valid).map((g) => buildFinding(scanType, g, finishSast(g)));
+    for (const g of yield* groupSast(valid)) {
+      findings.push(buildFinding(scanType, g, finishSast(g)));
+      yield;
+    }
   else
-    findings = groupSecrets(valid).map(({ members, type }) =>
-      buildFinding(scanType, members, {
-        dedupKey: secretsKey(members[0].location.path, lineOf(members[0]), type),
-      }),
-    );
-  findings.sort(
+    for (const { members, type } of yield* groupSecrets(valid)) {
+      findings.push(
+        buildFinding(scanType, members, {
+          dedupKey: secretsKey(members[0].location.path, lineOf(members[0]), type),
+        }),
+      );
+      yield;
+    }
+  const ordered = yield* sortYielding(
+    findings,
     (a, b) =>
       SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] ||
       cmp(
@@ -422,13 +474,38 @@ export function mergeTaskCandidates({ taskRef, scanType, candidates }) {
       cmp(a.rule.id, b.rule.id) ||
       cmp(a.dedupKey, b.dedupKey),
   );
+  const frozen = [];
+  for (const f of ordered) {
+    frozen.push(Object.freeze(f));
+    yield;
+  }
   return {
-    findings: findings.map((f) => Object.freeze(f)),
+    findings: frozen,
     stats: {
       candidates: valid.length,
-      findings: findings.length,
-      merged: valid.length - redundant - findings.length,
+      findings: ordered.length,
+      merged: valid.length - redundant - ordered.length,
       redundantComponents: redundant,
     },
   };
+}
+
+/**
+ * Merges the candidates of one task, synchronously (the pure reference; the worker path uses {@link mergeTaskCandidatesAsync}).
+ * @param {{ taskRef: string, scanType: "sbom" | "sca" | "sast" | "secrets", candidates: unknown[] }} input
+ * @returns {{ findings: object[], stats: { candidates: number, findings: number, merged: number, redundantComponents: number } }}
+ * @throws {MergeBoundaryError} a candidate of another task or scan type, or an invalid candidate: never merged, never silently dropped
+ */
+export function mergeTaskCandidates(input) {
+  return runSync(mergeSteps(input));
+}
+
+/**
+ * The same merge, yielding to the event loop every few milliseconds (header). Rejects with the same {@link MergeBoundaryError}.
+ * @param {Parameters<typeof mergeTaskCandidates>[0]} input
+ * @param {Parameters<typeof runYielding>[1]} [options] `sliceMs` and `now` exist for the tests only
+ * @returns {Promise<ReturnType<typeof mergeTaskCandidates>>}
+ */
+export function mergeTaskCandidatesAsync(input, options) {
+  return runYielding(mergeSteps(input), options);
 }

@@ -12,6 +12,11 @@ import { TOOL_STATUSES, TOOLS_FAILED_REASON, toolReasonClass } from "./constants
  * stays `unavailable` with `db_unavailable` after the retries is a broken tool of row 6 (degraded, `incomplete`) when another tool
  * produced output; when none did, the task is the ordinary `failed` task of row 7 with the transient class (the retry budget of
  * ER-13 decides how often).
+ * Row 7 class (owner decision 2026-11-20, option A): the retry class is decided ONLY by the infrastructure-dependent tools. A tool named in
+ * `retryClassExcludes` (the in-process inventory `sbom-lite`, whose failure word `output_invalid` is permanent and says nothing about
+ * the infrastructure) still counts as failed everywhere else (the row, `toolsDegraded`), but is left out of the transient-or-permanent
+ * decision: the class is transient when every NON-excluded failed tool failed transiently. When every failed tool is excluded the class
+ * is decided by all of them (nothing infrastructure-dependent failed, so nothing is retried for a transient reason).
  */
 
 /** @typedef {{ toolId: string, status: typeof TOOL_STATUSES[number], reason?: string | null }} ToolOutcome */
@@ -32,7 +37,7 @@ const OK = new Set(["succeeded", "partial"]);
 const BROKEN = new Set(["failed", "timed_out", "cancelled", "unavailable"]);
 
 /**
- * @param {{ tools: ToolOutcome[], cancelled?: boolean, deadlineReached?: boolean, relevantFilesExist?: boolean, coverageGaps?: string[] }} input
+ * @param {{ tools: ToolOutcome[], cancelled?: boolean, deadlineReached?: boolean, relevantFilesExist?: boolean, coverageGaps?: string[], retryClassExcludes?: string[] }} input
  * `tools`: every tool of the scan type with its status (`skipped` = not applicable). `relevantFilesExist`: whether the tree has
  * any file relevant to the scan type (default true). `coverageGaps`: languages or kinds with no catalog tool (row 4).
  * @returns {TaskRollup}
@@ -43,8 +48,11 @@ export function rollUpTask({
   deadlineReached = false,
   relevantFilesExist = true,
   coverageGaps = [],
+  retryClassExcludes = [],
 }) {
   if (!Array.isArray(tools)) throw new TypeError("tools must be an array");
+  if (!Array.isArray(retryClassExcludes) || retryClassExcludes.some((id) => typeof id !== "string"))
+    throw new TypeError("retryClassExcludes must be an array of tool ids");
   for (const t of tools)
     if (!TOOL_STATUSES.includes(t?.status)) throw new TypeError("unknown tool status");
   for (const t of tools)
@@ -99,7 +107,9 @@ export function rollUpTask({
     };
   }
   if (ok.length === 0) {
-    const transient = broken.every((t) => toolReasonClass(t.reason) === "transient");
+    const classTools = broken.filter((t) => !retryClassExcludes.includes(t.toolId));
+    const deciding = classTools.length > 0 ? classTools : broken;
+    const transient = deciding.every((t) => toolReasonClass(t.reason) === "transient");
     return {
       ...base,
       taskStatus: "failed",

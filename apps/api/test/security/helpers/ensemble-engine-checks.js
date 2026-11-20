@@ -35,7 +35,10 @@ import { decideScans } from "../../../../workers/src/execution/decision/decide.j
 import { decideFloor } from "../../../../workers/src/execution/decision/floor.js";
 import { createEngineRegistry } from "../../../../workers/src/execution/engines.js";
 import { loadImageLock } from "../../../../workers/src/execution/engines/ensemble/catalog/index.js";
-import { createEnsembleSbomEngine } from "../../../../workers/src/execution/engines/ensemble/engine/engine.js";
+import {
+  createEnsembleSbomEngine,
+  redactedSbomDocument,
+} from "../../../../workers/src/execution/engines/ensemble/engine/engine.js";
 import { runManifestSha256 } from "../../../../workers/src/execution/engines/ensemble/engine/run-manifest.js";
 import { buildEnsembleEngine } from "../../../../workers/src/execution/engines/ensemble/engine/wiring.js";
 import { buildEngineRegistry, engineRegistry } from "../../../../workers/src/execution/registry.js";
@@ -922,7 +925,7 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           hold();
           same(
             p,
-            "all tools failed",
+            "all tools failed (capacity: transient; the failed inventory does not decide the class, D-23 (1))",
             [
               r.status,
               r.ensemble.rollup.taskStatus,
@@ -930,7 +933,7 @@ export const ENSEMBLE_ENGINE_CHECKS = [
               r.ensemble.rollup.errorClass,
               r.ensemble.rollup.matchedRow,
             ],
-            ["failed", "failed", "tools_failed", "permanent", 7],
+            ["failed", "failed", "tools_failed", "transient", 7],
           );
           same(
             p,
@@ -1224,12 +1227,28 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           sandboxDown.ro.errorClass,
           sandboxDown.ro.completeness,
         ],
-        ["failed", 7, "tools_failed", "permanent", null],
+        ["failed", 7, "tools_failed", "transient", null],
       );
+      // owner decision 2026-11-20 (option A): the inventory's permanent failure word does NOT decide the retry class; the container
+      // tools do. It still counts as a failed tool (toolsDegraded 3) and is recorded with its own reason.
+      same(p, "all three tools count as failed", sandboxDown.ro.toolsDegraded, 3);
       ok(
         p,
         sandboxDown.st["sbom-lite"] === "failed/output_invalid",
         "the failed inventory is output_invalid",
+      );
+      same(
+        p,
+        "container tools transient, inventory permanent: the class is transient",
+        [sandboxDown.st.syft, sandboxDown.st.trivy],
+        ["failed/sandbox_error", "failed/sandbox_error"],
+      );
+      const mixed = await failing({ syft: { runtimeFault: true }, trivy: { exitCode: 4 } });
+      same(
+        p,
+        "one transient and one permanent container tool: permanent",
+        [mixed.ro.errorClass, mixed.st.syft, mixed.st.trivy],
+        ["permanent", "failed/sandbox_error", "failed/exit_code"],
       );
       const permanent = await failing({ syft: { exitCode: 3 }, trivy: { exitCode: 4 } });
       same(
@@ -1997,6 +2016,186 @@ export const ENSEMBLE_ENGINE_CHECKS = [
         /ensembleEnabled/.test(scanIndex) && /engineRegistry/.test(scanIndex),
         "the scan worker keeps the module-level registry for the flag off",
       );
+      return p;
+    },
+  },
+  {
+    id: "ENG-S05c",
+    name: "the stored SBOM document is the REDACTED copy, still valid JSON, and a document the redaction would break is not stored (SPEC scan-engines D-22 (4), 17.i, owner decision 2026-11-20 option A; fake runtime, Part E adapters unchanged): a credential-shaped value in a package field or a property of the Syft document is masked in the document the engine hands over (the planted token appears nowhere in it, nor in the log, the tool runs, the detail rows or the items), the document parses as JSON and keeps its components; a clean document is handed over byte for byte and flagged as not redacted; a document whose text the redaction turns into something that is not a JSON object (a line that carries an Authorization header, which the redaction replaces up to the end of the line, closing quotes included) is NOT stored (fail closed): the document is null, the log says so, no secret is logged, and the task is NOT failed (succeeded, the findings of the other tools and of the inventory kept, row 5); the redaction is the one of the artifact store (a hostile redaction that returns plain text, an array or an empty text is refused with a fixed note, a text that is not JSON to begin with is refused too); the helper stores nothing and never throws for a hostile document",
+    async run() {
+      const p = [];
+      const token = "ghp_Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9";
+      const withProperty = (value) => {
+        const doc = JSON.parse(SYFT_DOC);
+        doc.components[0].properties.push({ name: "qm:note", value });
+        doc.components[1].description = `built with ${value}`;
+        return doc;
+      };
+      // a token in a package field and in a property
+      {
+        const env = makeEnv({ scripts: { syft: { stdout: JSON.stringify(withProperty(token)) } } });
+        try {
+          const r = await env.run();
+          const d = r.ensemble.document;
+          ok(p, d?.toolId === "syft", "a redacted document is still stored");
+          if (d) {
+            const text = d.bytes.toString("utf8");
+            ok(p, !text.includes(token), "the planted token is in the stored document");
+            ok(
+              p,
+              text.includes("[REDACTED]") && d.redacted === true,
+              "the token is masked, not dropped",
+            );
+            let parsed = null;
+            try {
+              parsed = JSON.parse(text);
+            } catch {
+              p.push("the redacted document is not valid JSON");
+            }
+            ok(
+              p,
+              parsed?.bomFormat === "CycloneDX" &&
+                parsed.components.length === JSON.parse(SYFT_DOC).components.length,
+              "the redacted document lost components",
+            );
+          }
+          const everything = JSON.stringify([
+            r.items,
+            r.ensemble.details,
+            r.ensemble.toolRuns,
+            env.logs,
+          ]);
+          ok(
+            p,
+            !everything.includes(token),
+            "the planted token reached an item, a detail row, a tool run or the log",
+          );
+          same(p, "task", [r.status, r.ensemble.rollup.matchedRow], ["succeeded", 5]);
+        } finally {
+          env.cleanup();
+        }
+      }
+      // a clean document is untouched
+      {
+        const env = makeEnv();
+        try {
+          const r = await env.run();
+          ok(
+            p,
+            r.ensemble.document?.redacted === false &&
+              r.ensemble.document.bytes.toString("utf8") === SYFT_DOC,
+            "a clean document must be handed over byte for byte and flagged as not redacted",
+          );
+        } finally {
+          env.cleanup();
+        }
+      }
+      // a document the redaction would break: not stored, not a failure
+      {
+        const header = "Authorization: Bearer abcdefghijklmnop1234";
+        const env = makeEnv({
+          scripts: { syft: { stdout: JSON.stringify(withProperty(header), null, 2) } },
+        });
+        try {
+          const r = await env.run();
+          same(p, "no document", r.ensemble.document, null);
+          ok(
+            p,
+            env.logs.some((l) =>
+              /^warn The SBOM document was not stored \(redaction_broke_document\)/.test(l),
+            ),
+            `the log must say why: ${JSON.stringify(env.logs)}`,
+          );
+          ok(
+            p,
+            !env.logs.join("\n").includes("abcdefghijklmnop1234"),
+            "the header value was logged",
+          );
+          same(
+            p,
+            "the task is not failed",
+            [
+              r.status,
+              r.ensemble.rollup.matchedRow,
+              r.ensemble.rollup.taskStatus,
+              statusOf(r).syft,
+            ],
+            ["succeeded", 5, "succeeded", "succeeded"],
+          );
+          ok(p, r.items.length === FIXED.syftFindings, `the findings are kept (${r.items.length})`);
+        } finally {
+          env.cleanup();
+        }
+      }
+      // the helper itself
+      const hostile = (stdout, redact) => redactedSbomDocument(stdout, redact);
+      same(
+        p,
+        "plain text",
+        hostile('{"a":1}', () => "[REDACTED]"),
+        {
+          ok: false,
+          note: "redaction_broke_document",
+        },
+      );
+      same(
+        p,
+        "an array",
+        hostile('{"a":1}', () => "[1,2]"),
+        {
+          ok: false,
+          note: "redaction_broke_document",
+        },
+      );
+      for (const scalar of ["null", "5", '"text"', "true"])
+        same(
+          p,
+          `a JSON scalar ${scalar}`,
+          hostile('{"a":1}', () => scalar),
+          {
+            ok: false,
+            note: "redaction_broke_document",
+          },
+        );
+      same(
+        p,
+        "an empty text",
+        hostile('{"a":1}', () => ""),
+        {
+          ok: false,
+          note: "redaction_broke_document",
+        },
+      );
+      same(
+        p,
+        "not JSON to begin with",
+        hostile("not json", (t) => t),
+        {
+          ok: false,
+          note: "document_not_json",
+        },
+      );
+      const fine = hostile(Buffer.from('{"a":"x"}'), (t) => t);
+      same(
+        p,
+        "an unchanged text",
+        [fine.ok, fine.redacted, fine.bytes?.toString()],
+        [true, false, '{"a":"x"}'],
+      );
+      const masked = hostile('{"a":"x"}', () => '{"a":"[REDACTED]"}');
+      same(
+        p,
+        "a masked text",
+        [masked.ok, masked.redacted, masked.bytes?.toString()],
+        [true, true, '{"a":"[REDACTED]"}'],
+      );
+      let threw = false;
+      try {
+        hostile("\u0000{", undefined);
+      } catch {
+        threw = true;
+      }
+      ok(p, !threw, "the helper threw for a hostile document");
       return p;
     },
   },
@@ -2780,6 +2979,118 @@ export const ENSEMBLE_WORLD_CHECKS = [
           [old.tasks[0].status, old.results[0].engineVersion === legacy.version],
           ["succeeded", true],
         );
+      } finally {
+        for (const c of cleanups) c();
+      }
+      return p;
+    },
+  },
+  {
+    id: "ENG-S17c",
+    name: "a large ensemble result never starves the lease heartbeat of the real scan handler (SPEC scan-engines 17.i, 17.j, Executions ER-27 and EXEC-028 false-reclaim rule, owner decision 2026-11-20; real orchestrator, scan handler and database, fake runtime, Part E adapters unchanged): two container tools report the same 8000 components, so parsing, the merge and the storage rows are heavy work of several seconds on the worker's event loop; the handler runs with a heartbeat of 1 second and its timer renews the task lease through the database during all of it: the heartbeat column of the task row advances repeatedly while the engine works (at least three distinct renewals), no gap between two renewals (the first being the claim) nor between the last renewal and the end of the engine exceeds 2.5 times the heartbeat, which is far below the lease TTL, and the task still finishes succeeded with the item cap applied after the full merge (the database write of a large result is not what this proves)",
+    async run(w) {
+      const p = [];
+      const cleanups = [];
+      try {
+        const doc = JSON.parse(SYFT_DOC);
+        const count = 8000;
+        doc.components = Array.from({ length: count }, (_, i) => ({
+          "bom-ref": `r${i}`,
+          type: "library",
+          name: `pkg${i}`,
+          version: `1.0.${i % 97}`,
+          purl: `pkg:npm/pkg${i}@1.0.${i % 97}`,
+          properties: [{ name: "syft:location:0:path", value: `/d${i % 50}/package-lock.json` }],
+        }));
+        const big = JSON.stringify(doc);
+        const beats = new Set();
+        let engineMs = 0;
+        let lastBeatAtEnd = 0;
+        const env = worldEngine(w, {
+          scripts: { syft: { stdout: big }, trivy: { stdout: big } },
+          wrap: async (real, ctx, hooks) => {
+            const read = async () => {
+              const rows = await w.db.$queryRaw`
+                SELECT (extract(epoch from heartbeat_at) * 1000)::float8 AS "beat", (extract(epoch from clock_timestamp()) * 1000)::float8 AS "now"
+                FROM scan_tasks WHERE id = ${ctx.taskId}::uuid AND tenant_id = ${hooks.platform.tenantId}::uuid`;
+              if (rows[0]) beats.add(Math.round(rows[0].beat));
+              return rows[0];
+            };
+            await read();
+            const poll = setInterval(() => void read().catch(() => {}), 150);
+            const started = Date.now();
+            try {
+              return await real.runTask(ctx, hooks);
+            } finally {
+              engineMs = Date.now() - started;
+              clearInterval(poll);
+              const last = await read();
+              lastBeatAtEnd = last ? last.now - last.beat : Infinity;
+            }
+          },
+        });
+        cleanups.push(env.cleanup);
+        const over = (rulesDir) => ({
+          SCAN_ENGINES_ENSEMBLE_ENABLED: "true",
+          SANDBOX_ARCHIVE_ROOT: w.scanTmp,
+          SANDBOX_RULES_DIR: rulesDir,
+        });
+        const engines = buildEngineRegistry({
+          ensembleEnabled: true,
+          createEnsembleEngine: () => env.engine,
+        });
+        const pg = createPostgresArtifactStore({
+          repository: createExecutionArtifactRepository({ db: w.db }),
+        });
+        const x = await incrementalSbom(w, "ensBeat");
+        const orch = w.orchestrator(over(env.rulesDir), { engines, artifacts: pg });
+        const scan = w.scanHandler(
+          {
+            ...over(env.rulesDir),
+            EXECUTION_HEARTBEAT_SECONDS: "1",
+            // the parse and the merge see all 8000 components; only 500 rows are written (the database write is not what this proves)
+            EXECUTION_MAX_RESULT_ITEMS_PER_TASK: "500",
+          },
+          undefined,
+          engines,
+          { artifacts: pg },
+        );
+        await w.run(x.tree, x.execution, { orch, scan });
+        const on = await rowsOf(w, x.tree, x.execution);
+        same(
+          p,
+          "task",
+          on.tasks.map((t) => `${t.scanType}/${t.status}`),
+          ["sbom/succeeded"],
+        );
+        same(
+          p,
+          "the 500 row cap of the storage step applies after the full merge",
+          [on.items.length, on.results[0]?.truncated],
+          [500, true],
+        );
+        const times = [...beats].sort((a, b) => a - b);
+        ok(
+          p,
+          times.length >= 4,
+          `${times.length} distinct heartbeat values over ${engineMs} ms of engine work: the engine ran too briefly to prove anything, or the heartbeat did not advance`,
+        );
+        let gap = 0;
+        for (let i = 1; i < times.length; i += 1) gap = Math.max(gap, times[i] - times[i - 1]);
+        ok(
+          p,
+          gap <= 2500,
+          `the longest gap between two lease renewals was ${gap} ms (heartbeat 1000 ms)`,
+        );
+        ok(
+          p,
+          lastBeatAtEnd <= 2500,
+          `the last lease renewal was ${Math.round(lastBeatAtEnd)} ms before the engine returned`,
+        );
+        if (process.env.SECURITY_REPORT_GAPS)
+          console.log(
+            `[ENG-S17c] engine ${engineMs} ms, ${times.length} renewals, longest gap ${gap} ms, last renewal ${Math.round(lastBeatAtEnd)} ms before the end`,
+          );
       } finally {
         for (const c of cleanups) c();
       }

@@ -1861,6 +1861,73 @@ export const ENSEMBLE_CORE_CHECKS = [
         rollUpTask({ tools: [t("a", "failed", "sandbox_error"), t("b", "timed_out", "timeout")] }),
         { errorClass: "permanent" },
       );
+      // owner decision 2026-11-20 (option A): a tool named in retryClassExcludes does not decide the class
+      const lite = { retryClassExcludes: ["sbom-lite"] };
+      eq(
+        "7 transient container tools, permanent excluded inventory: transient",
+        rollUpTask({
+          tools: [
+            t("syft", "failed", "sandbox_error"),
+            t("trivy", "unavailable", "capacity"),
+            t("sbom-lite", "failed", "output_invalid"),
+          ],
+          ...lite,
+        }),
+        { taskStatus: "failed", errorClass: "transient", toolsDegraded: 3, matchedRow: 7 },
+      );
+      eq(
+        "7 the same without the exclusion is permanent (default unchanged)",
+        rollUpTask({
+          tools: [
+            t("syft", "failed", "sandbox_error"),
+            t("trivy", "unavailable", "capacity"),
+            t("sbom-lite", "failed", "output_invalid"),
+          ],
+        }),
+        { errorClass: "permanent" },
+      );
+      eq(
+        "7 a permanent container failure stays permanent whatever is excluded",
+        rollUpTask({
+          tools: [
+            t("syft", "failed", "sandbox_error"),
+            t("trivy", "failed", "exit_code"),
+            t("sbom-lite", "failed", "output_invalid"),
+          ],
+          ...lite,
+        }),
+        { errorClass: "permanent" },
+      );
+      eq(
+        "7 only excluded tools failed: decided by them (nothing infrastructure-dependent failed)",
+        rollUpTask({
+          tools: [
+            t("syft", "skipped", "no_applicable_files"),
+            t("sbom-lite", "failed", "output_invalid"),
+          ],
+          ...lite,
+        }),
+        { taskStatus: "failed", errorClass: "permanent", toolsDegraded: 1 },
+      );
+      eq(
+        "7 an excluded transient failure alone is transient",
+        rollUpTask({ tools: [t("sbom-lite", "failed", "sandbox_error")], ...lite }),
+        { errorClass: "transient" },
+      );
+      eq(
+        "6 the exclusion changes nothing for a degraded task",
+        rollUpTask({
+          tools: [t("syft", "succeeded"), t("sbom-lite", "failed", "output_invalid")],
+          ...lite,
+        }),
+        { taskStatus: "succeeded", toolsDegraded: 1, matchedRow: 6, resolutionEligible: false },
+      );
+      for (const bad of ["sbom-lite", [1], null])
+        ok(
+          p,
+          throwsCode(() => rollUpTask({ tools: [], retryClassExcludes: bad })) !== null,
+          `a bad retryClassExcludes ${JSON.stringify(bad)} is refused`,
+        );
       eq(
         "7 skipped is neutral",
         rollUpTask({

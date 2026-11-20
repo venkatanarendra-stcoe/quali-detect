@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SandboxError, resolveRunSpecImage } from "@qmentisai/infra";
+import { SandboxError, redactLogText, resolveRunSpecImage } from "@qmentisai/infra";
 import { rollUpTask } from "@qmentisai/shared";
 import { createSyftAdapter } from "../sbom/syft.js";
 import { createTrivySbomAdapter } from "../sbom/trivy-sbom.js";
 import { collectSbomLiteStreams, createSbomLiteAdapter } from "../sbom/sbom-lite.js";
-import { mergeTaskCandidates } from "../core/merger.js";
-import { runToolParse } from "../core/run-parse.js";
-import { toStorageRows } from "../core/storage.js";
+import { mergeTaskCandidatesAsync } from "../core/merger.js";
+import { runToolParseAsync } from "../core/run-parse.js";
+import { toStorageRowsAsync } from "../core/storage.js";
 import {
   DEFAULT_TOOL_WAIT_MS,
   ENGINE_ID,
@@ -17,6 +17,34 @@ import {
   SBOM_DOCUMENT_TOOL_ID,
 } from "./constants.js";
 import { runManifestSha256 } from "./run-manifest.js";
+
+/**
+ * The tools left out of the retry-class decision of table 5.4 row 7 (owner decision 2026-11-20, option A): the in-process inventory's
+ * failure word is permanent and says nothing about the infrastructure, so only the container tools decide whether a failed task retries.
+ */
+const RETRY_CLASS_EXCLUDES = Object.freeze(["sbom-lite"]);
+
+/**
+ * The stored copy of the canonical SBOM document (owner decision 2026-11-20, option A): the REDACTED text, never the raw bytes, so a
+ * secret that a package field carries never reaches the SBOM download. The same redaction as the artifact store. A document the
+ * redaction turns into something that is not a JSON document (the redaction replaces the whole text when a credential shape survives)
+ * is NOT stored (fail closed); the caller records a note and the task is not failed.
+ * @param {Buffer | string} stdout
+ * @param {(text: string) => string} [redact] the redaction of the artifact store; a parameter only so the suite can drive a hostile one
+ * @returns {{ ok: true, bytes: Buffer, redacted: boolean } | { ok: false, note: "document_not_json" | "redaction_broke_document" }}
+ */
+export function redactedSbomDocument(stdout, redact = redactLogText) {
+  const text = Buffer.isBuffer(stdout) ? stdout.toString("utf8") : String(stdout);
+  const clean = redact(text);
+  try {
+    const parsed = JSON.parse(clean);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+      return { ok: false, note: "redaction_broke_document" };
+  } catch {
+    return { ok: false, note: clean === text ? "document_not_json" : "redaction_broke_document" };
+  }
+  return { ok: true, bytes: Buffer.from(clean, "utf8"), redacted: clean !== text };
+}
 
 /**
  * The ensemble engine for the SBOM scan type (docs/modules/scan-engines/SPEC.md 6.1, 5.3, 5.4, 6.4, part K core): Syft and Trivy in
@@ -186,9 +214,9 @@ export function createEnsembleSbomEngine({
   }
 
   /** Parses one tool's output with the REAL adapter and folds the outcome into the record. */
-  function parseTool(adapter, { record, streams }, taskRef) {
+  async function parseTool(adapter, { record, streams }, taskRef) {
     if (streams === null) return { record, candidates: [], stdout: null };
-    const outcome = runToolParse(adapter, streams, {
+    const outcome = await runToolParseAsync(adapter, streams, {
       taskRef,
       toolRunId: record.id,
       toolVersion: record.toolVersion,
@@ -241,7 +269,7 @@ export function createEnsembleSbomEngine({
           candidates: [],
           stdout: null,
         };
-      const outcome = runToolParse(lite, collected.streams, {
+      const outcome = await runToolParseAsync(lite, collected.streams, {
         taskRef,
         toolRunId: base.id,
         toolVersion: base.toolVersion,
@@ -303,27 +331,49 @@ export function createEnsembleSbomEngine({
         await runner
           .abortAttempt({ taskId: context.taskId, attempt: context.attempt + 1 })
           .catch(() => {});
-      const parsed = settled.map((s) => (s.lite ? s.lite : parseTool(s.adapter, s.ran, taskRef)));
+      // every heavy step below awaits and gives the event loop a turn every few milliseconds, so the lease heartbeat of the handler
+      // (a timer on this loop) is never starved by a large result (owner decision 2026-11-20)
+      const parsed = [];
+      // bounded: one entry per tool (three); each parse below checkpoints per record
+      for (const s of settled)
+        parsed.push(s.lite ? s.lite : await parseTool(s.adapter, s.ran, taskRef));
+      // bounded: one record per tool (three)
       const toolRuns = parsed.map((p) => p.record);
       const reason = String(signal.reason?.message);
       const rollup = rollUpTask({
         tools: toolRuns.map((r) => ({ toolId: r.toolId, status: r.status, reason: r.reason })),
+        retryClassExcludes: [...RETRY_CLASS_EXCLUDES],
         cancelled: signal.aborted && reason !== "task_deadline",
         deadlineReached: signal.aborted && reason === "task_deadline",
       });
-      const merged = mergeTaskCandidates({
+      const merged = await mergeTaskCandidatesAsync({
         taskRef,
         scanType: "sbom",
+        // bounded: concatenates the candidate lists of the three tools (one native pass)
         candidates: parsed.flatMap((p) => p.candidates),
       });
-      const rows = toStorageRows(merged.findings, platform.maxItems ?? 50_000);
+      const rows = await toStorageRowsAsync(merged.findings, platform.maxItems ?? 50_000);
+      // bounded: one entry per tool (three)
       const syft = parsed.find((p) => p.record.toolId === SBOM_DOCUMENT_TOOL_ID);
-      const document =
+      let document = null;
+      if (
         syft?.stdout &&
         Buffer.byteLength(syft.stdout) <= SBOM_DOCUMENT_MAX_BYTES &&
         ["succeeded", "partial"].includes(syft.record.status)
-          ? { toolId: SBOM_DOCUMENT_TOOL_ID, bytes: Buffer.from(syft.stdout, "utf8") }
-          : null;
+      ) {
+        const stored = redactedSbomDocument(syft.stdout);
+        if (stored.ok)
+          document = {
+            toolId: SBOM_DOCUMENT_TOOL_ID,
+            bytes: stored.bytes,
+            redacted: stored.redacted,
+          };
+        else
+          log(
+            "warn",
+            `The SBOM document was not stored (${stored.note}); the scan result is not affected`,
+          );
+      }
       const incomplete = rollup.completeness === "incomplete" || rows.truncated;
       return {
         status: rollup.taskStatus === "failed" ? "failed" : "succeeded",

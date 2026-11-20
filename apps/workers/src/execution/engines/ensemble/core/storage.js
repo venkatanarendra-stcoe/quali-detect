@@ -7,13 +7,15 @@ import {
 import { findCredentials } from "@qmentisai/infra";
 import { normalizeItems } from "../../../scan-handler.js";
 import { scrubDeep } from "./scrub.js";
+import { runSync, runYielding } from "./yield.js";
 
 /**
  * Projection of merged findings onto the storage rows (docs/modules/scan-engines/SPEC.md 7.1, 7.3): the list-friendly
  * `scan_result_items` row (unchanged shape, 4 KiB `data`) and its 1:1 `scan_result_item_details` row. The existing
  * {@link normalizeItems} stays the LAST gate before the database (control characters stripped, credential-shaped text redacted,
  * lengths capped, a secret item keeps at most 4 leading characters); an item it rejects drops its finding, so the detail rows
- * keep the SAME ordinals as the stored items. Pure; no I/O.
+ * keep the SAME ordinals as the stored items. Pure; no I/O. Checkpointed like the merger (one checkpoint per finding): the
+ * synchronous {@link toStorageRows} is the reference, {@link toStorageRowsAsync} gives the event loop a turn every few milliseconds.
  */
 
 /**
@@ -87,15 +89,16 @@ export function findingToDetail(finding) {
 /**
  * @param {unknown[]} findings merged findings (re-validated here: the storage boundary trusts nothing)
  * @param {number} cap the most items a result may hold (`maxResultItemsPerTask`)
- * @returns {{ items: object[], details: object[], truncated: boolean, dropped: number, severityCounts: Record<string, number> }}
+ * @returns {Generator<void, { items: object[], details: object[], truncated: boolean, dropped: number, severityCounts: Record<string, number> }, void>}
  */
-export function toStorageRows(findings, cap) {
+function* storageSteps(findings, cap) {
   const items = [];
   const details = [];
   const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   let dropped = 0;
   let truncated = false;
   for (const raw of findings) {
+    yield;
     const parsed = findingSchema.safeParse(raw);
     if (!parsed.success) {
       dropped += 1;
@@ -133,4 +136,20 @@ export function toStorageRows(findings, cap) {
     severityCounts[finding.severity] += 1;
   }
   return { items, details, truncated, dropped, severityCounts };
+}
+
+/**
+ * @param {unknown[]} findings @param {number} cap
+ * @returns {{ items: object[], details: object[], truncated: boolean, dropped: number, severityCounts: Record<string, number> }}
+ */
+export function toStorageRows(findings, cap) {
+  return runSync(storageSteps(findings, cap));
+}
+
+/**
+ * The same projection, yielding to the event loop every few milliseconds.
+ * @param {unknown[]} findings @param {number} cap @param {Parameters<typeof runYielding>[1]} [options]
+ */
+export function toStorageRowsAsync(findings, cap, options) {
+  return runYielding(storageSteps(findings, cap), options);
 }

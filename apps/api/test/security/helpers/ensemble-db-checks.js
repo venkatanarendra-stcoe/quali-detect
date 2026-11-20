@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
+  CHANGED_PATHS_ARTIFACT_NAME,
   createExecutionArtifactRepository,
   createExecutionRetentionRepository,
   createScanResultDetailRepository,
@@ -8,8 +9,12 @@ import {
 } from "@qmentisai/db";
 import { createPostgresArtifactStore } from "@qmentisai/infra";
 import { jsonbTextBytes } from "@qmentisai/shared";
+import {
+  CHANGED_PATHS_NAME,
+  readChangedPaths,
+} from "../../../../workers/src/execution/changed-paths.js";
 import { detailRowBytes } from "../../../../workers/src/execution/engines/ensemble/core/index.js";
-import { driveExecution, inState, runningTask, taskData } from "./execution-db.js";
+import { driveExecution, inState, queuedExecution, runningTask, taskData } from "./execution-db.js";
 import { attempt, mustAccept, mustReject, probe } from "./pipeline-db.js";
 
 /**
@@ -19,6 +24,10 @@ import { attempt, mustAccept, mustReject, probe } from "./pipeline-db.js";
  * behaviour with a real worker, or that the migration applies to a database with data in these tables (they are new and empty).
  */
 
+const same = (p, label, got, want) => {
+  if (JSON.stringify(got) !== JSON.stringify(want))
+    p.push(`${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+};
 const hex = (n) => randomBytes(n).toString("hex");
 const ST = "2026-11-19T10:00:00.000Z";
 const EN = "2026-11-19T10:00:05.000Z";
@@ -1397,6 +1406,140 @@ export const ENSEMBLE_DB_CHECKS = [
         artifactRetentionDays: 3650,
       });
       if (again.executions !== 0) p.push("a second purge deleted more");
+      return p;
+    },
+  },
+  {
+    id: "ENG-S08e",
+    name: "retention removes orphan changed-paths artifacts and never one a committed decision references (SPEC scan-engines 5.9 SE-22, owner decision 2026-11-20, Executions ER-17; real database): the artifact is written before the decision transaction, so an execution that ended without a committed decision referencing it leaves an orphan; one purge removes, at once and whatever their age, the changed-paths.json artifacts of TERMINAL executions that no committed decision of the same tenant and execution references with status complete (no decision at all, a truncated or unavailable decision that records no reference), of any tenant; it keeps the artifact a complete decision references (and the scan handler's reader returns its paths), every artifact with another name, and the artifact of an execution that is not terminal (a decision may still commit); a second purge removes nothing; the name constant of the database package equals the one of the worker contract; an orphan is never read: the reader takes the status and the reference from the decision row and does not touch the store for a missing decision, a truncated or unavailable one or a wrong reference",
+    async run(c) {
+      const p = [];
+      const { db, A, B } = c;
+      if (CHANGED_PATHS_ARTIFACT_NAME !== CHANGED_PATHS_NAME)
+        p.push("the retention constant differs from the changed-paths contract");
+      const store = createPostgresArtifactStore({
+        repository: createExecutionArtifactRepository({ db }),
+      });
+      const doc = Buffer.from(JSON.stringify({ schemaVersion: 1, total: 1, paths: ["a/b.js"] }));
+      const decisionOf = (e, over) =>
+        db.scanDecision.create({
+          data: {
+            tenantId: e.tenantId,
+            workspaceId: e.workspaceId,
+            repositoryId: e.repositoryId,
+            pipelineId: e.pipelineId,
+            executionId: e.id,
+            scanKind: "incremental",
+            trust: "trusted",
+            diffSource: "github_compare",
+            diffStatus: "complete",
+            changedTotal: 1,
+            secretsRule: "any_change",
+            floor: [],
+            agentStatus: "not_configured",
+            // the snapshot of the suite pipelines enables no scan type, so the decision is a zero-scan one
+            finalTypes: [],
+            notSelected: [],
+            ...over,
+          },
+        });
+      const make = async (tree, { name = CHANGED_PATHS_NAME, decision, terminal = true }) => {
+        const { execution } = await queuedExecution(c, tree, 0, {
+          scanKind: "incremental",
+          scanKindReason: "push",
+        });
+        await driveExecution(db, execution.id, terminal ? "preparing" : "running");
+        const e = await db.execution.findUnique({ where: { id: execution.id } });
+        if (name !== null)
+          await store.put({ tenantId: e.tenantId, executionId: e.id, name }, doc, {
+            mediaType: "application/json",
+          });
+        if (decision) await decisionOf(e, decision);
+        if (terminal) await driveExecution(db, e.id, "failed");
+        return e;
+      };
+      const has = async (e, name = CHANGED_PATHS_NAME) =>
+        (await store.size({ tenantId: e.tenantId, executionId: e.id, name })) !== null;
+      const referenced = await make(A, {
+        decision: { changedPathsStatus: "complete", changedPathsRef: CHANGED_PATHS_NAME },
+      });
+      const noDecision = await make(A, {});
+      const truncated = await make(A, { decision: { changedPathsStatus: "truncated" } });
+      const unavailable = await make(A, { decision: { changedPathsStatus: "unavailable" } });
+      const otherName = await make(A, { name: "sbom-keep.cdx.json" });
+      const otherTenant = await make(B, {});
+      const running = await make(A, { terminal: false });
+      for (const [label, e, name] of [
+        ["referenced", referenced],
+        ["no decision", noDecision],
+        ["truncated", truncated],
+        ["unavailable", unavailable],
+        ["other name", otherName, "sbom-keep.cdx.json"],
+        ["other tenant", otherTenant],
+        ["running", running],
+      ])
+        if (!(await has(e, name))) p.push(`control: ${label} was not stored`);
+      const repo = createExecutionRetentionRepository({ db });
+      const first = await repo.purgeExpired({
+        metadataRetentionMonths: null,
+        logRetentionDays: 3650,
+        artifactRetentionDays: 3650,
+      });
+      same(p, "orphans removed by the first purge", first.orphanChangedPaths >= 4, true);
+      for (const [label, e, gone] of [
+        ["referenced", referenced, false],
+        ["no decision", noDecision, true],
+        ["truncated", truncated, true],
+        ["unavailable", unavailable, true],
+        ["other tenant (no decision)", otherTenant, true],
+        ["running execution", running, false],
+      ])
+        same(p, `${label}: artifact removed`, !(await has(e)), gone);
+      same(p, "another name is kept", await has(otherName, "sbom-keep.cdx.json"), true);
+      const second = await repo.purgeExpired({
+        metadataRetentionMonths: null,
+        logRetentionDays: 3650,
+        artifactRetentionDays: 3650,
+      });
+      same(p, "a second purge removes no orphan", second.orphanChangedPaths, 0);
+      // the reader goes through the decision row: the kept artifact is read, an orphan never
+      const decisionRow = await db.scanDecision.findFirst({
+        where: { tenantId: referenced.tenantId, executionId: referenced.id },
+      });
+      const read = await readChangedPaths({
+        artifacts: store,
+        tenantId: referenced.tenantId,
+        executionId: referenced.id,
+        decision: decisionRow,
+      });
+      same(p, "the referenced artifact is read", read, { status: "complete", paths: ["a/b.js"] });
+      let opened = 0;
+      const spy = {
+        open: (ref) => {
+          opened += 1;
+          return store.open(ref);
+        },
+      };
+      for (const [_label, decision] of [
+        ["no decision", null],
+        ["a decision that recorded nothing", { changedPathsStatus: null, changedPathsRef: null }],
+        [
+          "a truncated decision with a stale reference",
+          { changedPathsStatus: "truncated", changedPathsRef: CHANGED_PATHS_NAME },
+        ],
+        ["an unavailable decision", { changedPathsStatus: "unavailable", changedPathsRef: null }],
+        [
+          "a complete decision with a foreign reference",
+          { changedPathsStatus: "complete", changedPathsRef: "../x.json" },
+        ],
+      ])
+        await readChangedPaths({
+          artifacts: spy,
+          tenantId: noDecision.tenantId,
+          executionId: noDecision.id,
+          decision,
+        });
+      same(p, "the store was never opened for an orphan", opened, 0);
       return p;
     },
   },

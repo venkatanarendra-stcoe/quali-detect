@@ -11,14 +11,12 @@ import { withTransaction } from "../transaction.js";
  */
 
 const json = (value) => JSON.stringify(value ?? {});
-const nullableJson = (value) =>
-  value === null || value === undefined ? null : JSON.stringify(value);
 
 /**
- * Rows per statement of the batched detail insert. A statement carries one array parameter per column (17 bind parameters, far
- * below the Postgres limit of 65535 whatever the batch size), so the size only bounds one statement's payload (typically a few
- * MiB; at most 16 MiB at the 16 KiB row ceiling) and its running time. The 15 s budget of the surrounding transaction is spent
- * mostly on the per-row constraint and trigger work of the database, which batching does not change (SPEC scan-engines 17.f).
+ * Rows per statement of the batched detail insert. A statement carries ONE JSON bind parameter (plus the three trusted ids), far
+ * below the Postgres limit of 65535 whatever the batch size, so the size only bounds one statement's payload (typically a few
+ * MiB; at most 16 MiB at the 16 KiB row ceiling) and its running time. The 15 s default budget of the surrounding transaction is
+ * spent mostly on the per-row constraint and trigger work of the database, which batching does not change (SPEC scan-engines 17.k).
  */
 export const DETAIL_INSERT_BATCH = 1000;
 

@@ -35,6 +35,7 @@ import { decideScans } from "../../../../workers/src/execution/decision/decide.j
 import { decideFloor } from "../../../../workers/src/execution/decision/floor.js";
 import { createEngineRegistry } from "../../../../workers/src/execution/engines.js";
 import { loadImageLock } from "../../../../workers/src/execution/engines/ensemble/catalog/index.js";
+import { redactLogText } from "@qmentisai/infra";
 import {
   createEnsembleSbomEngine,
   redactedSbomDocument,
@@ -87,7 +88,7 @@ const TREE_FILES = {
 };
 
 /** A disposable environment: tree root, rules directory, fake runtime, runner, gate, engine. */
-export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts } = {}) {
+export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts, redactDocument } = {}) {
   const base = mkdtempSync(path.join(os.tmpdir(), "qm-ens-s10-"));
   const archiveRoot = path.join(base, "scan");
   const rulesDir = path.join(base, "rules");
@@ -123,6 +124,7 @@ export function makeEnv({ gate = {}, toolWaitMs = 500, inventory, scripts } = {}
     rulesDir,
     toolWaitMs,
     inventory,
+    ...(redactDocument ? { redactDocument } : {}),
   });
   let n = 0;
   const tree = (files = TREE_FILES) => {
@@ -1290,12 +1292,18 @@ export const ENSEMBLE_ENGINE_CHECKS = [
         [1, false],
       ]) {
         const base = JSON.parse(SYFT_DOC);
-        base.pad = "";
+        base.pad = [];
         const head = Buffer.byteLength(JSON.stringify(base));
-        const fitted = JSON.stringify({
-          ...base,
-          pad: "p".repeat(16 * 1024 * 1024 - head + extra),
-        });
+        // strings of 512 KiB (the per-string redaction replaces a string above 1 MiB as a whole), 3 bytes of JSON syntax each
+        const chunk = 512 * 1024;
+        const room = 16 * 1024 * 1024 - head + extra;
+        // k strings add (sum of lengths) + 3k - 1 bytes to the document
+        const k = Math.ceil((room + 1) / (chunk + 3));
+        const total = room + 1 - 3 * k;
+        const pieces = Array.from({ length: k }, (_, i) =>
+          "p".repeat(i < k - 1 ? chunk : total - chunk * (k - 1)),
+        );
+        const fitted = JSON.stringify({ ...base, pad: pieces });
         same(p, `fixture size ${extra}`, Buffer.byteLength(fitted), 16 * 1024 * 1024 + extra);
         const env = makeEnv({ scripts: { syft: { stdout: fitted } } });
         try {
@@ -2021,17 +2029,26 @@ export const ENSEMBLE_ENGINE_CHECKS = [
   },
   {
     id: "ENG-S05c",
-    name: "the stored SBOM document is the REDACTED copy, still valid JSON, and a document the redaction would break is not stored (SPEC scan-engines D-22 (4), 17.i, owner decision 2026-11-20 option A; fake runtime, Part E adapters unchanged): a credential-shaped value in a package field or a property of the Syft document is masked in the document the engine hands over (the planted token appears nowhere in it, nor in the log, the tool runs, the detail rows or the items), the document parses as JSON and keeps its components; a clean document is handed over byte for byte and flagged as not redacted; a document whose text the redaction turns into something that is not a JSON object (a line that carries an Authorization header, which the redaction replaces up to the end of the line, closing quotes included) is NOT stored (fail closed): the document is null, the log says so, no secret is logged, and the task is NOT failed (succeeded, the findings of the other tools and of the inventory kept, row 5); the redaction is the one of the artifact store (a hostile redaction that returns plain text, an array or an empty text is refused with a fixed note, a text that is not JSON to begin with is refused too); the helper stores nothing and never throws for a hostile document",
+    name: "the stored SBOM document is redacted STRING BY STRING and a single credential-shaped field never drops the document (SPEC scan-engines D-22 (4), 17.l, owner decision 2026-11-20 replacing the whole-text redaction of 17.j; fake runtime, Part E adapters unchanged): the Syft document is parsed with the strict parse kit, walked iteratively with the same checkpoints as the other heavy steps, and only the string VALUES and object KEYS that the artifact store's credential detector flags are replaced by the fixed marker, so the stored document is valid JSON by construction and equals the original except at those places; a token in a package field or a property, an Authorization line or a private-key block inside a value, a token in a key, a JSON-escaped token and a multi-line value are each replaced alone (nothing else changes, no member is lost, colliding replaced keys stay distinct and in order), no credential shape survives anywhere in the stored bytes (also not in the log, the tool runs, the detail rows or the items), the stored bytes are a FIXED POINT of the artifact store's own masking (the store masks application/json again on put, so that pass cannot break the JSON), a clean document is handed over byte for byte and flagged as not redacted, and the task is never failed; a base64 blob with no keyword is NOT covered by the detector (recorded limit); hostile documents are handled: nesting beyond the parse caps, a forbidden key (__proto__, constructor, prototype), a root that is not an object, invalid or empty JSON and a document above the ceiling are NOT stored (fail closed, a fixed note, the log says so, the task is not failed), a string above 1 MiB is replaced as a whole, tens of thousands of offending strings are replaced, a redaction that is not a fixed point fails closed, the synchronous reference and the yielding driver give identical bytes, and the walk gives the event loop a turn (setImmediate) when its time slice is used up",
     async run() {
       const p = [];
       const token = "ghp_Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9Wk9";
+      const header = "Authorization: Bearer abcdefghijklmnop1234";
+      const MARK = "[REDACTED]";
+      const base = () => JSON.parse(SYFT_DOC);
       const withProperty = (value) => {
-        const doc = JSON.parse(SYFT_DOC);
+        const doc = base();
         doc.components[0].properties.push({ name: "qm:note", value });
         doc.components[1].description = `built with ${value}`;
         return doc;
       };
-      // a token in a package field and in a property
+      const noStoreMasking = (label, bytes) =>
+        ok(
+          p,
+          redactLogText(bytes.toString("utf8")) === bytes.toString("utf8"),
+          `${label}: the artifact store would mask the stored bytes again`,
+        );
+      // ---- through the engine: a token in a package field and in a property
       {
         const env = makeEnv({ scripts: { syft: { stdout: JSON.stringify(withProperty(token)) } } });
         try {
@@ -2041,22 +2058,16 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           if (d) {
             const text = d.bytes.toString("utf8");
             ok(p, !text.includes(token), "the planted token is in the stored document");
-            ok(
+            ok(p, d.redacted === true, "the document is flagged as redacted");
+            noStoreMasking("engine, token", d.bytes);
+            const expected = base();
+            expected.components[0].properties.push({ name: "qm:note", value: MARK });
+            expected.components[1].description = MARK;
+            same(
               p,
-              text.includes("[REDACTED]") && d.redacted === true,
-              "the token is masked, not dropped",
-            );
-            let parsed = null;
-            try {
-              parsed = JSON.parse(text);
-            } catch {
-              p.push("the redacted document is not valid JSON");
-            }
-            ok(
-              p,
-              parsed?.bomFormat === "CycloneDX" &&
-                parsed.components.length === JSON.parse(SYFT_DOC).components.length,
-              "the redacted document lost components",
+              "the document equals the original except at the two values",
+              JSON.parse(text),
+              expected,
             );
           }
           const everything = JSON.stringify([
@@ -2075,7 +2086,7 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           env.cleanup();
         }
       }
-      // a clean document is untouched
+      // ---- a clean document is untouched
       {
         const env = makeEnv();
         try {
@@ -2090,21 +2101,36 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           env.cleanup();
         }
       }
-      // a document the redaction would break: not stored, not a failure
+      // ---- through the engine: the Authorization line that used to drop the whole document
       {
-        const header = "Authorization: Bearer abcdefghijklmnop1234";
         const env = makeEnv({
           scripts: { syft: { stdout: JSON.stringify(withProperty(header), null, 2) } },
         });
         try {
           const r = await env.run();
-          same(p, "no document", r.ensemble.document, null);
+          const d = r.ensemble.document;
           ok(
             p,
-            env.logs.some((l) =>
-              /^warn The SBOM document was not stored \(redaction_broke_document\)/.test(l),
-            ),
-            `the log must say why: ${JSON.stringify(env.logs)}`,
+            d !== null && d !== undefined,
+            "an Authorization line inside a value must not drop the document",
+          );
+          if (d) {
+            const text = d.bytes.toString("utf8");
+            ok(
+              p,
+              !text.includes("abcdefghijklmnop1234"),
+              "the header value is in the stored document",
+            );
+            const expected = base();
+            expected.components[0].properties.push({ name: "qm:note", value: MARK });
+            expected.components[1].description = MARK;
+            same(p, "only the two values changed", JSON.parse(text), expected);
+            noStoreMasking("engine, header", d.bytes);
+          }
+          ok(
+            p,
+            !env.logs.some((l) => /not stored/.test(l)),
+            `no warning is expected: ${JSON.stringify(env.logs)}`,
           );
           ok(
             p,
@@ -2127,75 +2153,443 @@ export const ENSEMBLE_ENGINE_CHECKS = [
           env.cleanup();
         }
       }
-      // the helper itself
-      const hostile = (stdout, redact) => redactedSbomDocument(stdout, redact);
-      same(
-        p,
-        "plain text",
-        hostile('{"a":1}', () => "[REDACTED]"),
-        {
-          ok: false,
-          note: "redaction_broke_document",
-        },
-      );
-      same(
-        p,
-        "an array",
-        hostile('{"a":1}', () => "[1,2]"),
-        {
-          ok: false,
-          note: "redaction_broke_document",
-        },
-      );
-      for (const scalar of ["null", "5", '"text"', "true"])
+      // ---- through the engine: a document that cannot be redacted safely is not stored and is not a failure
+      {
+        // the adapter's strict parse refuses a document nested beyond the caps first (no document, the tool failed)
+        const deep = JSON.stringify({
+          ...base(),
+          nested: JSON.parse("[".repeat(80) + "]".repeat(80)),
+        });
+        const env = makeEnv({ scripts: { syft: { stdout: deep } } });
+        try {
+          const r = await env.run();
+          ok(
+            p,
+            r.ensemble.document === null,
+            "a document nested beyond the caps must not be stored",
+          );
+          same(
+            p,
+            "a deep document",
+            [r.status, statusOf(r).syft],
+            ["succeeded", "failed/output_invalid"],
+          );
+        } finally {
+          env.cleanup();
+        }
+      }
+      {
+        // a redaction that fails closed after the adapter accepted the document: a fixed note in the log, the task is not failed
+        const env = makeEnv({
+          redactDocument: async () => ({ ok: false, note: "redaction_not_stable" }),
+        });
+        try {
+          const r = await env.run();
+          same(p, "no document", r.ensemble.document, null);
+          ok(
+            p,
+            env.logs.some((l) =>
+              /^warn The SBOM document was not stored \(redaction_not_stable\)/.test(l),
+            ),
+            `the log must say why: ${JSON.stringify(env.logs)}`,
+          );
+          same(
+            p,
+            "the task is not failed",
+            [
+              r.status,
+              r.ensemble.rollup.matchedRow,
+              r.ensemble.rollup.taskStatus,
+              statusOf(r).syft,
+            ],
+            ["succeeded", 5, "succeeded", "succeeded"],
+          );
+          ok(p, r.items.length === FIXED.syftFindings, `the findings are kept (${r.items.length})`);
+        } finally {
+          env.cleanup();
+        }
+      }
+      // ---- the helper: one document, one planted value; the rest must be identical
+      const doc = (extra = {}) => ({
+        bomFormat: "CycloneDX",
+        specVersion: "1.5",
+        components: [
+          { name: "a", version: "1", properties: [{ name: "n", value: "plain" }] },
+          { name: "b", version: "2", description: "kept", ...extra },
+        ],
+      });
+      const redactValue = async (value, label) => {
+        const r = await redactedSbomDocument(JSON.stringify(doc({ description: value })));
+        if (!r.ok) {
+          p.push(`${label}: not stored (${r.note})`);
+          return null;
+        }
+        const out = JSON.parse(r.bytes.toString("utf8"));
+        same(p, `${label}: only the planted value changed`, out, doc({ description: MARK }));
+        same(p, `${label}: counted`, [r.redacted, r.replaced], [true, 1]);
+        noStoreMasking(label, r.bytes);
+        return r;
+      };
+      const planted = {
+        "a GitHub token": `see ${token} here`,
+        "a fine-grained token": "github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuv",
+        "a bearer value": "Bearer abcdefghijklmnop1234",
+        "an Authorization line": header,
+        "a Basic Authorization line": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+        "a proxy authorization line": "proxy-authorization: Digest abc",
+        "an AWS key id": "key AKIAIOSFODNN7EXAMPLE end",
+        "an Anthropic style key": "sk-ant-" + "a1".repeat(15),
+        "a URL with credentials": "https://user:pa55word@example.com/repo.git",
+        "a token query parameter": "https://example.com/x?access_token=abcdef123456",
+        "a password pair": "password=hunter2hunter2",
+        "a secret pair in quotes": 'secret: "hunter2"',
+        "a private key block":
+          "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY-----",
+        "an unterminated key block": "-----BEGIN PRIVATE KEY-----\nMIIEabc",
+        "a header in the middle of a multi-line value":
+          "line one\nAuthorization: Basic dXNlcjpwYXNz\nline three",
+        "a value that tries to close the string": `x","evil":"y ${token}`,
+      };
+      for (const [label, value] of Object.entries(planted)) {
+        const r = await redactValue(value, label);
+        if (r) {
+          const text = r.bytes.toString("utf8");
+          for (const secret of [
+            token,
+            "abcdefghijklmnop1234",
+            "dXNlcjpwYXNz",
+            "hunter2",
+            "pa55word",
+            "AKIAIOSFODNN7EXAMPLE",
+            "MIIEabc",
+            "abcdef123456",
+          ])
+            ok(p, !text.includes(secret), `${label}: ${secret} survives`);
+        }
+      }
+      // a JSON-escaped token (the raw text never holds the token in one piece)
+      {
+        const raw = `{"bomFormat":"CycloneDX","components":[{"name":"a","description":"\\u0067hp_Wk9Wk9Wk9Wk9Wk9Wk9Wk9"}]}`;
+        ok(p, !raw.includes("ghp_"), "fixture: the raw text holds no plain token");
+        const r = await redactedSbomDocument(raw);
+        ok(p, r.ok && r.replaced === 1, `a JSON-escaped token is replaced: ${JSON.stringify(r)}`);
+        if (r.ok) {
+          const text = r.bytes.toString("utf8");
+          ok(
+            p,
+            !text.includes("Wk9Wk9") && !text.includes("\\u0067hp"),
+            "the escaped token survives",
+          );
+          same(p, "escaped token document", JSON.parse(text).components[0].description, MARK);
+        }
+      }
+      // a token in a KEY; keys that collide with the marker stay distinct, in order, with their values
+      {
+        const raw = JSON.stringify({
+          bomFormat: "CycloneDX",
+          meta: {
+            [token]: "one",
+            [MARK]: "kept",
+            [`${token}x`]: "two",
+            "[REDACTED]#2": "also kept",
+            after: 3,
+          },
+        });
+        const r = await redactedSbomDocument(raw);
+        ok(p, r.ok && r.replaced === 2, `two keys replaced: ${JSON.stringify(r)}`);
+        if (r.ok) {
+          const text = r.bytes.toString("utf8");
+          ok(p, !text.includes(token), "a key token survives");
+          const meta = JSON.parse(text).meta;
+          same(p, "keys in order", Object.keys(meta), [
+            MARK + "#3",
+            MARK,
+            MARK + "#4",
+            "[REDACTED]#2",
+            "after",
+          ]);
+          same(p, "values kept", Object.values(meta), ["one", "kept", "two", "also kept", 3]);
+        }
+      }
+      // one offending key, and two with no literal marker key around: the first takes the bare marker, the second the next free name
+      {
+        const one = await redactedSbomDocument(JSON.stringify({ a: 1, [token]: 2, b: 3 }));
         same(
           p,
-          `a JSON scalar ${scalar}`,
-          hostile('{"a":1}', () => scalar),
-          {
-            ok: false,
-            note: "redaction_broke_document",
-          },
+          "one replaced key keeps its place",
+          one.ok && Object.entries(JSON.parse(one.bytes.toString("utf8"))),
+          [
+            ["a", 1],
+            [MARK, 2],
+            ["b", 3],
+          ],
         );
-      same(
-        p,
-        "an empty text",
-        hostile('{"a":1}', () => ""),
-        {
-          ok: false,
-          note: "redaction_broke_document",
-        },
-      );
-      same(
-        p,
-        "not JSON to begin with",
-        hostile("not json", (t) => t),
-        {
-          ok: false,
-          note: "document_not_json",
-        },
-      );
-      const fine = hostile(Buffer.from('{"a":"x"}'), (t) => t);
-      same(
-        p,
-        "an unchanged text",
-        [fine.ok, fine.redacted, fine.bytes?.toString()],
-        [true, false, '{"a":"x"}'],
-      );
-      const masked = hostile('{"a":"x"}', () => '{"a":"[REDACTED]"}');
-      same(
-        p,
-        "a masked text",
-        [masked.ok, masked.redacted, masked.bytes?.toString()],
-        [true, true, '{"a":"[REDACTED]"}'],
-      );
-      let threw = false;
-      try {
-        hostile("\u0000{", undefined);
-      } catch {
-        threw = true;
+        const two = await redactedSbomDocument(
+          JSON.stringify({ [token]: 1, x: 2, [`${token}y`]: 3 }),
+        );
+        same(
+          p,
+          "two replaced keys stay distinct",
+          two.ok && Object.entries(JSON.parse(two.bytes.toString("utf8"))),
+          [
+            [MARK, 1],
+            ["x", 2],
+            [`${MARK}#2`, 3],
+          ],
+        );
+        same(p, "two replaced keys counted", two.replaced, 2);
       }
-      ok(p, !threw, "the helper threw for a hostile document");
+      // the checkpoints are exact: a turn for every container and for every 256 members (the clock-free count of setImmediate turns)
+      {
+        const turns = async (input, options = {}) => {
+          let n = 0;
+          const real = globalThis.setImmediate;
+          globalThis.setImmediate = (fn, ...args) => {
+            n += 1;
+            return real(fn, ...args);
+          };
+          try {
+            const r = await redactedSbomDocument(JSON.stringify(input), {
+              yieldOptions: { sliceMs: 0 },
+              ...options,
+            });
+            ok(p, r.ok, "checkpoint fixture stored");
+          } finally {
+            globalThis.setImmediate = real;
+          }
+          return n;
+        };
+        // root + array = 2 containers; 1 + 1000 members visited = 3 member checkpoints (256, 512, 768)
+        same(
+          p,
+          "turns for an array of 1000 strings",
+          await turns({ a: Array.from({ length: 1000 }, (_, i) => `s${i}`) }),
+          5,
+        );
+        // root + object = 2 containers; 1 + 1000 keys = 3 member checkpoints
+        same(
+          p,
+          "turns for an object of 1000 keys",
+          await turns({
+            a: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`k${i}`, i])),
+          }),
+          5,
+        );
+        // a renamed key rebuilds its object: 1000 renamed keys (500 + 500 ...) add two passes over the members (delete, re-add)
+        const withKeys = Object.fromEntries(
+          Array.from({ length: 300 }, (_, i) => [i === 0 ? token : `k${i}`, i]),
+        );
+        same(
+          p,
+          "turns for an object whose key is replaced",
+          await turns({ a: withKeys }),
+          2 + Math.floor((1 + 300 + 300 + 300) / 256),
+        );
+        // the reference driver never gives the loop a turn, whatever the slice
+        same(
+          p,
+          "no turn for the synchronous reference",
+          await turns({ a: Array.from({ length: 1000 }, (_, i) => `s${i}`) }, { sync: true }),
+          0,
+        );
+      }
+      // what the detector does not cover stays (recorded limit): a base64 blob with no keyword
+      {
+        const blob = Buffer.from("user:hunter2-password-value").toString("base64");
+        const r = await redactedSbomDocument(JSON.stringify(doc({ description: blob })));
+        ok(
+          p,
+          r.ok && r.replaced === 0 && r.bytes.toString("utf8").includes(blob),
+          "a bare base64 blob is outside the detector",
+        );
+      }
+      // an array of strings, nested containers and non-string values are walked
+      {
+        const raw = JSON.stringify({
+          a: [[{ b: ["ok", token, 5, null, true, { c: header }] }]],
+          n: 1.5,
+        });
+        const r = await redactedSbomDocument(raw);
+        same(p, "nested", r.ok && JSON.parse(r.bytes.toString("utf8")), {
+          a: [[{ b: ["ok", MARK, 5, null, true, { c: MARK }] }]],
+          n: 1.5,
+        });
+      }
+      // ---- hostile documents
+      const refused = async (label, input, note, options) => {
+        const r = await redactedSbomDocument(input, options);
+        same(p, label, r, { ok: false, note });
+      };
+      await refused(
+        "depth 65",
+        JSON.stringify({ x: JSON.parse("[".repeat(64) + "]".repeat(64)) }),
+        "document_not_json",
+      );
+      {
+        const r = await redactedSbomDocument(
+          JSON.stringify({ x: JSON.parse("[".repeat(62) + "]".repeat(62)) }),
+        );
+        ok(p, r.ok, "depth 64 is within the caps");
+      }
+      await refused(
+        "a __proto__ key",
+        '{"a":{"__proto__":{"x":1}},"bomFormat":"CycloneDX"}',
+        "document_not_json",
+      );
+      await refused("a constructor key", '{"constructor":{"x":1}}', "document_not_json");
+      await refused("a prototype key", '{"c":[{"prototype":1}]}', "document_not_json");
+      await refused("an array root", "[1,2]", "document_not_json");
+      for (const scalar of ["null", "5", '"text"', "true"])
+        await refused(`a scalar ${scalar}`, scalar, "document_not_json");
+      await refused("empty", "", "document_not_json");
+      await refused("invalid JSON", "{not json", "document_not_json");
+      await refused("a control character", "\u0000{", "document_not_json");
+      await refused("above the ceiling", `{"a":"${"x".repeat(100)}"}`, "document_too_large", {
+        maxBytes: 50,
+      });
+      {
+        const r = await redactedSbomDocument(Buffer.from('﻿{"a":"x"}', "utf8"));
+        ok(p, r.ok, "a byte order mark is tolerated by the strict kit");
+      }
+      // the ceiling holds for the REDACTED text too: a short offending value (8 characters) grows by the marker's length
+      {
+        const raw = '{"a":"secret:x"}';
+        const fits = await redactedSbomDocument(raw, { maxBytes: Buffer.byteLength(raw) + 2 });
+        const tight = await redactedSbomDocument(raw, { maxBytes: Buffer.byteLength(raw) + 1 });
+        same(
+          p,
+          "ceiling of the redacted text",
+          [fits.ok, tight.ok, tight.note],
+          [true, false, "document_too_large"],
+        );
+      }
+      // the pre-ceiling is exact for the redacted text as well
+      {
+        const exact = '{"a":"x"}';
+        const at = await redactedSbomDocument(exact, { maxBytes: exact.length });
+        const over = await redactedSbomDocument(exact, { maxBytes: exact.length - 1 });
+        same(
+          p,
+          "ceiling boundary",
+          [at.ok, over.ok, over.note],
+          [true, false, "document_too_large"],
+        );
+      }
+      // a string above 1 MiB is replaced as a whole, the rest stays
+      {
+        const long = "p".repeat(1024 * 1024 + 1);
+        const at = "p".repeat(1024 * 1024);
+        const r = await redactedSbomDocument(JSON.stringify({ keep: "k", long, at }), {
+          maxBytes: 8 * 1024 * 1024,
+        });
+        same(p, "a huge string", r.ok && JSON.parse(r.bytes.toString("utf8")), {
+          keep: "k",
+          long: MARK,
+          at,
+        });
+      }
+      // tens of thousands of offending strings
+      {
+        const many = {
+          components: Array.from({ length: 30000 }, (_, i) => ({
+            name: `p${i}`,
+            description: i % 2 === 0 ? `${token}${i}` : `fine ${i}`,
+          })),
+        };
+        const t0 = performance.now();
+        const r = await redactedSbomDocument(JSON.stringify(many));
+        const ms = Math.round(performance.now() - t0);
+        ok(
+          p,
+          r.ok && r.replaced === 15000,
+          `30000 components: ${JSON.stringify(r.ok ? r.replaced : r)}`,
+        );
+        if (r.ok) {
+          const out = JSON.parse(r.bytes.toString("utf8"));
+          ok(
+            p,
+            out.components.length === 30000 &&
+              out.components[1].description === "fine 1" &&
+              out.components[2].description === MARK,
+            "30000 components: content",
+          );
+          ok(p, !r.bytes.toString("utf8").includes(token), "30000 components: a token survives");
+        }
+        console.log(
+          `[ENG-S05c] per-string redaction of 30000 components (15000 offending): ${ms} ms`,
+        );
+      }
+      // a redaction that is not a fixed point (the store would change the bytes again) fails closed
+      {
+        const unstable = (text) => (text.length > 40 ? `${text} ` : text);
+        await refused(
+          "a redaction that changes the serialized document",
+          JSON.stringify(doc()),
+          "redaction_not_stable",
+          { redact: unstable },
+        );
+      }
+      // an untouched document the store would still change falls back to the compact serialization when that is stable
+      {
+        const pretty = JSON.stringify(doc(), null, 2);
+        const redactNewlines = (text) => text.replace(/\n/g, " ");
+        const r = await redactedSbomDocument(pretty, { redact: redactNewlines });
+        ok(
+          p,
+          r.ok && r.bytes.toString("utf8") === JSON.stringify(doc()) && r.redacted === false,
+          "pretty text falls back to the compact form",
+        );
+      }
+      // the synchronous reference and the yielding driver agree, and the walk really gives the event loop turns
+      {
+        const big = JSON.stringify({
+          components: Array.from({ length: 3000 }, (_, i) => ({
+            name: `p${i}`,
+            d: i % 7 === 0 ? token : "fine",
+            props: [{ k: "v", x: header }],
+          })),
+        });
+        const sync = await redactedSbomDocument(big, { sync: true });
+        const asyncOut = await redactedSbomDocument(big, { yieldOptions: { sliceMs: 0 } });
+        const nominal = await redactedSbomDocument(big);
+        ok(p, sync.ok && asyncOut.ok && nominal.ok, "big documents are stored");
+        same(
+          p,
+          "sync equals async",
+          [
+            sync.bytes?.toString("utf8") === asyncOut.bytes?.toString("utf8"),
+            sync.bytes?.toString("utf8") === nominal.bytes?.toString("utf8"),
+            sync.replaced,
+          ],
+          [true, true, 3000 + 429],
+        );
+        let immediates = 0;
+        const real = globalThis.setImmediate;
+        globalThis.setImmediate = (fn, ...args) => {
+          immediates += 1;
+          return real(fn, ...args);
+        };
+        try {
+          await redactedSbomDocument(big, { yieldOptions: { sliceMs: 0 } });
+        } finally {
+          globalThis.setImmediate = real;
+        }
+        ok(p, immediates >= 3000, `the walk gave the event loop only ${immediates} turns`);
+        let clock = 0;
+        immediates = 0;
+        globalThis.setImmediate = (fn, ...args) => {
+          immediates += 1;
+          return real(fn, ...args);
+        };
+        try {
+          await redactedSbomDocument(big, {
+            yieldOptions: { sliceMs: Number.POSITIVE_INFINITY, now: () => (clock += 1) },
+          });
+        } finally {
+          globalThis.setImmediate = real;
+        }
+        same(p, "no turn while the slice is not used up", immediates, 0);
+      }
       return p;
     },
   },
@@ -2453,6 +2847,20 @@ export const ENSEMBLE_WORLD_CHECKS = [
             "the stored document holds the planted credential",
           );
           ok(p, docs[0].size <= 16 * 1024 * 1024, "document ceiling");
+          // what the real artifact store kept is the engine's redacted document: valid JSON, untouched by the store's own masking
+          const kept = Buffer.from(docs[0].content).toString("utf8");
+          let parsedKept = null;
+          try {
+            parsedKept = JSON.parse(kept);
+          } catch {
+            p.push("the document in the artifact store is not valid JSON");
+          }
+          ok(
+            p,
+            parsedKept?.bomFormat === "CycloneDX",
+            "the stored document is not the CycloneDX document",
+          );
+          ok(p, redactLogText(kept) === kept, "the store masked the stored document again");
         }
         ok(
           p,

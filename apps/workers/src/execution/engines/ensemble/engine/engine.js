@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SandboxError, redactLogText, resolveRunSpecImage } from "@qmentisai/infra";
+import { SandboxError, resolveRunSpecImage } from "@qmentisai/infra";
 import { rollUpTask } from "@qmentisai/shared";
 import { createSyftAdapter } from "../sbom/syft.js";
 import { createTrivySbomAdapter } from "../sbom/trivy-sbom.js";
@@ -17,6 +17,7 @@ import {
   SBOM_DOCUMENT_TOOL_ID,
 } from "./constants.js";
 import { runManifestSha256 } from "./run-manifest.js";
+import { redactedSbomDocument } from "./sbom-redaction.js";
 
 /**
  * The tools left out of the retry-class decision of table 5.4 row 7 (owner decision 2026-11-20, option A): the in-process inventory's
@@ -24,27 +25,8 @@ import { runManifestSha256 } from "./run-manifest.js";
  */
 const RETRY_CLASS_EXCLUDES = Object.freeze(["sbom-lite"]);
 
-/**
- * The stored copy of the canonical SBOM document (owner decision 2026-11-20, option A): the REDACTED text, never the raw bytes, so a
- * secret that a package field carries never reaches the SBOM download. The same redaction as the artifact store. A document the
- * redaction turns into something that is not a JSON document (the redaction replaces the whole text when a credential shape survives)
- * is NOT stored (fail closed); the caller records a note and the task is not failed.
- * @param {Buffer | string} stdout
- * @param {(text: string) => string} [redact] the redaction of the artifact store; a parameter only so the suite can drive a hostile one
- * @returns {{ ok: true, bytes: Buffer, redacted: boolean } | { ok: false, note: "document_not_json" | "redaction_broke_document" }}
- */
-export function redactedSbomDocument(stdout, redact = redactLogText) {
-  const text = Buffer.isBuffer(stdout) ? stdout.toString("utf8") : String(stdout);
-  const clean = redact(text);
-  try {
-    const parsed = JSON.parse(clean);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-      return { ok: false, note: "redaction_broke_document" };
-  } catch {
-    return { ok: false, note: clean === text ? "document_not_json" : "redaction_broke_document" };
-  }
-  return { ok: true, bytes: Buffer.from(clean, "utf8"), redacted: clean !== text };
-}
+// The stored copy of the canonical SBOM document is redacted STRING BY STRING (owner decision 2026-11-20, SPEC 17.l); see ./sbom-redaction.js.
+export { redactedSbomDocument };
 
 /**
  * The ensemble engine for the SBOM scan type (docs/modules/scan-engines/SPEC.md 6.1, 5.3, 5.4, 6.4, part K core): Syft and Trivy in
@@ -67,7 +49,8 @@ export function redactedSbomDocument(stdout, redact = redactLogText) {
  *   toolWaitMs?: number,
  *   now?: () => number,
  *   newId?: () => string,
- *   inventory?: Function
+ *   inventory?: Function,
+ *   redactDocument?: typeof redactedSbomDocument
  * }} deps `rulesDir` holds the platform tool configuration (`syft.yaml`, `trivy.yaml`), mounted read-only at `/rules`; its files
  *   are read ONCE here (fail fast) to compute the configuration digests of the run manifest.
  */
@@ -80,6 +63,7 @@ export function createEnsembleSbomEngine({
   now = Date.now,
   newId = randomUUID,
   inventory,
+  redactDocument = redactedSbomDocument,
 }) {
   if (typeof rulesDir !== "string" || !path.isAbsolute(rulesDir))
     throw new TypeError("rulesDir must be an absolute path");
@@ -361,7 +345,7 @@ export function createEnsembleSbomEngine({
         Buffer.byteLength(syft.stdout) <= SBOM_DOCUMENT_MAX_BYTES &&
         ["succeeded", "partial"].includes(syft.record.status)
       ) {
-        const stored = redactedSbomDocument(syft.stdout);
+        const stored = await redactDocument(syft.stdout);
         if (stored.ok)
           document = {
             toolId: SBOM_DOCUMENT_TOOL_ID,

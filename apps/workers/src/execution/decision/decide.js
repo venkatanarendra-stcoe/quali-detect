@@ -65,6 +65,7 @@ function checkedAgent(agent, floor, enabledTypes) {
  *   signal?: AbortSignal,
  *   logger?: any,
  *   interrupted?: boolean,
+ *   collectChangedFiles?: boolean,
  * }} input
  */
 export async function decideScans({
@@ -79,6 +80,7 @@ export async function decideScans({
   signal,
   logger,
   interrupted = false,
+  collectChangedFiles = false,
 }) {
   const deterministic = await decideFloor({
     execution,
@@ -89,6 +91,7 @@ export async function decideScans({
     exclusions,
     signal,
     logger,
+    collectChangedFiles,
   });
   let agent;
   if (interrupted) {
@@ -162,5 +165,7 @@ export async function decideScans({
     finalTypes,
     notSelected,
     zeroScan: finalTypes.length === 0,
+    // only on request (scan engines part K, flag on): the validated changed files for the changed-paths artifact; absent otherwise
+    ...(collectChangedFiles ? { changedFiles: deterministic.changedFiles ?? [] } : {}),
   };
 }

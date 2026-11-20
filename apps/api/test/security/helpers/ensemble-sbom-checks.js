@@ -128,7 +128,7 @@ const listJs = (dir) =>
 export const ENSEMBLE_SBOM_CHECKS = [
   {
     id: "ENG-S03c",
-    name: "the SBOM tool invocations are sealed and contain nothing from the repository (SPEC scan-engines 6.2, 11.3, 14.1 ENG-S01 and ENG-S03, part E): the Syft and Trivy (SBOM mode) plans resolve to the locked digests, pass RunSpec validation and the argument audit, carry the platform configuration flag (`-c /rules/syft.yaml`, `--config /rules/trivy.yaml`), the update check and telemetry switches, read-only mounts of the tree and the rules only (no database, no paths), the fixed working directory /tmp, and equal the sealed command lines documented in IMAGES.md; the argument vector is the same constant whatever the tree or the task, the wall clock is capped by the task deadline; the SBOM module imports no process, file-system or network module (the legacy bridge excepted), reads no environment, is imported by nothing in the worker, registers Syft and Trivy only when the ensemble is enabled (strictly true) and keeps the legacy engine as the registered default; the platform configuration files exist and carry no ignore or exclude setting",
+    name: "the SBOM tool invocations are sealed and contain nothing from the repository (SPEC scan-engines 6.2, 11.3, 14.1 ENG-S01 and ENG-S03, part E): the Syft and Trivy (SBOM mode) plans resolve to the locked digests, pass RunSpec validation and the argument audit, carry the platform configuration flag (`-c /rules/syft.yaml`, `--config /rules/trivy.yaml`), the update check and telemetry switches, read-only mounts of the tree and the rules only (no database, no paths), the fixed working directory /tmp, and equal the sealed command lines documented in IMAGES.md; the argument vector is the same constant whatever the tree or the task, the wall clock is capped by the task deadline; the SBOM module imports no process, file-system or network module (the legacy bridge excepted), reads no environment, is imported by nothing in the worker outside the ensemble engine (part K core), registers Syft and Trivy only when the ensemble is enabled (strictly true) and keeps the legacy engine as the registered default; the platform configuration files exist and carry no ignore or exclude setting",
     async run() {
       const p = [];
       const config = validateSandboxConfig(CONFIG_INPUT);
@@ -419,14 +419,26 @@ export const ENSEMBLE_SBOM_CHECKS = [
             ok(p, inside, `${name}: imports outside the SBOM ensemble (${m[1]})`);
           }
       }
-      // nothing in the worker imports the SBOM ensemble before part K; the legacy engine is untouched
+      // part K core: the SBOM ensemble is imported by the ensemble engine only (resolved import targets, not a text match); the
+      // legacy engine is untouched
+      const ENGINE_DIR = path.join(SBOM_DIR, "../engine");
       for (const file of listJs(path.join(ROOT, "apps/workers/src"))) {
         if (file.startsWith(SBOM_DIR)) continue;
+        const src = readFileSync(file, "utf8");
         ok(
           p,
-          !/ensemble\/sbom/.test(readFileSync(file, "utf8")),
-          `${path.relative(ROOT, file)}: imports the SBOM ensemble before part K`,
+          !/ensemble\/sbom/.test(src),
+          `${path.relative(ROOT, file)}: names the SBOM ensemble outside it`,
         );
+        for (const m of src.matchAll(/from\s+["'](\.[^"']*)["']/g)) {
+          const target = path.resolve(path.dirname(file), m[1]);
+          if (target.startsWith(SBOM_DIR))
+            ok(
+              p,
+              file.startsWith(ENGINE_DIR),
+              `${path.relative(ROOT, file)}: imports the SBOM ensemble outside the ensemble engine`,
+            );
+        }
       }
       const registry = readFileSync(
         path.join(ROOT, "apps/workers/src/execution/engines.js"),

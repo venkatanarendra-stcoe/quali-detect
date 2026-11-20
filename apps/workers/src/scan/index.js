@@ -1,7 +1,9 @@
 import os from "node:os";
 import { QUEUE_NAMES } from "@qmentisai/contracts";
-import { createLocalArtifactStore } from "@qmentisai/infra";
-import { engineRegistry } from "../execution/registry.js";
+import { createExecutionArtifactRepository } from "@qmentisai/db";
+import { createLocalArtifactStore, createPostgresArtifactStore } from "@qmentisai/infra";
+import { buildEnsembleEngine } from "../execution/engines/ensemble/engine/wiring.js";
+import { buildEngineRegistry, engineRegistry } from "../execution/registry.js";
 import { createScanTaskHandler } from "../execution/scan-handler.js";
 import { createNoopHandler } from "../handlers/noop.js";
 import { runWorker } from "../runtime/run-worker.js";
@@ -21,6 +23,13 @@ export async function start() {
   const delayRequested =
     !!process.env.EXECUTION_TEST_DELAY_MS && process.env.EXECUTION_TEST_DELAY_MS !== "0";
   const testDelayModule = delayRequested ? await import("../execution/test-delay.js") : null;
+  // Scan engines part K core: while the ensemble rollout flag is true the registry of THIS process holds the ensemble SBOM engine
+  // and the janitor runs; otherwise the module-level registry (the built-in engine only) is used exactly as before.
+  let ensemble = null;
+  const ensembleFor = (context) => {
+    ensemble ??= buildEnsembleEngine(context);
+    return ensemble;
+  };
   const build = ({ db, config, logger }) =>
     config.execution.enabled
       ? createScanTaskHandler({
@@ -29,8 +38,18 @@ export async function start() {
           config,
           logger,
           store: createLocalArtifactStore({ root: config.execution.artifactStoreRoot }),
-          engines: engineRegistry,
-          tmpRoot: os.tmpdir(),
+          engines: config.scanEngines.ensembleEnabled
+            ? buildEngineRegistry({
+                ensembleEnabled: true,
+                createEnsembleEngine: () => ensembleFor({ db, config, logger }).engine,
+              })
+            : engineRegistry,
+          artifacts: config.scanEngines.ensembleEnabled
+            ? createPostgresArtifactStore({ repository: createExecutionArtifactRepository({ db }) })
+            : null,
+          tmpRoot: config.scanEngines.ensembleEnabled
+            ? config.scanEngines.archiveRoot
+            : os.tmpdir(),
         })
       : createNoopHandler();
   const enabled = process.env.EXECUTION_ORCHESTRATOR_ENABLED === "true";
@@ -39,6 +58,11 @@ export async function start() {
     queue: QUEUE_NAMES.SCAN,
     buildHandler: build,
     verifyOwnership: (config) => config.execution.enabled,
+    // the janitor of orphan containers (SPEC 6.4): only while the ensemble flag is on
+    onReady: ({ db, config, logger }) =>
+      config.execution.enabled && config.scanEngines.ensembleEnabled
+        ? ensembleFor({ db, config, logger }).startJanitor()
+        : undefined,
     additional: enabled
       ? [{ queue: QUEUE_NAMES.SCAN_UNTRUSTED, buildHandler: build, verifyOwnership: true }]
       : [],

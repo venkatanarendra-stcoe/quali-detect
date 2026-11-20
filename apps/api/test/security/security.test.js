@@ -42,6 +42,7 @@ import { ENSEMBLE_CORE_CHECKS } from "./helpers/ensemble-core-checks.js";
 import { ENSEMBLE_DB_CHECKS } from "./helpers/ensemble-db-checks.js";
 import { ENSEMBLE_SBOM_CHECKS } from "./helpers/ensemble-sbom-checks.js";
 import { ENG_L20_CHECKS } from "./helpers/eng-l20-checks.js";
+import { ENSEMBLE_ENGINE_CHECKS, ENSEMBLE_WORLD_CHECKS } from "./helpers/ensemble-engine-checks.js";
 import { IMAGE_CATALOG_CHECKS } from "./helpers/image-catalog-checks.js";
 import { PART_I_CHECKS } from "./helpers/exec-audit-checks.js";
 import { LOGDB_CHECKS } from "./helpers/logs-db-checks.js";
@@ -62,7 +63,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 816;
+const EXPECTED_CHECKS = 825;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10391,6 +10392,7 @@ const schWorld = () =>
     ...SBOM_CHECKS,
     ...STORE_CHECKS,
     ...PART_I_CHECKS,
+    ...ENSEMBLE_WORLD_CHECKS,
   ])
     add(
       id,
@@ -10414,6 +10416,7 @@ const schWorld = () =>
     ...ENSEMBLE_CORE_CHECKS,
     ...ENSEMBLE_SBOM_CHECKS,
     ...ENG_L20_CHECKS,
+    ...ENSEMBLE_ENGINE_CHECKS,
   ])
     add(
       id,

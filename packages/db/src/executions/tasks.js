@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { createExecutionRepository } from "./repository.js";
 import { withTransaction } from "../transaction.js";
+import { createScanResultDetailRepository, createScanToolRunRepository } from "./scan-engines.js";
 
 /** Attempt status for each task outcome (`scan_task_attempts.status`). */
 const ATTEMPT_STATUS = Object.freeze({
@@ -24,6 +25,8 @@ const TASK_COLUMNS = Prisma.sql`id, tenant_id AS "tenantId", workspace_id AS "wo
  */
 export function createScanTaskRepository({ db }) {
   const executions = createExecutionRepository({ db });
+  const toolRunRepo = createScanToolRunRepository({ db });
+  const detailRepo = createScanResultDetailRepository({ db });
   const positive = (value, name) => {
     if (!Number.isFinite(value) || value <= 0)
       throw new TypeError(`${name} must be a positive number`);
@@ -199,6 +202,24 @@ export function createScanTaskRepository({ db }) {
     },
 
     /**
+     * Whether `(task, attempt)` is the RUNNING attempt of a task of this tenant and execution: the janitor's question about a labelled
+     * container (SPEC 6.4). Scoped by tenant AND execution AND task; a malformed id gives `false` and never reaches the database.
+     * @param {{ tenantId: string, executionId: string, taskId: string, attempt: number }} input
+     * @param {any} [client]
+     */
+    async isAttemptRunning({ tenantId, executionId, taskId, attempt }, client = db) {
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (![tenantId, executionId, taskId].every((v) => typeof v === "string" && uuid.test(v)))
+        return false;
+      if (!Number.isInteger(attempt) || attempt < 0) return false;
+      const rows = await client.$queryRaw`
+        SELECT 1 FROM scan_tasks
+        WHERE tenant_id = ${tenantId}::uuid AND execution_id = ${executionId}::uuid AND id = ${taskId}::uuid
+          AND status = 'running' AND attempt = ${attempt}::int`;
+      return rows.length > 0;
+    },
+
+    /**
      * Heartbeat of a task holder. `renewed: false` means the attempt is not ours any more: stop and write nothing else.
      * @param {{ tenantId: string, taskId: string, attempt: number, workerId: string, leaseTtlSeconds: number }} input
      * @param {any} [client]
@@ -231,6 +252,7 @@ export function createScanTaskRepository({ db }) {
         errorClass = null,
         errorCode = null,
         result,
+        toolRuns,
       } = input;
       if (!ATTEMPT_STATUS[status])
         throw new TypeError("finishTask ends a task as succeeded, failed, timed_out or cancelled");
@@ -257,6 +279,14 @@ export function createScanTaskRepository({ db }) {
               truncated: result.truncated,
               itemCount: result.items.length,
               severityCounts: result.severityCounts,
+              // ensemble results only (scan engines part K): schema version 2, the coverage statement and the run manifest hash
+              ...(result.coverage
+                ? {
+                    schemaVersion: 2,
+                    coverage: result.coverage,
+                    runManifestSha256: result.runManifestSha256 ?? null,
+                  }
+                : {}),
             },
           });
           resultId = row.id;
@@ -270,7 +300,30 @@ export function createScanTaskRepository({ db }) {
                 ...item,
               })),
             });
+          if (result.details?.length > 0)
+            await detailRepo.insertMany(
+              {
+                tenantId,
+                executionId: task.executionId,
+                scanResultId: row.id,
+                details: result.details,
+              },
+              tx,
+            );
         }
+        // the tool runs of this attempt (ensemble engines only): written while the attempt is still the running one, in this very
+        // transaction, so a superseded attempt (zombie) returned above without writing anything
+        if (toolRuns?.length > 0)
+          await toolRunRepo.insertMany(
+            {
+              tenantId,
+              executionId: task.executionId,
+              scanTaskId: task.id,
+              attempt,
+              runs: toolRuns,
+            },
+            tx,
+          );
         await closeAttempt(tx, task, { status: ATTEMPT_STATUS[status], errorClass, errorCode });
         await tx.$executeRaw`
           UPDATE scan_tasks SET status = ${status}::scan_task_status, status_reason = ${status === "succeeded" ? null : reason},
@@ -299,13 +352,24 @@ export function createScanTaskRepository({ db }) {
      * @param {any} [client]
      * @returns {Promise<null | { attempt: number, task: { id: string, executionId: string, scanType: string, workspaceId: string, statusRev: number } }>}
      */
-    async requeueTask({ tenantId, taskId, attempt, errorClass, errorCode }, client = db) {
+    async requeueTask({ tenantId, taskId, attempt, errorClass, errorCode, toolRuns }, client = db) {
       return withTransaction(client, async (tx) => {
         const task = await lockRunning(tx, { tenantId, taskId, attempt });
         if (!task || attempt + 1 >= task.maxAttempts) return null;
         const cancelling = await tx.$queryRaw`
           SELECT 1 FROM executions WHERE tenant_id = ${tenantId}::uuid AND id = ${task.executionId}::uuid AND cancel_requested_at IS NOT NULL`;
         if (cancelling.length > 0) return null;
+        if (toolRuns?.length > 0)
+          await toolRunRepo.insertMany(
+            {
+              tenantId,
+              executionId: task.executionId,
+              scanTaskId: task.id,
+              attempt,
+              runs: toolRuns,
+            },
+            tx,
+          );
         await closeAttempt(tx, task, { status: "failed", errorClass, errorCode });
         await tx.$executeRaw`
           UPDATE scan_tasks SET status = 'queued', attempt = ${attempt + 1}::int, lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = now()

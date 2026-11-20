@@ -304,10 +304,11 @@ export async function buildOrchestratorWorld(db, github) {
 
   w.orchestrator = (
     over = {},
-    { engines, config, github: client, store, db: dbOverride, decisionRuntime } = {},
+    { engines, config, github: client, store, db: dbOverride, decisionRuntime, artifacts } = {},
   ) =>
     createOrchestrator({
       decisionRuntime: decisionRuntime ?? null,
+      artifacts: artifacts ?? null,
       db: dbOverride ?? db,
       config: config ?? w.config(over),
       logger,
@@ -340,8 +341,9 @@ export async function buildOrchestratorWorld(db, github) {
     });
     return registry;
   };
-  w.scanHandler = (over = {}, scanConfig, engines) =>
+  w.scanHandler = (over = {}, scanConfig, engines, { artifacts } = {}) =>
     createScanTaskHandler({
+      artifacts: artifacts ?? null,
       db,
       config: scanConfig ?? w.config(over, "scan"),
       logger,

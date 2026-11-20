@@ -2232,15 +2232,16 @@ export const ENSEMBLE_CORE_CHECKS = [
             );
           }
         }
-      // the worker does not use the framework yet and the flag is read by nothing
+      // part K core: the worker uses the framework only through the engine wiring and the changed-paths module (parse kit); the
+      // rollout flag (its environment variable) is read by the configuration module only
       const worker = path.join(ROOT, "apps/workers/src");
       for (const file of listJs(worker)) {
         if (file.startsWith(CORE_DIR)) continue;
         const src = readFileSync(file, "utf8");
         ok(
           p,
-          !/ensemble\/core/.test(src),
-          `${path.relative(ROOT, file)}: imports the ensemble core before part K`,
+          !/ensemble\/core/.test(src) || file.endsWith("execution/changed-paths.js"),
+          `${path.relative(ROOT, file)}: imports the ensemble core outside the changed-paths module`,
         );
         if (!file.endsWith("config.js"))
           ok(

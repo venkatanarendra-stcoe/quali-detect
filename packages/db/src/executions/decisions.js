@@ -28,6 +28,8 @@ const DECISION_COLUMNS = Object.freeze({
   finalTypes: true,
   notSelected: true,
   decidedAt: true,
+  changedPathsRef: true,
+  changedPathsStatus: true,
 });
 
 const USAGE_KEYS = Object.freeze(["inputTokens", "outputTokens", "latencyMs", "turns"]);
@@ -132,11 +134,12 @@ export function createScanDecisionRepository({ db }) {
      *   agent: { status: string, provider: string | null, model: string | null, additions: Array<{ scanType: string, reason: string }>, summary: string | null, usage: object | null },
      *   finalTypes: string[],
      *   notSelected: Array<{ scanType: string, reason: string }>,
-     * } }} input
+     * }, changedPaths?: { ref: string | null, status: "complete" | "truncated" | "unavailable" | null } }} input
+     * `changedPaths` (scan engines part K, D-7) is given only while the ensemble flag is on; without it both columns stay NULL.
      * @param {any} tx The caller's TRANSACTION client.
      * @returns {Promise<{ id: string }>}
      */
-    async insertDecision({ tenantId, executionId, leaseEpoch, decision }, tx) {
+    async insertDecision({ tenantId, executionId, leaseEpoch, decision, changedPaths }, tx) {
       requireTransaction(tx, "insertDecision");
       await executions.fenceExecution({ tenantId, executionId, leaseEpoch }, tx);
       const exec = await tx.execution.findFirst({
@@ -177,6 +180,9 @@ export function createScanDecisionRepository({ db }) {
             scanType: n.scanType,
             reason: n.reason,
           })),
+          ...(changedPaths?.status
+            ? { changedPathsStatus: changedPaths.status, changedPathsRef: changedPaths.ref ?? null }
+            : {}),
         },
         select: { id: true },
       });

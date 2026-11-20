@@ -4,7 +4,7 @@ import { withTransaction } from "../transaction.js";
 
 /**
  * Data access of the scan-engine ensemble tables (docs/modules/scan-engines/SPEC.md 7.3, part D): `scan_tool_runs` and
- * `scan_result_item_details`. Nothing calls it yet (the scan worker is wired in part K). Every statement is scoped by the TRUSTED
+ * `scan_result_item_details`. The ensemble engine's results reach it through `finishTask` / `requeueTask` (part K core); a run may carry its own `id` (a UUID, so a finding's `rawRef.toolRunId` points at the row). Every statement is scoped by the TRUSTED
  * tenant: the chain columns of a tool run come from the task row, never from the caller, and a detail row is written only for an
  * item of the same tenant and execution. The database enforces the shapes (CHECK), the attempt fence for tool runs (a zombie
  * attempt is refused), the refusal for terminal executions and insert-only; reads are always by tenant AND parent.
@@ -33,7 +33,7 @@ export function createScanToolRunRepository({ db }) {
               tool_id, tool_version, image_digest, config_digest, rulepack_digest, db_snapshot_sha256, db_built_at, status, reason,
               exit_code, started_at, finished_at, duration_ms, scope, records_seen, records_dropped, findings_mapped, severity_counts,
               truncated, limits, capacity_wait_ms)
-            SELECT gen_random_uuid(), t.tenant_id, t.workspace_id, t.repository_id, t.pipeline_id, t.execution_id, t.id, ${attempt}::int,
+            SELECT COALESCE(${r.id ?? null}::uuid, gen_random_uuid()), t.tenant_id, t.workspace_id, t.repository_id, t.pipeline_id, t.execution_id, t.id, ${attempt}::int,
               ${r.toolId}, ${r.toolVersion}, ${r.imageDigest ?? null}, ${r.configDigest}, ${r.rulepackDigest ?? null},
               ${r.dbSnapshotSha256 ?? null}, ${r.dbBuiltAt ?? null}::timestamptz, ${r.status}, ${r.reason ?? null}, ${r.exitCode ?? null}::int,
               ${r.startedAt}::timestamptz, ${r.finishedAt}::timestamptz, ${r.durationMs}::int, ${json(r.scope)}::jsonb,

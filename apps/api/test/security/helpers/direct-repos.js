@@ -5016,6 +5016,26 @@ export function buildDalEntries() {
     },
   );
 
+  E(
+    "tasks.isAttemptRunning",
+    (c) =>
+      TK(c).isAttemptRunning({
+        tenantId: c.y,
+        executionId: c.pl.runningId,
+        taskId: c.pl.taskRunningId,
+        attempt: 0,
+      }),
+    {
+      control: (c) =>
+        TK(c).isAttemptRunning({
+          tenantId: c.x,
+          executionId: c.pl.runningId,
+          taskId: c.pl.taskRunningId,
+          attempt: 0,
+        }),
+    },
+  );
+
   return list.map((entry, i) => ({
     id: `DAL-${String(i + 1).padStart(3, "0")}`,
     name: `data access isolation: ${entry.name} refuses another tenant's id`,

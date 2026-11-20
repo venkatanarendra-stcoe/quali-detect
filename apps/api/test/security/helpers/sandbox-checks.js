@@ -796,8 +796,12 @@ export const SANDBOX_CHECKS = [
       ok(p, def.scanEngines.ensembleEnabled === false, "rollout flag is not off by default");
       ok(
         p,
-        loadWorkerConfig({ ...base, SCAN_ENGINES_ENSEMBLE_ENABLED: "true" }).scanEngines
-          .ensembleEnabled === true,
+        loadWorkerConfig({
+          ...base,
+          SCAN_ENGINES_ENSEMBLE_ENABLED: "true",
+          SANDBOX_ARCHIVE_ROOT: "/var/lib/qm/scan",
+          SANDBOX_RULES_DIR: "/var/lib/qm/rules",
+        }).scanEngines.ensembleEnabled === true,
         "flag true not honoured",
       );
       ok(

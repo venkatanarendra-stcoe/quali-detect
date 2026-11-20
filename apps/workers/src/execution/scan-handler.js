@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   createExecutionRepository,
+  createScanDecisionRepository,
   createScanTaskRepository,
   withTransaction,
 } from "@qmentisai/db";
@@ -20,6 +21,7 @@ import { ARCHIVE_NAME, CONTROL_CHARS } from "./constants.js";
 import { EngineError } from "./engines.js";
 import { createTaskLogWriter, resolveLogStore } from "./task-log.js";
 import { createMessageProducer } from "./messages.js";
+import { readChangedPaths } from "./changed-paths.js";
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 // The same redaction as the LogStore (whole private-key blocks, Authorization headers, password pairs, and the whole text
@@ -101,6 +103,33 @@ const exclusionOf = (patterns) => (relativePath) =>
       matchGlob(`${pattern.replace(/\/+$/, "")}/**`, relativePath),
   );
 
+/** The result columns only an ensemble engine fills (scan engines part K): schema version 2 data of `scan_results` and the detail rows. */
+const ensembleResultFields = (ensemble) => ({
+  coverage: ensemble.coverage,
+  runManifestSha256: ensemble.runManifestSha256,
+  details: ensemble.details,
+});
+
+/** Items of an aborted task: the ensemble's finished tools when it returned them, otherwise what was emitted (the legacy path). */
+const partialItems = (partialRun, collected, cap) =>
+  partialRun
+    ? {
+        items: partialRun.items,
+        truncated: partialRun.truncated === true,
+        severityCounts: partialRun.ensemble.severityCounts,
+      }
+    : normalizeItems(collected, cap);
+
+/** Stores the canonical SBOM document in the `sbom_document` class: insert once per task attempt, tenant-scoped name. */
+async function storeSbomDocument(artifacts, { tenantId, executionId, taskId, attempt, document }) {
+  const name = `sbom-${taskId.replaceAll("-", "")}-a${attempt}.cdx.json`;
+  return artifacts.put({ tenantId, executionId, name }, document.bytes, {
+    ifAbsent: true,
+    mediaType: "application/json",
+    artifactClass: "sbom_document",
+  });
+}
+
 /**
  * The handler of the `scan` and `scan-untrusted` queues (docs/modules/executions/SPEC.md §6.5 step 1, ER-5, ER-6, ER-12 to ER-15).
  * It runs in the SCAN worker, which has NO GitHub or SecretStore settings. It claims the task attempt by compare-and-set,
@@ -111,7 +140,12 @@ const exclusionOf = (patterns) => (relativePath) =>
  * nothing.
  * The engine's `log(level, message)` also goes to the task's execution log (SPEC §17.ac): buffered, redacted and capped by the
  * LogStore, written only while the attempt is held (fenced), and flushed before the attempt is finished.
- * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string, logStore?: any, testDelay?: ((signal: AbortSignal) => Promise<void>) | null }} deps
+ * An engine that declares `needsPlatform` (the ensemble engine, scan engines part K core, only registered while the rollout flag is
+ * on) additionally receives `platform` in its hooks: the tenant (loaded from the database), the deadline, the trust (fork or not) and
+ * the changed-path list of the decision (read by tenant and execution, fail closed). Such an engine may return `ensemble`
+ * (tool runs, detail rows, coverage, run manifest, the canonical SBOM document and the roll-up) which is stored with the result in
+ * the same transaction (`finishTask`). Every other engine takes the unchanged path below.
+ * @param {{ db: any, config: any, logger: any, store: any, engines: any, workerId?: string, tmpRoot?: string, logStore?: any, artifacts?: any, testDelay?: ((signal: AbortSignal) => Promise<void>) | null }} deps `artifacts` is the Postgres artifact store (changed paths, SBOM document); optional
  */
 export function createScanTaskHandler({
   db,
@@ -122,6 +156,7 @@ export function createScanTaskHandler({
   workerId,
   tmpRoot = os.tmpdir(),
   logStore,
+  artifacts = null,
   testDelay = null,
 }) {
   const ex = config.execution;
@@ -246,6 +281,7 @@ export function createScanTaskHandler({
     );
     const workDir = await mkdtemp(path.join(tmpRoot, "qm-scan-"));
     const collected = [];
+    let partialRun = null; // the ensemble's partial result when an abort ends the task (rows 1 and 2 of table 5.4)
     let outcome;
     try {
       const adapter = engines.get(task.scanType, task.engineId);
@@ -292,7 +328,26 @@ export function createScanTaskHandler({
         assertNoCredentials(context, "scan context");
         // TEST-ONLY window (execution/test-delay.js); null in every normal process
         if (testDelay) await testDelay(abort.signal);
+        const platform = adapter.needsPlatform
+          ? {
+              tenantId,
+              deadlineEpoch: Math.floor(Date.now() / 1000) + Math.ceil(task.secondsToDeadline),
+              secondsToDeadline: Math.max(1, Math.floor(task.secondsToDeadline)),
+              fork: exec.trust === "untrusted_fork",
+              maxItems: ex.maxResultItemsPerTask,
+              changedPaths: await readChangedPaths({
+                artifacts,
+                tenantId,
+                executionId,
+                decision: await createScanDecisionRepository({ db }).findDecision({
+                  tenantId,
+                  executionId,
+                }),
+              }),
+            }
+          : null;
         const run = await adapter.runTask(context, {
+          ...(platform ? { platform } : {}),
           signal: abort.signal,
           log: (level, message) => {
             log?.[["debug", "info", "warn", "error"].includes(level) ? level : "info"]?.(
@@ -305,9 +360,20 @@ export function createScanTaskHandler({
             if (collected.length < ex.maxResultItemsPerTask + 1) collected.push(item);
           },
         });
-        if (abort.signal.aborted) throw abort.signal.reason;
-        const all = [...collected, ...(run?.items ?? [])];
-        const normalized = normalizeItems(all, ex.maxResultItemsPerTask);
+        if (abort.signal.aborted) {
+          if (run?.ensemble) partialRun = run;
+          throw abort.signal.reason;
+        }
+        const ensemble = run?.ensemble ?? null;
+        // an ensemble engine's items already passed `normalizeItems` once (storage rows); doing it again could shift the ordinals of
+        // the detail rows, so they are taken as they are
+        const normalized = ensemble
+          ? {
+              items: run.items,
+              truncated: run.truncated === true,
+              severityCounts: ensemble.severityCounts,
+            }
+          : normalizeItems([...collected, ...(run?.items ?? [])], ex.maxResultItemsPerTask);
         const result = {
           engineId: task.engineId,
           engineVersion: adapter.version,
@@ -320,16 +386,31 @@ export function createScanTaskHandler({
           truncated: normalized.truncated || run?.truncated === true,
           severityCounts: normalized.severityCounts,
           items: normalized.items,
+          ...(ensemble ? ensembleResultFields(ensemble) : {}),
         };
         outcome =
           run?.status === "failed"
-            ? {
-                status: "failed",
-                reason: "engine_failed",
-                errorClass: "permanent",
-                errorCode: "engine_failed",
-              }
-            : { status: "succeeded", result };
+            ? ensemble
+              ? {
+                  // table 5.4 row 7: every tool failed; transient only if every failure was (the roll-up decides)
+                  status: "failed",
+                  reason: "tools_failed",
+                  errorClass: ensemble.rollup.errorClass ?? "permanent",
+                  errorCode: "tools_failed",
+                  retryable: ensemble.rollup.errorClass === "transient",
+                  toolRuns: ensemble.toolRuns,
+                }
+              : {
+                  status: "failed",
+                  reason: "engine_failed",
+                  errorClass: "permanent",
+                  errorCode: "engine_failed",
+                }
+            : {
+                status: "succeeded",
+                result,
+                ...(ensemble ? { toolRuns: ensemble.toolRuns, document: ensemble.document } : {}),
+              };
       }
     } catch (error) {
       const reasonText = abort.signal.aborted
@@ -338,7 +419,7 @@ export function createScanTaskHandler({
       if (leaseLost || reasonText === "lease_lost") {
         outcome = null; // zombie: not ours any more, write nothing
       } else if (reasonText === "user_cancelled") {
-        const normalized = normalizeItems(collected, ex.maxResultItemsPerTask);
+        const normalized = partialItems(partialRun, collected, ex.maxResultItemsPerTask);
         outcome = {
           status: "cancelled",
           reason: "user_cancelled",
@@ -351,10 +432,12 @@ export function createScanTaskHandler({
             truncated: normalized.truncated,
             severityCounts: normalized.severityCounts,
             items: normalized.items,
+            ...(partialRun ? ensembleResultFields(partialRun.ensemble) : {}),
           },
+          ...(partialRun ? { toolRuns: partialRun.ensemble.toolRuns } : {}),
         };
       } else if (reasonText === "task_deadline") {
-        const normalized = normalizeItems(collected, ex.maxResultItemsPerTask);
+        const normalized = partialItems(partialRun, collected, ex.maxResultItemsPerTask);
         outcome = {
           status: "timed_out",
           // the abort came from the EXECUTION's deadline when that was the nearer limit (the driver then ends the execution timed_out)
@@ -368,7 +451,9 @@ export function createScanTaskHandler({
             truncated: normalized.truncated,
             severityCounts: normalized.severityCounts,
             items: normalized.items,
+            ...(partialRun ? ensembleResultFields(partialRun.ensemble) : {}),
           },
+          ...(partialRun ? { toolRuns: partialRun.ensemble.toolRuns } : {}),
         };
       } else if (error?.name === "ArchiveError" || error instanceof EngineError) {
         const permanent = error.errorClass !== "transient";
@@ -407,10 +492,27 @@ export function createScanTaskHandler({
     // flushed BEFORE the attempt is finished: a finished task is no longer running, so the write fence would refuse the lines
     await taskLog.close();
     if (!outcome) return;
+    if (outcome.document && artifacts) {
+      // the ONE canonical tool's CycloneDX document (D-22); a failure to keep it never fails the scan
+      await storeSbomDocument(artifacts, {
+        tenantId,
+        executionId,
+        taskId,
+        attempt,
+        document: outcome.document,
+      }).catch(() => log?.warn?.({ taskId, attempt }, "The SBOM document could not be stored"));
+    }
     if (outcome.retryable) {
       const next = await withTransaction(db, async (tx) => {
         const requeued = await tasks.requeueTask(
-          { tenantId, taskId, attempt, errorClass: "transient", errorCode: outcome.errorCode },
+          {
+            tenantId,
+            taskId,
+            attempt,
+            errorClass: "transient",
+            errorCode: outcome.errorCode,
+            ...(outcome.toolRuns ? { toolRuns: outcome.toolRuns } : {}),
+          },
           tx,
         );
         if (!requeued) return null;
@@ -431,7 +533,7 @@ export function createScanTaskHandler({
       });
       if (next) return; // a new attempt is queued; the aggregator waits for it
     }
-    const { retryable: _retryable, ...input } = outcome;
+    const { retryable: _retryable, document: _document, ...input } = outcome;
     const done = await finish(exec, task, input);
     if (!done.finished)
       context?.log?.info?.({ taskId, attempt }, "The attempt was superseded; nothing was written");

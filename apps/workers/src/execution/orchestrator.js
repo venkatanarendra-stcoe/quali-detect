@@ -35,6 +35,7 @@ import {
   EXECUTION_TIMEOUT_CAP_SECONDS,
   PLATFORM_PREPARE_FAILURES,
 } from "./constants.js";
+import { buildChangedPaths, writeChangedPaths } from "./changed-paths.js";
 import { decideScans } from "./decision/index.js";
 import { enabledScanTypes, evaluateGates } from "./gates.js";
 import { createMessageProducer } from "./messages.js";
@@ -121,7 +122,10 @@ const completedPayload = (final, { status, reason, resolutionEligible, tasks }) 
  * orchestrator decides WHICH enabled scans this run needs (deterministic floor + optional agent that can only add), records the
  * decision, and creates the tasks of the DECIDED types only, in one transaction fenced by the lease epoch. There is no switch for
  * the step: it runs whenever the orchestrator runs; without a provider the decision is the floor.
- * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function, listChangedFiles?: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void>, logStore?: any, decisionRuntime?: { resolveProvider: Function } | null }} deps
+ * @param {{ db: any, config: any, logger: any, github: { openSourceSession: Function, listChangedFiles?: Function }, store: any, engines: any, workerId?: string, sleep?: (ms: number) => Promise<void>, logStore?: any, decisionRuntime?: { resolveProvider: Function } | null, artifacts?: any }} deps
+ * `artifacts` (the Postgres artifact store) is used ONLY while `config.scanEngines.ensembleEnabled` is true: the decision step then
+ * stores the capped changed-path list of an incremental execution (scan engines part K, D-7, SE-22). With the flag off nothing
+ * is read from it and nothing is written.
  */
 export function createOrchestrator({
   db,
@@ -134,8 +138,10 @@ export function createOrchestrator({
   sleep = sleepFor,
   logStore,
   decisionRuntime = null,
+  artifacts = null,
 }) {
   const ex = config.execution;
+  const ensembleOn = config.scanEngines?.ensembleEnabled === true;
   const id = workerId ?? `pipeline-${process.pid}-${randomBytes(3).toString("hex")}`;
   const log = logger?.child ? logger.child({ component: "execution-orchestrator" }) : logger;
   const repo = createExecutionRepository({ db });
@@ -719,6 +725,7 @@ export function createOrchestrator({
         signal,
         logger: log,
         interrupted,
+        collectChangedFiles: ensembleOn,
       });
       // a cancel (or a lost lease, or the deadline) that arrived during the diff or the model call ends the step with NO record
       signal.throwIfAborted();
@@ -749,13 +756,31 @@ export function createOrchestrator({
         ],
         "warn",
       );
+    // scan engines part K (D-7): the changed-path artifact is written BEFORE the decision transaction (an orphan after a rollback is
+    // harmless: insert once, a retry keeps it), and only while the ensemble flag is on
+    let changedPaths;
+    if (ensembleOn && !decision.reused) {
+      const built = buildChangedPaths({
+        diffStatus: decision.diff.status,
+        files: decision.changedFiles ?? [],
+      });
+      changedPaths = artifacts
+        ? await writeChangedPaths({ artifacts, tenantId, executionId: row.id, built })
+        : { ref: null, status: built.status === null ? null : "unavailable" };
+    }
     const outcome = await withTransaction(db, async (tx) => {
       await repo.fenceExecution({ tenantId, executionId: row.id, leaseEpoch: epoch }, tx);
       // the fence holds the row lock (FOR SHARE): a cancel request cannot commit between this check and our commit
       await assertNotCancelled(tx);
       if (!decision.reused) {
         await decisions.insertDecision(
-          { tenantId, executionId: row.id, leaseEpoch: epoch, decision },
+          {
+            tenantId,
+            executionId: row.id,
+            leaseEpoch: epoch,
+            decision,
+            ...(changedPaths ? { changedPaths } : {}),
+          },
           tx,
         );
         await decisions.recordDecisionCompleted(

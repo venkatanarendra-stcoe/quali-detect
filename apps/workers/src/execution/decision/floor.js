@@ -18,6 +18,7 @@ import { detectChanges } from "./change-detection.js";
  *   exclusions?: { paths?: string[] } | null,
  *   signal?: AbortSignal,
  *   logger?: any,
+ *   collectChangedFiles?: boolean,
  * }} input `enabledTypes` and `exclusions` come from the execution's pipeline configuration snapshot
  */
 export async function decideFloor({
@@ -29,6 +30,7 @@ export async function decideFloor({
   exclusions,
   signal,
   logger,
+  collectChangedFiles = false,
 }) {
   const detected = await detectChanges({ execution, repository, github, config, signal, logger });
   const secretsRule = config.scanDecision.secretsRule ?? DEFAULT_SECRETS_RULE;
@@ -64,5 +66,6 @@ export async function decideFloor({
     floor,
     notSelected,
     zeroScan,
+    ...(collectChangedFiles ? { changedFiles: detected.files } : {}),
   };
 }

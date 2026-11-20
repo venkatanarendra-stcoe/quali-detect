@@ -90,8 +90,9 @@ const envSchema = z.object({
   SCAN_DECISION_AGENT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(20),
   SCAN_DECISION_MAX_TURNS: z.coerce.number().int().min(1).max(5).default(3),
   SCAN_DECISION_CONTEXT_PATHS: z.coerce.number().int().min(0).max(500).default(100),
-  // Scan engines (docs/modules/scan-engines/SPEC.md part A, ADR-014). OFF BY DEFAULT (D-12): the flag exists but NOTHING reads it yet
-  // (the scan worker is wired in part K). The sandbox settings below only describe the container runtime CLI; no secret is involved.
+  // Scan engines (docs/modules/scan-engines/SPEC.md part A, ADR-014). OFF BY DEFAULT (D-12). Part K core reads it in the pipeline and
+  // scan workers: while it is "true" the ensemble SBOM engine replaces the built-in one and the decision stores the changed paths.
+  // The sandbox settings below only describe the container runtime CLI; no secret is involved.
   SCAN_ENGINES_ENSEMBLE_ENABLED: z.enum(["true", "false"]).default("false"),
   // The Docker-compatible CLI (execFile, never a shell). Nothing assumes a rootful runtime; rootless operation and uid mapping are
   // UNVERIFIED (SPEC D-20, ENG-L18). The Docker socket is never mounted into a container.
@@ -103,6 +104,17 @@ const envSchema = z.object({
   SANDBOX_SECCOMP_PROFILE: z.string().optional(),
   SANDBOX_STDOUT_MAX_BYTES: z.coerce.number().int().min(1024).max(2147483648).default(134217728),
   SANDBOX_CLI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(30000),
+  // Part K core. Both paths are required (and checked) only while SCAN_ENGINES_ENSEMBLE_ENABLED=true. The archive root is where the scan
+  // worker extracts trees (it must not be a system or home path); the rules directory holds the platform tool configuration
+  // (syft.yaml, trivy.yaml; copy the platform rules of the SBOM ensemble there).
+  SANDBOX_ARCHIVE_ROOT: z.string().optional(),
+  SANDBOX_RULES_DIR: z.string().optional(),
+  SCAN_ENGINE_TOOL_PARALLELISM: z.coerce.number().int().min(1).max(8).default(2),
+  SCAN_RUNNER_MAX_CONTAINERS: z.coerce.number().int().min(1).max(64).default(4),
+  SCAN_RUNNER_MAX_CONTAINERS_PER_TENANT: z.coerce.number().int().min(1).max(64).default(2),
+  SCAN_UNTRUSTED_CAPACITY_SHARE: z.coerce.number().int().min(1).max(100).default(50),
+  SCAN_RUNNER_WAIT_SECONDS: z.coerce.number().int().min(1).max(900).default(120),
+  SCAN_RUNNER_JANITOR_SECONDS: z.coerce.number().int().min(10).max(3600).default(60),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(20),
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(50).default(1000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10000).default(100),
@@ -237,6 +249,37 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
   // fail fast on an invalid sandbox setting (names the variable's concept, never the value); mount roots are supplied at wiring (part K)
   for (const problem of sandboxConfigProblems(sandbox))
     executionProblems.push({ variable: `SANDBOX_* (${problem.field})`, message: problem.message });
+  if (e.SCAN_ENGINES_ENSEMBLE_ENABLED === "true") {
+    // fail fast: the mount roots must be explicit, safe, absolute and outside the forbidden host paths
+    const withRoots = {
+      ...sandbox,
+      mountRoots: {
+        archive: e.SANDBOX_ARCHIVE_ROOT ? [e.SANDBOX_ARCHIVE_ROOT] : [],
+        db: [],
+        rules: e.SANDBOX_RULES_DIR ? [e.SANDBOX_RULES_DIR] : [],
+      },
+    };
+    for (const [variable, value] of [
+      ["SANDBOX_ARCHIVE_ROOT", e.SANDBOX_ARCHIVE_ROOT],
+      ["SANDBOX_RULES_DIR", e.SANDBOX_RULES_DIR],
+    ])
+      if (!value || !path.isAbsolute(value))
+        executionProblems.push({
+          variable,
+          message: "an absolute path is required while SCAN_ENGINES_ENSEMBLE_ENABLED=true",
+        });
+    for (const problem of sandboxConfigProblems(withRoots))
+      if (problem.field.startsWith("mountRoots"))
+        executionProblems.push({
+          variable: `SANDBOX_ARCHIVE_ROOT / SANDBOX_RULES_DIR (${problem.field})`,
+          message: problem.message,
+        });
+    if (e.SCAN_RUNNER_MAX_CONTAINERS_PER_TENANT > e.SCAN_RUNNER_MAX_CONTAINERS)
+      executionProblems.push({
+        variable: "SCAN_RUNNER_MAX_CONTAINERS_PER_TENANT",
+        message: "must not exceed SCAN_RUNNER_MAX_CONTAINERS",
+      });
+  }
   if (executionProblems.length > 0) throw new ConfigError(executionProblems);
   if (!e.DATABASE_URL && !e.REDIS_URL) {
     throw new ConfigError([
@@ -321,9 +364,18 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       }),
     }),
     scanEngines: Object.freeze({
-      // rollout flag (D-12): defined here, consumed by nothing until part K
+      // rollout flag (D-12); read by the registry wiring, the scan worker and the orchestrator (part K core)
       ensembleEnabled: e.SCAN_ENGINES_ENSEMBLE_ENABLED === "true",
       sandbox: Object.freeze(sandbox),
+      production: e.NODE_ENV === "production",
+      archiveRoot: e.SANDBOX_ARCHIVE_ROOT ?? null,
+      rulesDir: e.SANDBOX_RULES_DIR ?? null,
+      toolParallelism: e.SCAN_ENGINE_TOOL_PARALLELISM,
+      maxContainers: e.SCAN_RUNNER_MAX_CONTAINERS,
+      maxContainersPerTenant: e.SCAN_RUNNER_MAX_CONTAINERS_PER_TENANT,
+      untrustedCapacityShare: e.SCAN_UNTRUSTED_CAPACITY_SHARE,
+      waitSeconds: e.SCAN_RUNNER_WAIT_SECONDS,
+      janitorSeconds: e.SCAN_RUNNER_JANITOR_SECONDS,
     }),
     scanDecision: Object.freeze({
       secretsRule: e.SCAN_DECISION_SECRETS_RULE,

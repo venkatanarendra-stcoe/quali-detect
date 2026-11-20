@@ -256,8 +256,41 @@ export function createExecutionsRepository({ db }) {
             where: { tenantId, executionId },
             orderBy: { attempt: "desc" },
             take: 1,
-            select: { itemCount: true, severityCounts: true, truncated: true, completeness: true },
+            select: {
+              attempt: true,
+              itemCount: true,
+              severityCounts: true,
+              truncated: true,
+              completeness: true,
+              coverage: true,
+            },
           },
+        },
+      }),
+
+    /**
+     * The tool runs of every task of one execution (tenant AND execution scoped), by an ALLOW-LIST of columns: no run id, no
+     * tenant or chain id, no config or rule-pack digest, no exit code, no limits and no full image digest beyond what the mapper
+     * shortens. Ordered so the mapper can take the latest attempt per task.
+     */
+    findToolRuns: ({ tenantId, executionId }, client = db) =>
+      client.scanToolRun.findMany({
+        where: { tenantId, executionId },
+        orderBy: [{ scanTaskId: "asc" }, { attempt: "asc" }, { toolId: "asc" }],
+        select: {
+          scanTaskId: true,
+          attempt: true,
+          toolId: true,
+          toolVersion: true,
+          imageDigest: true,
+          dbSnapshotSha256: true,
+          dbBuiltAt: true,
+          status: true,
+          reason: true,
+          durationMs: true,
+          scope: true,
+          findingsMapped: true,
+          severityCounts: true,
         },
       }),
 

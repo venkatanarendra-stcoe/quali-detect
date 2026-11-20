@@ -3,6 +3,8 @@ import { createSuccessSchema } from "@qmentisai/contracts";
 import { MAX_LIST_OFFSET } from "@qmentisai/db";
 import {
   EXECUTION_STATUS_VALUES,
+  coverageDtoSchema,
+  toolRunDtoSchema,
   PIPELINE_TRIGGER_TYPES,
   SCAN_TASK_STATUS_VALUES,
 } from "@qmentisai/shared";
@@ -217,6 +219,15 @@ const task = z.object({
       completeness: z.string(),
     })
     .nullable(),
+  tools: z
+    .array(toolRunDtoSchema)
+    .optional()
+    .describe(
+      "Tool runs of the latest attempt (ensemble engines only; omitted for older executions and unfinished tasks).",
+    ),
+  coverage: coverageDtoSchema
+    .optional()
+    .describe("Coverage statement of the result (ensemble engines only)."),
 });
 const decisionScanType = z.object({
   scanType: z.string(),

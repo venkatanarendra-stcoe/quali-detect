@@ -134,9 +134,10 @@ export function createExecutionReadService({ repository, logStore }) {
         id: ref.id,
       });
       if (!e) throw new NotFoundError();
-      const [tasks, decision, enabledTypes, pipelineNames, repositoryNames, memberNames] =
+      const [tasks, toolRuns, decision, enabledTypes, pipelineNames, repositoryNames, memberNames] =
         await Promise.all([
           repository.findTasks({ tenantId: actor.tenantId, executionId: e.id }),
+          repository.findToolRuns({ tenantId: actor.tenantId, executionId: e.id }),
           repository.findDecision({
             tenantId: actor.tenantId,
             workspaceId: e.workspaceId,
@@ -181,6 +182,7 @@ export function createExecutionReadService({ repository, logStore }) {
           : null,
         requestedByName: memberNames.get(e.requestedByUserId) ?? null,
         tasks,
+        toolRuns,
         decision,
         resolutionEligible,
       });

@@ -1,4 +1,16 @@
-import { SCAN_TASK_ORDER } from "@qmentisai/shared";
+import {
+  COVERAGE_GAP_NAMES,
+  COVERAGE_STATE_DTO,
+  ENSEMBLE_TOOL_IDS,
+  KIND_OF_SCAN_TYPE,
+  SCAN_TASK_ORDER,
+  SEVERITIES,
+  TOOL_DISPLAY_NAMES,
+  TOOL_REASONS,
+  TOOL_SCOPE_WORDS,
+  TOOL_STATUSES,
+  UNKNOWN_WORD,
+} from "@qmentisai/shared";
 import { FAILED_TASK_STATUSES } from "../constants/index.js";
 
 /**
@@ -82,11 +94,94 @@ export const toExecutionListDto = (e, labels = {}) => ({
   retryOfExecutionId: e.retryOfExecutionId ?? null,
 });
 
+const countOf = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+
+const HEX_DIGEST = /^(?:sha256:)?([0-9a-f]{64})$/;
+/** `sha256:` plus the first 8 hex characters of a full hash; `null` for anything else. The full value never leaves the server. */
+const shortHash = (value) => {
+  const m = typeof value === "string" ? HEX_DIGEST.exec(value) : null;
+  return m ? `sha256:${m[1].slice(0, 8)}` : null;
+};
+const TERMINAL_TASK = new Set(["succeeded", "failed", "timed_out", "cancelled"]);
+const wordOf = (value, allowed) => (allowed.includes(value) ? value : UNKNOWN_WORD);
+
 /**
- * One scan task of the detail DTO. The result summary has counts and flags only (no items, no locator).
- * @param {any} t task row with its (at most one) result
+ * One tool run as the tenant may see it (SPEC scan-engines 8, SCREENS 3). A FIELD ALLOW-LIST: the display name comes from the
+ * platform catalog, status and reason are fixed words (an unknown value becomes `unknown`), the image is the short form, the counts
+ * are integers. No run id, no chain or tenant id, no config or rule-pack hash, no exit code, no limits, no command line, no stderr
+ * and no tool-originated text. A tool id outside the catalog yields `null` (the row is dropped).
+ * @param {any} r a `scan_tool_runs` row (allow-listed select)
+ * @param {string} scanType
  */
-export const toTaskDto = (t) => {
+export const toToolRunDto = (r, scanType) => {
+  if (!ENSEMBLE_TOOL_IDS.includes(r.toolId)) return null;
+  const counts = r.severityCounts && typeof r.severityCounts === "object" ? r.severityCounts : {};
+  const scope = r.scope && typeof r.scope === "object" ? r.scope.kind : null;
+  const hasDb = Boolean(r.dbSnapshotSha256 || r.dbBuiltAt);
+  return {
+    toolId: r.toolId,
+    displayName: TOOL_DISPLAY_NAMES[r.toolId],
+    version:
+      r.toolVersion && r.toolVersion !== "unknown" ? String(r.toolVersion).slice(0, 64) : null,
+    imageShort: shortHash(r.imageDigest),
+    builtIn: r.toolId === "sbom-lite",
+    status: wordOf(r.status, TOOL_STATUSES),
+    reason: r.reason ? wordOf(r.reason, TOOL_REASONS) : null,
+    durationMs: countOf(r.durationMs),
+    counts: Object.fromEntries(SEVERITIES.map((s) => [s, countOf(counts[s])])),
+    findingsMapped: countOf(r.findingsMapped),
+    resultKind: KIND_OF_SCAN_TYPE[scanType] ?? "component",
+    db: hasDb ? { builtAt: iso(r.dbBuiltAt), versionShort: shortHash(r.dbSnapshotSha256) } : null,
+    scope: TOOL_SCOPE_WORDS.includes(scope) ? scope : null,
+  };
+};
+
+/**
+ * The tools and the coverage statement of one task: only the LATEST attempt's tool runs and only for a finished task (a running
+ * retry shows none), in catalog order. The coverage is the stored statement of the result of THE SAME attempt (a result of an older
+ * attempt would misdescribe the newer tools); a gap word outside the platform list is `other`. An empty object (the fields are
+ * omitted, no placeholder) for a legacy task: no tool runs.
+ * @param {any} t task row
+ * @param {any[]} runs the tool runs of this task (any attempt)
+ */
+const toolsOf = (t, runs) => {
+  if (!TERMINAL_TASK.has(t.status) || !runs.length) return {};
+  const latest = Math.max(...runs.map((r) => r.attempt));
+  const order = (id) => ENSEMBLE_TOOL_IDS.indexOf(id);
+  const tools = runs
+    .filter((r) => r.attempt === latest)
+    .sort((a, b) => order(a.toolId) - order(b.toolId))
+    .map((r) => toToolRunDto(r, t.scanType))
+    .filter(Boolean);
+  if (!tools.length) return {};
+  const result = t.results?.[0] ?? null;
+  const stored = result?.attempt === latest && result.coverage ? result.coverage : null;
+  const state = stored ? COVERAGE_STATE_DTO[stored.state] : null;
+  const gaps = Array.isArray(stored?.coverageGaps) ? stored.coverageGaps : [];
+  return {
+    tools,
+    ...(state
+      ? {
+          coverage: {
+            state,
+            toolsDegraded: countOf(stored.toolsDegraded),
+            toolsTotal: tools.filter((x) => x.status !== "skipped").length,
+            gaps: [
+              ...new Set(gaps.map((g) => (COVERAGE_GAP_NAMES.includes(g) ? g : "other"))),
+            ].slice(0, 10),
+          },
+        }
+      : {}),
+  };
+};
+
+/**
+ * One scan task of the detail DTO. The result summary has counts and flags only (no items, no locator). `tools` and `coverage` exist
+ * only for a task an ensemble engine ran (docs/modules/scan-engines/SPEC.md 8).
+ * @param {any} t task row with its (at most one) result
+ * @param {any[]} [toolRuns] the tool runs of this task
+ */
+export const toTaskDto = (t, toolRuns = []) => {
   const result = t.results?.[0] ?? null;
   return {
     id: t.id,
@@ -106,10 +201,9 @@ export const toTaskDto = (t) => {
           completeness: result.completeness,
         }
       : null,
+    ...toolsOf(t, toolRuns),
   };
 };
-
-const countOf = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
 const countRecord = (value) =>
   Object.fromEntries(
     Object.entries(value && typeof value === "object" ? value : {})
@@ -200,10 +294,11 @@ export const toDecisionDto = (d, tasks) => {
  * Detail DTO: the list row plus the snapshot summary (version and a SHORT hash, never the configuration body), the requester's
  * display name (manual and retry only), the deadline, the cancel state, the tasks, `resolutionEligible` and `rev`.
  * @param {any} e execution row (list and detail columns)
- * @param {{ pipelineName?: string | null, repositoryName?: string | null, requestedByName?: string | null, tasks: any[], resolutionEligible: boolean, decision?: any }} parts
+ * @param {{ pipelineName?: string | null, repositoryName?: string | null, requestedByName?: string | null, tasks: any[], toolRuns?: any[], resolutionEligible: boolean, decision?: any }} parts
  */
 export const toExecutionDetailDto = (e, parts) => {
-  const tasks = parts.tasks.map(toTaskDto);
+  const runsOf = (taskId) => (parts.toolRuns ?? []).filter((r) => r.scanTaskId === taskId);
+  const tasks = parts.tasks.map((t) => toTaskDto(t, runsOf(t.id)));
   const counts = Object.entries(
     tasks.reduce((acc, t) => ({ ...acc, [t.status]: (acc[t.status] ?? 0) + 1 }), {}),
   ).map(([status, count]) => ({ status, count }));

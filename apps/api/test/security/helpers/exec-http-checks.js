@@ -1,6 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { createExecutionLogRepository, createScanDecisionRepository } from "@qmentisai/db";
+import {
+  createExecutionLogRepository,
+  createScanDecisionRepository,
+  createScanToolRunRepository,
+} from "@qmentisai/db";
 import { createLogStore } from "@qmentisai/infra";
+import { createExecutionsRepository } from "../../../src/modules/executions/index.js";
+import { toTaskDto, toToolRunDto } from "../../../src/modules/executions/mappers/index.js";
 import { driveExecution } from "./execution-db.js";
 
 /**
@@ -114,7 +120,7 @@ export const DETAIL_KEYS = [
   "decision",
   "rev",
 ];
-const TASK_KEYS = [
+export const TASK_KEYS = [
   "id",
   "scanType",
   "status",
@@ -2096,6 +2102,445 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
         "changeSummary",
       ])
         if (text.includes(secret)) problems.push(`the detail leaks ${secret}`);
+      return done(problems);
+    },
+  );
+
+  // ---------------------------------------------------------------------------------------------------------------------
+  // Scan engines part L: the tool runs and the coverage statement of the task DTO (SPEC scan-engines 8, 14.1 ENG-S08, 17.o)
+  // ---------------------------------------------------------------------------------------------------------------------
+  const TOOL_KEYS = [
+    "builtIn",
+    "counts",
+    "db",
+    "displayName",
+    "durationMs",
+    "findingsMapped",
+    "imageShort",
+    "reason",
+    "resultKind",
+    "scope",
+    "status",
+    "toolId",
+    "version",
+  ];
+  const COVERAGE_KEYS = ["gaps", "state", "toolsDegraded", "toolsTotal"];
+  const FULL_IMAGE = "abcd1234".repeat(8);
+  const SENTINELS = {
+    config: "feedface".repeat(8),
+    rulepack: "deadbeef".repeat(8),
+    snapshot: "0badc0de".repeat(8),
+    limits: "LIMIT-SENTINEL-77",
+  };
+  /** An execution of `p` with scan tasks in `running` and the given tool runs recorded for each; the tasks are then finished. */
+  const toolWorld = async (p, plan) => {
+    const k = await exeWorld();
+    const d = k.d;
+    const e = await k.make(p, "preparing");
+    await driveExecution(d, e.id, "running");
+    const repo = createScanToolRunRepository({ db: d });
+    const started = new Date(Date.now() - 60_000).toISOString();
+    const ended = new Date().toISOString();
+    const out = {};
+    let ordinal = 0;
+    for (const spec of plan) {
+      const t = await d.scanTask.create({
+        data: {
+          tenantId: e.tenantId,
+          workspaceId: e.workspaceId,
+          repositoryId: e.repositoryId,
+          pipelineId: e.pipelineId,
+          executionId: e.id,
+          scanType: spec.scanType,
+          ordinal: ordinal++,
+          status: "queued",
+          engineId: spec.engineId ?? "default",
+          engineProfile: "default",
+          severityThreshold: "low",
+          timeoutSeconds: 900,
+        },
+      });
+      await d.$executeRaw`UPDATE scan_tasks SET status = 'running', started_at = now(), lease_owner = 'suite-worker', lease_expires_at = now() + interval '5 minutes', heartbeat_at = now() WHERE id = ${t.id}::uuid`;
+      if (spec.runs?.length)
+        await repo.insertMany({
+          tenantId: e.tenantId,
+          executionId: e.id,
+          scanTaskId: t.id,
+          attempt: t.attempt,
+          runs: spec.runs.map((r) => ({
+            toolVersion: "1.2.3",
+            imageDigest: `sha256:${FULL_IMAGE}`,
+            configDigest: SENTINELS.config,
+            rulepackDigest: SENTINELS.rulepack,
+            status: "succeeded",
+            reason: null,
+            exitCode: 7,
+            startedAt: started,
+            finishedAt: ended,
+            durationMs: 4100,
+            scope: { kind: "full", paths: 0 },
+            findingsMapped: 0,
+            severityCounts: {},
+            limits: { memoryMb: 1024, marker: SENTINELS.limits },
+            recordsSeen: r.findingsMapped ?? 0,
+            ...r,
+          })),
+        });
+      if (spec.result)
+        await d.scanResult.create({
+          data: {
+            tenantId: e.tenantId,
+            workspaceId: e.workspaceId,
+            repositoryId: e.repositoryId,
+            pipelineId: e.pipelineId,
+            executionId: e.id,
+            scanTaskId: t.id,
+            attempt: t.attempt,
+            scanType: spec.scanType,
+            engineId: spec.engineId ?? "default",
+            engineVersion: "1",
+            completeness: "incomplete",
+            itemCount: 3,
+            severityCounts: { info: 3 },
+            ...spec.result,
+          },
+        });
+      await d.$executeRaw`UPDATE scan_tasks SET status = ${spec.finalStatus ?? "succeeded"}::scan_task_status, status_reason = ${spec.reason ?? null}, finished_at = now(), lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL WHERE id = ${t.id}::uuid`;
+      out[spec.key] = t;
+    }
+    await driveExecution(d, e.id, "partial");
+    return { k, execution: await d.execution.findUnique({ where: { id: e.id } }), tasks: out };
+  };
+
+  check(
+    "ENG-S08g",
+    "tool runs and coverage over HTTP (SPEC scan-engines 8, 14.1 ENG-S08, Part L): the task DTO of an ensemble task carries `tools` (catalog order, catalog display names, fixed status and reason words, the image as `sha256:` plus eight hex characters, integer counts) and `coverage` (state word, counts, platform gap names; a hostile gap word is `other`) and NOTHING else: no run id, tenant or chain id, config or rule-pack digest, full image or snapshot digest, exit code, limits or command text appears anywhere in the body; a legacy task (no tool runs) has neither field and the same keys as before; a task that failed because every tool failed shows its tools and no coverage; the tool runs of another tenant's execution are unreadable through this tenant's repository call and over HTTP the foreign execution is a 404 identical to a missing id; a member without `execution.view` reads none of it",
+    async () => {
+      const k0 = await exeWorld();
+      const problems = [];
+      const s = k0.x.sessions;
+      const { k, execution, tasks } = await toolWorld(k0.pay, [
+        {
+          key: "sbom",
+          scanType: "sbom",
+          result: {
+            schemaVersion: 2,
+            coverage: {
+              state: "degraded",
+              coverageGaps: ["haskell", "<script>alert(1)</script>", "haskell"],
+              toolsDegraded: 1,
+              tools: [{ toolId: "trivy", status: "timed_out" }],
+            },
+            runManifestSha256: SENTINELS.config,
+          },
+          runs: [
+            { toolId: "trivy", status: "timed_out", reason: "timeout", findingsMapped: 0 },
+            { toolId: "sbom-lite", imageDigest: null, toolVersion: "unknown", findingsMapped: 3 },
+            {
+              toolId: "syft",
+              findingsMapped: 412,
+              severityCounts: { info: 412 },
+              dbSnapshotSha256: SENTINELS.snapshot,
+              dbBuiltAt: new Date(Date.UTC(2026, 10, 18, 6)).toISOString(),
+            },
+          ],
+        },
+        { key: "sca", scanType: "sca", result: {}, runs: [] },
+        {
+          key: "secrets",
+          scanType: "secrets",
+          finalStatus: "failed",
+          reason: "tools_failed",
+          runs: [
+            { toolId: "gitleaks", status: "failed", reason: "exit_code" },
+            { toolId: "detect-secrets", status: "unavailable", reason: "image_unavailable" },
+          ],
+        },
+      ]);
+      const got = await get(s.admin, `/executions/${execution.id}`);
+      if (got.status !== 200) return done([`the detail answered ${got.status}`]);
+      const text = JSON.stringify(got.json.data);
+      const byId = new Map(got.json.data.tasks.map((t) => [t.id, t]));
+      const sbom = byId.get(tasks.sbom.id);
+      const sca = byId.get(tasks.sca.id);
+      const sec = byId.get(tasks.secrets.id);
+      // shape and order
+      if (!sbom?.tools || sbom.tools.length !== 3)
+        problems.push("the sbom task lacks its three tools");
+      else {
+        if (sbom.tools.map((t) => t.toolId).join() !== "sbom-lite,syft,trivy")
+          problems.push(`tools are not in catalog order: ${sbom.tools.map((t) => t.toolId)}`);
+        for (const t of sbom.tools)
+          if (Object.keys(t).sort().join() !== TOOL_KEYS.join())
+            problems.push(`a tool has the keys ${Object.keys(t).sort()}`);
+        const [lite, syft, trivy] = sbom.tools;
+        if (lite.displayName !== "SBOM inventory (built in)" || !lite.builtIn || lite.imageShort)
+          problems.push("the in-process adapter is not shown as built in");
+        if (lite.version !== null) problems.push("an unknown version is not null");
+        if (syft.imageShort !== "sha256:abcd1234" || syft.displayName !== "Syft")
+          problems.push("the image short form or the catalog name is wrong");
+        if (
+          syft.counts.info !== 412 ||
+          syft.findingsMapped !== 412 ||
+          syft.resultKind !== "component"
+        )
+          problems.push("counts or kind are wrong");
+        if (
+          syft.db?.versionShort !== "sha256:0badc0de" ||
+          !syft.db?.builtAt?.startsWith("2026-11-18")
+        )
+          problems.push("the data provenance is wrong");
+        if (trivy.status !== "timed_out" || trivy.reason !== "timeout" || trivy.db !== null)
+          problems.push("the failed tool is mis-reported");
+      }
+      const cov = sbom?.coverage;
+      if (!cov || Object.keys(cov).sort().join() !== COVERAGE_KEYS.join())
+        problems.push(`coverage keys: ${Object.keys(cov ?? {})}`);
+      else {
+        if (cov.state !== "partial_tools" || cov.toolsDegraded !== 1 || cov.toolsTotal !== 3)
+          problems.push(`coverage numbers: ${JSON.stringify(cov)}`);
+        if (cov.gaps.join() !== "haskell,other")
+          problems.push(`gap words are not platform words: ${cov.gaps}`);
+      }
+      // legacy and failed-all tasks
+      if ("tools" in sca || "coverage" in sca) problems.push("a legacy task has tools or coverage");
+      if (Object.keys(sca).sort().join() !== [...TASK_KEYS].sort().join())
+        problems.push("a legacy task has other keys than before");
+      if (!sec.tools || sec.tools.length !== 2 || "coverage" in sec)
+        problems.push("the all-tools-failed task must show its tools and no coverage");
+      else if (sec.tools.map((t) => t.reason).join() !== "exit_code,image_unavailable")
+        problems.push(`the reasons: ${sec.tools.map((t) => t.reason)}`);
+      // nothing internal anywhere in the body
+      const runRows = await k.d.scanToolRun.findMany({ where: { executionId: execution.id } });
+      const forbidden = [
+        FULL_IMAGE,
+        SENTINELS.config,
+        SENTINELS.rulepack,
+        SENTINELS.snapshot,
+        SENTINELS.limits,
+        "configDigest",
+        "rulepack",
+        "exitCode",
+        "limits",
+        "capacityWait",
+        "recordsSeen",
+        "recordsDropped",
+        "tenantId",
+        "runManifest",
+        "<script>",
+        k.tenantA,
+        ...runRows.map((r) => r.id),
+      ];
+      for (const needle of forbidden)
+        if (text.includes(needle)) problems.push(`the detail contains "${needle}"`);
+      // another tenant: the repository call never reads this tenant's runs for a foreign execution, and HTTP is a 404
+      const apiRepo = createExecutionsRepository({ db: k.d });
+      const foreignRows = await apiRepo.findToolRuns({
+        tenantId: k.tenantE,
+        executionId: execution.id,
+      });
+      if (foreignRows.length !== 0) problems.push("another tenant's call read the tool runs");
+      const ownRows = await apiRepo.findToolRuns({
+        tenantId: k.tenantA,
+        executionId: execution.id,
+      });
+      if (ownRows.length !== 5) problems.push("control: the owner's call lost its tool runs");
+      // another execution of the SAME tenant with its own tool runs is never mixed in
+      const twin = await toolWorld(k0.pay, [
+        { key: "sast", scanType: "sast", runs: [{ toolId: "bandit" }, { toolId: "gosec" }] },
+      ]);
+      const again = await apiRepo.findToolRuns({
+        tenantId: k.tenantA,
+        executionId: execution.id,
+      });
+      const twinRows = await apiRepo.findToolRuns({
+        tenantId: k.tenantA,
+        executionId: twin.execution.id,
+      });
+      if (again.length !== 5 || again.some((r) => r.scanTaskId === twin.tasks.sast.id))
+        problems.push("a twin execution's tool runs leaked into this execution's read");
+      if (twinRows.length !== 2 || twinRows.some((r) => r.scanTaskId !== twin.tasks.sast.id))
+        problems.push("the twin execution's read is wrong");
+      const foreign = await get(k.x.edge.owner, `/executions/${execution.id}`);
+      const missing = await get(k.x.edge.owner, `/executions/${MISSING()}`);
+      if (
+        foreign.status !== 404 ||
+        JSON.stringify(foreign.json.error) !== JSON.stringify(missing.json.error)
+      )
+        problems.push(`a foreign execution answered ${foreign.status}, not a plain 404`);
+      if (JSON.stringify(foreign.json).includes("trivy"))
+        problems.push("a foreign 404 names a tool");
+      // no permission: nothing of it
+      const bare = await edgeMember("toolsbare", ["repository.view"]);
+      const denied = await get(bare, `/executions/${execution.id}`);
+      if (denied.status === 200 || JSON.stringify(denied.json).includes("trivy"))
+        problems.push(`a member without execution.view got ${denied.status}`);
+      return done(problems);
+    },
+  );
+
+  check(
+    "ENG-S08h",
+    "the tool-run DTO mapper is an allow-list (SPEC scan-engines 8, Part L; hostile and malformed rows): every field of the output is a number, a boolean, a catalog name, a fixed word or a short hash; an unknown status or reason is `unknown`, a tool id outside the catalog is dropped, a version of `unknown` is null, a full digest is shortened and a malformed one is null, negative, fractional or non-numeric counts are 0, a scope outside the platform words is null, a hostile coverage gap word or state is not echoed, only the latest attempt of a finished task is shown, and coverage only when its result is of that attempt",
+    async () => {
+      const problems = [];
+      const hostile = "<img src=x onerror=alert(1)>‮ javascript:evil()";
+      const row = (over = {}) => ({
+        scanTaskId: "t1",
+        attempt: 0,
+        toolId: "trivy",
+        toolVersion: "0.58.0",
+        imageDigest: `sha256:${FULL_IMAGE}`,
+        dbSnapshotSha256: null,
+        dbBuiltAt: null,
+        status: "succeeded",
+        reason: null,
+        durationMs: 10,
+        scope: { kind: "full" },
+        findingsMapped: 1,
+        severityCounts: { high: 1 },
+        ...over,
+      });
+      const dto = (over) => toToolRunDto(row(over), "sca");
+      const h = dto({ status: hostile, reason: hostile });
+      if (h.status !== "unknown" || h.reason !== "unknown")
+        problems.push("an unknown status or reason was echoed");
+      if (dto({ toolId: "grype" }) !== null || dto({ toolId: hostile }) !== null)
+        problems.push("a tool id outside the catalog was kept");
+      if (dto({ toolVersion: "unknown" }).version !== null) problems.push("unknown version kept");
+      if (dto({ toolVersion: "9".repeat(500) }).version.length > 64)
+        problems.push("version unbounded");
+      if (dto({ imageDigest: `sha256:${"A".repeat(64)}` }).imageShort !== null)
+        problems.push("an upper-case digest was shortened");
+      if (dto({ imageDigest: hostile }).imageShort !== null) problems.push("a hostile digest kept");
+      if (dto({ imageDigest: FULL_IMAGE }).imageShort !== "sha256:abcd1234")
+        problems.push("a bare 64-hex digest is not shortened");
+      const c = dto({
+        durationMs: -5,
+        findingsMapped: 1.9,
+        severityCounts: { high: "9", low: -1, critical: Infinity, info: 2.7, extra: 5 },
+      });
+      if (c.durationMs !== 0 || c.findingsMapped !== 1)
+        problems.push("odd numbers are not clamped");
+      if (JSON.stringify(c.counts) !== '{"critical":0,"high":0,"medium":0,"low":0,"info":2}')
+        problems.push(`counts: ${JSON.stringify(c.counts)}`);
+      if (dto({ severityCounts: null }).counts.high !== 0) problems.push("null counts");
+      if (dto({ scope: { kind: hostile } }).scope !== null || dto({ scope: null }).scope !== null)
+        problems.push("a scope outside the platform words was kept");
+      if (dto({ scope: { kind: "changed_paths" } }).scope !== "changed_paths")
+        problems.push("a platform scope word was dropped");
+      if (JSON.stringify(dto({})).includes(FULL_IMAGE)) problems.push("the full digest is output");
+      // task level
+      const result = (over) => ({
+        attempt: 1,
+        itemCount: 0,
+        severityCounts: {},
+        truncated: false,
+        completeness: "incomplete",
+        coverage: { state: "language_gap", coverageGaps: [hostile, "go"], toolsDegraded: 0 },
+        ...over,
+      });
+      const task = (over) => ({
+        id: "t1",
+        scanType: "sast",
+        status: "succeeded",
+        attempt: 1,
+        maxAttempts: 3,
+        engineId: "e",
+        engineProfile: "p",
+        startedAt: null,
+        finishedAt: null,
+        results: [result({})],
+        ...over,
+      });
+      const runs = [
+        row({ attempt: 0, toolId: "bandit", status: "failed", reason: "exit_code" }),
+        row({ attempt: 1, toolId: "bandit" }),
+        row({ attempt: 1, toolId: "opengrep", status: "skipped", reason: "no_applicable_files" }),
+      ];
+      const t = toTaskDto(task({}), runs);
+      if (t.tools.length !== 2 || t.tools.some((x) => x.status === "failed"))
+        problems.push("an older attempt's tool run is shown");
+      if (t.coverage?.state !== "gaps" || t.coverage.gaps.join() !== "other,go")
+        problems.push(`coverage: ${JSON.stringify(t.coverage)}`);
+      if (t.coverage?.toolsTotal !== 1) problems.push("a skipped tool counts as applicable");
+      if (JSON.stringify(t).includes("<img")) problems.push("a hostile gap word was echoed");
+      if ("coverage" in toTaskDto(task({ results: [result({ attempt: 0 })] }), runs))
+        problems.push("the coverage of an older attempt is shown with newer tools");
+      if (
+        "coverage" in toTaskDto(task({ results: [result({ coverage: { state: hostile } })] }), runs)
+      )
+        problems.push("a hostile coverage state produced a coverage");
+      if ("coverage" in toTaskDto(task({ results: [result({ coverage: null })] }), runs))
+        problems.push("a null coverage produced a coverage");
+      if ("coverage" in toTaskDto(task({ results: [] }), runs))
+        problems.push("a task without a result has coverage");
+      for (const status of ["queued", "running", "pending"])
+        if ("tools" in toTaskDto(task({ status }), runs))
+          problems.push(`a ${status} task shows tools`);
+      if ("tools" in toTaskDto(task({}), [])) problems.push("a task without runs has tools");
+      // exact shapes: absent means absent (no key at all, no placeholder), null means null
+      const keysOf = (x) => Object.keys(x).sort().join();
+      const plain = [...TASK_KEYS].sort().join();
+      if (keysOf(toTaskDto(task({ status: "running" }), runs)) !== plain)
+        problems.push("an unfinished task has extra keys");
+      if (keysOf(toTaskDto(task({}), [])) !== plain) problems.push("a legacy task has extra keys");
+      const foreignOnly = [row({ toolId: "grype" }), row({ toolId: hostile })];
+      if (keysOf(toTaskDto(task({}), foreignOnly)) !== plain)
+        problems.push("rows outside the catalog produced tools or coverage");
+      const noCov = toTaskDto(task({ results: [] }), runs);
+      if (keysOf(noCov) !== [...TASK_KEYS, "tools"].sort().join())
+        problems.push(`a task with tools and no result has the keys ${keysOf(noCov)}`);
+      const plainTool = dto({});
+      if (plainTool.reason !== null || plainTool.db !== null || plainTool.scope !== "full")
+        problems.push("absent optional values are not null");
+      if (dto({ reason: "timeout" }).reason !== "timeout") problems.push("a fixed reason was lost");
+      if (dto({ toolId: "sbom-lite" }).builtIn !== true || plainTool.builtIn !== false)
+        problems.push("builtIn is wrong");
+      const onlyTime = dto({ dbBuiltAt: new Date(Date.UTC(2026, 10, 18)) }).db;
+      const onlyHash = dto({ dbSnapshotSha256: "0badc0de".repeat(8) }).db;
+      if (onlyTime?.versionShort !== null || !onlyTime?.builtAt?.startsWith("2026-11-18"))
+        problems.push("a snapshot time without a hash is not shown");
+      if (onlyHash?.builtAt !== null || onlyHash?.versionShort !== "sha256:0badc0de")
+        problems.push("a snapshot hash without a time is not shown");
+      if (dto({ findingsMapped: 0, durationMs: 0 }).findingsMapped !== 0)
+        problems.push("zero counts changed");
+      const mixed = toTaskDto(task({}), [
+        row({ attempt: 1, toolId: "bandit" }),
+        row({ attempt: 1, toolId: "gosec" }),
+        row({ attempt: 1, toolId: "opengrep", status: "skipped", reason: "no_applicable_files" }),
+        row({ attempt: 1, toolId: "grype" }),
+      ]);
+      if (mixed.tools.length !== 3 || mixed.tools.some((x) => x === null))
+        problems.push("a row outside the catalog is in the list");
+      if (mixed.coverage?.toolsTotal !== 2)
+        problems.push(`toolsTotal counts skipped tools: ${mixed.coverage?.toolsTotal}`);
+      const many = [
+        "c",
+        "go",
+        "java",
+        "lua",
+        "php",
+        "rust",
+        "scala",
+        "shell",
+        "swift",
+        "dart",
+        "ruby",
+        "other",
+      ];
+      const wide = toTaskDto(
+        task({ results: [result({ coverage: { state: "language_gap", coverageGaps: many } })] }),
+        runs,
+      );
+      if (wide.coverage?.gaps.length !== 10) problems.push("the gap list is not capped at 10");
+      if (
+        toTaskDto(
+          task({ results: [result({ coverage: { state: "degraded", toolsDegraded: 2 } })] }),
+          runs,
+        ).coverage?.toolsDegraded !== 2
+      )
+        problems.push("toolsDegraded was lost");
       return done(problems);
     },
   );

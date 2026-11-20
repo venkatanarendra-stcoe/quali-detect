@@ -14,6 +14,7 @@ import {
   createExecutionRepository,
   createScanDecisionRepository,
   createScanTaskRepository,
+  createScanToolRunRepository,
   executionStepKey,
 } from "@qmentisai/db";
 import { NonRetryableError, createOutbox } from "@qmentisai/infra";
@@ -574,6 +575,25 @@ export async function buildDalWorld(db) {
       engineVersion: "1",
       completeness: "complete",
     },
+  });
+  // scan engines part L (a DAL entry): a tool run of the running task, so a wrong-tenant `findToolRuns` has something to find
+  await createScanToolRunRepository({ db }).insertMany({
+    tenantId: X.id,
+    executionId: plRunning.id,
+    scanTaskId: taskRunning.id,
+    attempt: 0,
+    runs: [
+      {
+        toolId: "trivy",
+        toolVersion: "1.0.0",
+        imageDigest: `sha256:${"a".repeat(64)}`,
+        configDigest: "b".repeat(64),
+        status: "succeeded",
+        startedAt: new Date(Date.now() - 1000).toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 1000,
+      },
+    ],
   });
   await db.execution.create({
     data: executionData({
@@ -5034,6 +5054,13 @@ export function buildDalEntries() {
           attempt: 0,
         }),
     },
+  );
+
+  // scan engines part L: appended LAST so no earlier DAL id shifts
+  E(
+    "executions-api.findToolRuns",
+    (c) => XA(c).findToolRuns({ tenantId: c.y, executionId: c.pl.runningId }),
+    { control: (c) => XA(c).findToolRuns({ tenantId: c.x, executionId: c.pl.runningId }) },
   );
 
   return list.map((entry, i) => ({

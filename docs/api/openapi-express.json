@@ -45021,6 +45021,226 @@
                                   "truncated",
                                   "completeness"
                                 ]
+                              },
+                              "tools": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "toolId": {
+                                      "type": "string",
+                                      "enum": [
+                                        "sbom-lite",
+                                        "syft",
+                                        "trivy",
+                                        "osv-scanner",
+                                        "opengrep",
+                                        "bandit",
+                                        "gosec",
+                                        "gitleaks",
+                                        "detect-secrets"
+                                      ]
+                                    },
+                                    "displayName": {
+                                      "type": "string"
+                                    },
+                                    "version": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "imageShort": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "builtIn": {
+                                      "type": "boolean"
+                                    },
+                                    "status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "succeeded",
+                                        "partial",
+                                        "failed",
+                                        "timed_out",
+                                        "cancelled",
+                                        "skipped",
+                                        "unavailable",
+                                        "unknown"
+                                      ]
+                                    },
+                                    "reason": {
+                                      "type": "string",
+                                      "nullable": true,
+                                      "enum": [
+                                        "image_unavailable",
+                                        "db_unavailable",
+                                        "db_stale",
+                                        "timeout",
+                                        "out_of_memory",
+                                        "exit_code",
+                                        "output_invalid",
+                                        "output_too_large",
+                                        "sandbox_error",
+                                        "killed",
+                                        "no_applicable_files",
+                                        "config_invalid",
+                                        "capacity",
+                                        "cancelled",
+                                        "deadline",
+                                        "unknown"
+                                      ]
+                                    },
+                                    "durationMs": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "counts": {
+                                      "type": "object",
+                                      "properties": {
+                                        "critical": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "high": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "medium": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "low": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "info": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        }
+                                      },
+                                      "required": [
+                                        "critical",
+                                        "high",
+                                        "medium",
+                                        "low",
+                                        "info"
+                                      ]
+                                    },
+                                    "findingsMapped": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "resultKind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "component",
+                                        "vulnerability",
+                                        "code_issue",
+                                        "secret"
+                                      ]
+                                    },
+                                    "db": {
+                                      "type": "object",
+                                      "nullable": true,
+                                      "properties": {
+                                        "builtAt": {
+                                          "type": "string",
+                                          "nullable": true
+                                        },
+                                        "versionShort": {
+                                          "type": "string",
+                                          "nullable": true
+                                        }
+                                      },
+                                      "required": [
+                                        "builtAt",
+                                        "versionShort"
+                                      ]
+                                    },
+                                    "scope": {
+                                      "type": "string",
+                                      "nullable": true,
+                                      "enum": [
+                                        "full",
+                                        "changed_paths"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "toolId",
+                                    "displayName",
+                                    "version",
+                                    "imageShort",
+                                    "builtIn",
+                                    "status",
+                                    "reason",
+                                    "durationMs",
+                                    "counts",
+                                    "findingsMapped",
+                                    "resultKind",
+                                    "db",
+                                    "scope"
+                                  ]
+                                },
+                                "description": "Tool runs of the latest attempt (ensemble engines only; omitted for older executions and unfinished tasks)."
+                              },
+                              "coverage": {
+                                "type": "object",
+                                "properties": {
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "complete",
+                                      "partial",
+                                      "partial_tools",
+                                      "gaps",
+                                      "nothing_to_scan"
+                                    ]
+                                  },
+                                  "toolsDegraded": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "toolsTotal": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "gaps": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "c",
+                                        "cpp",
+                                        "csharp",
+                                        "dart",
+                                        "elixir",
+                                        "go",
+                                        "haskell",
+                                        "java",
+                                        "javascript",
+                                        "kotlin",
+                                        "lua",
+                                        "php",
+                                        "python",
+                                        "ruby",
+                                        "rust",
+                                        "scala",
+                                        "shell",
+                                        "swift",
+                                        "typescript",
+                                        "other"
+                                      ]
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "state",
+                                  "toolsDegraded",
+                                  "toolsTotal",
+                                  "gaps"
+                                ],
+                                "description": "Coverage statement of the result (ensemble engines only)."
                               }
                             },
                             "required": [

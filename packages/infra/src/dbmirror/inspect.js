@@ -39,7 +39,6 @@ function collector(limit) {
   let size = 0;
   return {
     over: false,
-    sink: null,
     chunks,
     take(buffer) {
       size += buffer.length;

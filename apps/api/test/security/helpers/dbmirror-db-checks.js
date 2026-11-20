@@ -9,6 +9,7 @@ import { createDbRefreshHandler } from "../../../../workers/src/dbrefresh/index.
 import { promotionSanity, refreshTool } from "../../../../workers/src/dbrefresh/refresh.js";
 import { createDbSnapshotResolver } from "../../../../workers/src/execution/engines/ensemble/db/resolve-db.js";
 import { enqueuePlatformJob } from "../../../../workers/src/scheduler/jobs.js";
+import { hostileExtra, refreshExtra, snapshotsExtra } from "./dbmirror-boundary-checks.js";
 import { inState, runningTask } from "./execution-db.js";
 import { attempt, mustAccept, mustReject, probe } from "./pipeline-db.js";
 import {
@@ -357,6 +358,7 @@ export const DBMIRROR_DB_CHECKS = [
       ])
         mustReject(p, label, await raw(over));
       await reset(db);
+      await snapshotsExtra(c, p);
       return p;
     },
   },
@@ -704,6 +706,7 @@ export const DBMIRROR_DB_CHECKS = [
         r5.done();
       }
       await reset(db);
+      await refreshExtra(c, p);
       return p;
     },
   },
@@ -987,6 +990,7 @@ export const DBMIRROR_DB_CHECKS = [
         r2.done();
       }
       await reset(db);
+      await hostileExtra(c, p);
       return p;
     },
   },

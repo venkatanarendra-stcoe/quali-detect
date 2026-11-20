@@ -56,11 +56,12 @@ const QUARANTINE_MARKER = /chainguard|wolfi|\bcgr\.dev\b|^CGA-/i;
 /** A licence field that names a non-commercial term. */
 const NON_COMMERCIAL_MARKER = /(?:^|[^a-z])nc(?:[^a-z]|$)|non[-\s]?commercial/i;
 
-const MAX_STRING_SCAN = 300;
+/** The longest string of an inspected field. A longer one is `invalid` (never cut: a marker after the cut would escape the scan). */
+export const MAX_STRING_SCAN = 4096;
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /** @param {unknown} v */
-const short = (v) => (typeof v === "string" ? v.slice(0, MAX_STRING_SCAN) : "");
+const short = (v) => (typeof v === "string" ? v : "");
 
 /**
  * @typedef {{ allowed: boolean, source: "ghsa" | "nvd" | "osv" | null, quarantined: boolean, reason: "ok" | "invalid" | "quarantined" | "not_allowed" }} RecordVerdict
@@ -84,6 +85,12 @@ export function classifyRecord(record) {
   const dbSpecific = isObject(record.database_specific) ? record.database_specific : {};
   const sourceText = [short(dbSpecific.source), short(dbSpecific.sources), short(record.source)];
   const licenceText = [short(dbSpecific.license), short(dbSpecific.licence), short(record.license)];
+  if (
+    [...aliases, ...ecosystems, ...sourceText, ...licenceText].some(
+      (t) => t.length > MAX_STRING_SCAN,
+    )
+  )
+    return { allowed: false, source: null, quarantined: false, reason: "invalid" };
 
   const quarantined =
     [id, ...aliases, ...ecosystems, ...sourceText].some((s) => QUARANTINE_MARKER.test(s)) ||
@@ -121,6 +128,5 @@ export function checkDeclaredSources(declared) {
       quarantined.push(QUARANTINED_SOURCES.includes(id) ? id : "quarantined");
     } else notAllowed += 1;
   }
-  if (!Array.isArray(declared)) notAllowed += 1;
   return { ok: quarantined.length === 0 && notAllowed === 0, quarantined, notAllowed, sources };
 }

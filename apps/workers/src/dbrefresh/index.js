@@ -23,7 +23,7 @@ export const WORKER_NAME = "dbrefresh";
  * @returns {{ latest: Function, download: Function }}
  */
 export function createUnconfiguredDownloader() {
-  const refuse = () => {
+  const refuse = async () => {
     throw new NonRetryableError("No snapshot downloader is configured in this process.", {
       reason: "downloader-unconfigured",
     });
@@ -113,23 +113,45 @@ export function buildDbRefreshDeps({ db, config, logger, downloader }) {
 }
 
 /**
+ * The consumer of the `dbrefresh` queue. `requireTenant: false` is essential: the refresh message is a platform job and carries no
+ * tenant, which the consumer would otherwise refuse.
+ */
+export const DBREFRESH_CONSUMER = Object.freeze({
+  name: WORKER_NAME,
+  queue: QUEUE_NAMES.DBREFRESH,
+  requireTenant: false,
+});
+
+/**
+ * The handler of this process and what to close at shutdown. With the refresh disabled (the default) the handler refuses every job and
+ * NOTHING is built (no runtime, no lock connection).
+ * @param {{ db: any, config: any, logger?: any, downloader?: { latest: Function, download: Function } }} input
+ * @returns {{ handler: ReturnType<typeof createDbRefreshHandler>, close: () => Promise<void> }}
+ */
+export function createDbRefreshHandlerFor({ db, config, logger, downloader }) {
+  if (!config.scanDb.refreshEnabled)
+    return {
+      handler: createDbRefreshHandler({ config, deps: /** @type {any} */ (null) }),
+      close: async () => {},
+    };
+  const built = buildDbRefreshDeps({ db, config, logger, downloader });
+  return { handler: createDbRefreshHandler({ config, deps: built.deps }), close: built.close };
+}
+
+/**
  * Starts the dbrefresh worker. With SCAN_DB_REFRESH_ENABLED=false (the default) it consumes its queue and refuses every job.
  * @param {{ downloader?: { latest: Function, download: Function } }} [options]
  * @returns {Promise<{ stop: () => Promise<void> }>}
  */
 export function start({ downloader } = {}) {
-  let closer = null;
+  let closer = async () => {};
   return runWorker({
-    name: WORKER_NAME,
-    queue: QUEUE_NAMES.DBREFRESH,
-    requireTenant: false,
+    ...DBREFRESH_CONSUMER,
     buildHandler: ({ db, config, logger }) => {
-      if (!config.scanDb.refreshEnabled)
-        return createDbRefreshHandler({ config, deps: /** @type {any} */ (null) });
-      const built = buildDbRefreshDeps({ db, config, logger, downloader });
+      const built = createDbRefreshHandlerFor({ db, config, logger, downloader });
       closer = built.close;
-      return createDbRefreshHandler({ config, deps: built.deps });
+      return built.handler;
     },
-    onReady: () => async () => closer?.(),
+    onReady: () => async () => closer(),
   });
 }

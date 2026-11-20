@@ -30,6 +30,15 @@ import {
 } from "../../../../workers/src/dbrefresh/index.js";
 import { createDbSnapshotResolver } from "../../../../workers/src/execution/engines/ensemble/db/resolve-db.js";
 import { tar } from "./archive-checks.js";
+import {
+  canaryExtra,
+  configExtra,
+  inspectExtra,
+  sourcesExtra,
+  staleExtra,
+  storeExtra,
+  workerExtra,
+} from "./dbmirror-boundary-checks.js";
 import { CONFIG_INPUT } from "./sandbox-checks.js";
 import {
   NOW,
@@ -217,6 +226,7 @@ export const DBMIRROR_CHECKS = [
           .attributionRequired === false,
         "no GHSA, no attribution flag",
       );
+      staleExtra(p);
       return p;
     },
   },
@@ -376,6 +386,7 @@ export const DBMIRROR_CHECKS = [
           Object.keys(ALLOWED_SOURCES).sort().join() === "ghsa,nvd,osv",
         "the allowlist is closed and frozen",
       );
+      sourcesExtra(p);
       return p;
     },
   },
@@ -536,6 +547,7 @@ export const DBMIRROR_CHECKS = [
         "ok",
       );
       same(p, "no files at all", await verdictOf(tar([])), "empty");
+      await inspectExtra(p);
       return p;
     },
   },
@@ -768,6 +780,7 @@ export const DBMIRROR_CHECKS = [
       } finally {
         t.done();
       }
+      await storeExtra(p);
       return p;
     },
   },
@@ -906,6 +919,7 @@ export const DBMIRROR_CHECKS = [
         { ok: false, reason: "unavailable" },
       );
       same(p, "plans", Object.keys(CANARY_PLANS).sort(), ["osv-scanner", "trivy"]);
+      await canaryExtra(p);
       return p;
     },
   },
@@ -1040,6 +1054,8 @@ export const DBMIRROR_CHECKS = [
       }
       ok(p, typeError instanceof NonRetryableError, "refused for another message type");
       ok(p, lines.length === 0, "a refusal logs nothing");
+      configExtra(p);
+      await workerExtra(p);
       return p;
     },
   },
@@ -1136,6 +1152,7 @@ export const DBMIRROR_CHECKS = [
         ok(
           p,
           none.state === "missing" &&
+            none.effect.failsScan === false &&
             none.effect.toolStatus === "unavailable" &&
             none.effect.reason === "db_unavailable" &&
             none.dir === undefined,

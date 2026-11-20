@@ -1,11 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import {
   CHANGED_PATHS_ARTIFACT_NAME,
   createExecutionArtifactRepository,
   createExecutionRetentionRepository,
   createScanResultDetailRepository,
+  createScanResultItemRepository,
+  createScanTaskRepository,
+  ITEM_INSERT_BATCH,
   createScanToolRunRepository,
+  DETAIL_INSERT_BATCH,
+  finishTaskTimeoutMs,
 } from "@qmentisai/db";
 import { createPostgresArtifactStore } from "@qmentisai/infra";
 import { jsonbTextBytes } from "@qmentisai/shared";
@@ -13,7 +19,12 @@ import {
   CHANGED_PATHS_NAME,
   readChangedPaths,
 } from "../../../../workers/src/execution/changed-paths.js";
-import { detailRowBytes } from "../../../../workers/src/execution/engines/ensemble/core/index.js";
+import {
+  detailRowBytes,
+  mergeTaskCandidates,
+  toStorageRows,
+} from "../../../../workers/src/execution/engines/ensemble/core/index.js";
+import { TASK_A } from "./ensemble-fakes.js";
 import { driveExecution, inState, queuedExecution, runningTask, taskData } from "./execution-db.js";
 import { attempt, mustAccept, mustReject, probe } from "./pipeline-db.js";
 
@@ -28,6 +39,15 @@ const same = (p, label, got, want) => {
   if (JSON.stringify(got) !== JSON.stringify(want))
     p.push(`${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
 };
+/** jsonb does not keep key order: compare objects with sorted keys. */
+const canon = (v) =>
+  v && typeof v === "object"
+    ? Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((k) => [k, canon(v[k])]),
+      )
+    : v;
 const hex = (n) => randomBytes(n).toString("hex");
 const ST = "2026-11-19T10:00:00.000Z";
 const EN = "2026-11-19T10:00:05.000Z";
@@ -138,6 +158,82 @@ async function resultWithItems(c, execution, task, count = 3, over = {}) {
     );
   return { result, items };
 }
+
+/** Findings of an SBOM with `n` distinct components (clones of one merged two-tool finding with a unique purl): valid for the real storage projection. */
+function sbomFindings(n) {
+  const cands = ["syft", "trivy"].map((tool) => {
+    const rawRef = {
+      toolRunId: randomUUID(),
+      ordinal: 0,
+    };
+    return {
+      schemaVersion: 1,
+      scanType: "sbom",
+      kind: "component",
+      dedupKey: "sbom|pkg:npm/pkg0@1.0.0",
+      title: "pkg0@1.0.0",
+      severity: "info",
+      severityAssumed: false,
+      confidence: "medium",
+      confidenceBasis: "tool",
+      rule: { id: "component", tool },
+      location: { path: "d/package-lock.json" },
+      component: { purl: "pkg:npm/pkg0@1.0.0", name: "pkg0", version: "1.0.0", ecosystem: "npm" },
+      locations: [{ path: "d/package-lock.json" }],
+      locationCount: 1,
+      rawRef,
+      provenance: [
+        {
+          toolId: tool,
+          toolVersion: "1",
+          imageDigestShort: "none",
+          severityRaw: "",
+          severityScale: "none",
+          rawRef,
+        },
+      ],
+      taskRef: TASK_A,
+    };
+  });
+  const [base] = mergeTaskCandidates({
+    taskRef: TASK_A,
+    scanType: "sbom",
+    candidates: cands,
+  }).findings;
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const purl = `pkg:npm/pkg${i}@1.0.0`;
+    out.push({
+      ...base,
+      dedupKey: `sbom|${purl}`,
+      title: `pkg${i}@1.0.0`,
+      component: { ...base.component, purl, name: `pkg${i}` },
+    });
+  }
+  return out;
+}
+
+/**
+ * The most time the write of a FULL-CAP result (50000 items and 50000 detail rows, ONE transaction) may take on the suite's database
+ * before the check fails. Measured: about 11 s after the bulk inserts (SPEC 17.f; roughly 4 s of it the database's own per-row CHECK,
+ * foreign key and trigger work, 2 s the items, the rest validation and transfer); the row-by-row code needs more than 90 s (1.8 ms per
+ * detail row), so 25 s fails it by a factor of four and leaves 14 s of slack to the measured value for a slower or shared machine.
+ * The default interactive transaction budget (15 s) is NOT the bound: 11 s is under it but without comfortable slack, which is why
+ * `finishTaskTimeoutMs` scales the budget with the rows (asserted below), and an owner decision is recorded in SPEC 17.f.
+ */
+export const FULL_CAP_BOUND_MS = 25_000;
+const CAP = 50_000;
+
+const ENGINE_RESULT = (rows, over = {}) => ({
+  engineId: "suite-engine",
+  engineVersion: "1.0.0",
+  completeness: "complete",
+  truncated: false,
+  severityCounts: { critical: 0, high: 0, medium: 0, low: 0, info: rows.items.length },
+  items: rows.items,
+  details: rows.details,
+  ...over,
+});
 
 export const ENSEMBLE_DB_CHECKS = [
   {
@@ -1660,25 +1756,68 @@ export const ENSEMBLE_DB_CHECKS = [
         "a detail on its own item",
         await attempt(() => db.scanResultItemDetail.create({ data: detailRaw(itemA, detail()) })),
       );
-      // source guard: every statement over the three tables names a tenant predicate
+      // source guard: every statement over the scan tables names a BOUND tenant predicate; every INSERT (the batched ones too) takes
+      // its tenant column from the parent row it selects, never from the caller, and scopes by execution as well
       const source = readFileSync(
         new URL("../../../../../packages/db/src/executions/scan-engines.js", import.meta.url),
         "utf8",
       );
-      const statements =
-        source.match(
-          /(?:INSERT INTO|FROM|JOIN) scan_(?:tool_runs|result_item_details|result_items|tasks)\b[\s\S]*?(?:`|ORDER BY)/g,
-        ) ?? [];
-      if (statements.length < 4) p.push(`source guard found ${statements.length} statements`);
-      for (const table of ["scan_tool_runs", "scan_result_item_details", "scan_result_items"])
-        if (!statements.some((st) => st.includes(table))) p.push(`source guard missed ${table}`);
-      for (const st of statements)
-        if (
-          !/tenant_id\s*=\s*\$\{tenantId\}::uuid|i\.tenant_id = d\.tenant_id|t\.tenant_id/.test(st)
-        )
-          p.push(`a statement has no tenant predicate: ${st.slice(0, 60).replace(/\s+/g, " ")}`);
-      if (/\$queryRawUnsafe|\$executeRawUnsafe/.test(source))
-        p.push("the repository uses unsafe raw SQL");
+      const guard = (src) => {
+        const found = [];
+        const statements =
+          src.match(
+            /(?:INSERT INTO|FROM|JOIN) scan_(?:tool_runs|result_item_details|result_items|results|tasks)\b[\s\S]*?(?:`|ORDER BY)/g,
+          ) ?? [];
+        if (statements.length < 5) found.push(`source guard found ${statements.length} statements`);
+        for (const table of ["scan_tool_runs", "scan_result_item_details", "scan_result_items"])
+          if (!statements.some((st) => st.includes(table)))
+            found.push(`source guard missed ${table}`);
+        for (const st of statements) {
+          const label = st.slice(0, 60).replace(/\s+/g, " ");
+          if (!/(?:\b[a-z]\.)?\btenant_id\s*=\s*\$\{tenantId\}::uuid/.test(st))
+            found.push(`a statement has no bound tenant predicate: ${label}`);
+          if (st.startsWith("INSERT INTO")) {
+            const select = st.slice(st.indexOf("SELECT"), st.search(/\sFROM\s/));
+            if (!/\b[a-z]\.tenant_id\b/.test(select) || select.includes("${tenantId}"))
+              found.push(`an insert does not take its tenant from the parent row: ${label}`);
+            if (!/\b[a-z]\.execution_id\s*=\s*\$\{executionId\}::uuid/.test(st))
+              found.push(`an insert is not scoped by execution: ${label}`);
+          }
+        }
+        const batched = statements.filter(
+          (st) => st.startsWith("INSERT INTO") && /jsonb_to_recordset|unnest\(/.test(st),
+        );
+        if (batched.length < 2) found.push(`source guard found ${batched.length} batched inserts`);
+        if (/\$queryRawUnsafe|\$executeRawUnsafe/.test(src))
+          found.push("the repository uses unsafe raw SQL");
+        return found;
+      };
+      p.push(...guard(source));
+      // controls: the guard is not vacuous (each single defect in a copy of the source is found)
+      for (const [label, from, to] of [
+        [
+          "a dropped tenant predicate of the detail insert",
+          "WHERE i.tenant_id = ${tenantId}::uuid AND i.execution_id",
+          "WHERE i.execution_id",
+        ],
+        [
+          "a dropped tenant predicate of the item insert",
+          "WHERE r.tenant_id = ${tenantId}::uuid AND r.execution_id",
+          "WHERE r.execution_id",
+        ],
+        [
+          "a tenant column taken from the caller",
+          "SELECT gen_random_uuid(), r.tenant_id,",
+          "SELECT gen_random_uuid(), ${tenantId}::uuid,",
+        ],
+        ["a dropped execution predicate", "AND r.execution_id = ${executionId}::uuid", ""],
+        ["an unsafe raw call", "tx.$executeRaw`", "tx.$executeRawUnsafe`"],
+      ]) {
+        if (!source.includes(from))
+          p.push(`guard control ${label}: the pattern is gone from the source`);
+        else if (guard(source.replace(from, to)).length === 0)
+          p.push(`guard control: ${label} was not detected`);
+      }
       // `extra` is validated at write time by the repository
       const fresh = await resultWithItems(c, eA, await runningTask(c, eA, "secrets"), 2);
       const freshBase = {
@@ -1784,6 +1923,486 @@ export const ENSEMBLE_DB_CHECKS = [
         await db.$queryRaw`SELECT schema_version AS "schemaVersion", coverage FROM scan_results WHERE id = ${legacy.result.id}::uuid`;
       if (after[0]?.schemaVersion !== 1 || after[0]?.coverage !== null)
         p.push("the legacy row changed");
+      return p;
+    },
+  },
+  {
+    id: "ENG-S08f",
+    name: "a FULL-CAP scan result is stored inside the transaction budget, in batches, and atomically (SPEC scan-engines 7.3, 17.f, ER-15; real database; the defect: finishTask inserted the detail rows one statement at a time, so about 8000 rows exceeded the 15 s transaction and a larger result was lost): the real storage projection of 50001 findings keeps exactly the default cap of 50000 (truncated, the 50001st is never written), and finishTask writes those 50000 items and 50000 detail rows in one transaction, succeeds and records the task as succeeded, in less than the stated bound (the measured time is printed); every row is there, row i belongs to ordinal i and the detail of ordinal i is the one of item i (determinism); a result of rows with every optional shape (null and present evidence, scm reference and url, empty and ordered CWE lists, assumed severity) across a batch boundary reads back exactly as given; rows for ordinals without an item of this tenant and result insert nothing and do not fail the batch; a failing row in the SECOND batch (a credential shape the database refuses) rolls back the whole finishTask (no result, no item, no detail, the task still running) and, for the repository on its own, leaves no row of the first batch; an invalid `extra` anywhere inserts nothing; the batched statement is tenant scoped (a foreign tenant's ids insert nothing)",
+    async run(c) {
+      const p = [];
+      const { db, A, B } = c;
+      const tasks = createScanTaskRepository({ db });
+      const repo = createScanResultDetailRepository({ db });
+      // ---- the statement size bounds and the transaction budget actually handed to the database client
+      for (const [label, size] of [
+        ["detail", DETAIL_INSERT_BATCH],
+        ["item", ITEM_INSERT_BATCH],
+      ])
+        if (!Number.isInteger(size) || size < 100 || size > 5000)
+          p.push(`the ${label} batch size ${size} is outside 100..5000 rows per statement`);
+      {
+        const seen = [];
+        const spy = new Proxy(db, {
+          get: (target, prop) =>
+            prop === "$transaction"
+              ? (fn, options) => {
+                  seen.push(options?.timeout);
+                  return target.$transaction(fn, options);
+                }
+              : target[prop],
+        });
+        const eT = await inState(c, A, "running", 0);
+        const taskT = await runningTask(c, eT, "sca");
+        const resultT = ENGINE_RESULT({
+          items: [
+            { kind: "vulnerability", severity: "low", title: "a" },
+            { kind: "vulnerability", severity: "low", title: "b" },
+          ],
+          details: [detail({ dedupKey: "sca|a" })],
+        });
+        const doneT = await createScanTaskRepository({ db: spy }).finishTask({
+          tenantId: eT.tenantId,
+          taskId: taskT.id,
+          attempt: taskT.attempt,
+          status: "succeeded",
+          result: resultT,
+        });
+        same(p, "a small result finishes", doneT.finished, true);
+        same(p, "the budget handed to the transaction", seen, [15_002]);
+      }
+      // a schema version other than 1 is refused by the database (the batch never coerces it)
+      {
+        const eV = await inState(c, A, "running", 0);
+        const resV = await resultWithItems(c, eV, await runningTask(c, eV, "sca"), 1);
+        mustReject(
+          p,
+          "schema version 2",
+          await attempt(() =>
+            repo.insertMany({
+              tenantId: eV.tenantId,
+              executionId: eV.id,
+              scanResultId: resV.result.id,
+              details: [detail({ schemaVersion: 2 })],
+            }),
+          ),
+          "values_check",
+        );
+      }
+      // ---- the real projection of cap + 1 findings
+      const findings = sbomFindings(CAP + 1);
+      const rows = toStorageRows(findings, CAP);
+      same(
+        p,
+        "cap + 1 projects to the cap",
+        [rows.items.length, rows.details.length, rows.truncated],
+        [CAP, CAP, true],
+      );
+      same(p, "the dropped item is the last one", rows.items.at(-1).title, `pkg${CAP - 1}@1.0.0`);
+      // ---- the full-cap write
+      const eA = await inState(c, A, "running", 0);
+      const task = await runningTask(c, eA, "sbom");
+      const started = performance.now();
+      const done = await tasks.finishTask({
+        tenantId: eA.tenantId,
+        taskId: task.id,
+        attempt: task.attempt,
+        status: "succeeded",
+        result: ENGINE_RESULT(rows, { truncated: true, completeness: "incomplete" }),
+      });
+      const elapsed = Math.round(performance.now() - started);
+      console.log(
+        `[ENG-S08f] full-cap finishTask (${CAP} items + ${CAP} detail rows, one transaction): ${elapsed} ms (check bound ${FULL_CAP_BOUND_MS} ms, default transaction budget 15000 ms, this transaction's budget ${finishTaskTimeoutMs({ items: rows.items, details: rows.details })} ms)`,
+      );
+      if (!done.finished || !done.resultId) p.push("the full-cap finishTask did not finish");
+      if (elapsed >= FULL_CAP_BOUND_MS)
+        p.push(`the full-cap write took ${elapsed} ms (bound ${FULL_CAP_BOUND_MS} ms)`);
+      const counts = await db.$queryRaw`
+        SELECT (SELECT count(*)::int FROM scan_result_items WHERE tenant_id = ${eA.tenantId}::uuid AND scan_result_id = ${done.resultId}::uuid) AS items,
+          (SELECT count(*)::int FROM scan_result_item_details WHERE tenant_id = ${eA.tenantId}::uuid AND scan_result_id = ${done.resultId}::uuid) AS details,
+          (SELECT count(*)::int FROM scan_result_item_details d JOIN scan_result_items i ON i.tenant_id = d.tenant_id AND i.scan_result_id = d.scan_result_id AND i.ordinal = d.item_ordinal
+            WHERE d.tenant_id = ${eA.tenantId}::uuid AND d.scan_result_id = ${done.resultId}::uuid
+              AND d.dedup_key = 'sbom|pkg:npm/pkg' || d.item_ordinal || '@1.0.0' AND i.title = 'pkg' || d.item_ordinal || '@1.0.0') AS aligned,
+          (SELECT item_count FROM scan_results WHERE id = ${done.resultId}::uuid) AS "itemCount",
+          (SELECT status::text FROM scan_tasks WHERE id = ${task.id}::uuid) AS status`;
+      same(
+        p,
+        "the transaction budget of an empty and of a full-cap result",
+        [
+          finishTaskTimeoutMs(undefined),
+          finishTaskTimeoutMs({ items: [], details: [] }),
+          finishTaskTimeoutMs({ items: new Array(CAP), details: new Array(CAP) }),
+          finishTaskTimeoutMs({ items: new Array(1), details: [] }),
+          finishTaskTimeoutMs({ items: new Array(2), details: new Array(1) }),
+          finishTaskTimeoutMs({ items: new Array(4) }),
+        ],
+        [15_000, 15_000, 15_000 + CAP, 15_001, 15_002, 15_002],
+      );
+      same(p, "full-cap rows", counts[0], {
+        items: CAP,
+        details: CAP,
+        aligned: CAP,
+        itemCount: CAP,
+        status: "succeeded",
+      });
+
+      // ---- every optional shape across a batch boundary, read back as given
+      const shapes = DETAIL_INSERT_BATCH + 5;
+      const eS = await inState(c, A, "running", 0);
+      const taskS = await runningTask(c, eS, "sca");
+      const resS = await resultWithItems(c, eS, taskS, 0);
+      await db.scanResultItem.createMany({
+        data: Array.from({ length: shapes }, (_, ordinal) => ({
+          tenantId: eS.tenantId,
+          executionId: eS.id,
+          scanResultId: resS.result.id,
+          ordinal,
+          kind: "vulnerability",
+          severity: "low",
+          title: `item ${ordinal}`,
+        })),
+      });
+      const baseS = { tenantId: eS.tenantId, executionId: eS.id, scanResultId: resS.result.id };
+      const shape = (i) =>
+        detail({
+          dedupKey: `sca|pkg:npm/shape${i}@1|CVE-1-${i}`,
+          confidence: ["low", "medium", "high"][i % 3],
+          severityAssumed: i % 2 === 0,
+          cwe: i % 4 === 0 ? [] : i % 4 === 1 ? [79, 20, 77] : [89],
+          evidence: i % 3 === 0 ? { kind: "line", snippet: `s${i}` } : null,
+          scmRef:
+            i % 5 === 0
+              ? { provider: "github", repoFullName: "o/r", commitSha: "a".repeat(40) }
+              : null,
+          url: i % 7 === 0 ? undefined : i % 7 === 1 ? null : detail().url,
+          advisories: i % 6 === 0 ? [] : [{ id: `CVE-1-${i}`, family: "CVE" }],
+        });
+      const wanted = Array.from({ length: shapes }, (_, i) => shape(i));
+      // given out of order and with explicit ordinals for some rows: the insert is keyed by ordinal, not by position
+      const reversed = wanted.map((d, i) => ({ ...d, itemOrdinal: i })).reverse();
+      const insS = await repo.insertMany({ ...baseS, details: reversed });
+      same(p, "shapes inserted", insS.inserted, shapes);
+      const back = await repo.listForResult(baseS);
+      same(p, "shapes read back", back.length, shapes);
+      for (const i of [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        35,
+        DETAIL_INSERT_BATCH - 1,
+        DETAIL_INSERT_BATCH,
+        shapes - 1,
+      ]) {
+        const w = wanted[i];
+        const g = back[i];
+        same(
+          p,
+          `shape ${i}`,
+          [
+            g.ordinal,
+            g.dedupKey,
+            g.confidence,
+            g.severityAssumed,
+            g.cwe,
+            g.evidence,
+            canon(g.scmRef),
+            g.url,
+            g.advisories,
+          ],
+          [
+            i,
+            w.dedupKey,
+            w.confidence,
+            w.severityAssumed,
+            w.cwe,
+            w.evidence ?? null,
+            canon(w.scmRef ?? null),
+            w.url ?? null,
+            w.advisories,
+          ],
+        );
+      }
+      // ordinals without an item insert nothing and do not fail the batch
+      const eB = await inState(c, B, "running", 0);
+      const resB = await resultWithItems(c, eB, await runningTask(c, eB, "sca"), 2);
+      const eG = await inState(c, A, "running", 0);
+      const resG = await resultWithItems(c, eG, await runningTask(c, eG, "sca"), 2);
+      // a SECOND result of the same execution with the same ordinals: the result predicate alone keeps the batch off it
+      const resG2 = await resultWithItems(c, eG, await runningTask(c, eG, "secrets"), 2);
+      const gaps = await repo.insertMany({
+        tenantId: eG.tenantId,
+        executionId: eG.id,
+        scanResultId: resG.result.id,
+        details: [
+          detail({ itemOrdinal: 0 }),
+          detail({ itemOrdinal: 99 }),
+          detail({ itemOrdinal: 1 }),
+        ],
+      });
+      same(p, "ordinals without an item", gaps.inserted, 2);
+      same(
+        p,
+        "the other result of the execution",
+        (
+          await repo.listForResult({
+            tenantId: eG.tenantId,
+            executionId: eG.id,
+            scanResultId: resG2.result.id,
+          })
+        ).length,
+        0,
+      );
+      // exactly one wrong coordinate inserts nothing
+      for (const [label, q] of [
+        ["tenant", { tenantId: eB.tenantId, executionId: eG.id, scanResultId: resG.result.id }],
+        ["execution", { tenantId: eG.tenantId, executionId: eS.id, scanResultId: resG.result.id }],
+        ["result", { tenantId: eG.tenantId, executionId: eG.id, scanResultId: randomUUID() }],
+      ]) {
+        const r = await repo.insertMany({ ...q, details: [detail({ itemOrdinal: 0 })] });
+        same(p, `a wrong ${label}`, r.inserted, 0);
+      }
+      // a foreign tenant's ids insert nothing (the batched statement is tenant scoped)
+      const foreign = await repo.insertMany({
+        tenantId: eA.tenantId,
+        executionId: eB.id,
+        scanResultId: resB.result.id,
+        details: [detail(), detail()],
+      });
+      same(p, "a foreign tenant's result", foreign.inserted, 0);
+      same(
+        p,
+        "nothing readable there",
+        (
+          await repo.listForResult({
+            tenantId: eB.tenantId,
+            executionId: eB.id,
+            scanResultId: resB.result.id,
+          })
+        ).length,
+        0,
+      );
+
+      // ---- the item repository: every field, the batch boundary, the foreign ids
+      const itemRepo = createScanResultItemRepository({ db });
+      const eI = await inState(c, A, "running", 0);
+      const resI = await resultWithItems(c, eI, await runningTask(c, eI, "sca"), 0);
+      const baseI = { tenantId: eI.tenantId, executionId: eI.id, scanResultId: resI.result.id };
+      const manyItems = Array.from({ length: ITEM_INSERT_BATCH + 3 }, (_, i) => ({
+        kind: "vulnerability",
+        severity: "low",
+        title: `item ${i}`,
+      }));
+      manyItems[1] = {
+        kind: "code_issue",
+        ruleId: "rule-1",
+        severity: "high",
+        title: "all fields",
+        path: "src/a.js",
+        startLine: 3,
+        endLine: 5,
+        componentPurl: "pkg:npm/a@1",
+        componentVersion: "1",
+        data: { k: "v" },
+      };
+      for (const [label, q] of [
+        ["tenant", { ...baseI, tenantId: eB.tenantId }],
+        ["execution", { ...baseI, executionId: eG.id }],
+        ["result", { ...baseI, scanResultId: randomUUID() }],
+        [
+          "foreign result",
+          { tenantId: eA.tenantId, executionId: eB.id, scanResultId: resB.result.id },
+        ],
+      ]) {
+        const r = await itemRepo.insertMany({ ...q, items: manyItems });
+        same(p, `items with a wrong ${label}`, r.inserted, 0);
+      }
+      mustReject(
+        p,
+        "an item with an unknown field",
+        await attempt(() =>
+          itemRepo.insertMany({ ...baseI, items: [{ ...manyItems[0], extra: 1 }] }),
+        ),
+        "unknown field",
+      );
+      same(
+        p,
+        "nothing inserted yet",
+        await db.scanResultItem.count({ where: { scanResultId: resI.result.id } }),
+        0,
+      );
+      same(
+        p,
+        "items inserted",
+        (await itemRepo.insertMany({ ...baseI, items: manyItems })).inserted,
+        manyItems.length,
+      );
+      const stored = await db.scanResultItem.findMany({
+        where: { scanResultId: resI.result.id },
+        orderBy: { ordinal: "asc" },
+      });
+      same(
+        p,
+        "item ordinals",
+        stored.map((r) => r.ordinal),
+        manyItems.map((_, i) => i),
+      );
+      same(
+        p,
+        "item titles follow the ordinals",
+        stored.map((r) => r.title),
+        manyItems.map((i) => i.title),
+      );
+      const full = stored[1];
+      same(
+        p,
+        "every item field",
+        [
+          full.kind,
+          full.ruleId,
+          full.severity,
+          full.path,
+          full.startLine,
+          full.endLine,
+          full.componentPurl,
+          full.componentVersion,
+          full.data,
+          full.tenantId,
+          full.executionId,
+        ],
+        [
+          "code_issue",
+          "rule-1",
+          "high",
+          "src/a.js",
+          3,
+          5,
+          "pkg:npm/a@1",
+          "1",
+          { k: "v" },
+          eI.tenantId,
+          eI.id,
+        ],
+      );
+      same(
+        p,
+        "absent item fields are null and data defaults",
+        [
+          stored[0].ruleId,
+          stored[0].path,
+          stored[0].startLine,
+          stored[0].endLine,
+          stored[0].componentPurl,
+          stored[0].componentVersion,
+          stored[0].data,
+        ],
+        [null, null, null, null, null, null, {}],
+      );
+      same(p, "item ids are distinct", new Set(stored.map((r) => r.id)).size, manyItems.length);
+
+      // ---- atomicity: a failure in the SECOND batch rolls everything back
+      const n = DETAIL_INSERT_BATCH + 500;
+      const bad = Array.from({ length: n }, (_, i) =>
+        detail({
+          dedupKey:
+            i === DETAIL_INSERT_BATCH + 100 ? `sca|${GHP}` : `sca|pkg:npm/r${i}@1|CVE-2-${i}`,
+        }),
+      );
+      // repository on its own
+      const eR = await inState(c, A, "running", 0);
+      const resR = await resultWithItems(c, eR, await runningTask(c, eR, "sca"), 0);
+      await db.scanResultItem.createMany({
+        data: Array.from({ length: n }, (_, ordinal) => ({
+          tenantId: eR.tenantId,
+          executionId: eR.id,
+          scanResultId: resR.result.id,
+          ordinal,
+          kind: "vulnerability",
+          severity: "low",
+          title: `item ${ordinal}`,
+        })),
+      });
+      const baseR = { tenantId: eR.tenantId, executionId: eR.id, scanResultId: resR.result.id };
+      mustReject(
+        p,
+        "a credential shape in the second batch",
+        await attempt(() => repo.insertMany({ ...baseR, details: bad })),
+        "no_credentials_check",
+      );
+      same(p, "the first batch was rolled back", (await repo.listForResult(baseR)).length, 0);
+      mustAccept(
+        p,
+        "control: the same rows without the bad one",
+        await attempt(() =>
+          repo.insertMany({
+            ...baseR,
+            details: bad.map((d, i) =>
+              i === DETAIL_INSERT_BATCH + 100
+                ? detail({ dedupKey: "sca|pkg:npm/ok@1|CVE-2-1" })
+                : d,
+            ),
+          }),
+        ),
+      );
+      same(p, "control rows", (await repo.listForResult(baseR)).length, n);
+      // an invalid `extra` anywhere inserts nothing (validated before the first statement)
+      const eX = await inState(c, A, "running", 0);
+      const resX = await resultWithItems(c, eX, await runningTask(c, eX, "sca"), 3);
+      const baseX = { tenantId: eX.tenantId, executionId: eX.id, scanResultId: resX.result.id };
+      mustReject(
+        p,
+        "an invalid extra in the last row",
+        await attempt(() =>
+          repo.insertMany({
+            ...baseX,
+            details: [detail(), detail(), detail({ extra: { note: "x" } })],
+          }),
+        ),
+        "",
+      );
+      same(p, "an invalid extra left rows", (await repo.listForResult(baseX)).length, 0);
+      // finishTask as a whole
+      const eF = await inState(c, A, "running", 0);
+      const taskF = await runningTask(c, eF, "sca");
+      const rowsF = {
+        items: Array.from({ length: n }, (_, i) => ({
+          kind: "vulnerability",
+          severity: "low",
+          title: `item ${i}`,
+        })),
+        details: bad,
+      };
+      mustReject(
+        p,
+        "finishTask with a bad second batch",
+        await attempt(() =>
+          tasks.finishTask({
+            tenantId: eF.tenantId,
+            taskId: taskF.id,
+            attempt: taskF.attempt,
+            status: "succeeded",
+            result: ENGINE_RESULT(rowsF),
+          }),
+        ),
+        "no_credentials_check",
+      );
+      const left = await db.$queryRaw`
+        SELECT (SELECT count(*)::int FROM scan_results WHERE scan_task_id = ${taskF.id}::uuid) AS results,
+          (SELECT count(*)::int FROM scan_result_items WHERE execution_id = ${eF.id}::uuid) AS items,
+          (SELECT count(*)::int FROM scan_result_item_details WHERE execution_id = ${eF.id}::uuid) AS details,
+          (SELECT status::text FROM scan_tasks WHERE id = ${taskF.id}::uuid) AS status,
+          (SELECT count(*)::int FROM scan_task_attempts WHERE scan_task_id = ${taskF.id}::uuid AND finished_at IS NOT NULL) AS closed`;
+      same(p, "finishTask rolled back", left[0], {
+        results: 0,
+        items: 0,
+        details: 0,
+        status: "running",
+        closed: 0,
+      });
       return p;
     },
   },

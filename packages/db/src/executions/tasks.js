@@ -1,7 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { createExecutionRepository } from "./repository.js";
 import { withTransaction } from "../transaction.js";
-import { createScanResultDetailRepository, createScanToolRunRepository } from "./scan-engines.js";
+import {
+  createScanResultDetailRepository,
+  createScanResultItemRepository,
+  createScanToolRunRepository,
+} from "./scan-engines.js";
 
 /** Attempt status for each task outcome (`scan_task_attempts.status`). */
 const ATTEMPT_STATUS = Object.freeze({
@@ -10,6 +14,18 @@ const ATTEMPT_STATUS = Object.freeze({
   timed_out: "timed_out",
   cancelled: "cancelled",
 });
+
+/**
+ * The interactive-transaction budget of `finishTask`: the default 15 s plus 0.5 ms per row written (items and detail rows). The
+ * bulk write of a FULL-CAP result (50000 items and 50000 detail rows) was measured at about 11 s on the suite's database
+ * (about 0.11 ms per row, mostly the per-row CHECK constraints, foreign keys and guard triggers, SPEC scan-engines 17.k); 0.5 ms
+ * per row is four times that, so a slower disk does not lose a result again. A result without rows keeps the 15 s default.
+ * @param {{ items?: unknown[], details?: unknown[] } | undefined} result
+ */
+export function finishTaskTimeoutMs(result) {
+  const rows = (result?.items?.length ?? 0) + (result?.details?.length ?? 0);
+  return 15_000 + Math.ceil(rows * 0.5);
+}
 
 const TASK_COLUMNS = Prisma.sql`id, tenant_id AS "tenantId", workspace_id AS "workspaceId", repository_id AS "repositoryId", pipeline_id AS "pipelineId",
   execution_id AS "executionId", scan_type::text AS "scanType", ordinal, status::text AS status, status_rev AS "statusRev", attempt, max_attempts AS "maxAttempts",
@@ -27,6 +43,7 @@ export function createScanTaskRepository({ db }) {
   const executions = createExecutionRepository({ db });
   const toolRunRepo = createScanToolRunRepository({ db });
   const detailRepo = createScanResultDetailRepository({ db });
+  const itemRepo = createScanResultItemRepository({ db });
   const positive = (value, name) => {
     if (!Number.isFinite(value) || value <= 0)
       throw new TypeError(`${name} must be a positive number`);
@@ -258,89 +275,94 @@ export function createScanTaskRepository({ db }) {
         throw new TypeError("finishTask ends a task as succeeded, failed, timed_out or cancelled");
       if (status !== "succeeded" && !reason)
         throw new TypeError("an unsuccessful task needs a reason");
-      return withTransaction(client, async (tx) => {
-        const task = await lockRunning(tx, { tenantId, taskId, attempt });
-        if (!task) return { finished: false, resultId: null, task: null };
-        let resultId = null;
-        if (result) {
-          const row = await tx.scanResult.create({
-            data: {
-              tenantId,
-              workspaceId: task.workspaceId,
-              repositoryId: task.repositoryId,
-              pipelineId: task.pipelineId,
-              executionId: task.executionId,
-              scanTaskId: task.id,
-              attempt,
-              scanType: task.scanType,
-              engineId: result.engineId,
-              engineVersion: result.engineVersion,
-              completeness: result.completeness,
-              truncated: result.truncated,
-              itemCount: result.items.length,
-              severityCounts: result.severityCounts,
-              // ensemble results only (scan engines part K): schema version 2, the coverage statement and the run manifest hash
-              ...(result.coverage
-                ? {
-                    schemaVersion: 2,
-                    coverage: result.coverage,
-                    runManifestSha256: result.runManifestSha256 ?? null,
-                  }
-                : {}),
-            },
-          });
-          resultId = row.id;
-          if (result.items.length > 0)
-            await tx.scanResultItem.createMany({
-              data: result.items.map((item, ordinal) => ({
+      return withTransaction(
+        client,
+        async (tx) => {
+          const task = await lockRunning(tx, { tenantId, taskId, attempt });
+          if (!task) return { finished: false, resultId: null, task: null };
+          let resultId = null;
+          if (result) {
+            const row = await tx.scanResult.create({
+              data: {
                 tenantId,
+                workspaceId: task.workspaceId,
+                repositoryId: task.repositoryId,
+                pipelineId: task.pipelineId,
                 executionId: task.executionId,
-                scanResultId: row.id,
-                ordinal,
-                ...item,
-              })),
+                scanTaskId: task.id,
+                attempt,
+                scanType: task.scanType,
+                engineId: result.engineId,
+                engineVersion: result.engineVersion,
+                completeness: result.completeness,
+                truncated: result.truncated,
+                itemCount: result.items.length,
+                severityCounts: result.severityCounts,
+                // ensemble results only (scan engines part K): schema version 2, the coverage statement and the run manifest hash
+                ...(result.coverage
+                  ? {
+                      schemaVersion: 2,
+                      coverage: result.coverage,
+                      runManifestSha256: result.runManifestSha256 ?? null,
+                    }
+                  : {}),
+              },
             });
-          if (result.details?.length > 0)
-            await detailRepo.insertMany(
+            resultId = row.id;
+            if (result.items.length > 0)
+              await itemRepo.insertMany(
+                {
+                  tenantId,
+                  executionId: task.executionId,
+                  scanResultId: row.id,
+                  items: result.items,
+                },
+                tx,
+              );
+            if (result.details?.length > 0)
+              await detailRepo.insertMany(
+                {
+                  tenantId,
+                  executionId: task.executionId,
+                  scanResultId: row.id,
+                  details: result.details,
+                },
+                tx,
+              );
+          }
+          // the tool runs of this attempt (ensemble engines only): written while the attempt is still the running one, in this very
+          // transaction, so a superseded attempt (zombie) returned above without writing anything
+          if (toolRuns?.length > 0)
+            await toolRunRepo.insertMany(
               {
                 tenantId,
                 executionId: task.executionId,
-                scanResultId: row.id,
-                details: result.details,
+                scanTaskId: task.id,
+                attempt,
+                runs: toolRuns,
               },
               tx,
             );
-        }
-        // the tool runs of this attempt (ensemble engines only): written while the attempt is still the running one, in this very
-        // transaction, so a superseded attempt (zombie) returned above without writing anything
-        if (toolRuns?.length > 0)
-          await toolRunRepo.insertMany(
-            {
-              tenantId,
-              executionId: task.executionId,
-              scanTaskId: task.id,
-              attempt,
-              runs: toolRuns,
-            },
-            tx,
-          );
-        await closeAttempt(tx, task, { status: ATTEMPT_STATUS[status], errorClass, errorCode });
-        await tx.$executeRaw`
+          await closeAttempt(tx, task, { status: ATTEMPT_STATUS[status], errorClass, errorCode });
+          await tx.$executeRaw`
           UPDATE scan_tasks SET status = ${status}::scan_task_status, status_reason = ${status === "succeeded" ? null : reason},
             lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = now()
           WHERE id = ${task.id}::uuid AND tenant_id = ${tenantId}::uuid AND status = 'running' AND attempt = ${attempt}::int`;
-        return {
-          finished: true,
-          resultId,
-          task: {
-            id: task.id,
-            executionId: task.executionId,
-            workspaceId: task.workspaceId,
-            scanType: task.scanType,
-            statusRev: task.statusRev + 1,
-          },
-        };
-      });
+          return {
+            finished: true,
+            resultId,
+            task: {
+              id: task.id,
+              executionId: task.executionId,
+              workspaceId: task.workspaceId,
+              scanType: task.scanType,
+              statusRev: task.statusRev + 1,
+            },
+          };
+          // the budget grows with the rows written (a full-cap result is 50000 items and 50000 detail rows); see the constants
+        },
+        { timeout: finishTaskTimeoutMs(result) },
+      );
     },
 
     /**

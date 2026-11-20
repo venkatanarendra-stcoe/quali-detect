@@ -11,6 +11,16 @@ import { withTransaction } from "../transaction.js";
  */
 
 const json = (value) => JSON.stringify(value ?? {});
+const nullableJson = (value) =>
+  value === null || value === undefined ? null : JSON.stringify(value);
+
+/**
+ * Rows per statement of the batched detail insert. A statement carries one array parameter per column (17 bind parameters, far
+ * below the Postgres limit of 65535 whatever the batch size), so the size only bounds one statement's payload (typically a few
+ * MiB; at most 16 MiB at the 16 KiB row ceiling) and its running time. The 15 s budget of the surrounding transaction is spent
+ * mostly on the per-row constraint and trigger work of the database, which batching does not change (SPEC scan-engines 17.f).
+ */
+export const DETAIL_INSERT_BATCH = 1000;
 
 /**
  * @param {{ db: any }} deps Prisma client
@@ -67,38 +77,135 @@ export function createScanToolRunRepository({ db }) {
   });
 }
 
+/** Rows per statement of the batched item insert (an item row is at most about 6 KiB; one JSON parameter per statement). */
+export const ITEM_INSERT_BATCH = 2000;
+
+const ITEM_KEYS = Object.freeze([
+  "kind",
+  "ruleId",
+  "severity",
+  "title",
+  "path",
+  "startLine",
+  "endLine",
+  "componentPurl",
+  "componentVersion",
+  "data",
+]);
+
+/**
+ * @param {{ db: any }} deps Prisma client
+ */
+export function createScanResultItemRepository({ db }) {
+  return Object.freeze({
+    /**
+     * Inserts the items of ONE result, ordinals 0..n-1 in array order, in batches of `ITEM_INSERT_BATCH` rows (one statement per
+     * batch, one JSON parameter each: this replaces a Prisma `createMany` whose per-row cost exceeded the transaction budget for
+     * a full-cap result). The tenant, execution and result columns of every row are copied from the RESULT row selected under the
+     * three trusted predicates, never from the caller, so a foreign tenant's ids insert nothing. An item with a key outside the
+     * item shape is refused before anything is written. The caller's transaction holds all batches.
+     * @param {{ tenantId: string, executionId: string, scanResultId: string, items: Record<string, any>[] }} input
+     * @param {any} [client]
+     * @returns {Promise<{ inserted: number }>}
+     */
+    async insertMany({ tenantId, executionId, scanResultId, items }, client = db) {
+      for (const item of items)
+        for (const key of Object.keys(item))
+          if (!ITEM_KEYS.includes(key)) throw new TypeError(`an item has an unknown field: ${key}`);
+      return withTransaction(client, async (tx) => {
+        let inserted = 0;
+        for (let from = 0; from < items.length; from += ITEM_INSERT_BATCH) {
+          const payload = JSON.stringify(
+            items.slice(from, from + ITEM_INSERT_BATCH).map((item, offset) => ({
+              ordinal: from + offset,
+              kind: item.kind,
+              rule_id: item.ruleId ?? undefined,
+              severity: item.severity,
+              title: item.title,
+              path: item.path ?? undefined,
+              start_line: item.startLine ?? undefined,
+              end_line: item.endLine ?? undefined,
+              component_purl: item.componentPurl ?? undefined,
+              component_version: item.componentVersion ?? undefined,
+              data: item.data ?? {},
+            })),
+          );
+          inserted += await tx.$executeRaw`
+            INSERT INTO scan_result_items (id, tenant_id, execution_id, scan_result_id, ordinal, kind, rule_id, severity, title, path,
+              start_line, end_line, component_purl, component_version, data)
+            SELECT gen_random_uuid(), r.tenant_id, r.execution_id, r.id, u.ordinal, u.kind, u.rule_id, u.severity, u.title, u.path,
+              u.start_line, u.end_line, u.component_purl, u.component_version, u.data
+            FROM jsonb_to_recordset(${payload}::jsonb) AS u(ordinal int, kind text, rule_id text, severity text, title text, path text,
+              start_line int, end_line int, component_purl text, component_version text, data jsonb)
+            CROSS JOIN scan_results r
+            WHERE r.tenant_id = ${tenantId}::uuid AND r.execution_id = ${executionId}::uuid AND r.id = ${scanResultId}::uuid
+            ORDER BY u.ordinal`;
+        }
+        return { inserted };
+      });
+    },
+  });
+}
+
 /**
  * @param {{ db: any }} deps Prisma client
  */
 export function createScanResultDetailRepository({ db }) {
   return Object.freeze({
     /**
-     * Inserts the detail rows of a result, one per item ordinal. A row is written only when the item exists in this tenant AND
-     * execution AND result, so a foreign tenant's ids insert nothing. Returns how many rows were inserted.
+     * Inserts the detail rows of a result, one per item ordinal, in BATCHES of `DETAIL_INSERT_BATCH` rows (one statement per batch:
+     * `unnest` of one parameter array per column, so a statement carries 16 bind parameters however many rows it writes and the
+     * Postgres limit of 65535 is never near). A row is written only when the item exists in this tenant AND execution AND result
+     * (the statement selects FROM the item table under the three trusted predicates), so a foreign tenant's ids insert nothing.
+     * Every row is validated BEFORE the first statement, so an invalid row inserts nothing. Returns how many rows were inserted.
+     * The caller's transaction (finishTask) holds all batches: a failing batch rolls everything back.
      * @param {{ tenantId: string, executionId: string, scanResultId: string, details: (object & { itemOrdinal?: number })[] }} input
      * Item ordinals are the array indexes when `itemOrdinal` is not given.
      * @param {any} [client]
      * @returns {Promise<{ inserted: number }>}
      */
     async insertMany({ tenantId, executionId, scanResultId, details }, client = db) {
+      // `extra` is validated at write time (strict, bounded; the database CHECK refuses credential shapes)
+      const rows = details.map((d, index) => ({
+        d,
+        ordinal: d.itemOrdinal ?? index,
+        extra: d.extra === undefined ? {} : detailExtraSchema.parse(d.extra),
+      }));
       return withTransaction(client, async (tx) => {
         let inserted = 0;
-        for (const [index, d] of details.entries()) {
-          const ordinal = d.itemOrdinal ?? index;
-          // `extra` is validated at write time (strict, bounded; the database CHECK refuses credential shapes)
-          const extra = d.extra === undefined ? {} : detailExtraSchema.parse(d.extra);
+        for (let from = 0; from < rows.length; from += DETAIL_INSERT_BATCH) {
+          const batch = rows.slice(from, from + DETAIL_INSERT_BATCH);
+          // ONE bind parameter per statement: the rows as a JSON array (absent key = SQL NULL), read by `jsonb_to_recordset`
+          const payload = JSON.stringify(
+            batch.map((r) => ({
+              ordinal: r.ordinal,
+              schema_version: r.d.schemaVersion,
+              dedup_key: r.d.dedupKey,
+              confidence: r.d.confidence,
+              confidence_basis: r.d.confidenceBasis,
+              severity_assumed: r.d.severityAssumed ?? false,
+              provenance: r.d.provenance ?? {},
+              advisories: r.d.advisories ?? [],
+              cwe: r.d.cwe ?? [],
+              evidence: r.d.evidence ?? undefined,
+              scm_ref: r.d.scmRef ?? undefined,
+              url: r.d.url ?? undefined,
+              scope: r.d.scope ?? {},
+              extra: r.extra,
+            })),
+          );
           inserted += await tx.$executeRaw`
             INSERT INTO scan_result_item_details (tenant_id, execution_id, scan_result_id, item_ordinal, schema_version, dedup_key,
               confidence, confidence_basis, severity_assumed, provenance, advisories, cwe, evidence, scm_ref, url, scope, extra)
-            SELECT i.tenant_id, i.execution_id, i.scan_result_id, i.ordinal, ${d.schemaVersion}::int, ${d.dedupKey},
-              ${d.confidence}, ${d.confidenceBasis}, ${d.severityAssumed ?? false}::boolean, ${json(d.provenance)}::jsonb,
-              ${JSON.stringify(d.advisories ?? [])}::jsonb, ${d.cwe ?? []}::int[],
-              ${d.evidence === null || d.evidence === undefined ? null : JSON.stringify(d.evidence)}::jsonb,
-              ${d.scmRef === null || d.scmRef === undefined ? null : JSON.stringify(d.scmRef)}::jsonb, ${d.url ?? null},
-              ${json(d.scope)}::jsonb, ${json(extra)}::jsonb
-            FROM scan_result_items i
+            SELECT i.tenant_id, i.execution_id, i.scan_result_id, i.ordinal, u.schema_version, u.dedup_key,
+              u.confidence, u.confidence_basis, u.severity_assumed, u.provenance, u.advisories,
+              ARRAY(SELECT jsonb_array_elements_text(u.cwe)::int), u.evidence, u.scm_ref, u.url, u.scope, u.extra
+            FROM jsonb_to_recordset(${payload}::jsonb) AS u(ordinal int, schema_version int, dedup_key text, confidence text,
+              confidence_basis text, severity_assumed boolean, provenance jsonb, advisories jsonb, cwe jsonb, evidence jsonb,
+              scm_ref jsonb, url text, scope jsonb, extra jsonb)
+            JOIN scan_result_items i ON i.ordinal = u.ordinal
             WHERE i.tenant_id = ${tenantId}::uuid AND i.execution_id = ${executionId}::uuid AND i.scan_result_id = ${scanResultId}::uuid
-              AND i.ordinal = ${ordinal}::int`;
+            ORDER BY u.ordinal`;
         }
         return { inserted };
       });

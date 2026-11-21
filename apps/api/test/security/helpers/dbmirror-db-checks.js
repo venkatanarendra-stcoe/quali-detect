@@ -5,6 +5,7 @@ import { createScanDbSnapshotRepository, createScanToolRunRepository } from "@qm
 import { dbProvenance } from "@qmentisai/shared";
 import { createJobEnvelope } from "@qmentisai/contracts";
 import { NonRetryableError } from "@qmentisai/infra";
+import { toPlatformAuditEntryDto } from "../../../src/modules/platform-audit-logs/mappers/index.js";
 import { createDbRefreshHandler } from "../../../../workers/src/dbrefresh/index.js";
 import { promotionSanity, refreshTool } from "../../../../workers/src/dbrefresh/refresh.js";
 import { createDbSnapshotResolver } from "../../../../workers/src/execution/engines/ensemble/db/resolve-db.js";
@@ -1438,6 +1439,373 @@ export const DBMIRROR_DB_CHECKS = [
             none.effect.reason === "db_unavailable" &&
             none.provenance === undefined,
           "no active snapshot: unavailable, no digest",
+        );
+      } finally {
+        rig.done();
+      }
+      await reset(db);
+      return p;
+    },
+  },
+  {
+    id: "ENG-S12n",
+    name: "a refresh blocked by quarantine raises the operator alert, once per digest, and the alert leaks nothing (SPEC scan-engines SE-39, 5.12.1, D-24 (f), ENG-S12): a snapshot that contains quarantined records (stage inspected) and a refresh whose upstream DECLARES a quarantined source (stage declared, nothing downloaded) each write ONE platform audit entry scan_db.quarantine_denied (system actor, no tenant, no target id) carrying only the tool id, the fixed reason word, the stage word, the digest and integer counts, and ONE warn log line with fixed words; a repeated refresh of the same rejected digest writes no second entry and no second line and downloads nothing; a different quarantined digest alerts again; rejections that are not quarantine (integrity, hostile archive, a distro or unknown source) raise no alert; a failure to record the alert never changes the outcome, is logged with a fixed word without echoing the cause, and the next refresh of the same digest records it; five concurrent recordings of one digest write one entry; the repository refuses an unknown tool, a malformed digest and an unknown stage and turns hostile counts into null; no upstream text, URL, source name, record id or token reaches the entry or the log, and the Root Console audit mapper shows it as a failure of the system actor",
+    async run(c) {
+      const p = [];
+      const { db } = c;
+      await reset(db);
+      const rig = rigOf(c);
+      const ACTION = "scan_db.quarantine_denied";
+      const alertRows = (sha) =>
+        db.$queryRaw`SELECT id, actor_type::text AS "actorType", actor_platform_user_id AS "actorId", tenant_id AS "tenantId", target_type AS "targetType", target_id AS "targetId", action, metadata
+                     FROM platform_audit_logs WHERE action = ${ACTION} AND metadata->>'sha256' = ${sha}`;
+      const alertTotal = async () =>
+        Number(
+          (
+            await db.$queryRaw`SELECT count(*)::int AS n FROM platform_audit_logs WHERE action = ${ACTION}`
+          )[0].n,
+        );
+      const blockedLines = () =>
+        rig.lines.filter((l) => l.msg === "Vulnerability DB refresh blocked by quarantine");
+      const records = (...r) => bundle({ records: r, padBytes: 3000 });
+      const rec = (id, over = {}) => ({
+        id,
+        aliases: [],
+        affected: [{ package: { ecosystem: "npm", name: "x" } }],
+        ...over,
+      });
+      try {
+        const base = bundle({ padBytes: 3000 });
+        rig.downloader.script("trivy", { bundle: base });
+        const first = await rig.run();
+        ok(p, first.outcome === "promoted", `fixture promoted (${first.outcome})`);
+        const total0 = await alertTotal();
+
+        // 1. a snapshot that contains quarantined records
+        const quarantined = records(rec("GHSA-aaaa-bbbb-cccc"), rec("CGA-aaaa-bbbb-cccc"));
+        const qSha = sha256(quarantined);
+        rig.downloader.script("trivy", { bundle: quarantined });
+        const out1 = await rig.run();
+        ok(
+          p,
+          out1.outcome === "rejected" &&
+            out1.reason === "quarantined_source" &&
+            out1.alerted === true &&
+            out1.sha256 === qSha,
+          `inspected quarantine: ${JSON.stringify(out1)}`,
+        );
+        const rows1 = await alertRows(qSha);
+        same(p, "one entry for the digest", rows1.length, 1);
+        const r1 = rows1[0];
+        same(
+          p,
+          "the entry is a platform system entry without tenant or target id",
+          [r1?.actorType, r1?.actorId, r1?.tenantId, r1?.targetType, r1?.targetId],
+          ["system", null, null, "scan_db_snapshot", null],
+        );
+        same(p, "metadata keys", Object.keys(r1?.metadata ?? {}).sort(), [
+          "invalid",
+          "notAllowed",
+          "quarantined",
+          "reason",
+          "records",
+          "sha256",
+          "stage",
+          "toolId",
+        ]);
+        same(
+          p,
+          "metadata values",
+          [
+            r1?.metadata.toolId,
+            r1?.metadata.reason,
+            r1?.metadata.stage,
+            r1?.metadata.records,
+            r1?.metadata.quarantined,
+            r1?.metadata.notAllowed,
+            r1?.metadata.invalid,
+          ],
+          ["trivy", "quarantined_source", "inspected", 2, 1, 0, 0],
+        );
+        same(p, "one warn line", blockedLines().length, 1);
+        same(
+          p,
+          "the warn line carries only the tool, the reason, the stage, the digest and the marker",
+          Object.keys(blockedLines()[0]?.obj ?? {}).sort(),
+          ["alert", "reason", "sha256", "stage", "toolId"],
+        );
+        same(p, "the warn line level", blockedLines()[0]?.level, "warn");
+
+        // 2. the same digest again: no download, no second entry, no second line
+        const dl0 = rig.downloader.calls.download;
+        rig.downloader.script("trivy", { bundle: quarantined });
+        const out2 = await rig.run();
+        ok(
+          p,
+          out2.outcome === "rejected" &&
+            out2.reason === "quarantined_source" &&
+            out2.alerted === false,
+          `repeat: ${JSON.stringify(out2)}`,
+        );
+        same(p, "repeat: downloads", rig.downloader.calls.download - dl0, 0);
+        same(p, "repeat: entries", (await alertRows(qSha)).length, 1);
+        same(p, "repeat: warn lines", blockedLines().length, 1);
+
+        // 3. another quarantined digest alerts again
+        const quarantined2 = records(rec("GHSA-aaaa-bbbb-dddd"), rec("CGA-aaaa-bbbb-dddd"));
+        rig.downloader.script("trivy", { bundle: quarantined2 });
+        const out3 = await rig.run();
+        ok(p, out3.alerted === true, "a new digest alerts");
+        same(p, "two digests, two entries", (await alertTotal()) - total0, 2);
+
+        // 4. a declared quarantined source: nothing downloaded, the digest is the upstream's claim
+        const declaredBundle = bundle({ padBytes: 3000 });
+        const dSha = sha256(declaredBundle);
+        const dl1 = rig.downloader.calls.download;
+        rig.downloader.script("trivy", {
+          bundle: declaredBundle,
+          metadata: { sources: ["ghsa", "chainguard"] },
+        });
+        const out4 = await rig.run();
+        ok(
+          p,
+          out4.outcome === "rejected" &&
+            out4.reason === "quarantined_source" &&
+            out4.alerted === true &&
+            out4.sha256 === dSha &&
+            rig.downloader.calls.download === dl1,
+          `declared quarantine: ${JSON.stringify(out4)}`,
+        );
+        const rows4 = await alertRows(dSha);
+        same(
+          p,
+          "declared entry",
+          [
+            rows4.length,
+            rows4[0]?.metadata.stage,
+            rows4[0]?.metadata.records,
+            rows4[0]?.metadata.quarantined,
+          ],
+          [1, "declared", null, 1],
+        );
+        rig.downloader.script("trivy", {
+          bundle: declaredBundle,
+          metadata: { sources: ["ghsa", "chainguard"] },
+        });
+        const out4b = await rig.run();
+        ok(
+          p,
+          out4b.outcome === "rejected" && out4b.alerted === false,
+          `a declared refusal is alerted once per digest: ${JSON.stringify(out4b)}`,
+        );
+        same(p, "declared repeat: still one entry", (await alertRows(dSha)).length, 1);
+        same(p, "declared: warn lines", blockedLines().length, 3);
+
+        // 5. rejections that are not quarantine raise no alert
+        const total5 = await alertTotal();
+        const good = bundle({ padBytes: 3000 });
+        const tampered = Buffer.from(good);
+        tampered[tampered.length - 50] ^= 0x01;
+        for (const [label, step] of [
+          ["integrity", { bundle: good, downloaded: tampered }],
+          [
+            "a distro record",
+            {
+              bundle: records(
+                rec("DSA-1-1", { affected: [{ package: { ecosystem: "Debian:12" } }] }),
+              ),
+            },
+          ],
+          ["a malformed record", { bundle: records("{ nope") }],
+          [
+            "a traversal entry",
+            { bundle: bundle({ extra: [{ raw: true, name: "../../evil", content: "x" }] }) },
+          ],
+          [
+            "an unknown declared source",
+            { bundle: bundle({ padBytes: 3000 }), metadata: { sources: ["ghsa", "somewhere"] } },
+          ],
+        ]) {
+          rig.downloader.script("trivy", step);
+          const out = await rig.run();
+          ok(
+            p,
+            out.outcome === "rejected" &&
+              out.reason !== "quarantined_source" &&
+              out.alerted === undefined,
+            `${label}: ${JSON.stringify(out)}`,
+          );
+        }
+        same(
+          p,
+          "no alert for a rejection that is not quarantine",
+          (await alertTotal()) - total5,
+          0,
+        );
+        // the same non-quarantine digest again (a known rejected row): still no alert and no `alerted` field
+        const distro = records(
+          rec("DSA-9-9", { affected: [{ package: { ecosystem: "Debian:12" } }] }),
+        );
+        for (const round of [1, 2]) {
+          rig.downloader.script("trivy", { bundle: distro });
+          const again = await rig.run();
+          ok(
+            p,
+            again.outcome === "rejected" &&
+              again.reason === "source_not_allowed" &&
+              again.alerted === undefined,
+            `a known non-quarantine digest, round ${round}: ${JSON.stringify(again)}`,
+          );
+        }
+        same(p, "and still no alert", (await alertTotal()) - total5, 0);
+
+        // 6. a failure to record the alert never changes the outcome and is retried by the next refresh of the digest
+        const quarantined3 = records(rec("GHSA-aaaa-bbbb-eeee"), rec("CGA-aaaa-bbbb-eeee"));
+        const q3 = sha256(quarantined3);
+        const failing = {
+          ...rig.repo,
+          recordQuarantineAlert: async () => {
+            throw new Error("boom ghp_abcdefghijklmnopqrstuvwxyz123456 postgres://u:p@h/db");
+          },
+        };
+        rig.downloader.script("trivy", { bundle: quarantined3 });
+        const warn0 = blockedLines().length;
+        const out6 = await rig.run("trivy", { repo: failing });
+        ok(
+          p,
+          out6.outcome === "rejected" &&
+            out6.reason === "quarantined_source" &&
+            out6.alerted === false,
+          `a failing alert write: ${JSON.stringify(out6)}`,
+        );
+        same(p, "no entry yet", (await alertRows(q3)).length, 0);
+        const errLines = rig.lines.filter((l) => l.level === "error");
+        same(
+          p,
+          "the error line has fixed words and does not echo the cause",
+          [errLines.length, errLines[0]?.msg, Object.keys(errLines[0]?.obj ?? {}).sort()],
+          [1, "The quarantine alert could not be recorded", ["reason", "sha256", "toolId"]],
+        );
+        ok(
+          p,
+          !JSON.stringify(errLines).includes("ghp_") &&
+            !JSON.stringify(errLines).includes("postgres"),
+          "the cause leaked into the log",
+        );
+        rig.downloader.script("trivy", { bundle: quarantined3 });
+        const out6b = await rig.run();
+        ok(p, out6b.alerted === true, "the next refresh records the missing alert");
+        same(p, "now one entry", (await alertRows(q3)).length, 1);
+        same(p, "and one more warn line", blockedLines().length - warn0, 1);
+
+        // 7. concurrency: one entry however many recordings race
+        const raced = hex();
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () =>
+            rig.repo.recordQuarantineAlert({
+              toolId: "trivy",
+              sha256: raced,
+              stage: "inspected",
+              counts: { records: 3, quarantined: 1 },
+            }),
+          ),
+        );
+        same(
+          p,
+          "concurrent recordings",
+          [results.filter((r) => r.recorded).length, (await alertRows(raced)).length],
+          [1, 1],
+        );
+
+        // the per-digest advisory lock is what makes it once: a recording waits while another transaction holds the lock of its digest
+        const held = hex();
+        let finished = false;
+        let pending;
+        await db.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`scan_db_alert:trivy:${held}`}, 0))`;
+            pending = rig.repo
+              .recordQuarantineAlert({ toolId: "trivy", sha256: held, stage: "inspected" })
+              .then((r) => {
+                finished = true;
+                return r;
+              });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            if (finished) p.push("a recording did not wait for the advisory lock of its digest");
+          },
+          { timeout: 20000 },
+        );
+        same(
+          p,
+          "after the lock is released the recording completes once",
+          (await pending).recorded,
+          true,
+        );
+
+        // 8. input validation and hostile counts
+        for (const [label, input] of [
+          ["an unknown tool", { toolId: "grype", sha256: hex(), stage: "inspected" }],
+          ["a malformed digest", { toolId: "trivy", sha256: "xyz", stage: "inspected" }],
+          [
+            "an upper-case digest",
+            { toolId: "trivy", sha256: hex().toUpperCase(), stage: "inspected" },
+          ],
+          ["an unknown stage", { toolId: "trivy", sha256: hex(), stage: "elsewhere" }],
+        ]) {
+          const r = await attempt(() => rig.repo.recordQuarantineAlert(input));
+          ok(p, !r.ok && r.message.length > 0, `${label} was accepted`);
+        }
+        const odd = hex();
+        await rig.repo.recordQuarantineAlert({
+          toolId: "trivy",
+          sha256: odd,
+          stage: "declared",
+          counts: { records: -1, quarantined: 1.5, notAllowed: "7", invalid: 2_000_000_000 },
+        });
+        const oddRow = (await alertRows(odd))[0];
+        same(
+          p,
+          "hostile counts become null",
+          [
+            oddRow?.metadata.records,
+            oddRow?.metadata.quarantined,
+            oddRow?.metadata.notAllowed,
+            oddRow?.metadata.invalid,
+          ],
+          [null, null, null, null],
+        );
+
+        // 9. nothing of the upstream or of the records reaches the entries or the log
+        const all = JSON.stringify([
+          await db.$queryRaw`SELECT metadata FROM platform_audit_logs WHERE action = ${ACTION}`,
+          rig.lines,
+        ]);
+        for (const needle of [
+          "chainguard",
+          "wolfi",
+          "grype",
+          "CGA-",
+          "GHSA-",
+          "ghp_",
+          "http",
+          "postgres",
+          "somewhere",
+        ])
+          if (all.includes(needle)) p.push(`the alerts or the log contain "${needle}"`);
+
+        // 10. the Root Console audit view shows it as a failure of the system actor
+        const dto = toPlatformAuditEntryDto({
+          ...r1,
+          createdAt: new Date(),
+          correlationId: null,
+          ipAddress: null,
+          actor: null,
+        });
+        same(
+          p,
+          "audit view",
+          [dto.action, dto.result, dto.actor.type, dto.tenantId, dto.metadata.toolId],
+          [ACTION, "failure", "system", null, "trivy"],
         );
       } finally {
         rig.done();

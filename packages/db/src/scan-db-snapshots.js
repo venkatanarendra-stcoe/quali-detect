@@ -1,4 +1,10 @@
-import { DB_REJECT_REASONS, DB_TOOL_IDS } from "@qmentisai/shared";
+import {
+  DB_ALERT_ACTIONS,
+  DB_ALERT_STAGES,
+  DB_REJECT_REASONS,
+  DB_TOOL_IDS,
+} from "@qmentisai/shared";
+import { withTransaction } from "./transaction.js";
 
 /**
  * Repository of `scan_db_snapshots` (docs/modules/scan-engines/SPEC.md 5.12, SE-33, SE-35). PLATFORM-LEVEL public data: the table has
@@ -140,6 +146,45 @@ export function createScanDbSnapshotRepository({ db }) {
         VALUES (gen_random_uuid(), ${toolId}, ${input.sourceVersion}, ${input.upstreamBuiltAt}, ${input.sizeBytes}::bigint, ${input.sha256}, 'rejected', ${input.reason},
                 ${JSON.stringify(input.sources ?? [])}::jsonb, ${JSON.stringify(input.recordCounts ?? {})}::jsonb)
         ON CONFLICT (tool_id, sha256) DO NOTHING`;
+    },
+
+    /**
+     * The operator alert "a refresh was blocked by quarantine" (SPEC scan-engines SE-39, owner decision D-24 (f)): ONE platform audit
+     * entry (`platform_audit_logs`, actor type `system`, no tenant, the Root Console audit log is where an operator reads it) per
+     * (tool, digest). The advisory lock of the pair and the NOT EXISTS make it once even for two concurrent refreshes, and a repeated
+     * refresh of the same digest writes nothing (no spam). The time is cut to whole milliseconds, the precision of the audit log's keyset cursors (JavaScript dates), so rows written within one millisecond order by id like every other tie. The entry carries ONLY the tool id, the fixed reason word, the stage word,
+     * the digest and integer counts: no URL, host, token, source name, record id or upstream text ever reaches it.
+     * @param {{ toolId: string, sha256: string, stage: string, counts?: { records?: number, quarantined?: number, notAllowed?: number, invalid?: number } }} input
+     * @param {any} [client]
+     * @returns {Promise<{ recorded: boolean }>} `recorded` is false when this digest was already alerted
+     */
+    async recordQuarantineAlert({ toolId, sha256, stage, counts = {} }, client = db) {
+      tool(toolId);
+      if (!/^[0-9a-f]{64}$/.test(String(sha256))) throw new TypeError("Invalid snapshot digest.");
+      if (!DB_ALERT_STAGES.includes(stage)) throw new TypeError("Unknown alert stage.");
+      const count = (n) => (Number.isInteger(n) && n >= 0 && n <= 1_000_000_000 ? n : null);
+      const metadata = {
+        toolId,
+        reason: "quarantined_source",
+        stage,
+        sha256,
+        records: count(counts.records),
+        quarantined: count(counts.quarantined),
+        notAllowed: count(counts.notAllowed),
+        invalid: count(counts.invalid),
+      };
+      return withTransaction(client, async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`scan_db_alert:${toolId}:${sha256}`}, 0))`;
+        const rows = await tx.$queryRaw`
+          INSERT INTO platform_audit_logs (id, actor_type, action, target_type, metadata, created_at)
+          SELECT gen_random_uuid(), 'system'::platform_actor_type, ${DB_ALERT_ACTIONS.QUARANTINE_DENIED}, 'scan_db_snapshot', ${JSON.stringify(metadata)}::jsonb,
+                 date_trunc('milliseconds', clock_timestamp())
+          WHERE NOT EXISTS (
+            SELECT 1 FROM platform_audit_logs
+            WHERE action = ${DB_ALERT_ACTIONS.QUARANTINE_DENIED} AND metadata->>'toolId' = ${toolId} AND metadata->>'sha256' = ${sha256})
+          RETURNING id`;
+        return { recorded: rows.length === 1 };
+      });
     },
 
     /** Rejects candidates older than `olderThanSeconds` (a crash between insert and promotion). @param {{ olderThanSeconds: number }} input @param {any} [client] @returns {Promise<Array<{ toolId: string, sha256: string }>>} */

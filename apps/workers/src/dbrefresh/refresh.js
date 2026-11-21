@@ -23,6 +23,10 @@ import { z } from "zod";
  *   8. promotion gate: size and age sanity, then materialize (re-hash) and the canary scan in the sandbox
  *   9. atomic switch (one transaction), then prune retired snapshots beyond the newest N
  * Rows are written only for bytes this process hashed itself, so an upstream cannot poison the table with a digest it merely claims.
+ * A refresh blocked by QUARANTINE (a declared or found quarantined source, reason `quarantined_source`) additionally raises the operator
+ * alert (owner decision D-24 (f), SE-39): one platform audit entry per (tool, digest) and one warn log line with fixed words, both with
+ * the tool id, the reason word, counts and the digest only. The whole snapshot is rejected (fail closed, v1); a rejected digest is never
+ * downloaded or alerted again, the next scheduled refresh looks at whatever the upstream then publishes.
  */
 
 /** The integrity metadata the downloader must obtain from the upstream (no URL, host, token or path in it). */
@@ -46,6 +50,30 @@ const VERDICT_REASON = Object.freeze({
 });
 
 const SKEW_MS = 24 * 3600 * 1000;
+
+/**
+ * Raises the quarantine alert (best effort: a failure to record it is logged with fixed words and never changes the refresh outcome;
+ * the repeated refresh of the same rejected digest tries again, and the repository makes it once per digest).
+ * @param {{ repo: any, log?: any, toolId: string, sha256: string, stage: "declared" | "inspected", counts?: object }} input
+ * @returns {Promise<boolean>} whether a NEW alert was recorded
+ */
+async function alertQuarantine({ repo, log, toolId, sha256, stage, counts }) {
+  try {
+    const { recorded } = await repo.recordQuarantineAlert({ toolId, sha256, stage, counts });
+    if (recorded)
+      log?.warn?.(
+        { toolId, reason: "quarantined_source", stage, sha256, alert: "scan_db_quarantine" },
+        "Vulnerability DB refresh blocked by quarantine",
+      );
+    return recorded;
+  } catch {
+    log?.error?.(
+      { toolId, reason: "alert_not_recorded", sha256 },
+      "The quarantine alert could not be recorded",
+    );
+    return false;
+  }
+}
 
 /**
  * The size and age part of the promotion gate (SE-35 a). Pure.
@@ -72,7 +100,7 @@ export function promotionSanity(candidate, active, { now, minSizePercent, maxUps
  *   lock?: { acquirePlatform: Function } | null,
  *   now?: () => Date,
  * }} RefreshDeps
- * @typedef {{ toolId: string, outcome: "promoted" | "unchanged" | "rejected" | "skipped_locked" | "canary_unavailable" | "not_candidate", reason?: string, sha256?: string }} RefreshOutcome
+ * @typedef {{ toolId: string, outcome: "promoted" | "unchanged" | "rejected" | "skipped_locked" | "canary_unavailable" | "not_candidate", reason?: string, sha256?: string, alerted?: boolean }} RefreshOutcome
  */
 
 /**
@@ -100,6 +128,17 @@ export async function refreshTool({ toolId, deps, scanDb, signal, log }) {
         { toolId, reason },
         "The upstream declares a source that is not allowed; nothing was downloaded",
       );
+      if (reason === "quarantined_source") {
+        const alerted = await alertQuarantine({
+          repo,
+          log,
+          toolId,
+          sha256: metadata.sha256,
+          stage: "declared",
+          counts: { quarantined: declared.quarantined.length },
+        });
+        return { toolId, outcome: "rejected", reason, sha256: metadata.sha256, alerted };
+      }
       return { toolId, outcome: "rejected", reason };
     }
     const builtAt = new Date(metadata.builtAt);
@@ -110,8 +149,27 @@ export async function refreshTool({ toolId, deps, scanDb, signal, log }) {
     const known = await repo.getBySha({ toolId, sha256: metadata.sha256 });
     let candidate = known?.status === "candidate" ? known : null;
     if (known && !candidate) {
-      if (known.status === "rejected")
-        return { toolId, outcome: "rejected", reason: known.rejectedReason, sha256: known.sha256 };
+      if (known.status === "rejected") {
+        // not downloaded again; a quarantine alert that could not be recorded the first time is retried here (once per digest)
+        const alerted =
+          known.rejectedReason === "quarantined_source"
+            ? await alertQuarantine({
+                repo,
+                log,
+                toolId,
+                sha256: known.sha256,
+                stage: "inspected",
+                counts: known.recordCounts,
+              })
+            : undefined;
+        return {
+          toolId,
+          outcome: "rejected",
+          reason: known.rejectedReason,
+          sha256: known.sha256,
+          ...(alerted === undefined ? {} : { alerted }),
+        };
+      }
       return { toolId, outcome: "unchanged", sha256: known.sha256 };
     }
 
@@ -143,11 +201,23 @@ export async function refreshTool({ toolId, deps, scanDb, signal, log }) {
           { toolId, reason, sha256: staged.sha256 },
           "A downloaded snapshot was rejected",
         );
+        const alerted =
+          reason === "quarantined_source"
+            ? await alertQuarantine({
+                repo,
+                log,
+                toolId,
+                sha256: staged.sha256,
+                stage: "inspected",
+                counts,
+              })
+            : undefined;
         return {
           toolId,
           outcome: /** @type {const} */ ("rejected"),
           reason,
           sha256: staged.sha256,
+          ...(alerted === undefined ? {} : { alerted }),
         };
       };
       // 5. integrity against the upstream metadata

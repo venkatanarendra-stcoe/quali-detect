@@ -9,6 +9,16 @@ export const DB_TOOL_IDS = Object.freeze(["trivy", "osv-scanner"]);
 /** Lifecycle of a snapshot row (SE-33). Transitions are one-way: candidate to active or rejected, active to retired. */
 export const DB_SNAPSHOT_STATUSES = Object.freeze(["candidate", "active", "retired", "rejected"]);
 
+/**
+ * The platform audit action of the quarantine alert (SPEC scan-engines 5.12, SE-39, owner decision D-24 (f)): a vulnerability DB
+ * refresh was blocked because the upstream snapshot declares or contains quarantined (non-commercial or unstated-licence) data. It
+ * ends in `_denied`, so the Root Console audit log derives the result `failure` for it and its `result` filter finds it.
+ */
+export const DB_ALERT_ACTIONS = Object.freeze({ QUARANTINE_DENIED: "scan_db.quarantine_denied" });
+
+/** Where the quarantine was found: in the sources the upstream DECLARES (nothing downloaded) or in the inspected snapshot. */
+export const DB_ALERT_STAGES = Object.freeze(["declared", "inspected"]);
+
 /** Fixed reason words of a rejected candidate (never free text, never upstream text). */
 export const DB_REJECT_REASONS = Object.freeze([
   "integrity_mismatch",

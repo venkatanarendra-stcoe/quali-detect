@@ -1,0 +1,1600 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "/src",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "java/pom.xml",
+      "Class": "lang-pkgs",
+      "Type": "pom",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2021-44228",
+          "VendorIDs": ["GHSA-jfh8-c2jp-5v3q"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.15.0, 2.3.1, 2.12.2",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "log4j-core: Remote code execution in Log4j 2.x when logs contain an attacker-controlled string value",
+          "Severity": "CRITICAL",
+          "CweIDs": ["CWE-20", "CWE-400", "CWE-502", "CWE-917"],
+          "VendorSeverity": { "amazon": 4, "ghsa": 4, "nvd": 4, "redhat": 4, "ubuntu": 3 },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H/E:H",
+              "V3Score": 10
+            },
+            "nvd": {
+              "V2Vector": "AV:N/AC:M/Au:N/C:C/I:C/A:C",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+              "V2Score": 9.3,
+              "V3Score": 10
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 9.8 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2021-45046",
+          "VendorIDs": ["GHSA-7rjr-3q55-vv33"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.16.0, 2.12.2, 2.3.1",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "log4j-core: DoS in log4j 2.x with thread context message pattern and context lookup pattern (incomplete fix for CVE-2021-44228)",
+          "Severity": "CRITICAL",
+          "CweIDs": ["CWE-917"],
+          "VendorSeverity": { "amazon": 4, "ghsa": 4, "nvd": 4, "redhat": 2, "ubuntu": 3 },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H", "V3Score": 9.1 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:H/Au:N/C:P/I:P/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+              "V2Score": 5.1,
+              "V3Score": 9
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 8.1 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2021-45105",
+          "VendorIDs": ["GHSA-p6xc-xr62-6r2g"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.12.3, 2.17.0, 2.3.1",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "log4j-core: DoS in log4j 2.x with Thread Context Map (MDC) input data contains a recursive lookup and context lookup pattern",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-20", "CWE-674"],
+          "VendorSeverity": { "amazon": 4, "ghsa": 3, "nvd": 2, "redhat": 2, "ubuntu": 2 },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:N/A:H", "V3Score": 8.6 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:M/Au:N/C:N/I:N/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V2Score": 4.3,
+              "V3Score": 5.9
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 5.9 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2021-44832",
+          "VendorIDs": ["GHSA-8489-44mv-ggj8"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.3.2, 2.12.4, 2.17.1",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "log4j-core: remote code execution via JDBC Appender",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-20", "CWE-74"],
+          "VendorSeverity": { "amazon": 4, "ghsa": 2, "nvd": 2, "redhat": 2, "ubuntu": 2 },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:H/A:H", "V3Score": 6.6 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:M/Au:S/C:C/I:C/A:C",
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:H/A:H",
+              "V2Score": 8.5,
+              "V3Score": 6.6
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:H/A:H", "V3Score": 6.6 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-68161",
+          "VendorIDs": ["GHSA-vc5p-v9hr-52mj"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.25.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "Apache Log4j: Apache Log4j Core: Information disclosure via missing TLS hostname verification",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-297", "CWE-295"],
+          "VendorSeverity": { "amazon": 2, "ghsa": 2, "nvd": 2, "redhat": 2 },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:L/SA:N",
+              "V40Score": 6.3
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N", "V3Score": 4.8 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N", "V3Score": 5.9 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-34477",
+          "VendorIDs": ["GHSA-6hg6-v5c8-fphq"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.25.4",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "org.apache.logging.log4j/log4j-core: Apache Log4j Core: Man-in-the-middle attack due to incomplete hostname verification",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-297", "CWE-295"],
+          "VendorSeverity": { "ghsa": 2, "nvd": 2, "redhat": 2 },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:L/SA:N",
+              "V40Score": 6.3
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N", "V3Score": 5.9 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N", "V3Score": 6.8 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-34479",
+          "VendorIDs": ["GHSA-h383-gmxw-35v2"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.25.4",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "org.apache.logging.log4j/log4j-1.2-api: Apache Log4j 1-to-Log4j 2 bridge: Log processing denial of service due to improper XML escaping",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-116"],
+          "VendorSeverity": { "ghsa": 2, "nvd": 3, "redhat": 2, "ubuntu": 2 },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N",
+              "V40Score": 6.9
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N", "V3Score": 7.5 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-34480",
+          "VendorIDs": ["GHSA-3pxv-7cmr-fjr4"],
+          "PkgName": "org.apache.logging.log4j:log4j-core",
+          "PkgIdentifier": {
+            "PURL": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+            "UID": "b406d583171a3fb"
+          },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.25.4",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "org.apache.logging.log4j/log4j-core: Apache Log4j Core: Invalid XML output causes denial of service in logging",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-116"],
+          "VendorSeverity": { "ghsa": 2, "nvd": 3, "redhat": 2, "ubuntu": 2 },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N",
+              "V40Score": 6.9
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N", "V3Score": 7.5 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory Maven",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Amaven"
+          }
+        }
+      ]
+    },
+    {
+      "Target": "py/requirements.txt",
+      "Class": "lang-pkgs",
+      "Type": "pip",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2018-1000656",
+          "VendorIDs": ["GHSA-562c-5r94-xh97"],
+          "PkgName": "Flask",
+          "PkgIdentifier": { "PURL": "pkg:pypi/flask@0.12.2", "UID": "54690ca6b3537a06" },
+          "InstalledVersion": "0.12.2",
+          "FixedVersion": "0.12.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "python-flask: Denial of Service via crafted JSON file",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-20"],
+          "VendorSeverity": { "ghsa": 3, "nvd": 3, "redhat": 1, "ubuntu": 1 },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V3Score": 7.5,
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+              "V3Vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V2Score": 5,
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2019-1010083",
+          "VendorIDs": ["GHSA-5wv5-4vpf-pj6m"],
+          "PkgName": "Flask",
+          "PkgIdentifier": { "PURL": "pkg:pypi/flask@0.12.2", "UID": "54690ca6b3537a06" },
+          "InstalledVersion": "0.12.2",
+          "FixedVersion": "1.0",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "python-flask: unexpected memory usage can lead to denial of service via crafted encoded JSON data",
+          "Severity": "HIGH",
+          "VendorSeverity": { "ghsa": 3, "nvd": 3, "redhat": 2, "ubuntu": 1 },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+              "V3Score": 7.5,
+              "V40Score": 8.7
+            },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+              "V3Vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V2Score": 5,
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-30861",
+          "VendorIDs": ["GHSA-m2qf-hxjv-5gpq"],
+          "PkgName": "Flask",
+          "PkgIdentifier": { "PURL": "pkg:pypi/flask@0.12.2", "UID": "54690ca6b3537a06" },
+          "InstalledVersion": "0.12.2",
+          "FixedVersion": "2.3.2, 2.2.5",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "flask: Possible disclosure of permanent session cookie due to missing Vary: Cookie header",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-539"],
+          "VendorSeverity": {
+            "amazon": 3,
+            "ghsa": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+              "V3Score": 7.5,
+              "V40Score": 8.7
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "V3Score": 7.5 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-27205",
+          "VendorIDs": ["GHSA-68rp-wp8r-4726"],
+          "PkgName": "Flask",
+          "PkgIdentifier": { "PURL": "pkg:pypi/flask@0.12.2", "UID": "54690ca6b3537a06" },
+          "InstalledVersion": "0.12.2",
+          "FixedVersion": "3.1.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "flask: Flask: Information disclosure via improper caching of session data",
+          "Severity": "LOW",
+          "CweIDs": ["CWE-524"],
+          "VendorSeverity": { "amazon": 2, "ghsa": 1, "nvd": 2, "redhat": 2, "ubuntu": 1 },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+              "V40Score": 2.3
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N", "V3Score": 4.3 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N", "V3Score": 4.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2019-10906",
+          "VendorIDs": ["GHSA-462w-v97r-4m45"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "2.10.1",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "python-jinja2: str.format_map allows sandbox escape",
+          "Severity": "HIGH",
+          "VendorSeverity": {
+            "amazon": 3,
+            "azure": 3,
+            "ghsa": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:N/SA:N",
+              "V3Score": 8.6,
+              "V40Score": 7.7
+            },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:P/I:N/A:N",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+              "V2Score": 5,
+              "V3Score": 8.6
+            },
+            "redhat": { "V3Vector": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H", "V3Score": 9 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2020-28493",
+          "VendorIDs": ["GHSA-g3rq-g295-4j3m"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "2.11.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "python-jinja2: ReDoS vulnerability in the urlize filter",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-400"],
+          "VendorSeverity": {
+            "alma": 2,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "ghsa": 2,
+            "nvd": 2,
+            "oracle-oval": 2,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 1
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+              "V3Score": 5.3,
+              "V40Score": 6.9
+            },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V2Score": 5,
+              "V3Score": 5.3
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2024-22195",
+          "VendorIDs": ["GHSA-h5c8-rqwp-cp95"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "3.1.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "jinja2: HTML attribute injection when passing user input as keys to xmlattr filter",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-79"],
+          "VendorSeverity": {
+            "alma": 2,
+            "amazon": 2,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "ghsa": 2,
+            "nvd": 2,
+            "oracle-oval": 2,
+            "photon": 2,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "V3Score": 5.4 },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "V3Score": 6.1 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "V3Score": 5.4 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2024-34064",
+          "VendorIDs": ["GHSA-h75v-3vvj-5mfj"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "3.1.4",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "jinja2: accepts keys containing non-attribute characters",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-79"],
+          "VendorSeverity": {
+            "alma": 2,
+            "amazon": 2,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "ghsa": 2,
+            "oracle-oval": 2,
+            "photon": 2,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "V3Score": 5.4 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "V3Score": 5.4 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2024-56326",
+          "VendorIDs": ["GHSA-q2x7-8rv6-6q7h"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "3.1.5",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "jinja2: Jinja has a sandbox breakout through indirect reference to format method",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-693", "CWE-1336"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "ghsa": 2,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+              "V3Score": 7.8,
+              "V40Score": 5.4
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:H", "V3Score": 6.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-27516",
+          "VendorIDs": ["GHSA-cpwx-vrp4-4pq7"],
+          "PkgName": "Jinja2",
+          "PkgIdentifier": { "PURL": "pkg:pypi/jinja2@2.10", "UID": "ef0ac6b9328dee61" },
+          "InstalledVersion": "2.10",
+          "FixedVersion": "3.1.6",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "jinja2: Jinja sandbox breakout through attr filter selecting format method",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-1336"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "ghsa": 2,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+              "V40Score": 5.4
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H", "V3Score": 8.8 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H", "V3Score": 7.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory pip",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Apip"
+          }
+        }
+      ]
+    },
+    {
+      "Target": "svc/go.mod",
+      "Class": "lang-pkgs",
+      "Type": "gomod",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-39325",
+          "VendorIDs": ["GHSA-4374-p667-p6c8", "GO-2023-2102"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.17.0",
+          "Status": "fixed",
+          "SeveritySource": "nvd",
+          "Title": "golang: net/http, x/net/http2: rapid stream resets can cause excessive work (CVE-2023-44487)",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-770"],
+          "VendorSeverity": {
+            "alma": 2,
+            "amazon": 3,
+            "azure": 3,
+            "bitnami": 3,
+            "bottlerocket": 3,
+            "cbl-mariner": 3,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-45288",
+          "VendorIDs": ["GHSA-4v7x-pqxf-cx7m", "GO-2024-2687"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.23.0",
+          "Status": "fixed",
+          "Title": "golang: net/http, x/net/http2: unlimited number of CONTINUATION frames causes DoS",
+          "Severity": "HIGH",
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 3,
+            "bitnami": 3,
+            "bottlerocket": 2,
+            "cbl-mariner": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2024-45338",
+          "VendorIDs": ["GHSA-w32m-9786-jp63", "GO-2024-3333"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.33.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: Non-linear parsing of case-insensitive content in golang.org/x/net/html",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-1333"],
+          "VendorSeverity": {
+            "amazon": 3,
+            "azure": 2,
+            "bottlerocket": 2,
+            "cbl-mariner": 2,
+            "redhat": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-25681",
+          "VendorIDs": ["GO-2026-5029"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang.org/x/net/html: Arbitrary code execution via Cross-Site Scripting",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-1021"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N", "V3Score": 8.1 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-27136",
+          "VendorIDs": ["GO-2026-5030"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang: golang.org/x/net/html: Cross-Site Scripting via HTML parsing bypass",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-1021"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N", "V3Score": 8.1 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-33814",
+          "VendorIDs": ["GO-2026-4918"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.53.0",
+          "Status": "fixed",
+          "SeveritySource": "nvd",
+          "Title": "net/http/internal/http2: golang: golang.org/x/net: Go HTTP/2: Denial of Service via malformed SETTINGS_MAX_FRAME_SIZE frame",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-835", "CWE-606"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "bitnami": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-39821",
+          "VendorIDs": ["GO-2026-5026"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/idna: golang: net/http: golang.org/x/net/idna: Privilege escalation via incorrect Punycode label processing",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-1289"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 4,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 3
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:N", "V3Score": 8.2 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-46600",
+          "VendorIDs": ["GO-2026-5942"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.56.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/dns/dnsmessage: golang.org/x/net/dns/dnsmessage: Denial of Service via invalid DNS record parsing",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-125"],
+          "VendorSeverity": { "azure": 2, "bitnami": 3, "redhat": 3 },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-78661",
+          "VendorIDs": ["GO-2026-6860"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.62.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang.org/x/net/html: Denial of Service via crafted HTML input",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-407"],
+          "VendorSeverity": { "amazon": 3, "azure": 2, "redhat": 3 },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-78669",
+          "VendorIDs": ["GO-2026-6611"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.60.0",
+          "Status": "fixed",
+          "Title": "net/http: net/http/internal/http2: golang.org/x/net/http2: net/http: Denial of Service via excessive HTTP/2 SETTINGS frames",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-405"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "bitnami": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-3978",
+          "VendorIDs": ["GHSA-2wrh-6pvc-2jm9", "GO-2023-1988"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.13.0",
+          "Status": "fixed",
+          "SeveritySource": "nvd",
+          "Title": "golang.org/x/net/html: Cross site scripting",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-79"],
+          "VendorSeverity": {
+            "alma": 2,
+            "amazon": 2,
+            "azure": 2,
+            "bottlerocket": 2,
+            "cbl-mariner": 2,
+            "nvd": 2,
+            "oracle-oval": 2,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "V3Score": 6.1 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "V3Score": 6.1 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-22870",
+          "VendorIDs": ["GHSA-qxp5-gwg8-xv66", "GO-2025-3503"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.36.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/proxy: golang.org/x/net/http/httpproxy: HTTP Proxy bypass using IPv6 Zone IDs in golang.org/x/net",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-115"],
+          "VendorSeverity": {
+            "amazon": 2,
+            "azure": 2,
+            "bottlerocket": 2,
+            "cbl-mariner": 2,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:L", "V3Score": 4.4 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-22872",
+          "VendorIDs": ["GO-2025-3595"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.38.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: Incorrect Neutralization of Input During Web Page Generation in x/net in golang.org/x/net",
+          "Severity": "MEDIUM",
+          "VendorSeverity": { "amazon": 3, "azure": 2, "cbl-mariner": 2, "redhat": 2, "ubuntu": 2 },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:L", "V3Score": 6.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-47911",
+          "VendorIDs": ["GO-2026-4440"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.45.0",
+          "Status": "fixed",
+          "SeveritySource": "nvd",
+          "Title": "golang.org/x/net/html: Quadratic parsing complexity in golang.org/x/net/html",
+          "Severity": "MEDIUM",
+          "VendorSeverity": {
+            "amazon": 2,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "nvd": 2,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-58190",
+          "VendorIDs": ["GO-2026-4441"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.45.0",
+          "Status": "fixed",
+          "SeveritySource": "nvd",
+          "Title": "golang.org/x/net/html: Infinite parsing loop in golang.org/x/net",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-835"],
+          "VendorSeverity": {
+            "amazon": 2,
+            "azure": 2,
+            "cbl-mariner": 2,
+            "nvd": 2,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:L", "V3Score": 4.3 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-25680",
+          "VendorIDs": ["GO-2026-5028"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang.org/x/net/html: Denial of Service due to excessive HTML parsing",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-400"],
+          "VendorSeverity": { "amazon": 3, "azure": 2, "redhat": 2 },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H", "V3Score": 6.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-42502",
+          "VendorIDs": ["GO-2026-5027"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang: golang.org/x/net/html: Cross-Site Scripting via unexpected HTML tree rendering",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-1021"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "redhat": 2,
+            "rocky": 3
+          },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "V3Score": 6.1 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-42506",
+          "VendorIDs": ["GO-2026-5025"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.55.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang.org/x/net/html: Cross-Site Scripting (XSS) via arbitrary HTML parsing",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-79"],
+          "VendorSeverity": { "amazon": 3, "azure": 2, "redhat": 2 },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "V3Score": 5.4 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-78659",
+          "VendorIDs": ["GO-2026-6603"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.60.0",
+          "Status": "fixed",
+          "Title": "net/http: golang.org/x/net/http2: golang: net/http: Denial of Service via HTTP/2 trailer header memory exhaustion",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-405"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "bitnami": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-78660",
+          "VendorIDs": ["GO-2026-6610"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.60.0",
+          "Status": "fixed",
+          "Title": "net/http: golang: golang.org/x/net/http2: net/http: HTTP response smuggling via malformed HTTP/2 framing headers",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-444"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "bitnami": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N", "V3Score": 7.5 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-78663",
+          "VendorIDs": ["GO-2026-6612"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.60.0",
+          "Status": "fixed",
+          "Title": "net/http: net/http/internal/http2: golang: golang.org/x/net/http2: golang: flow control limit bypass via double refund in HTTP/2 server",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-675"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 3,
+            "bitnami": 4,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+              "V3Score": 9.1
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-97032",
+          "VendorIDs": ["GO-2026-6617"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.60.0",
+          "Status": "fixed",
+          "Title": "net/http: net/http/internal/http2: golang: golang.org/x/net/http2: net/http: Denial of Service via concurrent HPACK encoder modification",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-362"],
+          "VendorSeverity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "bitnami": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "bitnami": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H", "V3Score": 5.9 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-97045",
+          "VendorIDs": ["GO-2026-6866"],
+          "PkgName": "golang.org/x/net",
+          "PkgIdentifier": {
+            "PURL": "pkg:golang/golang.org/x/net@v0.7.0",
+            "UID": "bebae19d81729bb3"
+          },
+          "InstalledVersion": "v0.7.0",
+          "FixedVersion": "0.62.0",
+          "Status": "fixed",
+          "Title": "golang.org/x/net/html: golang.org/x/net/html: Cross-Site Scripting via improper namespace handling during HTML rendering",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-79"],
+          "VendorSeverity": { "amazon": 3, "azure": 2, "redhat": 2 },
+          "CVSS": {
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", "V3Score": 6.1 }
+          },
+          "DataSource": {
+            "ID": "govulndb",
+            "Name": "The Go Vulnerability Database",
+            "URL": "https://pkg.go.dev/vuln/"
+          }
+        }
+      ]
+    },
+    {
+      "Target": "web/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2021-23337",
+          "VendorIDs": ["GHSA-35jh-r3h4-6jhm"],
+          "PkgName": "lodash",
+          "PkgIdentifier": { "PURL": "pkg:npm/lodash@4.17.20", "UID": "4e02a5afa2253f3a" },
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.17.21",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "nodejs-lodash: command injection via template",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-94"],
+          "VendorSeverity": {
+            "ghsa": 3,
+            "nvd": 3,
+            "redhat": 2,
+            "ruby-advisory-db": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H", "V3Score": 7.2 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:S/C:P/I:P/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+              "V2Score": 6.5,
+              "V3Score": 7.2
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H", "V3Score": 7.2 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2026-4800",
+          "VendorIDs": ["GHSA-r5fr-rjxr-66jc"],
+          "PkgName": "lodash",
+          "PkgIdentifier": { "PURL": "pkg:npm/lodash@4.17.20", "UID": "4e02a5afa2253f3a" },
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.18.0",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "lodash: lodash: Arbitrary code execution via untrusted input in template imports",
+          "Severity": "HIGH",
+          "CweIDs": ["CWE-94"],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 3,
+            "nvd": 4,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 8.1 },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 9.8 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 8.1 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2020-28500",
+          "VendorIDs": ["GHSA-29mw-wpgm-hmr9"],
+          "PkgName": "lodash",
+          "PkgIdentifier": { "PURL": "pkg:npm/lodash@4.17.20", "UID": "4e02a5afa2253f3a" },
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.17.21",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "nodejs-lodash: ReDoS via the toNumber, trim and trimEnd functions",
+          "Severity": "MEDIUM",
+          "VendorSeverity": {
+            "ghsa": 2,
+            "nvd": 2,
+            "redhat": 2,
+            "ruby-advisory-db": 2,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:N/I:N/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V2Score": 5,
+              "V3Score": 5.3
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L", "V3Score": 5.3 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2025-13465",
+          "VendorIDs": ["GHSA-xxjr-mmjv-4gpg"],
+          "PkgName": "lodash",
+          "PkgIdentifier": { "PURL": "pkg:npm/lodash@4.17.20", "UID": "4e02a5afa2253f3a" },
+          "InstalledVersion": "4.17.20",
+          "FixedVersion": "4.17.23",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "lodash: prototype pollution in _.unset and _.omit functions",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-1321"],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 2,
+            "nvd": 2,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:L/VA:L/SC:H/SI:H/SA:H/E:P",
+              "V3Score": 6.5,
+              "V40Score": 6.9
+            },
+            "nvd": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N", "V3Score": 5.3 },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:H", "V3Score": 8.2 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2021-44906",
+          "VendorIDs": ["GHSA-xvch-5gv4-984h"],
+          "PkgName": "minimist",
+          "PkgIdentifier": { "PURL": "pkg:npm/minimist@1.2.0", "UID": "4ced2ad8bd57595" },
+          "InstalledVersion": "1.2.0",
+          "FixedVersion": "1.2.6, 0.2.4",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "minimist: prototype pollution",
+          "Severity": "CRITICAL",
+          "CweIDs": ["CWE-1321"],
+          "VendorSeverity": {
+            "alma": 2,
+            "ghsa": 4,
+            "nvd": 4,
+            "oracle-oval": 2,
+            "redhat": 2,
+            "rocky": 2
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "V3Score": 9.8 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V2Score": 7.5,
+              "V3Score": 9.8
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N", "V3Score": 3.1 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2020-7598",
+          "VendorIDs": ["GHSA-vh95-rmgr-6w4m"],
+          "PkgName": "minimist",
+          "PkgIdentifier": { "PURL": "pkg:npm/minimist@1.2.0", "UID": "4ced2ad8bd57595" },
+          "InstalledVersion": "1.2.0",
+          "FixedVersion": "0.2.1, 1.2.3",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "Title": "nodejs-minimist: prototype pollution allows adding or modifying properties of Object.prototype using a constructor or __proto__ payload",
+          "Severity": "MEDIUM",
+          "CweIDs": ["CWE-1321"],
+          "VendorSeverity": {
+            "alma": 3,
+            "ghsa": 2,
+            "nvd": 2,
+            "oracle-oval": 3,
+            "redhat": 2,
+            "rocky": 3
+          },
+          "CVSS": {
+            "ghsa": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L", "V3Score": 5.6 },
+            "nvd": {
+              "V2Vector": "AV:N/AC:M/Au:N/C:P/I:P/A:P",
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+              "V2Score": 6.8,
+              "V3Score": 5.6
+            },
+            "redhat": { "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L", "V3Score": 5.6 }
+          },
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          }
+        }
+      ]
+    }
+  ]
+}

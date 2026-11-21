@@ -166,7 +166,11 @@ function* groupSca(candidates) {
   for (let i = 0; i < sorted.length; i += 1) {
     toolsOf.set(i, new Set([toolOf(sorted[i])]));
     aliasSets.push(aliasesOf(sorted[i]));
-    compKey.push(canonicalPurl(sorted[i].component.purl)?.canonical ?? sorted[i].component.purl);
+    // the declaring manifest is part of the occurrence: the same component and advisory in two lockfiles are two occurrences, so
+    // each tool's record of one lockfile pairs with the other tool's record of the SAME lockfile (part G, real two-lockfile output)
+    compKey.push(
+      `${canonicalPurl(sorted[i].component.purl)?.canonical ?? sorted[i].component.purl}\u0000${pathOf(sorted[i])}`,
+    );
     yield;
   }
   /** @type {Map<string, number[]>} */

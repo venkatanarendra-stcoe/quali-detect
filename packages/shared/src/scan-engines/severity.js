@@ -1,4 +1,5 @@
 import { CONFIDENCE_RANK, CONFIDENCES, SEVERITIES, SEVERITY_RANK } from "./constants.js";
+import { cvss3BaseScore } from "./cvss.js";
 
 /**
  * Severity and confidence normalization (docs/modules/scan-engines/SPEC.md 5.7, owner decision D-5). Pure. The POLICY is Confirmed:
@@ -55,6 +56,63 @@ export function normalizeSeverity(scale, raw, options = {}) {
   const map = maps[/** @type {keyof typeof maps} */ (scale)];
   const mapped = map?.get(norm(raw));
   return mapped ? { severity: /** @type {Severity} */ (mapped), assumed: false } : { ...UNMAPPED };
+}
+
+/** Entries of an OSV group examined at most (the record schema caps them as well). */
+const MAX_OSV_ENTRIES = 40;
+
+/**
+ * The severity of an OSV group (SPEC 5.7 "OSV record", owner decision D-5): per advisory a `database_specific.severity` label first
+ * (GHSA: CRITICAL, HIGH, MODERATE, LOW), else the CVSS v3.x vector scored by the in-repo calculator ({@link cvss3BaseScore}); the group takes the
+ * HIGHEST of its advisories. An advisory with neither (a Go advisory, a CVSS v4 vector only, a v2 vector, a malformed vector) does not
+ * count; when NO advisory resolves the result is `medium` with `assumed: true` (the "severity unmapped" flag). Pure.
+ * @param {{ label?: unknown, vectors?: unknown[] }[]} entries
+ * @returns {{ severity: Severity, assumed: boolean, raw: string, scale: "osv" | "cvss", scores: Record<string, number> }}
+ * `raw` is the label or the vector the severity came from (empty when assumed); `scores` holds the calculated score of every v3.x vector seen
+ */
+export function normalizeOsvSeverity(entries) {
+  /** @type {Record<string, number>} */
+  const scores = Object.create(null);
+  /** @type {{ severity: Severity, raw: string, scale: "osv" | "cvss" }[]} */
+  const resolved = [];
+  for (const entry of (Array.isArray(entries) ? entries : []).slice(0, MAX_OSV_ENTRIES)) {
+    const vectors = (Array.isArray(entry?.vectors) ? entry.vectors : []).filter(
+      (v) => typeof v === "string",
+    );
+    let best = null;
+    for (const vector of vectors.slice(0, 6)) {
+      const score = cvss3BaseScore(vector);
+      if (score === null) continue;
+      scores[vector] = score;
+      if (best === null || score > best.score) best = { score, vector };
+    }
+    const labelled = OSV.get(norm(entry?.label));
+    if (labelled)
+      resolved.push({
+        severity: /** @type {Severity} */ (labelled),
+        raw: norm(entry.label).slice(0, 60),
+        scale: "osv",
+      });
+    else if (best !== null)
+      resolved.push({
+        severity: severityFromCvssScore(best.score).severity,
+        raw: best.vector.slice(0, 60),
+        scale: "cvss",
+      });
+  }
+  const top = resolved.reduce(
+    (acc, r) => (acc === null || SEVERITY_RANK[r.severity] > SEVERITY_RANK[acc.severity] ? r : acc),
+    /** @type {(typeof resolved)[number] | null} */ (null),
+  );
+  return top
+    ? {
+        severity: top.severity,
+        assumed: false,
+        raw: top.raw,
+        scale: top.scale,
+        scores: { ...scores },
+      }
+    : { severity: "medium", assumed: true, raw: "", scale: "osv", scores: { ...scores } };
 }
 
 /** The platform severity of a secret type class (SPEC 5.7). NEVER critical in v1: critical would mean verified active. */

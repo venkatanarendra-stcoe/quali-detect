@@ -41,6 +41,7 @@ import { ARCHIVE_CHECKS } from "./helpers/archive-checks.js";
 import { ENSEMBLE_CORE_CHECKS } from "./helpers/ensemble-core-checks.js";
 import { ENSEMBLE_DB_CHECKS } from "./helpers/ensemble-db-checks.js";
 import { ENSEMBLE_SBOM_CHECKS } from "./helpers/ensemble-sbom-checks.js";
+import { ENSEMBLE_SCA_CHECKS } from "./helpers/ensemble-sca-checks.js";
 import { ENG_L20_CHECKS } from "./helpers/eng-l20-checks.js";
 import { ENSEMBLE_ENGINE_CHECKS, ENSEMBLE_WORLD_CHECKS } from "./helpers/ensemble-engine-checks.js";
 import { ENSEMBLE_YIELD_CHECKS } from "./helpers/ensemble-yield-checks.js";
@@ -66,7 +67,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 856;
+const EXPECTED_CHECKS = 859;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10423,6 +10424,7 @@ const schWorld = () =>
     ...ARCHIVE_CHECKS,
     ...ENSEMBLE_CORE_CHECKS,
     ...ENSEMBLE_SBOM_CHECKS,
+    ...ENSEMBLE_SCA_CHECKS,
     ...ENG_L20_CHECKS,
     ...ENSEMBLE_ENGINE_CHECKS,
     ...ENSEMBLE_YIELD_CHECKS,

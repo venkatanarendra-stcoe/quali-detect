@@ -58,6 +58,19 @@ export const provenanceEntrySchema = z
     severityRaw: noControl(60, 0),
     severityScale: z.enum(/** @type {[string, ...string[]]} */ ([...SEVERITY_SCALES])),
     confidenceRaw: noControl(40).optional(),
+    /** SCA: the CVSS vectors (and the score where the tool gave one or the calculator computed it) this tool reported, at most two (SPEC 5.6.2). */
+    cvss: z
+      .array(
+        z
+          .object({
+            version: z.enum(["3.0", "3.1", "4.0"]),
+            vector: noControl(200),
+            score: z.number().min(0).max(10).optional(),
+          })
+          .strict(),
+      )
+      .max(2)
+      .optional(),
     rawRef: z.object({ toolRunId: z.string().uuid(), ordinal: z.number().int().min(0) }).strict(),
   })
   .strict()

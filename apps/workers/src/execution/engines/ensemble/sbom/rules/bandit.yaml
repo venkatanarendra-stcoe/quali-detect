@@ -1,0 +1,3 @@
+# Platform-owned Bandit configuration (SPEC scan-engines 11.3). The run passes it with `-c /rules/bandit.yaml`. It is deliberately empty:
+# every built-in Bandit test runs with its default settings; nothing is skipped and nothing is added. Verified by a real run on 2026-11-21.
+{}

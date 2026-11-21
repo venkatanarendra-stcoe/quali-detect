@@ -410,6 +410,9 @@ function finishSast(members) {
   const cls = members[0].mergeHints.ruleClass;
   const location = { ...base.location, startLine: start, ...(end > start ? { endLine: end } : {}) };
   if (end <= start) delete location.endLine;
+  // a column belongs to the line of the base candidate: after the ranges of two tools were joined a column that no longer sits on its line is dropped
+  if (start !== lineOf(base)) delete location.startColumn;
+  if (end !== endOf(base)) delete location.endColumn;
   return { dedupKey: sastKey(base.location.path, cls, start), location };
 }
 

@@ -1,0 +1,150 @@
+# QM-RULE-PACK: qm-sast
+# QM-RULE-PROVENANCE: platform-owned; original work of the QmentisAI platform team, written from public vulnerability-class
+#   knowledge (CWE descriptions and language documentation). No rule text was copied from the Semgrep registry, the Opengrep rules
+#   repository, QualiSec or any other third-party pack.
+# QM-RULE-LICENCE: platform-owned (proprietary to the QmentisAI platform). The licence question is recorded for security-team review
+#   (docs/decisions/OPEN_DECISIONS.md, OQ-25).
+# QM-RULE-SCOPE: JavaScript and TypeScript starter rules, version 1 (SPEC scan-engines D-16, OQ-25: a SMALL starter set; the
+#   comprehensive pack is an ongoing security-team deliverable).
+rules:
+  - id: qm.js.sql-injection
+    message: A database query is built by string concatenation or interpolation, which allows SQL injection. Use parameterized queries.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-89"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: $DB.query($A + $B, ...)
+      - pattern: $DB.query(`...${$X}...`, ...)
+      - pattern: $DB.execute($A + $B, ...)
+      - pattern: $DB.execute(`...${$X}...`, ...)
+      - pattern: $DB.raw($A + $B, ...)
+      - pattern: $DB.raw(`...${$X}...`, ...)
+
+  - id: qm.js.command-injection
+    message: A shell command is built from a dynamic value, which allows command injection. Pass arguments as an array without a shell.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-78"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: $CP.exec($A + $B, ...)
+      - pattern: $CP.exec(`...${$X}...`, ...)
+      - pattern: $CP.execSync($A + $B, ...)
+      - pattern: $CP.execSync(`...${$X}...`, ...)
+      - pattern: "$CP.spawn($CMD, $ARGS, { ..., shell: true, ... })"
+      - pattern: "$CP.spawnSync($CMD, $ARGS, { ..., shell: true, ... })"
+
+  - id: qm.js.eval-dynamic-code
+    message: Dynamic code is evaluated from a non-constant value. Evaluating untrusted input allows arbitrary code execution.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-95"]
+      confidence: MEDIUM
+      category: code-injection
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: new Function(..., $X)
+      - pattern-not: eval("...")
+      - pattern-not: new Function(..., "...")
+
+  - id: qm.js.insecure-deserialization
+    message: Untrusted data is deserialized with a library that can instantiate attacker-chosen objects or run code.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-502"]
+      confidence: MEDIUM
+      category: deserialization
+    pattern-either:
+      - pattern: $S.unserialize($X)
+      - pattern: serialize.unserialize($X)
+
+  - id: qm.js.path-traversal
+    message: A file path is built from request data without confining it to a base directory, which allows path traversal.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-22"]
+      confidence: MEDIUM
+      category: path-traversal
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $REQ.query.$P
+          - pattern: $REQ.params.$P
+          - pattern: $REQ.body.$P
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $FS.readFile($X, ...)
+          - pattern: $FS.readFileSync($X, ...)
+          - pattern: $FS.createReadStream($X, ...)
+          - pattern: $FS.writeFile($X, ...)
+          - pattern: $FS.writeFileSync($X, ...)
+    pattern-sanitizers:
+      - pattern: path.basename(...)
+
+  - id: qm.js.weak-hash
+    message: A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-328"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: $C.createHash("md5")
+      - pattern: $C.createHash("sha1")
+      - pattern: $C.createHash("MD5")
+      - pattern: $C.createHash("SHA1")
+
+  - id: qm.js.weak-cipher
+    message: A broken or deprecated cipher is used. Use AES-GCM with a random nonce.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-327"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: $C.createCipher(...)
+      - pattern: $C.createDecipher(...)
+      - pattern: $C.createCipheriv("des-...", ...)
+      - pattern: $C.createCipheriv("rc4", ...)
+      - pattern: $C.createCipheriv("aes-128-ecb", ...)
+      - pattern: $C.createCipheriv("aes-256-ecb", ...)
+
+  - id: qm.js.hardcoded-credential
+    message: A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-798"]
+      confidence: MEDIUM
+      category: hardcoded-credential
+    patterns:
+      - pattern-either:
+          - pattern: const $NAME = "$VALUE"
+          - pattern: let $NAME = "$VALUE"
+          - pattern: var $NAME = "$VALUE"
+          - pattern: $OBJ.$NAME = "$VALUE"
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(password|passwd|secret|api_?key|access_?key|private_?key|auth_?token)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: ^.{8,}$

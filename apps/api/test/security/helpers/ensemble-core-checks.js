@@ -3365,7 +3365,12 @@ export const ENSEMBLE_CORE_CHECKS = [
         evidence: { kind: "line", snippet: "token ghp_abcdefghijklmnopqrstuvwxyz1234" },
       };
       const credRun = toStorageRows([credF, secretF], 10);
-      eq("a credential in the detail", [credRun.items.length, credRun.dropped], [1, 1]);
+      // an excerpt that still looks like a credential is not stored but the finding is kept (part H); a credential anywhere else drops it
+      eq(
+        "a credential in the evidence",
+        [credRun.items.length, credRun.dropped, credRun.details[0].evidence],
+        [2, 0, null],
+      );
       // the row size equals the database formula, evidence is shed first
       const sizeOf = (f) => detailRowBytes(findingToDetail(f));
       const evidenceFor = (target) => ({

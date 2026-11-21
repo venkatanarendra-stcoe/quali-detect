@@ -22,7 +22,7 @@ import {
  *   toolId: string,
  *   image: string,
  *   argv: string[],
- *   paths?: string[],
+ *   paths?: string[],   // repository-relative; the runner passes them as `/src/<path>` after `--`
  *   mounts: { archive?: string, db?: string, rules?: string },
  *   env?: Record<string, string>,
  *   stdin?: string,

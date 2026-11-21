@@ -4,15 +4,15 @@ import { classifyToolExit } from "./tool-exit.js";
 /**
  * One container tool of an ensemble engine, from capacity to the classified result (docs/modules/scan-engines/SPEC.md 5.3, 6.1, 6.4,
  * SE-16 to SE-20): plan from platform data, resolve the digest-pinned image, wait for capacity, run through the `SandboxRunner`, and
- * classify the outcome into the FIXED statuses and reasons. Shared by the SBOM engine and the SCA engine (part G), which differ only in
- * the scan type of the image catalog lookup, the configuration digests and the extra plan input (the SCA database directory). It never
+ * classify the outcome into the FIXED statuses and reasons. Shared by the SBOM, SCA and SAST engines, which differ only in
+ * the scan type of the image catalog lookup, the configuration digests and the extra plan input (the SCA database directory, the SAST explicit targets). It never
  * throws for a tool-originated problem and never returns tool text: the stderr is read only to choose a fixed word.
  *
  * @param {{
  *   runner: { runTool: Function },
  *   gate: { acquire: Function },
  *   resolver: { resolve: Function },
- *   scanType: "sbom" | "sca",
+ *   scanType: "sbom" | "sca" | "sast",
  *   rulesDir: string,
  *   configDigests: Record<string, string>,
  *   toolWaitMs: number,
@@ -46,7 +46,7 @@ export function createContainerToolRunner({
   /**
    * @param {Readonly<any>} adapter a tool adapter
    * @param {{ platform: any, context: any, signal: AbortSignal }} ctx
-   * @param {{ dbDir?: string, dbProvenance?: { dbSnapshotSha256?: string, dbBuiltAt?: string } }} [extra] SCA only: the verified snapshot directory and what the record keeps of it
+   * @param {{ dbDir?: string, dbProvenance?: { dbSnapshotSha256?: string, dbBuiltAt?: string }, targets?: string[], scope?: { kind: string, paths: number } }} [extra] SCA only: the verified snapshot directory and what the record keeps of it; SAST only: the explicit targets and the scope the record keeps
    */
   return async function runContainerTool(adapter, ctx, extra = {}) {
     const { platform, context, signal } = ctx;
@@ -60,7 +60,7 @@ export function createContainerToolRunner({
       status: "failed",
       reason: "sandbox_error",
       exitCode: null,
-      scope: { kind: "full", paths: 0 },
+      scope: extra.scope ?? { kind: "full", paths: 0 },
       limits: {},
       capacityWaitMs: 0,
       ...(extra.dbProvenance ?? {}),
@@ -86,6 +86,7 @@ export function createContainerToolRunner({
         archiveDir: context.sourceDir,
         rulesDir,
         ...(extra.dbDir ? { dbDir: extra.dbDir } : {}),
+        ...(extra.targets ? { targets: extra.targets } : {}),
       });
       spec = resolveRunSpecImage(
         {
@@ -93,6 +94,7 @@ export function createContainerToolRunner({
           imageKey: plan.imageKey,
           argv: plan.argv,
           mounts: plan.mounts,
+          ...(plan.paths ? { paths: plan.paths } : {}),
           env: plan.env,
           limits: plan.limits,
           labels: plan.labels,

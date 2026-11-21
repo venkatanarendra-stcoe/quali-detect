@@ -35,6 +35,7 @@ import { runSync, runYielding } from "./yield.js";
  * @property {object[]} candidates validated candidates (empty when failed)
  * @property {number} recordsSeen @property {number} recordsDropped @property {number} findingsMapped
  * @property {boolean} truncated @property {Record<string, number>} severityCounts
+ * @property {number} [fileErrors] files the tool itself reported it could not process (the run is `partial`, reason `output_invalid`)
  */
 
 const failed = (reason, extra = {}) => ({
@@ -65,8 +66,16 @@ function* parseSteps(adapter, streams, ctx, limits) {
   if (!adapter.acceptedExitCodes.includes(streams.exitCode)) return failed("exit_code");
   if (streams.truncated === true) return failed("output_too_large", { truncated: true });
   let records;
+  let fileErrors = 0;
   try {
-    records = adapter.parse(streams, { ...PARSE_KIT, limits: cap });
+    let parsed = adapter.parse(streams, { ...PARSE_KIT, limits: cap });
+    // a parse may also report how many files the tool itself could not process (a syntax error, a timeout): `{ records, fileErrors }`
+    if (!Array.isArray(parsed) && parsed !== null && typeof parsed === "object") {
+      fileErrors =
+        Number.isInteger(parsed.fileErrors) && parsed.fileErrors > 0 ? parsed.fileErrors : 0;
+      parsed = parsed.records;
+    }
+    records = parsed;
     if (!Array.isArray(records))
       throw new ToolOutputError("output_invalid", "records are not a list");
   } catch (error) {
@@ -91,16 +100,21 @@ function* parseSteps(adapter, streams, ctx, limits) {
   }
   if (seen > 0 && dropped / seen > OUTPUT_DROP_RATIO_LIMIT)
     return failed("output_invalid", { recordsSeen: seen, recordsDropped: dropped, truncated });
-  const partial = dropped > 0 || truncated;
+  const partial = dropped > 0 || truncated || fileErrors > 0;
   return {
     status: partial ? "partial" : "succeeded",
-    reason: truncated ? "output_too_large" : dropped > 0 ? "output_invalid" : null,
+    reason: truncated
+      ? "output_too_large"
+      : dropped > 0 || fileErrors > 0
+        ? "output_invalid"
+        : null,
     candidates,
     recordsSeen: seen,
     recordsDropped: dropped,
     findingsMapped: candidates.length,
     truncated,
     severityCounts,
+    fileErrors,
   };
 }
 

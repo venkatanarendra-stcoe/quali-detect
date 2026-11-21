@@ -1333,8 +1333,9 @@ export const SANDBOX_CHECKS = [
       const idx = imageIndex(args);
       ok(
         p,
-        sep > idx && args.slice(sep + 1).join("\u0000") === paths.join("\u0000"),
-        "paths are not exactly the tail after --",
+        sep > idx &&
+          args.slice(sep + 1).join("\u0000") === paths.map((x) => `/src/${x}`).join("\u0000"),
+        "paths are not exactly the tail after --, under the archive mount",
       );
       ok(
         p,

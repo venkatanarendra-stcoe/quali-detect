@@ -122,7 +122,12 @@ function* storageSteps(findings, cap) {
       continue;
     }
     detail = { ...detail, extra: extra.data };
-    if (detailRowBytes(detail) > FINDING_LIMITS.detailRowBytes)
+    // an excerpt that still looks like a credential is not stored (the finding keeps its location); an oversized one is dropped too
+    if (
+      detail.evidence !== null &&
+      (findCredentials(detail.evidence).length > 0 ||
+        detailRowBytes(detail) > FINDING_LIMITS.detailRowBytes)
+    )
       detail = { ...detail, evidence: null };
     if (
       detailRowBytes(detail) > FINDING_LIMITS.detailRowBytes ||

@@ -1,0 +1,132 @@
+# QM-RULE-PACK: qm-sast
+# QM-RULE-PROVENANCE: platform-owned; original work of the QmentisAI platform team, written from public vulnerability-class
+#   knowledge (CWE descriptions and language documentation). No rule text was copied from the Semgrep registry, the Opengrep rules
+#   repository, QualiSec or any other third-party pack.
+# QM-RULE-LICENCE: platform-owned (proprietary to the QmentisAI platform). The licence question is recorded for security-team review
+#   (docs/decisions/OPEN_DECISIONS.md, OQ-25).
+# QM-RULE-SCOPE: Go starter rules, version 1 (SPEC scan-engines D-16, OQ-25). gosec is held (SPEC phase 4b).
+rules:
+  - id: qm.go.sql-injection
+    message: A database query is built by string formatting or concatenation, which allows SQL injection. Use placeholders.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-89"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: $DB.Query(fmt.Sprintf(...), ...)
+      - pattern: $DB.QueryRow(fmt.Sprintf(...), ...)
+      - pattern: $DB.Exec(fmt.Sprintf(...), ...)
+      - pattern: $DB.Query($A + $B, ...)
+      - pattern: $DB.QueryRow($A + $B, ...)
+      - pattern: $DB.Exec($A + $B, ...)
+      - pattern: $DB.QueryContext($CTX, fmt.Sprintf(...), ...)
+      - pattern: $DB.QueryContext($CTX, $A + $B, ...)
+      - pattern: $DB.ExecContext($CTX, fmt.Sprintf(...), ...)
+      - pattern: $DB.ExecContext($CTX, $A + $B, ...)
+
+  - id: qm.go.command-injection
+    message: A command runs through a shell with a dynamic argument, which allows command injection. Pass arguments directly.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-78"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", $X, ...)
+      - pattern: exec.Command("bash", "-c", $X, ...)
+      - pattern: exec.CommandContext($CTX, "sh", "-c", $X, ...)
+      - pattern: exec.CommandContext($CTX, "bash", "-c", $X, ...)
+
+  - id: qm.go.insecure-deserialization
+    message: Data from an HTTP request body is decoded with encoding/gob, which can allocate attacker-chosen structures.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-502"]
+      confidence: LOW
+      category: deserialization
+    pattern-either:
+      - pattern: gob.NewDecoder($R.Body).Decode(...)
+
+  - id: qm.go.path-traversal
+    message: A file path is built from request data without confining it to a base directory, which allows path traversal.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-22"]
+      confidence: MEDIUM
+      category: path-traversal
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: $R.URL.Query().Get(...)
+          - pattern: $R.FormValue(...)
+          - pattern: $R.PostFormValue(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: os.Open($X)
+          - pattern: os.ReadFile($X)
+          - pattern: os.Create($X)
+          - pattern: os.WriteFile($X, ...)
+          - pattern: ioutil.ReadFile($X)
+          - pattern: filepath.Join($BASE, $X)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+
+  - id: qm.go.weak-hash
+    message: A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-328"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: md5.Sum(...)
+      - pattern: sha1.New()
+      - pattern: sha1.Sum(...)
+
+  - id: qm.go.weak-cipher
+    message: A broken or deprecated cipher is used. Use AES-GCM with a random nonce.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-327"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: des.NewCipher(...)
+      - pattern: des.NewTripleDESCipher(...)
+      - pattern: rc4.NewCipher(...)
+
+  - id: qm.go.hardcoded-credential
+    message: A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-798"]
+      confidence: MEDIUM
+      category: hardcoded-credential
+    patterns:
+      - pattern-either:
+          - pattern: $NAME := "$VALUE"
+          - pattern: $NAME = "$VALUE"
+          - pattern: var $NAME = "$VALUE"
+          - pattern: var $NAME string = "$VALUE"
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(password|passwd|secret|api_?key|access_?key|private_?key|auth_?token)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: ^.{8,}$

@@ -75,7 +75,10 @@ export function buildRunArgs(rawSpec, config) {
   for (const [k, v] of Object.entries(spec.env ?? {}))
     if (k !== "HOME") args.push(`--env=${k}=${v}`);
   args.push("--workdir=/tmp", spec.image, ...spec.argv);
-  if (spec.paths && spec.paths.length > 0) args.push("--", ...spec.paths);
+  // repository-relative paths are placed under the archive mount (the working directory is /tmp, so a bare relative path would
+  // name nothing) and only after the first `--`, so no repository string can ever be read as a flag
+  if (spec.paths && spec.paths.length > 0)
+    args.push("--", ...spec.paths.map((p) => `${MOUNT_TARGETS.archive}/${p}`));
   assertRunArgsSafe(args, config);
   return Object.freeze(args);
 }

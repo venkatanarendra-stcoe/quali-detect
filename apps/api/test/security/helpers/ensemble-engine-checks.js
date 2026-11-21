@@ -3906,8 +3906,11 @@ export const ENSEMBLE_WORLD_CHECKS = [
             buildPipelineEngineRegistry({ ensembleEnabled: "true" }).has("sca", "default"),
             buildPipelineEngineRegistry({ ensembleEnabled: true }).has("sca", "default"),
             buildPipelineEngineRegistry({ ensembleEnabled: true }).has("sast", "default"),
+            buildPipelineEngineRegistry().has("sast", "default"),
+            buildPipelineEngineRegistry({ ensembleEnabled: 1 }).has("sast", "default"),
+            buildPipelineEngineRegistry({ ensembleEnabled: true }).has("secrets", "default"),
           ],
-          [false, false, true, false],
+          [false, false, true, true, false, false, false],
         );
         const presence = buildPipelineEngineRegistry({ ensembleEnabled: true }).get(
           "sca",

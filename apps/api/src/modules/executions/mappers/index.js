@@ -117,6 +117,8 @@ export const toToolRunDto = (r, scanType) => {
   if (!ENSEMBLE_TOOL_IDS.includes(r.toolId)) return null;
   const counts = r.severityCounts && typeof r.severityCounts === "object" ? r.severityCounts : {};
   const scope = r.scope && typeof r.scope === "object" ? r.scope.kind : null;
+  // a SAST run narrowed to the changed files (explicit targets, or the whole tree then filtered) is shown as `changed_paths`
+  const scopeWord = scope === "targets" || scope === "full_filtered" ? "changed_paths" : scope;
   const hasDb = Boolean(r.dbSnapshotSha256 || r.dbBuiltAt);
   return {
     toolId: r.toolId,
@@ -132,7 +134,7 @@ export const toToolRunDto = (r, scanType) => {
     findingsMapped: countOf(r.findingsMapped),
     resultKind: KIND_OF_SCAN_TYPE[scanType] ?? "component",
     db: hasDb ? { builtAt: iso(r.dbBuiltAt), versionShort: shortHash(r.dbSnapshotSha256) } : null,
-    scope: TOOL_SCOPE_WORDS.includes(scope) ? scope : null,
+    scope: TOOL_SCOPE_WORDS.includes(scopeWord) ? scopeWord : null,
   };
 };
 

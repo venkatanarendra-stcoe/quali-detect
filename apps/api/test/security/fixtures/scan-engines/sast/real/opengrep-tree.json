@@ -1,0 +1,919 @@
+{
+  "version": "2.0.0",
+  "results": [
+    {
+      "check_id": "qm.go.hardcoded-credential",
+      "path": "/src/go/main.go",
+      "start": { "line": 12, "col": 5, "offset": 96 },
+      "end": { "line": 12, "col": 39, "offset": 130 },
+      "extra": {
+        "metavars": {
+          "$1": {
+            "start": { "line": 1, "col": 1, "offset": 0 },
+            "end": { "line": 1, "col": 9, "offset": 8 },
+            "abstract_content": "password"
+          },
+          "$NAME": {
+            "start": { "line": 12, "col": 5, "offset": 96 },
+            "end": { "line": 12, "col": 13, "offset": 104 },
+            "abstract_content": "password"
+          },
+          "$VALUE": {
+            "start": { "line": 12, "col": 17, "offset": 108 },
+            "end": { "line": 12, "col": 38, "offset": 129 },
+            "abstract_content": "correct-horse-battery"
+          }
+        },
+        "message": "A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-798"],
+          "confidence": "MEDIUM",
+          "category": "hardcoded-credential"
+        },
+        "severity": "WARNING",
+        "fingerprint": "78f5dc1e6b2afed3efd737654562625c9c93488f32dc988a0eedd8945e865836586a975a3c89725bb248ed7e3df702a21b317952c1df07bba0b31ba06a196681_0",
+        "lines": "var password = \"correct-horse-battery\"",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.go.sql-injection",
+      "path": "/src/go/main.go",
+      "start": { "line": 16, "col": 2, "offset": 231 },
+      "end": { "line": 16, "col": 60, "offset": 289 },
+      "extra": {
+        "metavars": {
+          "$DB": {
+            "start": { "line": 16, "col": 2, "offset": 231 },
+            "end": { "line": 16, "col": 4, "offset": 233 },
+            "abstract_content": "db"
+          }
+        },
+        "message": "A database query is built by string formatting or concatenation, which allows SQL injection. Use placeholders.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-89"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "d7ce7ef420754275003414d42c377e6173f71d4a1ee838ab79347bc0af853beb37406784a6a2efed9f5e87266db212a87e2c2b82e1af7335e9d71438fc820f80_0",
+        "lines": "\tdb.Query(fmt.Sprintf(\"SELECT * FROM t WHERE id = %s\", id))",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.go.command-injection",
+      "path": "/src/go/main.go",
+      "start": { "line": 17, "col": 2, "offset": 291 },
+      "end": { "line": 17, "col": 36, "offset": 325 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 17, "col": 27, "offset": 316 },
+            "end": { "line": 17, "col": 35, "offset": 324 },
+            "abstract_content": "\"ls \"+id"
+          }
+        },
+        "message": "A command runs through a shell with a dynamic argument, which allows command injection. Pass arguments directly.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-78"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "427fba4eab528c5fcc75733ded2f52dfcaff44afaae6a207de6ed809c5721f940b0e02dafe8b8b08c72bcc6fde916b20f69144c4475c9e53912e9a7fddedda53_0",
+        "lines": "\texec.Command(\"sh\", \"-c\", \"ls \"+id).Run()",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.go.weak-hash",
+      "path": "/src/go/main.go",
+      "start": { "line": 18, "col": 7, "offset": 338 },
+      "end": { "line": 18, "col": 16, "offset": 347 },
+      "extra": {
+        "metavars": {},
+        "message": "A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-328"],
+          "confidence": "HIGH",
+          "category": "weak-crypto"
+        },
+        "severity": "WARNING",
+        "fingerprint": "83100f7db6fce41e2cb598be483efe4e523bc948d4732268797893c12886397c15506534752bce2e0f292d47fd2a55d04d5e54b8e00d90d1492c8bddbebe8082_0",
+        "lines": "\th := md5.New()",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.go.path-traversal",
+      "path": "/src/go/main.go",
+      "start": { "line": 20, "col": 10, "offset": 364 },
+      "end": { "line": 20, "col": 44, "offset": 398 },
+      "extra": {
+        "metavars": {
+          "$R": {
+            "start": { "line": 20, "col": 18, "offset": 372 },
+            "end": { "line": 20, "col": 19, "offset": 373 },
+            "abstract_content": "r"
+          },
+          "$X": {
+            "start": { "line": 20, "col": 18, "offset": 372 },
+            "end": { "line": 20, "col": 43, "offset": 397 },
+            "abstract_content": "r.URL.Query().Get(\"file\")"
+          }
+        },
+        "message": "A file path is built from request data without confining it to a base directory, which allows path traversal.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-22"],
+          "confidence": "MEDIUM",
+          "category": "path-traversal"
+        },
+        "severity": "WARNING",
+        "fingerprint": "d2c06168e6c5312347d699ff8edd9b43c2f8bd2f4910c4be034fca3eb859f9c4e9b779ca40aed6578043dbe544ecaed14daf57846e4b394106eea8b06b1bd24d_0",
+        "lines": "\tf, _ := os.Open(r.URL.Query().Get(\"file\"))",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "dataflow_trace": [
+          {
+            "kind": "source",
+            "location": {
+              "path": "/src/go/main.go",
+              "start": { "line": 20, "col": 18, "offset": 372 },
+              "end": { "line": 20, "col": 43, "offset": 397 }
+            },
+            "content": "r.URL.Query().Get(\"file\")",
+            "children": []
+          },
+          {
+            "kind": "sink",
+            "location": {
+              "path": "/src/go/main.go",
+              "start": { "line": 20, "col": 10, "offset": 364 },
+              "end": { "line": 20, "col": 44, "offset": 398 }
+            },
+            "content": "os.Open(r.URL.Query().Get(\"file\"))",
+            "children": []
+          }
+        ],
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.hardcoded-credential",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 8, "col": 1, "offset": 96 },
+      "end": { "line": 8, "col": 37, "offset": 132 },
+      "extra": {
+        "metavars": {
+          "$1": {
+            "start": { "line": 1, "col": 1, "offset": 0 },
+            "end": { "line": 1, "col": 8, "offset": 7 },
+            "abstract_content": "API_KEY"
+          },
+          "$NAME": {
+            "start": { "line": 8, "col": 1, "offset": 96 },
+            "end": { "line": 8, "col": 8, "offset": 103 },
+            "abstract_content": "API_KEY"
+          },
+          "$VALUE": {
+            "start": { "line": 8, "col": 12, "offset": 107 },
+            "end": { "line": 8, "col": 36, "offset": 131 },
+            "abstract_content": "sk_live_abcdefghijklmnop"
+          }
+        },
+        "message": "A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-798"],
+          "confidence": "MEDIUM",
+          "category": "hardcoded-credential"
+        },
+        "severity": "WARNING",
+        "fingerprint": "6e9b0feda294c33cad673dea3307137b14406b923c7dca70f6eecb5ee589687fbaef08309b528dae0c169d1a0671250783994ed6ca1449e3eb0a1459a6fba58f_0",
+        "lines": "API_KEY = \"sk_live_abcdefghijklmnop\"",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.sql-injection",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 13, "col": 5, "offset": 193 },
+      "end": { "line": 13, "col": 57, "offset": 245 },
+      "extra": {
+        "metavars": {
+          "$CUR": {
+            "start": { "line": 13, "col": 5, "offset": 193 },
+            "end": { "line": 13, "col": 8, "offset": 196 },
+            "abstract_content": "cur"
+          },
+          "$FMT": {
+            "start": { "line": 13, "col": 17, "offset": 205 },
+            "end": { "line": 13, "col": 49, "offset": 237 },
+            "abstract_content": "\"SELECT * FROM t WHERE n = '%s'\""
+          },
+          "$ARGS": {
+            "start": { "line": 13, "col": 52, "offset": 240 },
+            "end": { "line": 13, "col": 56, "offset": 244 },
+            "abstract_content": "name",
+            "propagated_value": {
+              "svalue_start": { "line": 12, "col": 12, "offset": 164 },
+              "svalue_end": { "line": 12, "col": 36, "offset": 188 },
+              "svalue_abstract_content": "request.args.get(\"name\")"
+            }
+          }
+        },
+        "message": "A database query is built by string formatting, concatenation or an f-string, which allows SQL injection. Use parameters.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-89"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "076e7f97ea91d768100c954c0db55245923ed56a7cf0702c090e749e66523a72e17c25e984f5a20a3c90f837b981f54fb05837892f3c41ed100ec0bc6cd7faa8_0",
+        "lines": "    cur.execute(\"SELECT * FROM t WHERE n = '%s'\" % name)",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.sql-injection",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 14, "col": 5, "offset": 250 },
+      "end": { "line": 14, "col": 55, "offset": 300 },
+      "extra": {
+        "metavars": {
+          "$CUR": {
+            "start": { "line": 14, "col": 5, "offset": 250 },
+            "end": { "line": 14, "col": 8, "offset": 253 },
+            "abstract_content": "cur"
+          },
+          "$X": {
+            "start": { "line": 14, "col": 47, "offset": 292 },
+            "end": { "line": 14, "col": 51, "offset": 296 },
+            "abstract_content": "name",
+            "propagated_value": {
+              "svalue_start": { "line": 12, "col": 12, "offset": 164 },
+              "svalue_end": { "line": 12, "col": 36, "offset": 188 },
+              "svalue_abstract_content": "request.args.get(\"name\")"
+            }
+          }
+        },
+        "message": "A database query is built by string formatting, concatenation or an f-string, which allows SQL injection. Use parameters.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-89"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "021a6e8da3a10d23ba2e7df4334957df96f60be8c8df470a5033dd58733fb701a57229e0490a2943f182b3ebeccf40f3fa7a182dcf1e3806685dfb96555bab82_0",
+        "lines": "    cur.execute(f\"SELECT * FROM t WHERE n = '{name}'\")",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.command-injection",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 15, "col": 5, "offset": 305 },
+      "end": { "line": 15, "col": 30, "offset": 330 },
+      "extra": {
+        "metavars": {
+          "$A": {
+            "start": { "line": 15, "col": 15, "offset": 315 },
+            "end": { "line": 15, "col": 22, "offset": 322 },
+            "abstract_content": "\"ping \""
+          },
+          "$B": {
+            "start": { "line": 15, "col": 25, "offset": 325 },
+            "end": { "line": 15, "col": 29, "offset": 329 },
+            "abstract_content": "name",
+            "propagated_value": {
+              "svalue_start": { "line": 12, "col": 12, "offset": 164 },
+              "svalue_end": { "line": 12, "col": 36, "offset": 188 },
+              "svalue_abstract_content": "request.args.get(\"name\")"
+            }
+          }
+        },
+        "message": "An operating-system command is built from a dynamic value or runs through a shell, which allows command injection.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-78"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "34f37b9686947080a69d2c41801f7e29dbb0b73d2ecf34037c8f1863e646438302e130f535d7629ed830eebef8301e0ffe729ee3c75b97b7675d9458eee067f4_0",
+        "lines": "    os.system(\"ping \" + name)",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.command-injection",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 16, "col": 5, "offset": 335 },
+      "end": { "line": 16, "col": 46, "offset": 376 },
+      "extra": {
+        "metavars": {
+          "$FN": {
+            "start": { "line": 16, "col": 16, "offset": 346 },
+            "end": { "line": 16, "col": 20, "offset": 350 },
+            "abstract_content": "call"
+          }
+        },
+        "message": "An operating-system command is built from a dynamic value or runs through a shell, which allows command injection.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-78"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "772f660d4a4d0079da5bb185fd878cac0e43c9ba02a259926bf3081bb2e0d4da83878db7a71ded938e77acb5e716344b1326fad57e932b0e3e39271170645d73_0",
+        "lines": "    subprocess.call(\"ls \" + name, shell=True)",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.eval-exec-dynamic",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 17, "col": 5, "offset": 381 },
+      "end": { "line": 17, "col": 35, "offset": 411 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 17, "col": 10, "offset": 386 },
+            "end": { "line": 17, "col": 34, "offset": 410 },
+            "abstract_content": "request.form.get(\"expr\")"
+          }
+        },
+        "message": "Dynamic code is evaluated or executed from a non-constant value. Untrusted input would run as code.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-95"],
+          "confidence": "MEDIUM",
+          "category": "code-injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "d759d27b4c41fc61245e9e8e957caf4387a5574e9de5f5329e5abb77e91374aa209a59305ba6a75dc4b7551ff7c132defd6538cd8368b28e903f0d810f6ca36e_0",
+        "lines": "    eval(request.form.get(\"expr\"))",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.insecure-deserialization",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 18, "col": 12, "offset": 423 },
+      "end": { "line": 18, "col": 44, "offset": 455 },
+      "extra": {
+        "metavars": {},
+        "message": "Untrusted data may be deserialized with a format that can construct arbitrary objects or run code.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-502"],
+          "confidence": "HIGH",
+          "category": "deserialization"
+        },
+        "severity": "ERROR",
+        "fingerprint": "90b22b378c44f4d65c353471e417197672e6164747f8001ec47efaf283a08985ba010a009a5d8c3768150a8aa6ff4dd5ed5a7131a6635d39c1bfb43509c72c50_0",
+        "lines": "    data = pickle.loads(request.get_data())",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.insecure-deserialization",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 19, "col": 11, "offset": 466 },
+      "end": { "line": 19, "col": 40, "offset": 495 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 19, "col": 21, "offset": 476 },
+            "end": { "line": 19, "col": 39, "offset": 494 },
+            "abstract_content": "request.get_data()"
+          }
+        },
+        "message": "Untrusted data may be deserialized with a format that can construct arbitrary objects or run code.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-502"],
+          "confidence": "HIGH",
+          "category": "deserialization"
+        },
+        "severity": "ERROR",
+        "fingerprint": "4ca37b3e094e2d615a5bf6fc23de836f060b9dce206d7e3c4dec3e504a8a06502be0400d90b7b1617369f211e31035a9bb1f3efcae4a5eacd606d12563658f4c_0",
+        "lines": "    cfg = yaml.load(request.get_data())",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.weak-hash",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 20, "col": 9, "offset": 504 },
+      "end": { "line": 20, "col": 35, "offset": 530 },
+      "extra": {
+        "metavars": {},
+        "message": "A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-328"],
+          "confidence": "HIGH",
+          "category": "weak-crypto"
+        },
+        "severity": "WARNING",
+        "fingerprint": "8df0d08a2675b27f92e695a747680bc106059707f9fc8f6d5d250d1a460c37d0329d9144ef3d78ac89c17b437e49d326508a9fc735d04162f3e3d1a84f050a1e_0",
+        "lines": "    h = hashlib.md5(name.encode()).hexdigest()",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.python.path-traversal",
+      "path": "/src/svc/py/app.py",
+      "start": { "line": 21, "col": 10, "offset": 552 },
+      "end": { "line": 21, "col": 40, "offset": 582 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 21, "col": 15, "offset": 557 },
+            "end": { "line": 21, "col": 39, "offset": 581 },
+            "abstract_content": "request.args.get(\"path\")"
+          }
+        },
+        "message": "A file path is built from request data without confining it to a base directory, which allows path traversal.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-22"],
+          "confidence": "MEDIUM",
+          "category": "path-traversal"
+        },
+        "severity": "WARNING",
+        "fingerprint": "f6a642f3c5fa8faebfe2a86c5b86a8bfac9eedc8ac4943c04c107ae63321f338f3c9bf79dae8280f41aafb77e8101efc481473b590669c228c2a673fc7bcb73b_0",
+        "lines": "    with open(request.args.get(\"path\")) as fh:",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "dataflow_trace": [
+          {
+            "kind": "source",
+            "location": {
+              "path": "/src/svc/py/app.py",
+              "start": { "line": 21, "col": 15, "offset": 557 },
+              "end": { "line": 21, "col": 39, "offset": 581 }
+            },
+            "content": "request.args.get(\"path\")",
+            "children": []
+          },
+          {
+            "kind": "sink",
+            "location": {
+              "path": "/src/svc/py/app.py",
+              "start": { "line": 21, "col": 10, "offset": 552 },
+              "end": { "line": 21, "col": 40, "offset": 582 }
+            },
+            "content": "open(request.args.get(\"path\"))",
+            "children": []
+          }
+        ],
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.hardcoded-credential",
+      "path": "/src/web/app.js",
+      "start": { "line": 8, "col": 1, "offset": 202 },
+      "end": { "line": 8, "col": 45, "offset": 246 },
+      "extra": {
+        "metavars": {
+          "$1": {
+            "start": { "line": 1, "col": 3, "offset": 2 },
+            "end": { "line": 1, "col": 11, "offset": 10 },
+            "abstract_content": "Password"
+          },
+          "$NAME": {
+            "start": { "line": 8, "col": 7, "offset": 208 },
+            "end": { "line": 8, "col": 17, "offset": 218 },
+            "abstract_content": "dbPassword"
+          },
+          "$VALUE": {
+            "start": { "line": 8, "col": 21, "offset": 222 },
+            "end": { "line": 8, "col": 44, "offset": 245 },
+            "abstract_content": "hunter2-hunter2-hunter2"
+          }
+        },
+        "message": "A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-798"],
+          "confidence": "MEDIUM",
+          "category": "hardcoded-credential"
+        },
+        "severity": "WARNING",
+        "fingerprint": "c3084f3051ebfd39aace1a3952b693d523e2501344eb0ad4f15520eebfebdd25eb1ad2a3cb9676145fcacf3b71a3e0799f92deb2ef58f09efff3883cda74a689_0",
+        "lines": "const dbPassword = \"hunter2-hunter2-hunter2\";",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.sql-injection",
+      "path": "/src/web/app.js",
+      "start": { "line": 11, "col": 3, "offset": 284 },
+      "end": { "line": 11, "col": 61, "offset": 342 },
+      "extra": {
+        "metavars": {
+          "$DB": {
+            "start": { "line": 11, "col": 3, "offset": 284 },
+            "end": { "line": 11, "col": 5, "offset": 286 },
+            "abstract_content": "db"
+          },
+          "$A": {
+            "start": { "line": 11, "col": 12, "offset": 293 },
+            "end": { "line": 11, "col": 45, "offset": 326 },
+            "abstract_content": "\"SELECT * FROM users WHERE id = \""
+          },
+          "$B": {
+            "start": { "line": 11, "col": 48, "offset": 329 },
+            "end": { "line": 11, "col": 60, "offset": 341 },
+            "abstract_content": "req.query.id"
+          }
+        },
+        "message": "A database query is built by string concatenation or interpolation, which allows SQL injection. Use parameterized queries.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-89"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "a4a948b417ae16cd62bdae5aa7e5ede594a089a7d972c0bf56b8247e38be498baa99e5f0a6008bf6891851f9a2e4a21e86a09e387117ef1b9e815bfb673adc82_0",
+        "lines": "  db.query(\"SELECT * FROM users WHERE id = \" + req.query.id);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.sql-injection",
+      "path": "/src/web/app.js",
+      "start": { "line": 12, "col": 3, "offset": 346 },
+      "end": { "line": 12, "col": 67, "offset": 410 },
+      "extra": {
+        "metavars": {
+          "$DB": {
+            "start": { "line": 12, "col": 3, "offset": 346 },
+            "end": { "line": 12, "col": 5, "offset": 348 },
+            "abstract_content": "db"
+          },
+          "$X": {
+            "start": { "line": 12, "col": 47, "offset": 390 },
+            "end": { "line": 12, "col": 64, "offset": 407 },
+            "abstract_content": "req.query.name"
+          }
+        },
+        "message": "A database query is built by string concatenation or interpolation, which allows SQL injection. Use parameterized queries.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-89"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "5e9ee19bdc02c52e02cc5e541aaf53c536c0aa79b1e515c0bbab13f33f74843e872e5cd140ea8335edfb41bf6f31e68b4b79bdcfc5b8ff0841730e50018dc903_0",
+        "lines": "  db.query(`SELECT * FROM users WHERE name = '${req.query.name}'`);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.command-injection",
+      "path": "/src/web/app.js",
+      "start": { "line": 13, "col": 3, "offset": 414 },
+      "end": { "line": 13, "col": 33, "offset": 444 },
+      "extra": {
+        "metavars": {
+          "$CP": {
+            "start": { "line": 13, "col": 3, "offset": 414 },
+            "end": { "line": 13, "col": 5, "offset": 416 },
+            "abstract_content": "cp"
+          },
+          "$A": {
+            "start": { "line": 13, "col": 11, "offset": 422 },
+            "end": { "line": 13, "col": 16, "offset": 427 },
+            "abstract_content": "\"ls \""
+          },
+          "$B": {
+            "start": { "line": 13, "col": 19, "offset": 430 },
+            "end": { "line": 13, "col": 32, "offset": 443 },
+            "abstract_content": "req.query.dir"
+          }
+        },
+        "message": "A shell command is built from a dynamic value, which allows command injection. Pass arguments as an array without a shell.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-78"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "99181d6739812dd80d3e14b25253065197bc270f13f25bd81954945ec5b3ea24c44aeb9db97d832d635a606c9b89ee018fb0a2db886717a221c4371be267db68_0",
+        "lines": "  cp.exec(\"ls \" + req.query.dir);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.eval-dynamic-code",
+      "path": "/src/web/app.js",
+      "start": { "line": 14, "col": 3, "offset": 448 },
+      "end": { "line": 14, "col": 22, "offset": 467 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 14, "col": 8, "offset": 453 },
+            "end": { "line": 14, "col": 21, "offset": 466 },
+            "abstract_content": "req.body.code"
+          }
+        },
+        "message": "Dynamic code is evaluated from a non-constant value. Evaluating untrusted input allows arbitrary code execution.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-95"],
+          "confidence": "MEDIUM",
+          "category": "code-injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "245d956e3be43a1b9f40bad4d4c6762da6c05cc571e743db2f0b730480d4e073a1ec8784da1e71c1b8db6e17f00c64d1df8b509e2635cc7d489a117f094ad105_0",
+        "lines": "  eval(req.body.code);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.insecure-deserialization",
+      "path": "/src/web/app.js",
+      "start": { "line": 15, "col": 15, "offset": 483 },
+      "end": { "line": 15, "col": 54, "offset": 522 },
+      "extra": {
+        "metavars": {
+          "$S": {
+            "start": { "line": 15, "col": 15, "offset": 483 },
+            "end": { "line": 15, "col": 24, "offset": 492 },
+            "abstract_content": "serialize"
+          },
+          "$X": {
+            "start": { "line": 15, "col": 37, "offset": 505 },
+            "end": { "line": 15, "col": 53, "offset": 521 },
+            "abstract_content": "req.body.payload"
+          }
+        },
+        "message": "Untrusted data is deserialized with a library that can instantiate attacker-chosen objects or run code.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-502"],
+          "confidence": "MEDIUM",
+          "category": "deserialization"
+        },
+        "severity": "ERROR",
+        "fingerprint": "9e5c27fe7ab0f6a8817f75b43417a7c5d411c59135cf5952c2919c4ca6cc50bca7cd8ef390060f4c8fa90ca43a7cb240b2fea035bb8dbbc290b394600dc5e940_0",
+        "lines": "  const obj = serialize.unserialize(req.body.payload);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.path-traversal",
+      "path": "/src/web/app.js",
+      "start": { "line": 16, "col": 3, "offset": 526 },
+      "end": { "line": 16, "col": 48, "offset": 571 },
+      "extra": {
+        "metavars": {
+          "$FS": {
+            "start": { "line": 16, "col": 3, "offset": 526 },
+            "end": { "line": 16, "col": 5, "offset": 528 },
+            "abstract_content": "fs",
+            "propagated_value": {
+              "svalue_start": { "line": 3, "col": 12, "offset": 84 },
+              "svalue_end": { "line": 3, "col": 25, "offset": 97 },
+              "svalue_abstract_content": "require(\"fs\")"
+            }
+          },
+          "$REQ": {
+            "start": { "line": 16, "col": 15, "offset": 538 },
+            "end": { "line": 16, "col": 18, "offset": 541 },
+            "abstract_content": "req"
+          },
+          "$X": {
+            "start": { "line": 16, "col": 15, "offset": 538 },
+            "end": { "line": 16, "col": 29, "offset": 552 },
+            "abstract_content": "req.query.file"
+          },
+          "$P": {
+            "start": { "line": 16, "col": 25, "offset": 548 },
+            "end": { "line": 16, "col": 29, "offset": 552 },
+            "abstract_content": "file"
+          }
+        },
+        "message": "A file path is built from request data without confining it to a base directory, which allows path traversal.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-22"],
+          "confidence": "MEDIUM",
+          "category": "path-traversal"
+        },
+        "severity": "WARNING",
+        "fingerprint": "85b474ea2b3ed7f4ff9f57f9341b29f9c8a0e89f37ead073e703344667c75e10690e0450b0d2c39c84f1b57116c8d95bb394a8c510ca051e1478a0dedcf0d976_0",
+        "lines": "  fs.readFile(req.query.file, \"utf8\", () => {});",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "dataflow_trace": [
+          {
+            "kind": "source",
+            "location": {
+              "path": "/src/web/app.js",
+              "start": { "line": 16, "col": 15, "offset": 538 },
+              "end": { "line": 16, "col": 29, "offset": 552 }
+            },
+            "content": "req.query.file",
+            "children": []
+          },
+          {
+            "kind": "sink",
+            "location": {
+              "path": "/src/web/app.js",
+              "start": { "line": 16, "col": 3, "offset": 526 },
+              "end": { "line": 16, "col": 48, "offset": 571 }
+            },
+            "content": "fs.readFile(req.query.file, \"utf8\", () => {})",
+            "children": []
+          }
+        ],
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.weak-hash",
+      "path": "/src/web/app.js",
+      "start": { "line": 17, "col": 13, "offset": 585 },
+      "end": { "line": 17, "col": 37, "offset": 609 },
+      "extra": {
+        "metavars": {
+          "$C": {
+            "start": { "line": 17, "col": 13, "offset": 585 },
+            "end": { "line": 17, "col": 19, "offset": 591 },
+            "abstract_content": "crypto"
+          }
+        },
+        "message": "A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-328"],
+          "confidence": "HIGH",
+          "category": "weak-crypto"
+        },
+        "severity": "WARNING",
+        "fingerprint": "7e9299686ae4b37cabdf5ead8cdf505a2208d72352a897f8f44b99d542c7da15cdbfd11272828559b9f2451f3e183d9e29266cfe24630e75e1f27db90010a5b7_0",
+        "lines": "  const h = crypto.createHash(\"md5\").update(req.body.pw).digest(\"hex\");",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.command-injection",
+      "path": "/src/web/render.ts",
+      "start": { "line": 5, "col": 3, "offset": 121 },
+      "end": { "line": 5, "col": 46, "offset": 164 },
+      "extra": {
+        "metavars": {
+          "$CP": {
+            "start": { "line": 5, "col": 3, "offset": 121 },
+            "end": { "line": 5, "col": 5, "offset": 123 },
+            "abstract_content": "cp"
+          },
+          "$X": {
+            "start": { "line": 5, "col": 26, "offset": 144 },
+            "end": { "line": 5, "col": 35, "offset": 153 },
+            "abstract_content": "userInput"
+          }
+        },
+        "message": "A shell command is built from a dynamic value, which allows command injection. Pass arguments as an array without a shell.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-78"],
+          "confidence": "HIGH",
+          "category": "injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "4e7063587e803affca5a231e108afe2ba44aeb9ef31635edc1a7d7a452edad1e36347b4b4fda5b82effe11f2f203d933e05718817f8ebce24d43c3467f2ecfad_0",
+        "lines": "  cp.execSync(`convert ${userInput} out.png`);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.weak-cipher",
+      "path": "/src/web/render.ts",
+      "start": { "line": 6, "col": 13, "offset": 178 },
+      "end": { "line": 6, "col": 49, "offset": 214 },
+      "extra": {
+        "metavars": {
+          "$C": {
+            "start": { "line": 6, "col": 13, "offset": 178 },
+            "end": { "line": 6, "col": 19, "offset": 184 },
+            "abstract_content": "crypto"
+          }
+        },
+        "message": "A broken or deprecated cipher is used. Use AES-GCM with a random nonce.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-327"],
+          "confidence": "HIGH",
+          "category": "weak-crypto"
+        },
+        "severity": "WARNING",
+        "fingerprint": "d3223d19c81dc4d11ec3d6925b521ef8885189c87867f22c9fefebad51860fffe6e82f6f82b944191472a2787278b636bb3917e9102688e4f5a2d9cb639da593_0",
+        "lines": "  const c = crypto.createCipher(\"aes192\", \"key\");",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    },
+    {
+      "check_id": "qm.js.eval-dynamic-code",
+      "path": "/src/web/render.ts",
+      "start": { "line": 7, "col": 13, "offset": 228 },
+      "end": { "line": 7, "col": 41, "offset": 256 },
+      "extra": {
+        "metavars": {
+          "$X": {
+            "start": { "line": 7, "col": 31, "offset": 246 },
+            "end": { "line": 7, "col": 40, "offset": 255 },
+            "abstract_content": "userInput"
+          }
+        },
+        "message": "Dynamic code is evaluated from a non-constant value. Evaluating untrusted input allows arbitrary code execution.",
+        "metadata": {
+          "qm_pack": "qm-sast",
+          "cwe": ["CWE-95"],
+          "confidence": "MEDIUM",
+          "category": "code-injection"
+        },
+        "severity": "ERROR",
+        "fingerprint": "c269829637a3eddf60d97c7172b1d9cea9bcac0b4349f83968687b70b57fef1d444d35de783e8622595d5fa74fc6a9aa73d62cf947c4b5a6e7b15fd31eadc31e_0",
+        "lines": "  const f = new Function(\"a\", userInput);",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "Opengrep"
+      }
+    }
+  ],
+  "errors": [],
+  "paths": {
+    "scanned": [
+      "/src/go/main.go",
+      "/src/safe/ok.js",
+      "/src/safe/ok.py",
+      "/src/svc/py/app.py",
+      "/src/web/app.js",
+      "/src/web/render.ts"
+    ]
+  },
+  "interfile_languages_used": [],
+  "skipped_rules": []
+}

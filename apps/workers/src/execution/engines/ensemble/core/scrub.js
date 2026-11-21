@@ -1,4 +1,4 @@
-import { redactCredentialText } from "@qmentisai/infra";
+import { redactCredentialText, redactLogText } from "@qmentisai/infra";
 
 /**
  * Containment of untrusted text and of secret values (docs/modules/scan-engines/SPEC.md 5.6.4, 7.2, ENG-S05, D-5). A secret VALUE
@@ -58,7 +58,23 @@ export function removeVariants(text, variants) {
 }
 
 const PATH_KEYS = new Set(["path"]);
+/** Keys whose value is a multi-line source excerpt: line breaks are kept (every other control character is still removed). */
+const SNIPPET_KEYS = new Set(["snippet"]);
 const MAX_DEPTH = 8;
+
+/**
+ * A source excerpt (customer source text, SPEC SE-43): lines kept (a tab becomes two spaces, a CR is dropped), each line cleaned, then the
+ * platform text redaction `redactLogText` (PEM blocks across lines, `Authorization` headers, `password = value` style pairs and every
+ * credential shape; a text that still looks like a credential afterwards is replaced as a whole) and the known secret values removed.
+ */
+function scrubSnippet(value, variants) {
+  const lines = value
+    .replaceAll("\r", "")
+    .replaceAll("\t", "  ")
+    .split("\n")
+    .map((line) => cleanText(line));
+  return removeVariants(redactLogText(lines.join("\n")), variants);
+}
 
 /**
  * Cleans every string of a candidate-like value: control characters and ANSI removed, invisible characters escaped, known secret
@@ -70,6 +86,7 @@ export function scrubDeep(value, variants, depth = 0, key = "") {
   if (depth > MAX_DEPTH) throw new TypeError("candidate too deep");
   if (typeof value === "string") {
     if (PATH_KEYS.has(key)) return removeVariants(value, variants);
+    if (SNIPPET_KEYS.has(key)) return scrubSnippet(value, variants);
     return removeVariants(redactCredentialText(cleanText(value)), variants);
   }
   if (Array.isArray(value)) return value.map((v) => scrubDeep(v, variants, depth + 1, key));

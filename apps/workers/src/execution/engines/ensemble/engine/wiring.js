@@ -9,11 +9,12 @@ import { createScanDbSnapshotReader, createScanTaskRepository } from "@qmentisai
 import { loadImageLock } from "../catalog/index.js";
 import { createDbSnapshotResolver } from "../db/resolve-db.js";
 import { createEnsembleSbomEngine } from "./engine.js";
+import { createEnsembleSastEngine } from "./sast-engine.js";
 import { createEnsembleScaEngine } from "./sca-engine.js";
 import { createTreePathExists } from "./tree-paths.js";
 
 /**
- * Builds the ensemble engines (SBOM and SCA) and the pieces around it from the validated worker configuration (docs/modules/scan-engines/SPEC.md
+ * Builds the ensemble engines (SBOM, SCA and SAST) and the pieces around it from the validated worker configuration (docs/modules/scan-engines/SPEC.md
  * 5.8, 6.4, part K core). Called ONLY by the scan worker and ONLY while the ensemble rollout flag is true; nothing else
  * imports it. It creates the CLI runtime (execFile, never a shell, never a socket mount), the per-attempt runner, the capacity gate
  * (per worker, tenant, task and fork share), the image resolver from the reviewed lock file and the janitor. `startJanitor` sweeps
@@ -72,6 +73,16 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
     toolWaitMs: s.waitSeconds * 1000,
     treePathExists: createTreePathExists,
   });
+  // SAST: the platform rule pack under `<rulesDir>/qm-sast` is loaded and checked here (a broken pack stops the worker's first scan
+  // task, never scans with a partly valid pack)
+  const sastEngine = createEnsembleSastEngine({
+    runner,
+    gate,
+    resolver,
+    rulesDir: s.rulesDir,
+    toolWaitMs: s.waitSeconds * 1000,
+    treePathExists: createTreePathExists,
+  });
   const tasks = createScanTaskRepository({ db });
   const janitor = createJanitor({
     runtime: rt,
@@ -84,8 +95,9 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
   return {
     engine,
     scaEngine,
-    /** Every ensemble engine, for the registry (the SBOM engine and the SCA engine). */
-    engines: [engine, scaEngine],
+    sastEngine,
+    /** Every ensemble engine, for the registry (the SBOM, SCA and SAST engines). */
+    engines: [engine, scaEngine, sastEngine],
     runner,
     gate,
     janitor,

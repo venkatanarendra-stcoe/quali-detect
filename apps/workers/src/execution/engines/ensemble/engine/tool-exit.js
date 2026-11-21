@@ -17,6 +17,12 @@
  * OSV-Scanner exit 127 with `could not load db for <ecosystem> ecosystem` (a corrupt archive) or `Error during extraction ... osvlocal`
  * (a missing or unwritable directory). OSV-Scanner exit 127 with `Failed to read config file` is `config_invalid`; any other 127 (an
  * unknown flag) is `exit_code`.
+ *
+ * The SAST role (part H, real runs of 2026-11-21, Opengrep 2.0.0 and Bandit 1.9.4): Opengrep exit 7 (an invalid or missing configuration:
+ * `Invalid YAML`, `Missing config`) and exit 8 (an unknown rule language) are the platform's own rule pack being wrong, `config_invalid`;
+ * Opengrep's other non-zero code (2: a rule parse error, a file that does not exist, an unknown option) is `exit_code`. With `--quiet` Opengrep
+ * writes nothing to stderr, so its classification is by exit code only. Bandit exit 2 with `Could not read config file` is `config_invalid`,
+ * any other 2 (usage) is `exit_code`; Bandit's exit 1 (issues found) is an ACCEPTED code and never classified.
  */
 
 /** Stderr examined for a classification (a larger text is cut; the real messages are one line). */
@@ -27,6 +33,10 @@ const CONFIG_INVALID = Object.freeze([
   /(?:^|\n)\S+\s+FATAL\s+Fatal error\s+config file .* loading error/, // Trivy
   /(?:^|\n)Failed to read config file/, // OSV-Scanner (exit 127)
 ]);
+/** SAST role only: Bandit exit 2 with its unreadable-configuration text. */
+const BANDIT_CONFIG_INVALID = /(?:^|\n)\[main\]\s+ERROR\s+\S+ : Could not read config file/;
+/** SAST role only: Opengrep exit codes that mean the platform's own configuration or rule pack is wrong. */
+const OPENGREP_CONFIG_EXIT_CODES = Object.freeze([7, 8]);
 /** SCA role only: the database mount is unusable (see the header). */
 const DB_UNAVAILABLE = Object.freeze({
   trivy: /(?:^|\n)\S+\s+FATAL\s+Fatal error\s+.*\bDB error:/,
@@ -34,13 +44,21 @@ const DB_UNAVAILABLE = Object.freeze({
 });
 
 /**
- * @param {{ exitCode: number | null, stderr?: string, accepted?: readonly number[], role?: "sbom" | "sca", toolId?: string }} input `role: "sca"` with a `toolId` enables the database classification
+ * @param {{ exitCode: number | null, stderr?: string, accepted?: readonly number[], role?: "sbom" | "sca" | "sast", toolId?: string }} input `role: "sca"` with a `toolId` enables the database classification, `role: "sast"` the Opengrep configuration exit codes
  * @returns {"out_of_memory" | "config_invalid" | "db_unavailable" | "exit_code" | null} `null` when the exit code is accepted
  */
 export function classifyToolExit({ exitCode, stderr = "", accepted = [0], role = "sbom", toolId }) {
   if (accepted.includes(/** @type {number} */ (exitCode))) return null;
   if (exitCode === 137) return "out_of_memory";
+  if (
+    role === "sast" &&
+    toolId === "opengrep" &&
+    OPENGREP_CONFIG_EXIT_CODES.includes(/** @type {number} */ (exitCode))
+  )
+    return "config_invalid";
   const text = String(stderr).slice(0, TOOL_EXIT_STDERR_BYTES);
+  if (role === "sast" && toolId === "bandit" && exitCode === 2 && BANDIT_CONFIG_INVALID.test(text))
+    return "config_invalid";
   if (role === "sca" && Object.hasOwn(DB_UNAVAILABLE, toolId ?? "")) {
     const pattern = DB_UNAVAILABLE[/** @type {keyof typeof DB_UNAVAILABLE} */ (toolId)];
     if ((exitCode === 1 || exitCode === 127) && pattern.test(text)) return "db_unavailable";

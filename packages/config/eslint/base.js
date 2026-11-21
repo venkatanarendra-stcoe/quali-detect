@@ -8,7 +8,15 @@ import globals from "globals";
  */
 export default [
   {
-    ignores: ["**/dist/**", "**/build/**", "**/node_modules/**", "**/.turbo/**", "**/coverage/**"],
+    ignores: [
+      "**/dist/**",
+      "**/build/**",
+      "**/node_modules/**",
+      "**/.turbo/**",
+      "**/coverage/**",
+      // deliberately vulnerable source of the SAST fixtures (SPEC scan-engines 17.v); never executed, only scanned
+      "**/fixtures/scan-engines/sast/tree/**",
+    ],
   },
   js.configs.recommended,
   {

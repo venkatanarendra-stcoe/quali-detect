@@ -1,0 +1,147 @@
+# QM-RULE-PACK: qm-sast
+# QM-RULE-PROVENANCE: platform-owned; original work of the QmentisAI platform team, written from public vulnerability-class
+#   knowledge (CWE descriptions and language documentation). No rule text was copied from the Semgrep registry, the Opengrep rules
+#   repository, QualiSec or any other third-party pack.
+# QM-RULE-LICENCE: platform-owned (proprietary to the QmentisAI platform). The licence question is recorded for security-team review
+#   (docs/decisions/OPEN_DECISIONS.md, OQ-25).
+# QM-RULE-SCOPE: Python starter rules, version 1 (SPEC scan-engines D-16, OQ-25). Bandit's built-in Python rules run beside these.
+rules:
+  - id: qm.python.sql-injection
+    message: A database query is built by string formatting, concatenation or an f-string, which allows SQL injection. Use parameters.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-89"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: $CUR.execute($A + $B, ...)
+      - pattern: $CUR.execute($FMT % $ARGS, ...)
+      - pattern: $CUR.execute($FMT.format(...), ...)
+      - pattern: $CUR.execute(f"...{$X}...", ...)
+      - pattern: $CUR.executemany($A + $B, ...)
+      - pattern: $CUR.executemany(f"...{$X}...", ...)
+
+  - id: qm.python.command-injection
+    message: An operating-system command is built from a dynamic value or runs through a shell, which allows command injection.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-78"]
+      confidence: HIGH
+      category: injection
+    pattern-either:
+      - pattern: os.system($A + $B)
+      - pattern: os.system(f"...{$X}...")
+      - pattern: os.system($FMT % $ARGS)
+      - pattern: os.popen($A + $B, ...)
+      - pattern: os.popen(f"...{$X}...", ...)
+      - pattern: subprocess.$FN(..., shell=True, ...)
+
+  - id: qm.python.eval-exec-dynamic
+    message: Dynamic code is evaluated or executed from a non-constant value. Untrusted input would run as code.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-95"]
+      confidence: MEDIUM
+      category: code-injection
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: exec($X)
+      - pattern-not: eval("...")
+      - pattern-not: exec("...")
+
+  - id: qm.python.insecure-deserialization
+    message: Untrusted data may be deserialized with a format that can construct arbitrary objects or run code.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-502"]
+      confidence: HIGH
+      category: deserialization
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: marshal.loads(...)
+      - pattern: yaml.load($X)
+      - pattern: yaml.load($X, Loader=yaml.Loader)
+      - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+
+  - id: qm.python.path-traversal
+    message: A file path is built from request data without confining it to a base directory, which allows path traversal.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-22"]
+      confidence: MEDIUM
+      category: path-traversal
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.args.get(...)
+          - pattern: request.form.get(...)
+          - pattern: request.values.get(...)
+          - pattern: request.args[...]
+          - pattern: request.form[...]
+    pattern-sinks:
+      - pattern-either:
+          - pattern: open($X, ...)
+          - pattern: os.path.join($BASE, $X)
+          - pattern: send_file($X, ...)
+    pattern-sanitizers:
+      - pattern: os.path.basename(...)
+
+  - id: qm.python.weak-hash
+    message: A weak hash algorithm (MD5 or SHA-1) is used. Use SHA-256 or stronger, and a password hash function for passwords.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-328"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+      - pattern: hashlib.new("md5", ...)
+      - pattern: hashlib.new("sha1", ...)
+
+  - id: qm.python.weak-cipher
+    message: A broken or deprecated cipher or mode is used. Use AES-GCM with a random nonce.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-327"]
+      confidence: HIGH
+      category: weak-crypto
+    pattern-either:
+      - pattern: DES.new(...)
+      - pattern: ARC4.new(...)
+      - pattern: Blowfish.new(...)
+      - pattern: AES.new($K, AES.MODE_ECB, ...)
+
+  - id: qm.python.hardcoded-credential
+    message: A credential appears to be hard-coded in source. Load secrets from a secret store or the environment instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      qm_pack: qm-sast
+      cwe: ["CWE-798"]
+      confidence: MEDIUM
+      category: hardcoded-credential
+    patterns:
+      - pattern: $NAME = "$VALUE"
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(password|passwd|secret|api_?key|access_?key|private_?key|auth_?token)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: ^.{8,}$

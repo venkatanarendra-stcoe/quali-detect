@@ -1,5 +1,5 @@
 import { isSafeRelativePath } from "@qmentisai/shared";
-import { TOOL_LANGUAGES, languageOfFile } from "./languages.js";
+import { TOOL_LANGUAGES, isVendoredPath, languageOfFile } from "./languages.js";
 
 /**
  * Incremental scope of the SAST tools (docs/modules/scan-engines/SPEC.md 5.9 SE-22 to SE-24, SE-27, D-7). The changed-path list of the
@@ -79,7 +79,7 @@ export function planScope(changedPaths, inventory) {
     // a changed file of the tree that cannot be a target (an unusual name) is never skipped: the run becomes a full one, then filtered
     if (list.length !== present.length || list.length > MAX_TARGETS) widen = true;
     dropped += [...changed].filter(
-      (p) => languages.includes(languageOfFile(p) ?? "") && !inTree.has(p),
+      (p) => languages.includes(languageOfFile(p) ?? "") && !inTree.has(p) && !isVendoredPath(p),
     ).length;
     targets[tool] = list;
   }
@@ -98,6 +98,18 @@ export function filterToChanged(findings, changed) {
     const p = f.location?.path;
     return p === undefined || changed.has(p);
   });
+  return { kept, dropped: findings.length - kept.length };
+}
+
+/**
+ * The platform-owned vendored-directory filter (SPEC 17.w (5)), applied once to the MERGED findings whatever the tools did: a finding below
+ * `node_modules`, `vendor`, `.venv`, `venv`, `site-packages`, `dist`, `build` or `target` is never stored (defence in depth behind the
+ * tools' own exclusion arguments).
+ * @param {object[]} findings
+ * @returns {{ kept: object[], dropped: number }}
+ */
+export function dropVendored(findings) {
+  const kept = findings.filter((f) => !(f.location?.path && isVendoredPath(f.location.path)));
   return { kept, dropped: findings.length - kept.length };
 }
 

@@ -23,6 +23,11 @@
  * Opengrep's other non-zero code (2: a rule parse error, a file that does not exist, an unknown option) is `exit_code`. With `--quiet` Opengrep
  * writes nothing to stderr, so its classification is by exit code only. Bandit exit 2 with `Could not read config file` is `config_invalid`,
  * any other 2 (usage) is `exit_code`; Bandit's exit 1 (issues found) is an ACCEPTED code and never classified.
+ *
+ * The SECRETS role (part I, real runs of 2026-11-21, Gitleaks 8.30.1 and detect-secrets 1.5.0): Gitleaks answers an unreadable or missing platform
+ * configuration with exit 1 and `FTL unable to load gitleaks config, err: open /rules/...: no such file or directory` (coloured even with
+ * `--no-color`), `config_invalid`; its leaks exit code 7 is ACCEPTED (`--exit-code 7`); every other non-zero code is `exit_code`.
+ * detect-secrets exits 0 for a completed scan and 2 for an argument error (`exit_code`); it has no configuration file.
  */
 
 /** Stderr examined for a classification (a larger text is cut; the real messages are one line). */
@@ -37,6 +42,10 @@ const CONFIG_INVALID = Object.freeze([
 const BANDIT_CONFIG_INVALID = /(?:^|\n)\[main\]\s+ERROR\s+\S+ : Could not read config file/;
 /** SAST role only: Opengrep exit codes that mean the platform's own configuration or rule pack is wrong. */
 const OPENGREP_CONFIG_EXIT_CODES = Object.freeze([7, 8]);
+/** SECRETS role only: Gitleaks exit 1 with its unreadable-configuration line (ANSI colour codes are stripped first; the real line is `FTL unable to load gitleaks config, err: ...`). */
+const GITLEAKS_CONFIG_INVALID = /(?:^|\n)\S+\s+FTL\s+unable to load gitleaks config/;
+// eslint-disable-next-line no-control-regex -- stripping the colour codes of a tool's log line is the point
+const ANSI = /\u001b\[[0-9;]*m/g;
 /** SCA role only: the database mount is unusable (see the header). */
 const DB_UNAVAILABLE = Object.freeze({
   trivy: /(?:^|\n)\S+\s+FATAL\s+Fatal error\s+.*\bDB error:/,
@@ -44,7 +53,7 @@ const DB_UNAVAILABLE = Object.freeze({
 });
 
 /**
- * @param {{ exitCode: number | null, stderr?: string, accepted?: readonly number[], role?: "sbom" | "sca" | "sast", toolId?: string }} input `role: "sca"` with a `toolId` enables the database classification, `role: "sast"` the Opengrep configuration exit codes
+ * @param {{ exitCode: number | null, stderr?: string, accepted?: readonly number[], role?: "sbom" | "sca" | "sast" | "secrets", toolId?: string }} input `role: "secrets"` with Gitleaks enables the configuration classification, `role: "sca"` with a `toolId` enables the database classification, `role: "sast"` the Opengrep configuration exit codes
  * @returns {"out_of_memory" | "config_invalid" | "db_unavailable" | "exit_code" | null} `null` when the exit code is accepted
  */
 export function classifyToolExit({ exitCode, stderr = "", accepted = [0], role = "sbom", toolId }) {
@@ -58,6 +67,13 @@ export function classifyToolExit({ exitCode, stderr = "", accepted = [0], role =
     return "config_invalid";
   const text = String(stderr).slice(0, TOOL_EXIT_STDERR_BYTES);
   if (role === "sast" && toolId === "bandit" && exitCode === 2 && BANDIT_CONFIG_INVALID.test(text))
+    return "config_invalid";
+  if (
+    role === "secrets" &&
+    toolId === "gitleaks" &&
+    exitCode === 1 &&
+    GITLEAKS_CONFIG_INVALID.test(text.replace(ANSI, ""))
+  )
     return "config_invalid";
   if (role === "sca" && Object.hasOwn(DB_UNAVAILABLE, toolId ?? "")) {
     const pattern = DB_UNAVAILABLE[/** @type {keyof typeof DB_UNAVAILABLE} */ (toolId)];

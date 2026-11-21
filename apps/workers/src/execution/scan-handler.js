@@ -103,6 +103,17 @@ const exclusionOf = (patterns) => (relativePath) =>
       matchGlob(`${pattern.replace(/\/+$/, "")}/**`, relativePath),
   );
 
+/**
+ * The pipeline's exclusion predicate plus the ENGINE's own extraction deny list (SPEC scan-engines 11.3 layer 2): a platform-owned list of
+ * tool-control file names that must never reach the tools of the engine's scan type (for example a repository `.gitleaksignore`, which hides
+ * every Gitleaks finding). An engine without `extractionDeny` changes nothing.
+ * @param {(relativePath: string) => boolean} userExclusion @param {{ extractionDeny?: unknown }} engine
+ */
+const withEngineDeny = (userExclusion, engine) =>
+  typeof engine?.extractionDeny === "function"
+    ? (relativePath) => userExclusion(relativePath) || engine.extractionDeny(relativePath) === true
+    : userExclusion;
+
 /** The result columns only an ensemble engine fills (scan engines part K): schema version 2 data of `scan_results` and the detail rows. */
 const ensembleResultFields = (ensemble) => ({
   coverage: ensemble.coverage,
@@ -306,7 +317,7 @@ export function createScanTaskHandler({
         await extractTarGz(store.open(ref), {
           destDir: sourceDir,
           limits: ex.archiveLimits,
-          exclude: exclusionOf(parsed.data.exclusions?.paths ?? []),
+          exclude: withEngineDeny(exclusionOf(parsed.data.exclusions?.paths ?? []), adapter),
         });
         // The ScanContext (ER-5): ids, scan type, engine, thresholds, deadline and the extracted tree. No token, no SecretStore
         // handle, no URL with credentials: the same guard that protects messages protects the context.

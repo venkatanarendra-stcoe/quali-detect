@@ -34,6 +34,7 @@ export {
   OPENGREP_ARGV,
   OPENGREP_ENV,
   OPENGREP_FULL_TARGET,
+  OPENGREP_VERIFIED_VERSION,
   PLATFORM_RULE_ID,
   createOpengrepAdapter,
   mapOpengrepRecord,

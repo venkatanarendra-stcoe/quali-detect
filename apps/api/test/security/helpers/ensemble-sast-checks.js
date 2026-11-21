@@ -1142,6 +1142,16 @@ export const ENSEMBLE_SAST_CHECKS = [
           "-j",
           "2",
           "--no-autofix",
+          ...[
+            "node_modules",
+            "vendor",
+            ".venv",
+            "venv",
+            "site-packages",
+            "dist",
+            "build",
+            "target",
+          ].flatMap((n) => ["--exclude", n]),
         ],
       );
       same(
@@ -1157,6 +1167,8 @@ export const ENSEMBLE_SAST_CHECKS = [
           "/rules/empty.ini",
           "--ignore-nosec",
           "-q",
+          "-x",
+          "*/node_modules/*,*/vendor/*,*/.venv/*,*/venv/*,*/site-packages/*,*/dist/*,*/build/*,*/target/*",
         ],
       );
       same(
@@ -1193,7 +1205,7 @@ export const ENSEMBLE_SAST_CHECKS = [
         "the Opengrep configuration is not the platform pack",
       );
       const forbidden =
-        /^(--metrics|--autofix|-a|--enable-nosem|--use-git-ignore|--baseline-commit|--exclude|--include|--skip-invalid-configs|--sarif|--error|--verbose|--debug|--dataflow-traces|--pro|--oss|--allow-rule-timeout-control|auto)\b/;
+        /^(--metrics|--autofix|-a|--enable-nosem|--use-git-ignore|--baseline-commit|--include|--skip-invalid-configs|--sarif|--error|--verbose|--debug|--dataflow-traces|--pro|--oss|--allow-rule-timeout-control|auto)\b/;
       ok(p, !OPENGREP_ARGV.some((a) => forbidden.test(a)), "Opengrep carries a forbidden flag");
       ok(
         p,
@@ -1799,6 +1811,7 @@ export const ENSEMBLE_SAST_CHECKS = [
           "bandit.yaml",
           "canary.cdx.json",
           "empty.ini",
+          "gitleaks.toml",
           "osv-scanner.toml",
           "qm-sast",
           "syft.yaml",

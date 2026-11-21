@@ -16,7 +16,7 @@ export function buildEngineRegistry({ ensembleEnabled = false, createEnsembleEng
   if (ensembleEnabled === true) {
     if (typeof createEnsembleEngine !== "function")
       throw new TypeError("the ensemble flag is on but no ensemble engine factory was given");
-    // one engine or a list (the ensemble engines of the scan types: SBOM, SCA and SAST)
+    // one engine or a list (the ensemble engines of the scan types: SBOM, SCA, SAST and Secrets)
     const made = createEnsembleEngine();
     for (const engine of Array.isArray(made) ? made : [made]) registry.register(engine);
   }
@@ -25,15 +25,15 @@ export function buildEngineRegistry({ ensembleEnabled = false, createEnsembleEng
 
 /**
  * The engine registry of the PIPELINE worker while the ensemble flag is on (SPEC scan-engines part G): the orchestrator only asks
- * `has(scanType, engineId)` to decide which tasks it can create, and the SCA and SAST engines live in the scan worker. The SCA and SAST entries here are
- * PRESENCE entries (`runTask` refuses: no scan runs in this process), so an SCA or SAST scan is created as a task instead of `unsupported`; with
+ * `has(scanType, engineId)` to decide which tasks it can create, and the SCA, SAST and Secrets engines live in the scan worker. The SCA, SAST and Secrets entries here are
+ * PRESENCE entries (`runTask` refuses: no scan runs in this process), so an SCA, SAST or Secrets scan is created as a task instead of `unsupported`; with
  * the flag off the module-level registry is used and both stay unsupported, exactly as before.
  * @param {{ ensembleEnabled?: unknown }} [options] only a STRICTLY `true` value adds the entry
  */
 export function buildPipelineEngineRegistry({ ensembleEnabled = false } = {}) {
   const registry = buildEngineRegistry();
   if (ensembleEnabled === true)
-    for (const scanType of ["sca", "sast"])
+    for (const scanType of ["sca", "sast", "secrets"])
       registry.register({
         scanType,
         engineId: "default",

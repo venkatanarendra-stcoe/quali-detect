@@ -9,6 +9,7 @@ import {
   sastBody,
   text,
 } from "./common.js";
+import { VENDORED_DIRECTORIES } from "./languages.js";
 import { SAST_TOOL_LIMITS, planSastTool } from "./plan.js";
 
 /**
@@ -39,6 +40,10 @@ export const BANDIT_ARGV = Object.freeze([
   "/rules/empty.ini",
   "--ignore-nosec",
   "-q",
+  // the platform-owned vendored directories at any depth (SPEC 17.w (5)). VERIFIED: bare names match as SUBSTRINGS (`build` also dropped `my_build`
+  // and `buildings`), the slash-delimited globs do not
+  "-x",
+  VENDORED_DIRECTORIES.map((name) => `*/${name}/*`).join(","),
 ]);
 /** The argument that names the whole tree; omitted when explicit targets are given (they follow `--`, without `-r`). */
 export const BANDIT_FULL_TARGET = Object.freeze(["-r", "/src"]);

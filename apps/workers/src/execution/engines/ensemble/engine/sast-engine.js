@@ -9,7 +9,7 @@ import { createBanditAdapter } from "../sast/bandit.js";
 import { applicability, walkSourceTree } from "../sast/languages.js";
 import { createOpengrepAdapter } from "../sast/opengrep.js";
 import { loadRulePack } from "../sast/rule-pack.js";
-import { filterToChanged, planScope, scopedInventory } from "../sast/scope.js";
+import { dropVendored, filterToChanged, planScope, scopedInventory } from "../sast/scope.js";
 import { createContainerToolRunner } from "./container-run.js";
 import { DEFAULT_TOOL_WAIT_MS, ENGINE_ID, ENSEMBLE_VERSION } from "./constants.js";
 import { runManifestSha256 } from "./run-manifest.js";
@@ -194,7 +194,7 @@ export function createEnsembleSastEngine({
         candidates: parsed.flatMap((p) => p.candidates),
       });
       // SE-24: merge first, filter after, once, identically for every kind of incremental scope
-      const filtered = filterToChanged(merged.findings, scope.changed);
+      const filtered = filterToChanged(dropVendored(merged.findings).kept, scope.changed);
       const rows = await toStorageRowsAsync(filtered.kept, platform.maxItems ?? 50_000);
       // a mixed tree: the languages no tool covers are named and the result is not complete
       const gapped = [5, 6].includes(rollup.matchedRow) && app.gaps.length > 0;

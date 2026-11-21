@@ -236,8 +236,21 @@ function* groupSast(candidates) {
 }
 
 const isGeneric = (t) => GENERIC_SECRET_TYPE_CLASSES.includes(t);
+/**
+ * Secrets order (part I, real two-tool output): path, line, SPECIFIC types before generic ones, then type, tool and reference. A specific
+ * candidate therefore founds its group first and a generic one of the other tool joins it; with the generic first, a tool's specific candidate
+ * on the same line could no longer join (SE-12) and the line showed two findings of one class.
+ */
+const bySecretLocation = (a, b) =>
+  cmp(pathOf(a), pathOf(b)) ||
+  lineOf(a) - lineOf(b) ||
+  Number(isGeneric(a.mergeHints?.typeClass ?? "other")) -
+    Number(isGeneric(b.mergeHints?.typeClass ?? "other")) ||
+  cmp(a.mergeHints?.typeClass ?? "", b.mergeHints?.typeClass ?? "") ||
+  toolIndex(toolOf(a)) - toolIndex(toolOf(b)) ||
+  cmp(refOf(a), refOf(b));
 export function* groupSecrets(candidates) {
-  const sorted = yield* sortYielding(candidates, byLocation);
+  const sorted = yield* sortYielding(candidates, bySecretLocation);
   const groups = [];
   for (const c of sorted) {
     const tool = toolOf(c);

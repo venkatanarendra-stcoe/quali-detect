@@ -1,0 +1,5 @@
+# Platform-owned Gitleaks configuration (SPEC scan-engines 11.3, 17.x; ENG-L23). The run passes it with `-c /rules/gitleaks.toml`, so Gitleaks never
+# reads the repository's `.gitleaks.toml` (verified on a real run on 2026-11-21 with Gitleaks 8.30.1: a planted allow-all `.gitleaks.toml` changed
+# nothing). It extends the DEFAULT rules compiled into the binary (MIT) and adds nothing: no allowlist, no rule of the repository.
+[extend]
+useDefault = true

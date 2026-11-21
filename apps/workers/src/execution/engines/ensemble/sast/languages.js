@@ -58,6 +58,35 @@ export const TOOL_LANGUAGES = Object.freeze({
   bandit: Object.freeze(["python"]),
 });
 
+/**
+ * Vendored and generated directories the SAST tools never scan (owner decision 2026-11-21, SPEC 17.w (5)): a PLATFORM-OWNED, fixed list, never
+ * read from the repository, so a repository cannot hide its own code with it beyond these eight names. A directory with one of these names
+ * is skipped at ANY depth (Opengrep `--exclude <name>`, Bandit `-x` with a star-slash glob per name, the tree walk and the final finding filter), and a
+ * file below one is not a source file for the applicability gate. The SECRETS scan type does NOT use this list (secrets hide in vendored and
+ * build output; SPEC 17.w (5)).
+ */
+export const VENDORED_DIRECTORIES = Object.freeze([
+  "node_modules",
+  "vendor",
+  ".venv",
+  "venv",
+  "site-packages",
+  "dist",
+  "build",
+  "target",
+]);
+const VENDORED = new Set(VENDORED_DIRECTORIES);
+
+/**
+ * Whether a repository-relative POSIX path lies below a vendored directory (any directory segment, never the final file name).
+ * @param {string} relativePath
+ */
+export function isVendoredPath(relativePath) {
+  const parts = String(relativePath).split("/");
+  for (let i = 0; i < parts.length - 1; i += 1) if (VENDORED.has(parts[i])) return true;
+  return false;
+}
+
 /** Limits of the bounded tree walk (a hostile or huge tree never costs unbounded memory or time). */
 export const WALK_LIMITS = Object.freeze({
   maxEntries: 1_000_000,
@@ -91,6 +120,7 @@ export function inventoryOf(files, { maxPaths = WALK_LIMITS.maxPaths } = {}) {
   const inv = { counts: {}, paths: {}, truncated: false };
   let kept = 0;
   for (const file of files) {
+    if (isVendoredPath(file)) continue;
     const language = languageOfFile(file);
     if (language === null) continue;
     inv.counts[language] = (inv.counts[language] ?? 0) + 1;
@@ -140,6 +170,7 @@ export async function walkSourceTree(root, limits = {}) {
       }
       const relative = rel === "" ? entry.name : `${rel}/${entry.name}`;
       if (entry.isDirectory()) {
+        if (VENDORED.has(entry.name)) continue; // a vendored directory is not walked (SPEC 17.w (5))
         if (depth + 1 > cap.maxDepth) inv.truncated = true;
         else stack.push({ dir: path.join(dir, entry.name), rel: relative, depth: depth + 1 });
       } else if (entry.isFile()) {

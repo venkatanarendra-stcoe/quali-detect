@@ -10,6 +10,7 @@ import {
   sastBody,
   text,
 } from "./common.js";
+import { VENDORED_DIRECTORIES } from "./languages.js";
 import { SAST_TOOL_LIMITS, planSastTool } from "./plan.js";
 
 /**
@@ -28,6 +29,7 @@ import { SAST_TOOL_LIMITS, planSastTool } from "./plan.js";
  * - `--no-rewrite-rule-ids`: the rule id stays `qm.<lang>.<name>` instead of a path-derived `rules.qm-sast.qm...`;
  * - `--no-autofix` (the tree is read-only anyway), `--timeout 30` (per rule and file), `--max-target-bytes 1000000`, `-j 2`, `--json`,
  *   `--quiet`.
+ * - `--exclude <name>` once per platform-owned vendored directory (SPEC 17.w (5)); the repository cannot change the list.
  * There is NO `--metrics` and NO version-check option (`--metrics=off` is an unknown option, exit 2); the binary has no metrics or
  * update feature and the container has no network. `.semgrep.yml`, `.semgrep/`, `.opengrep/` and `semgrep.yml` in the repository are
  * never read (config planting test, same 26 results as the clean tree).
@@ -58,7 +60,12 @@ export const OPENGREP_ARGV = Object.freeze([
   "-j",
   "2",
   "--no-autofix",
+  // the platform-owned vendored directories, skipped at any depth (SPEC 17.w (5); verified: `--exclude node_modules` also skips `deep/node_modules`
+  // and keeps `my_build` and `buildings`)
+  ...VENDORED_DIRECTORIES.flatMap((name) => ["--exclude", name]),
 ]);
+/** The Opengrep version whose flags were VERIFIED (SPEC 17.w (4)); the lock file must name exactly this version, so an upgrade is a deliberate, re-verified act. */
+export const OPENGREP_VERIFIED_VERSION = "2.0.0";
 /** The argument that names the whole tree; omitted when explicit targets are given (they follow `--`). */
 export const OPENGREP_FULL_TARGET = Object.freeze(["/src"]);
 /** No effect was proven (the tool has no such feature); they are in the sandbox allowlist and cost nothing. */

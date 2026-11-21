@@ -1,0 +1,66 @@
+{
+  "capturedOn": "2026-11-21",
+  "decision": "SPEC scan-engines D-24 (a): all components included (dev, optional, test)",
+  "sandbox": "rootful Docker 29.1.3, containerd image store, Linux x86_64",
+  "tools": {
+    "syft": "1.57.2",
+    "trivy": "0.76.2"
+  },
+  "syftConfigKey": "javascript.include-dev-dependencies: true in /rules/syft.yaml",
+  "trivyFlag": "--include-dev-deps",
+  "treeC": {
+    "note": "generated locally: web/package-lock.json (lockfile v3, real npm, dev, optional and peer entries), java/pom.xml (test, provided and optional Maven dependencies), py/{requirements.txt,requirements-dev.txt,Pipfile,Pipfile.lock,poetry.lock (dev group, optional extra),pyproject.toml}, svc/{go.mod,go.sum}, pn/pnpm-lock.yaml and yn/yarn.lock (a development dependency each); the Pipfile.lock, poetry.lock, pnpm and yarn lockfiles are hand written",
+    "before": "treeC/before/*: Syft 18 and Trivy 12 purls, union 21 (the previous sealed command lines)",
+    "after": "treeC/*: Syft 20 and Trivy 18 purls, union 23"
+  },
+  "runs": {
+    "sample": {
+      "syft-sealed": {
+        "tool": "syft",
+        "toolArgv": ["-c", "/rules/syft.yaml", "dir:/src", "-o", "cyclonedx-json"],
+        "exitCode": 0,
+        "wallMs": 2071
+      },
+      "trivy-sealed": {
+        "tool": "trivy",
+        "toolArgv": [
+          "fs",
+          "--config",
+          "/rules/trivy.yaml",
+          "--scanners",
+          "license",
+          "--include-dev-deps",
+          "--format",
+          "cyclonedx",
+          "/src"
+        ],
+        "exitCode": 0,
+        "wallMs": 508
+      }
+    },
+    "treeC": {
+      "syft-sealed": {
+        "tool": "syft",
+        "toolArgv": ["-c", "/rules/syft.yaml", "dir:/src", "-o", "cyclonedx-json"],
+        "exitCode": 0,
+        "wallMs": 2231
+      },
+      "trivy-sealed": {
+        "tool": "trivy",
+        "toolArgv": [
+          "fs",
+          "--config",
+          "/rules/trivy.yaml",
+          "--scanners",
+          "license",
+          "--include-dev-deps",
+          "--format",
+          "cyclonedx",
+          "/src"
+        ],
+        "exitCode": 0,
+        "wallMs": 503
+      }
+    }
+  }
+}

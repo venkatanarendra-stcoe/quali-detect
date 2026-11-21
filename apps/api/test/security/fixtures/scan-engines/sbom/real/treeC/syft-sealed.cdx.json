@@ -1,0 +1,713 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:898c08c8-0b91-46e3-9e7b-ef837aa577e5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-21T07:39:48Z",
+    "tools": {
+      "components": [
+        { "type": "application", "author": "anchore", "name": "syft", "version": "1.57.2" }
+      ]
+    },
+    "component": { "bom-ref": "dfcd457ff0b35452", "type": "file", "name": "/src" }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:npm/%40types/node@20.11.0?package-id=463aba5bbcc7e033",
+      "type": "library",
+      "name": "@types/node",
+      "version": "20.11.0",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "cpe": "cpe:2.3:a:\\@types\\/node:\\@types\\/node:20.11.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/%40types/node@20.11.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/colorama@0.4.6?package-id=ca0a1caf4b018408",
+      "type": "library",
+      "name": "colorama",
+      "version": "0.4.6",
+      "cpe": "cpe:2.3:a:python-colorama:python-colorama:0.4.6:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/colorama@0.4.6",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-poetry-lock-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-colorama:python_colorama:0.4.6:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_colorama:python-colorama:0.4.6:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_colorama:python_colorama:0.4.6:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:colorama:python-colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:colorama:python_colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python-colorama:colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python_colorama:colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python-colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python_colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:colorama:colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:colorama:0.4.6:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/py/poetry.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/django@3.2.0?package-id=cf4bb24fa43028cb",
+      "type": "library",
+      "name": "django",
+      "version": "3.2.0",
+      "cpe": "cpe:2.3:a:python-django:python-django:3.2.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/django@3.2.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-pip-requirements-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-django:python_django:3.2.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_django:python-django:3.2.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_django:python_django:3.2.0:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:django:python-django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:django:python_django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python-django:django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python-django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python_django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python_django:django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:django:django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:django:3.2.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/py/requirements.txt" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/flask@2.0.0?package-id=3d763076625542cf",
+      "type": "library",
+      "name": "flask",
+      "version": "2.0.0",
+      "cpe": "cpe:2.3:a:python-flask:python-flask:2.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/flask@2.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-pipfile-lock-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-flask:python_flask:2.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_flask:python-flask:2.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_flask:python_flask:2.0.0:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python-flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python_flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:flask:python-flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:flask:python_flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python-flask:flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python_flask:flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:flask:flask:2.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/py/Pipfile.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/fsevents@2.3.3?package-id=6060e9d575b877a9",
+      "type": "library",
+      "name": "fsevents",
+      "version": "2.3.3",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "cpe": "cpe:2.3:a:fsevents:fsevents:2.3.3:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/fsevents@2.3.3",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/burntsushi/toml@v1.3.2?package-id=c5f66da7ddef150e",
+      "type": "library",
+      "name": "github.com/BurntSushi/toml",
+      "version": "v1.3.2",
+      "cpe": "cpe:2.3:a:BurntSushi:toml:v1.3.2:*:*:*:*:*:*:*",
+      "purl": "pkg:golang/github.com/BurntSushi/toml@v1.3.2",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "go-module-file-cataloger" },
+        { "name": "syft:package:language", "value": "go" },
+        { "name": "syft:package:type", "value": "go-module" },
+        { "name": "syft:package:metadataType", "value": "go-module-entry" },
+        { "name": "syft:location:0:path", "value": "/svc/go.mod" },
+        {
+          "name": "syft:metadata:h1Digest",
+          "value": "h1:o7IhLm0Msx3BaB+n3Ag7L8EVlByGnpq14C4YWiu/hfk="
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:golang/github.com/stretchr/testify@v1.8.4?package-id=aa03b66f270ecbfb",
+      "type": "library",
+      "name": "github.com/stretchr/testify",
+      "version": "v1.8.4",
+      "cpe": "cpe:2.3:a:stretchr:testify:v1.8.4:*:*:*:*:*:*:*",
+      "purl": "pkg:golang/github.com/stretchr/testify@v1.8.4",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "go-module-file-cataloger" },
+        { "name": "syft:package:language", "value": "go" },
+        { "name": "syft:package:type", "value": "go-module" },
+        { "name": "syft:package:metadataType", "value": "go-module-entry" },
+        { "name": "syft:location:0:path", "value": "/svc/go.mod" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/com.google.guava/guava@32.0.0-jre?package-id=587d8ef61029c36b",
+      "type": "library",
+      "group": "com.google.guava",
+      "name": "guava",
+      "version": "32.0.0-jre",
+      "cpe": "cpe:2.3:a:com.google.guava:guava:32.0.0-jre:*:*:*:*:*:*:*",
+      "purl": "pkg:maven/com.google.guava/guava@32.0.0-jre",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "java-pom-cataloger" },
+        { "name": "syft:package:language", "value": "java" },
+        { "name": "syft:package:type", "value": "java-archive" },
+        { "name": "syft:package:metadataType", "value": "java-archive" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:google:guava:32.0.0-jre:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:guava:guava:32.0.0-jre:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/java/pom.xml" },
+        { "name": "syft:metadata:-:artifactID", "value": "guava" },
+        { "name": "syft:metadata:-:groupID", "value": "com.google.guava" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/is-number@6.0.0?package-id=8c13c4a466172210",
+      "type": "library",
+      "name": "is-number",
+      "version": "6.0.0",
+      "cpe": "cpe:2.3:a:is-number:is-number:6.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/is-number@6.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-pnpm-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is-number:is_number:6.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_number:is-number:6.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_number:is_number:6.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is-number:6.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is_number:6.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/pn/pnpm-lock.yaml" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/is-odd@3.0.1?package-id=a1dc75040cf2686a",
+      "type": "library",
+      "name": "is-odd",
+      "version": "3.0.1",
+      "cpe": "cpe:2.3:a:is-odd:is-odd:3.0.1:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/is-odd@3.0.1",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-pnpm-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is-odd:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_odd:is-odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_odd:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is-odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/pn/pnpm-lock.yaml" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/is-odd@3.0.1?package-id=c891b5f0d36c83ef",
+      "type": "library",
+      "name": "is-odd",
+      "version": "3.0.1",
+      "cpe": "cpe:2.3:a:is-odd:is-odd:3.0.1:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/is-odd@3.0.1",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-yarn-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is-odd:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_odd:is-odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is_odd:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is-odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:is:is_odd:3.0.1:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/yn/yarn.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/javax.servlet/javax.servlet-api@4.0.1?package-id=a75b9dcd7e0d9239",
+      "type": "library",
+      "group": "javax.servlet",
+      "name": "javax.servlet-api",
+      "version": "4.0.1",
+      "cpe": "cpe:2.3:a:javax.servlet-api:javax.servlet-api:4.0.1:*:*:*:*:*:*:*",
+      "purl": "pkg:maven/javax.servlet/javax.servlet-api@4.0.1",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "java-pom-cataloger" },
+        { "name": "syft:package:language", "value": "java" },
+        { "name": "syft:package:type", "value": "java-archive" },
+        { "name": "syft:package:metadataType", "value": "java-archive" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:javax.servlet-api:javax.servlet_api:4.0.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:javax.servlet_api:javax.servlet-api:4.0.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:javax.servlet_api:javax.servlet_api:4.0.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:javax.servlet:javax.servlet-api:4.0.1:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:javax.servlet:javax.servlet_api:4.0.1:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:location:0:path", "value": "/java/pom.xml" },
+        { "name": "syft:metadata:-:artifactID", "value": "javax.servlet-api" },
+        { "name": "syft:metadata:-:groupID", "value": "javax.servlet" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/junit/junit@4.13.2?package-id=c714555b73e830a0",
+      "type": "library",
+      "group": "junit",
+      "name": "junit",
+      "version": "4.13.2",
+      "cpe": "cpe:2.3:a:junit:junit:4.13.2:*:*:*:*:*:*:*",
+      "purl": "pkg:maven/junit/junit@4.13.2",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "java-pom-cataloger" },
+        { "name": "syft:package:language", "value": "java" },
+        { "name": "syft:package:type", "value": "java-archive" },
+        { "name": "syft:package:metadataType", "value": "java-archive" },
+        { "name": "syft:location:0:path", "value": "/java/pom.xml" },
+        { "name": "syft:metadata:-:artifactID", "value": "junit" },
+        { "name": "syft:metadata:-:groupID", "value": "junit" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/left-pad@1.3.0?package-id=a0fd75f239702303",
+      "type": "library",
+      "name": "left-pad",
+      "version": "1.3.0",
+      "cpe": "cpe:2.3:a:left-pad:left-pad:1.3.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/left-pad@1.3.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-pnpm-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left-pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/pn/pnpm-lock.yaml" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/left-pad@1.3.0?package-id=6c7abebede7bc8b8",
+      "type": "library",
+      "name": "left-pad",
+      "version": "1.3.0",
+      "licenses": [{ "license": { "id": "WTFPL" } }],
+      "cpe": "cpe:2.3:a:left-pad:left-pad:1.3.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/left-pad@1.3.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left-pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/left-pad@1.3.0?package-id=5e85b876a24f6787",
+      "type": "library",
+      "name": "left-pad",
+      "version": "1.3.0",
+      "cpe": "cpe:2.3:a:left-pad:left-pad:1.3.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/left-pad@1.3.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-yarn-lock-entry" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left-pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left_pad:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left-pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:left:left_pad:1.3.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/yn/yarn.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.21?package-id=57817d94dbedae9b",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.21",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "cpe": "cpe:2.3:a:lodash:lodash:4.17.21:*:*:*:*:node.js:*:*",
+      "purl": "pkg:npm/lodash@4.17.21",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1?package-id=332f878a57624866",
+      "type": "library",
+      "group": "org.apache.logging.log4j",
+      "name": "log4j-core",
+      "version": "2.17.1",
+      "cpe": "cpe:2.3:a:apache:log4j-core:2.17.1:*:*:*:*:*:*:*",
+      "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "java-pom-cataloger" },
+        { "name": "syft:package:language", "value": "java" },
+        { "name": "syft:package:type", "value": "java-archive" },
+        { "name": "syft:package:metadataType", "value": "java-archive" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:apache:log4j_core:2.17.1:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:apache:log4j:2.17.1:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/java/pom.xml" },
+        { "name": "syft:metadata:-:artifactID", "value": "log4j-core" },
+        { "name": "syft:metadata:-:groupID", "value": "org.apache.logging.log4j" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/pytest@7.0.0?package-id=85d0b9ff44ef39be",
+      "type": "library",
+      "name": "pytest",
+      "version": "7.0.0",
+      "cpe": "cpe:2.3:a:python-pytest:python-pytest:7.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/pytest@7.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-poetry-lock-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-pytest:python_pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_pytest:python-pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_pytest:python_pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:python-pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:python_pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python-pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python-pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python_pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python_pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/py/poetry.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/pytest@7.0.0?package-id=0dcbc3c4d148fd7b",
+      "type": "library",
+      "name": "pytest",
+      "version": "7.0.0",
+      "cpe": "cpe:2.3:a:python-pytest:python-pytest:7.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/pytest@7.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-pip-requirements-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python-pytest:python_pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_pytest:python-pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:python_pytest:python_pytest:7.0.0:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:python-pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:python_pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python-pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python-pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:python_pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python_pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:pytest:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:python:pytest:7.0.0:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/py/requirements-dev.txt" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/requests@2.25.0?package-id=c67f39250db08999",
+      "type": "library",
+      "name": "requests",
+      "version": "2.25.0",
+      "cpe": "cpe:2.3:a:python:requests:2.25.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/requests@2.25.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-poetry-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/py/poetry.lock" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:pypi/requests@2.25.0?package-id=a6fedc9a27b7a53d",
+      "type": "library",
+      "name": "requests",
+      "version": "2.25.0",
+      "cpe": "cpe:2.3:a:python:requests:2.25.0:*:*:*:*:*:*:*",
+      "purl": "pkg:pypi/requests@2.25.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "python-package-cataloger" },
+        { "name": "syft:package:language", "value": "python" },
+        { "name": "syft:package:type", "value": "python" },
+        { "name": "syft:package:metadataType", "value": "python-pip-requirements-entry" },
+        { "name": "syft:location:0:path", "value": "/py/requirements.txt" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:maven/invalid.example/sample@1.0.0?package-id=912c9f4d42fd0d37",
+      "type": "library",
+      "name": "sample",
+      "version": "1.0.0",
+      "cpe": "cpe:2.3:a:sample:sample:1.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:maven/invalid.example/sample@1.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "java-pom-cataloger" },
+        { "name": "syft:package:language", "value": "java" },
+        { "name": "syft:package:type", "value": "java-archive" },
+        { "name": "syft:package:metadataType", "value": "java-archive" },
+        { "name": "syft:location:0:path", "value": "/java/pom.xml" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/undici-types@5.26.5?package-id=0e23ea75e2ba302e",
+      "type": "library",
+      "name": "undici-types",
+      "version": "5.26.5",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "cpe": "cpe:2.3:a:undici-types:undici-types:5.26.5:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/undici-types@5.26.5",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:undici-types:undici_types:5.26.5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:undici_types:undici-types:5.26.5:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:undici_types:undici_types:5.26.5:*:*:*:*:*:*:*"
+        },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:undici:undici-types:5.26.5:*:*:*:*:*:*:*" },
+        { "name": "syft:cpe23", "value": "cpe:2.3:a:undici:undici_types:5.26.5:*:*:*:*:*:*:*" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/web@1.0.0?package-id=1e69af20b96110af",
+      "type": "library",
+      "name": "web",
+      "version": "1.0.0",
+      "cpe": "cpe:2.3:a:web:web:1.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/web@1.0.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/web/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "96b283d3686e2071",
+      "type": "file",
+      "name": "/java/pom.xml",
+      "hashes": [
+        { "alg": "SHA-1", "content": "3b5ce4525581812c933a49078409abc6213b448e" },
+        {
+          "alg": "SHA-256",
+          "content": "700aaf4298fe6e4249e7b3a9bae340aaa7e9c6cc57361b631b4310eb511c86e2"
+        }
+      ]
+    },
+    {
+      "bom-ref": "1726aca75078f082",
+      "type": "file",
+      "name": "/pn/pnpm-lock.yaml",
+      "hashes": [
+        { "alg": "SHA-1", "content": "4d3cbc7b007c4086d12f046e5a538b9f6975283a" },
+        {
+          "alg": "SHA-256",
+          "content": "6666e7fe9e51f869a19e4807e74d82fbcabf9bc724524ccd8287b08a9aa436e5"
+        }
+      ]
+    },
+    {
+      "bom-ref": "7763c6a5043230ba",
+      "type": "file",
+      "name": "/py/Pipfile.lock",
+      "hashes": [
+        { "alg": "SHA-1", "content": "044262b94dc34b9dd8b78731f9e23b2bdff570f5" },
+        {
+          "alg": "SHA-256",
+          "content": "34d262c1032fe0598862a3fe86f5110b057afa995ce3d8701ce5558821cdeafc"
+        }
+      ]
+    },
+    {
+      "bom-ref": "d3dab18d2d6d1951",
+      "type": "file",
+      "name": "/py/poetry.lock",
+      "hashes": [
+        { "alg": "SHA-1", "content": "3ac2af21a3d99bc6b377e0c95951e0268d84f7f5" },
+        {
+          "alg": "SHA-256",
+          "content": "e51cbd6e543b195a8a97b3717963ac42758ef37a1f9a8c02ceda139aaa534a90"
+        }
+      ]
+    },
+    {
+      "bom-ref": "32e700a1543c462b",
+      "type": "file",
+      "name": "/py/requirements-dev.txt",
+      "hashes": [
+        { "alg": "SHA-1", "content": "1d68cab598d09d5916b7f5575c5d8e7c312a73ba" },
+        {
+          "alg": "SHA-256",
+          "content": "f7d0f9111fe6adf16e99317335c414c3a8147258a98e9850d068e65f64fa2b7f"
+        }
+      ]
+    },
+    {
+      "bom-ref": "7c140661ba12b5a6",
+      "type": "file",
+      "name": "/py/requirements.txt",
+      "hashes": [
+        { "alg": "SHA-1", "content": "4b8fcec6e143fdd399cec14baf9aef29fa3ea853" },
+        {
+          "alg": "SHA-256",
+          "content": "6d4ed60927c89ee7959325474341dcc6e6f65008ffbe7ced79f99faaa74b6fa3"
+        }
+      ]
+    },
+    {
+      "bom-ref": "d2cc33cac8d0bd79",
+      "type": "file",
+      "name": "/svc/go.mod",
+      "hashes": [
+        { "alg": "SHA-1", "content": "d83b066b8ac276c28a23498b3f978ed1e50def97" },
+        {
+          "alg": "SHA-256",
+          "content": "7d4ea6a7d82d98da478db0d55a19f292b8d4f5bd84699dcaca963d4d42301b96"
+        }
+      ]
+    },
+    {
+      "bom-ref": "fe1e53952344593b",
+      "type": "file",
+      "name": "/web/package-lock.json",
+      "hashes": [
+        { "alg": "SHA-1", "content": "f3ee46838bf3b3ec83dd19b4c9f064cc37c3591e" },
+        {
+          "alg": "SHA-256",
+          "content": "56e7d64964ac7d6c9489853b3e116125b26fc9422bde9f05965f958222bd56ba"
+        }
+      ]
+    },
+    {
+      "bom-ref": "b9a374a3e0a28816",
+      "type": "file",
+      "name": "/yn/yarn.lock",
+      "hashes": [
+        { "alg": "SHA-1", "content": "6648cd538e883b686555839c153d03f7fc46501e" },
+        {
+          "alg": "SHA-256",
+          "content": "e98f598e7789a448e6bfc40b8b70d96ab007eb825e185e7eb4df21ec610ed8d4"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:maven/invalid.example/sample@1.0.0?package-id=912c9f4d42fd0d37",
+      "dependsOn": [
+        "pkg:maven/com.google.guava/guava@32.0.0-jre?package-id=587d8ef61029c36b",
+        "pkg:maven/javax.servlet/javax.servlet-api@4.0.1?package-id=a75b9dcd7e0d9239",
+        "pkg:maven/junit/junit@4.13.2?package-id=c714555b73e830a0",
+        "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1?package-id=332f878a57624866"
+      ]
+    },
+    {
+      "ref": "pkg:npm/%40types/node@20.11.0?package-id=463aba5bbcc7e033",
+      "dependsOn": ["pkg:npm/undici-types@5.26.5?package-id=0e23ea75e2ba302e"]
+    },
+    {
+      "ref": "pkg:npm/is-odd@3.0.1?package-id=a1dc75040cf2686a",
+      "dependsOn": ["pkg:npm/is-number@6.0.0?package-id=8c13c4a466172210"]
+    },
+    {
+      "ref": "pkg:npm/web@1.0.0?package-id=1e69af20b96110af",
+      "dependsOn": ["pkg:npm/lodash@4.17.21?package-id=57817d94dbedae9b"]
+    }
+  ]
+}

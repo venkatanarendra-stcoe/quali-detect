@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:4ff09c9c-e04d-4110-bc03-5aad00d4ac0d",
+  "serialNumber": "urn:uuid:134ae0d1-5d1b-461d-8a5b-28e7d1cb647a",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-20T17:08:16Z",
+    "timestamp": "2026-11-21T07:39:25Z",
     "tools": {
       "components": [
         { "type": "application", "author": "anchore", "name": "syft", "version": "1.57.2" }
@@ -21,6 +21,21 @@
       "version": "7.20.0",
       "cpe": "cpe:2.3:a:\\@babel\\/core:\\@babel\\/core:7.20.0:*:*:*:*:*:*:*",
       "purl": "pkg:npm/%40babel/core@7.20.0",
+      "properties": [
+        { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
+        { "name": "syft:package:language", "value": "javascript" },
+        { "name": "syft:package:type", "value": "npm" },
+        { "name": "syft:package:metadataType", "value": "javascript-npm-package-lock-entry" },
+        { "name": "syft:location:0:path", "value": "/package-lock.json" }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/%40types/node@18.0.0?package-id=298d486e40ce58d1",
+      "type": "library",
+      "name": "@types/node",
+      "version": "18.0.0",
+      "cpe": "cpe:2.3:a:\\@types\\/node:\\@types\\/node:18.0.0:*:*:*:*:*:*:*",
+      "purl": "pkg:npm/%40types/node@18.0.0",
       "properties": [
         { "name": "syft:package:foundBy", "value": "javascript-lock-cataloger" },
         { "name": "syft:package:language", "value": "javascript" },

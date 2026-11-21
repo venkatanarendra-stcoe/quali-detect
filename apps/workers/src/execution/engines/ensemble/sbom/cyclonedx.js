@@ -272,7 +272,7 @@ export function mapSbomRecord(record) {
       name: name.slice(0, 200),
       ...(p.version ? { version: p.version.slice(0, 100) } : {}),
       ecosystem: p.type,
-      ...(record.scope ? { scope: record.scope } : {}),
+      scope: record.scope ?? "unknown",
     },
     ...(record.paths.length > 0
       ? {

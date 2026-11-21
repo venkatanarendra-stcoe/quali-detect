@@ -1,3 +1,9 @@
 # Platform-owned Syft configuration (SPEC scan-engines 11.3). The run passes it with `-c /rules/syft.yaml` and a working directory of
 # /tmp, so a `.syft.yaml` inside the scanned repository is never read. Verified by a real run on 2026-11-20 (ENG-L20): the tool reads this file and silently ignores an UNKNOWN key, so keep it minimal.
 check-for-app-update: false
+# Owner decision 2026-11-21 (SPEC scan-engines D-24): the SBOM lists ALL components, so npm development dependencies are included. Verified by a
+# real run (Syft 1.57.2, 2026-11-21): this key adds the package-lock.json development entries; Syft already includes yarn.lock, pnpm-lock.yaml,
+# requirements-dev.txt, Pipfile.lock and Maven test, provided and optional entries without it. An unknown key is silently ignored, so ENG-L20
+# (`DEV-included-*`) proves the effect on a real run; do not rename the key.
+javascript:
+  include-dev-dependencies: true

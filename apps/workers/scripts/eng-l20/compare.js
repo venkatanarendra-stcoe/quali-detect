@@ -8,7 +8,15 @@
  * and (with --json, to a path OUTSIDE the capture directory) the JSON report to paste back. Exit code 0: no MISMATCH, 1: at least
  * one MISMATCH, 2: unusable input.
  */
-import { closeSync, fstatSync, lstatSync, openSync, readSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LIMITS, CompareInputError, compareCapture, renderTable } from "./compare-lib.js";
@@ -45,6 +53,47 @@ export function readRegularFile(file, cap, { truncate = false } = {}) {
 }
 
 /**
+ * The npm packages a tree's `package-lock.json` marks `dev: true` (the file at the root and in each first-level directory; at most
+ * 50 directories, 4 MiB per file, regular files only). The comparison expects every one of them in both documents (SPEC D-24).
+ * @param {string} root
+ * @returns {{ name: string, version: string }[]}
+ */
+export function devNpmPackages(root) {
+  const out = [];
+  let dirs = [""];
+  try {
+    dirs = dirs.concat(
+      readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name !== "node_modules" && !e.name.startsWith("."))
+        .slice(0, 50)
+        .map((e) => e.name),
+    );
+  } catch {
+    return out;
+  }
+  for (const d of dirs) {
+    let raw;
+    try {
+      raw = readRegularFile(path.join(root, d, "package-lock.json"), 4 * 1024 * 1024);
+    } catch {
+      continue;
+    }
+    if (raw === null) continue;
+    try {
+      const lock = JSON.parse(raw.toString("utf8"));
+      for (const [key, entry] of Object.entries(lock?.packages ?? {})) {
+        const at = key.lastIndexOf("node_modules/");
+        if (at < 0 || entry?.dev !== true || typeof entry.version !== "string") continue;
+        out.push({ name: key.slice(at + "node_modules/".length), version: entry.version });
+      }
+    } catch {
+      // an unreadable lockfile simply contributes nothing
+    }
+  }
+  return out.slice(0, 20);
+}
+
+/**
  * @param {string} dir the capture directory
  * @param {{ tree?: string | null }} [options]
  */
@@ -68,8 +117,10 @@ export function compareDirectory(dir, { tree = null } = {}) {
     );
   };
   let pathExists = null;
+  let devNpm = [];
   if (tree) {
     const root = path.resolve(tree);
+    devNpm = devNpmPackages(root);
     pathExists = (rel) => {
       const target = path.resolve(root, rel);
       if (!target.startsWith(`${root}${path.sep}`)) return false;
@@ -81,7 +132,13 @@ export function compareDirectory(dir, { tree = null } = {}) {
       }
     };
   }
-  return compareCapture({ manifest, readOutput, lock: { images: loadLockEntries() }, pathExists });
+  return compareCapture({
+    manifest,
+    readOutput,
+    lock: { images: loadLockEntries() },
+    pathExists,
+    devNpm,
+  });
 }
 
 function main(argv) {

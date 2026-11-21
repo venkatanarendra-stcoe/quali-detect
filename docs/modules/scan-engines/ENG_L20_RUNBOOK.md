@@ -58,7 +58,7 @@ OUT=$(mktemp -u /tmp/eng-l20-out.XXXXXX)
 node apps/workers/scripts/eng-l20/capture.js run --work "$W" --out "$OUT"
 ```
 
-`run` executes these containers one after the other (each prints `exit <code> in <ms> ms`). The sealed command lines are the spike's (`IMAGES.md` section 2) and the adapters' constants, verbatim: Syft `-c /rules/syft.yaml dir:/src -o cyclonedx-json` with `SYFT_CHECK_FOR_APP_UPDATE=false`; Trivy `fs --config /rules/trivy.yaml --scanners license --format cyclonedx /src` with `TRIVY_SKIP_VERSION_CHECK=true TRIVY_DISABLE_TELEMETRY=true TRIVY_CACHE_DIR=/tmp/c`; both with the working directory `/tmp`, `HOME=/tmp`.
+`run` executes these containers one after the other (each prints `exit <code> in <ms> ms`). The sealed command lines are the spike's (`IMAGES.md` section 2) and the adapters' constants, verbatim: Syft `-c /rules/syft.yaml dir:/src -o cyclonedx-json` with `SYFT_CHECK_FOR_APP_UPDATE=false`; Trivy `fs --config /rules/trivy.yaml --scanners license --include-dev-deps --format cyclonedx /src` with `TRIVY_SKIP_VERSION_CHECK=true TRIVY_DISABLE_TELEMETRY=true TRIVY_CACHE_DIR=/tmp/c`; both with the working directory `/tmp`, `HOME=/tmp`.
 
 | Run id | What it is | What the comparison expects |
 |---|---|---|
@@ -70,6 +70,7 @@ node apps/workers/scripts/eng-l20/capture.js run --work "$W" --out "$OUT"
 | `syft-unknown-flag`, `trivy-unknown-flag` | the sealed vector plus `--qm-no-such-flag` | a non-zero exit: a misspelt flag in our argument vectors would be caught by the tool |
 | `syft-nolock`, `trivy-nolock` | the sealed command on `trees/nolock` (a README and a text file, nothing to catalog) | informational (added 2026-11-20): exit 0 and a document without packages (Syft omits `components`, Trivy writes an empty list) |
 | `syft-jar`, `trivy-jar` | the sealed command on `trees/jar` (one `.jar` with Maven metadata) | informational: Syft catalogs the archive, Trivy in licence mode does not and needs no Java database |
+| (DEV check, 2026-11-21) | the comparison adds `DEV-included-syft` and `DEV-included-trivy` when `--tree` is given | every npm package a `package-lock.json` of the tree marks `dev: true` must be listed by both tools (proves the include-dev settings are effective; both tools silently ignore an unknown config key) |
 | `syft-oom`, `trivy-oom` | the sealed command with `--memory=8m` (the limits are the only change) | informational: the exit code of a memory kill (137) and an empty output |
 | `trivy-vuln-nodb`, `trivy-vuln-skipdb` | `--scanners vuln` instead of `license`, without a database (and with `--skip-db-update --skip-java-db-update`) | informational: the exact failure text of Trivy's vulnerability mode without a database (exit 1), recorded for Part G |
 | `trivy-fallback-skipdb`, `trivy-fallback-offline` | only if `trivy-sealed` failed: the same command with `--skip-db-update --skip-java-db-update` (and `--offline-scan`) | evidence for the database question below |

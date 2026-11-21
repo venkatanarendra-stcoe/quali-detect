@@ -34,8 +34,8 @@ Network was used only for the download step of each database, in a separate cont
 
 | Tool | Offline data and download command (network only here) | Data observed | Sealed scan invocation (arguments after the image) |
 |---|---|---|---|
-| Syft | none (static catalogers); update check disabled | n/a | `-c /rules/syft.yaml dir:/src -o cyclonedx-json` (or `spdx-json`), env `SYFT_CHECK_FOR_APP_UPDATE=false` |
-| Trivy SBOM | none (no DB needed with `--scanners license`) | n/a | `fs --config /rules/trivy.yaml --scanners license --format cyclonedx /src` (or `spdx-json`), env `TRIVY_SKIP_VERSION_CHECK=true TRIVY_DISABLE_TELEMETRY=true TRIVY_CACHE_DIR=/tmp/c` |
+| Syft | none (static catalogers); update check disabled | n/a | `-c /rules/syft.yaml dir:/src -o cyclonedx-json` (or `spdx-json`), env `SYFT_CHECK_FOR_APP_UPDATE=false`; the platform file `/rules/syft.yaml` also sets `javascript.include-dev-dependencies: true` (2026-11-21, section 6) |
+| Trivy SBOM | none (no DB needed with `--scanners license`) | n/a | `fs --config /rules/trivy.yaml --scanners license --include-dev-deps --format cyclonedx /src` (or `spdx-json`), env `TRIVY_SKIP_VERSION_CHECK=true TRIVY_DISABLE_TELEMETRY=true TRIVY_CACHE_DIR=/tmp/c` |
 | Trivy vuln | `trivy image --cache-dir /db --download-db-only` (pulled `mirror.gcr.io/aquasec/trivy-db:2`, 134.5 MiB download) | `/db/db/trivy.db` 1,775,620,096 bytes; `metadata.json` Version 2, UpdatedAt 2026-11-19T01:05:40Z | `fs --config /rules/trivy.yaml --skip-db-update --skip-java-db-update --offline-scan --scanners vuln --format json /src`, env `TRIVY_CACHE_DIR=/db` (read-only mount worked) |
 | Grype | `grype db update` with env `GRYPE_DB_CACHE_DIR=/db` (needed more than 2 GiB RAM: peak 3.5 GiB; 75 s) | `/db/6/vulnerability.db` 3,494,727,680 bytes, schema v6.1.10, built 2026-11-19T06:23:17Z | `-c /rules/grype.yaml dir:/src -o json`, env `GRYPE_DB_CACHE_DIR=/db GRYPE_DB_AUTO_UPDATE=false GRYPE_DB_VALIDATE_AGE=false GRYPE_CHECK_FOR_APP_UPDATE=false` (read-only mount worked) |
 | OSV-Scanner | `scan source --offline-vulnerabilities --download-offline-databases -r <seed>` with env `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db` | per ecosystem zips: npm 221,817,719; PyPI 38,073,678; Maven 10,547,334; Go 12,956,844 bytes | `scan source --offline --offline-vulnerabilities --no-resolve --no-call-analysis=go --no-ignore --config /rules/osv-scanner.toml -r /src --format json`, env `OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db` |
@@ -70,3 +70,17 @@ Network was used only for the download step of each database, in a separate cont
 ## 5. ENG-L20 verification of the SBOM command lines (2026-11-20)
 
 Both SBOM command lines of section 2 were run for real with the production sandbox flags (rootful Docker 29.1.3): `-c /rules/syft.yaml dir:/src -o cyclonedx-json` and `fs --config /rules/trivy.yaml --scanners license --format cyclonedx /src`, exit 0, CycloneDX 1.7, `--network=none`, no database mount (Trivy SBOM mode needs none, also with a `.jar` in the tree), the platform config read (a missing file is exit 1), the repository's own `.syft.yaml`, `trivy.yaml` and `.trivyignore` not read, an unknown flag exit 1, an unknown config key silently ignored, an 8 MiB memory limit exit 137. The vulnerability mode of Trivy without a database exits 1 (`failed to download vulnerability DB`, and with `--skip-db-update` on an empty cache `--skip-db-update cannot be specified on the first run`). Details and the images' RepoDigest identity proof: `ENG_L20_RESULT.md`.
+
+## 6. Include ALL components: dev, optional and test dependencies (owner decision 2026-11-21, SPEC D-24 (a); verified for real the same day)
+
+Method: the pinned images (Syft 1.57.2, Trivy 0.76.2) were run with the production sandbox flags on trees with npm (`package-lock.json` with dev, optional and peer entries, `pnpm-lock.yaml`, `yarn.lock`), Maven (test, provided and optional scope), Python (`requirements-dev.txt`, `Pipfile.lock` develop, `poetry.lock` dev group and optional extra) and Go (`go.mod`), before and after the change. Record: `ENG_L20_RESULT.md` section 8, fixtures `real/treeC`, `real/facts-dev.json`.
+
+| Ecosystem | Syft (config key `javascript.include-dev-dependencies: true` in the platform `syft.yaml`; an unknown key is silently ignored, so the effect is proven by ENG-L20 `DEV-included-*`) | Trivy (`--include-dev-deps` in the sealed argument vector; an unknown flag exits 1) |
+|---|---|---|
+| npm `package-lock.json` dev | included ONLY with the key (default: omitted silently) | included ONLY with the flag (default: omitted, notice on stderr) |
+| npm `yarn.lock`, `pnpm-lock.yaml` | included by default (no key needed) | included ONLY with the flag |
+| Python `requirements-dev.txt`, `Pipfile.lock` develop, `poetry.lock` dev group and optional extra | included by default | poetry dev and optional: ONLY with the flag; `requirements-dev.txt` and Pipfile develop are not read (Syft covers them) |
+| Maven test, provided, optional | included by default | **never included, no flag exists** (coverage gap of Trivy, covered by Syft) |
+| Go (`go.mod` lists test-only modules too) | included | included |
+
+Neither tool writes a CycloneDX `scope` or any development marker for any component (checked on all the components of these runs), so every component is scope `unknown`. Coverage gap recorded honestly: **Trivy alone never lists Maven test, provided or optional dependencies; the platform keeps Syft in the SBOM ensemble for them (D-24 (b), Syft-only components are kept).** If Syft is unavailable for a task, those Maven components are missing from that SBOM and the task is already `partial` (a failed tool).

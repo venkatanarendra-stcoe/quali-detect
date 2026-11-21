@@ -2623,7 +2623,7 @@ export const ENSEMBLE_ENGINE_CHECKS = [
   },
   {
     id: "ENG-S16d",
-    name: "the ensemble engine on REAL Syft and Trivy output with the released ENG-L20 behaviour (SPEC scan-engines 5.3, 5.9, SE-27, 17.n, fake runtime, real recorded documents and a tree laid out like the sample): with the tree path filter every record of both tools is kept (17 and 13 records, nothing dropped) and the incremental changed-path list narrows nothing (the SBOM scope stays full, packages of manifests that did not change are still reported); a tree that lacks a manifest the tools reported drops exactly the records that name it and marks the tool partial, never failed; the worker wiring always installs the filter; an exit code of 137 ends the tool failed / out_of_memory, a bad platform configuration (the recorded Syft and Trivy texts) failed / config_invalid, any other non-zero exit and Trivy's database error failed / exit_code (never db_unavailable in the SBOM role), the tool run keeps the numeric exit code and none of the stderr text, and an accepted exit code is never reclassified; one failed tool degrades the task and the other tool's records are kept; the tree path filter answers existence only (a file or directory under the root, never `..`, an absolute path, a symbolic link or a non-string) and caches at most its cap",
+    name: "the ensemble engine on REAL Syft and Trivy output with the released ENG-L20 behaviour (SPEC scan-engines 5.3, 5.9, SE-27, 17.n, fake runtime, real recorded documents and a tree laid out like the sample): with the tree path filter every record of both tools is kept (18 and 14 records, nothing dropped) and the incremental changed-path list narrows nothing (the SBOM scope stays full, packages of manifests that did not change are still reported); a tree that lacks a manifest the tools reported drops exactly the records that name it and marks the tool partial, never failed; the worker wiring always installs the filter; an exit code of 137 ends the tool failed / out_of_memory, a bad platform configuration (the recorded Syft and Trivy texts) failed / config_invalid, any other non-zero exit and Trivy's database error failed / exit_code (never db_unavailable in the SBOM role), the tool run keeps the numeric exit code and none of the stderr text, and an accepted exit code is never reclassified; one failed tool degrades the task and the other tool's records are kept; the tree path filter answers existence only (a file or directory under the root, never `..`, an absolute path, a symbolic link or a non-string) and caches at most its cap",
     async run() {
       const p = [];
       const facts = JSON.parse(readFileSync(path.join(REAL, "facts.json"), "utf8")).runs.sample;
@@ -2642,8 +2642,8 @@ export const ENSEMBLE_ENGINE_CHECKS = [
             trivy: "succeeded",
             "sbom-lite": "succeeded",
           });
-          same(p, "syft records", [t.syft.recordsSeen, t.syft.recordsDropped], [17, 0]);
-          same(p, "trivy records", [t.trivy.recordsSeen, t.trivy.recordsDropped], [13, 0]);
+          same(p, "syft records", [t.syft.recordsSeen, t.syft.recordsDropped], [18, 0]);
+          same(p, "trivy records", [t.trivy.recordsSeen, t.trivy.recordsDropped], [14, 0]);
           same(
             p,
             "scope stays full",

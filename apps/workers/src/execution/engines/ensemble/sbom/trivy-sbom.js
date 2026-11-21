@@ -10,14 +10,16 @@ import { planSbomTool, SBOM_TOOL_LIMITS } from "./plan.js";
 
 /**
  * Trivy in SBOM mode as a tool adapter (docs/modules/scan-engines/SPEC.md 5.2, D-3, 11.3; IMAGES.md section 2). Sealed command line,
- * verbatim from the spike: `fs --config /rules/trivy.yaml --scanners license --format cyclonedx /src` (the licence scanner needs
+ * verbatim from the spike: `fs --config /rules/trivy.yaml --scanners license --include-dev-deps --format cyclonedx /src` (the licence scanner needs
  * no vulnerability database, so no DB mount, and there is no vulnerability scanning in this role). Working directory `/tmp`, so a
  * `trivy.yaml` or `.trivyignore` in the repository is never read. The tree validation of part C rejects a path longer than
  * `PATH_MAX` before this tool runs (Trivy fails fatally on one). The tool id is `trivy`, shared with the SCA role (part G); the
  * registry key is the pair (scan type, tool).
  * The command line was run for real on 2026-11-20 (ENG-L20, Trivy 0.76.2): exit 0, CycloneDX 1.7, no database, no network, the
- * platform `--config` read (a missing file is exit 1), repository configuration not read, an unknown flag exit 1. Dev dependencies
- * are left out by Trivy's default (`--include-dev-deps` is NOT passed: Syft leaves them out too). Operating-system packages carry no
+ * platform `--config` read (a missing file is exit 1), repository configuration not read, an unknown flag exit 1. Owner decision
+ * 2026-11-21 (SPEC D-24): ALL components are included, so `--include-dev-deps` IS passed (verified for real on 2026-11-21: it adds the
+ * npm, yarn, pnpm and poetry development and optional entries; Trivy never includes Maven test, provided or optional dependencies and
+ * has no flag for them, Syft covers those; neither tool writes a scope, so every component is scope `unknown`). Operating-system packages carry no
  * purl in this mode and are skipped by the adapter (Syft covers them).
  */
 
@@ -27,6 +29,7 @@ export const TRIVY_SBOM_ARGV = Object.freeze([
   "/rules/trivy.yaml",
   "--scanners",
   "license",
+  "--include-dev-deps",
   "--format",
   "cyclonedx",
   "/src",

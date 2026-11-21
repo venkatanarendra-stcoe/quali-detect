@@ -29,7 +29,7 @@ import {
   mergeTaskCandidates,
   runToolParse,
 } from "../../../../workers/src/execution/engines/ensemble/core/index.js";
-import { compareDirectory } from "../../../../workers/scripts/eng-l20/compare.js";
+import { compareDirectory, devNpmPackages } from "../../../../workers/scripts/eng-l20/compare.js";
 import { SAMPLE_FILES, buildSampleTarGz } from "../../../../workers/scripts/eng-l20/sample-tree.js";
 import {
   SYFT_ARGV,
@@ -403,6 +403,8 @@ export const ENG_L20_CHECKS = [
         "CFG-read-trivy",
         "CFG-repo-syft",
         "CFG-repo-trivy",
+        "DEV-included-syft",
+        "DEV-included-trivy",
         "DOC-scope-trivy",
         "FLAG-syft",
         "FLAG-trivy",
@@ -447,6 +449,75 @@ export const ENG_L20_CHECKS = [
         ok(p, s[id] === "PASS", `${id} should PASS on the good capture, is ${s[id]}`);
       same(p, "verdict", [base.verdict, base.summary.mismatch], ["UNKNOWN", 0]);
       same(p, "second run identical", JSON.stringify(baseReport()), JSON.stringify(base));
+      // D-24: the development dependencies of the tree must be in both documents (the include-dev settings are effective)
+      const dev = (devNpm) => statusOf(compare(fixtureCapture(), { devNpm }));
+      for (const tool of ["syft", "trivy"]) {
+        same(
+          p,
+          `${tool} DEV present`,
+          dev([{ name: "lodash", version: "4.17.20" }])[`DEV-included-${tool}`],
+          "PASS",
+        );
+        same(
+          p,
+          `${tool} DEV missing`,
+          dev([
+            { name: "lodash", version: "4.17.20" },
+            { name: "@types/node", version: "18.0.0" },
+          ])[`DEV-included-${tool}`],
+          "MISMATCH",
+        );
+        same(p, `${tool} DEV none`, dev([])[`DEV-included-${tool}`], "UNKNOWN");
+      }
+      // the tree reader of the DEV check: dev entries of the root and first-level lockfiles only, nested paths by their last segment, capped at 20
+      {
+        const root = mkdtempSync(path.join(os.tmpdir(), "qm-devnpm-"));
+        try {
+          const lock = (entries) => JSON.stringify({ packages: { "": { name: "x" }, ...entries } });
+          writeFileSync(
+            path.join(root, "package-lock.json"),
+            lock({
+              "node_modules/@types/node": { version: "18.0.0", dev: true },
+              "node_modules/lodash": { version: "4.17.20" },
+              "node_modules/a/node_modules/b": { version: "2.0.0", dev: true },
+              "node_modules/c": { version: "3.0.0", dev: false },
+              "node_modules/d": { dev: true },
+              notnm: { version: "1.0.0", dev: true },
+            }),
+          );
+          mkdirSync(path.join(root, "web"));
+          writeFileSync(
+            path.join(root, "web", "package-lock.json"),
+            lock({ "node_modules/w": { version: "9.0.0", dev: true } }),
+          );
+          mkdirSync(path.join(root, "web", "deep"));
+          writeFileSync(
+            path.join(root, "web", "deep", "package-lock.json"),
+            lock({ "node_modules/too-deep": { version: "1.0.0", dev: true } }),
+          );
+          same(p, "devNpmPackages", devNpmPackages(root), [
+            { name: "@types/node", version: "18.0.0" },
+            { name: "b", version: "2.0.0" },
+            { name: "w", version: "9.0.0" },
+          ]);
+          writeFileSync(
+            path.join(root, "package-lock.json"),
+            lock(
+              Object.fromEntries(
+                Array.from({ length: 25 }, (_, i) => [
+                  `node_modules/p${i}`,
+                  { version: "1.0.0", dev: true },
+                ]),
+              ),
+            ),
+          );
+          same(p, "devNpmPackages cap", devNpmPackages(root).length, 20);
+          writeFileSync(path.join(root, "package-lock.json"), "{not json");
+          same(p, "devNpmPackages unreadable lockfile", devNpmPackages(root).length, 1);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      }
       same(p, "report is plain JSON", JSON.parse(JSON.stringify(base)), base);
       ok(
         p,
@@ -1428,7 +1499,7 @@ export const ENG_L20_CHECKS = [
         p,
         "sample record counts",
         [sSyft.candidates.length, sTrivy.candidates.length],
-        [17, 13],
+        [18, 14],
       );
       same(p, "sample: Trivy only", diff(purls(sTrivy), purls(sSyft)), [
         "pkg:golang/example.invalid/sample",
@@ -1478,7 +1549,75 @@ export const ENG_L20_CHECKS = [
         p,
         !purls(bSyft).some((x) => /types\/node|semver@7/.test(x)) &&
           !purls(bTrivy).some((x) => /types\/node|semver@7/.test(x)),
-        "neither tool lists the npm dev dependencies by default",
+        "treeB was captured BEFORE D-24 without the include-dev setting: neither tool lists the npm dev dependencies by default",
+      );
+      // D-24 (a), 2026-11-21: ALL components, dev included; neither tool writes a scope, so every component is scope unknown
+      ok(
+        p,
+        purls(sSyft).includes("pkg:npm/%40types/node@18.0.0") &&
+          purls(sTrivy).includes("pkg:npm/%40types/node@18.0.0"),
+        "the sample's development dependency @types/node is listed by both tools with the include-dev settings",
+      );
+      const cSyft = parse("treeC", "sealed", "syft");
+      const cTrivy = parse("treeC", "sealed", "trivy");
+      const cbSyft = parse("treeC/before", "sealed", "syft");
+      const cbTrivy = parse("treeC/before", "sealed", "trivy");
+      same(
+        p,
+        "treeC record counts before and after the include-dev settings (Syft, Trivy)",
+        [cbSyft, cbTrivy, cSyft, cTrivy].map((o) => o.candidates.length),
+        [18, 12, 20, 18],
+      );
+      same(
+        p,
+        "treeC: what the include-dev settings added (Syft)",
+        diff(purls(cSyft), purls(cbSyft)),
+        ["pkg:npm/%40types/node@20.11.0", "pkg:npm/undici-types@5.26.5"],
+      );
+      same(
+        p,
+        "treeC: what the include-dev settings added (Trivy: npm, yarn, pnpm and poetry development and optional entries)",
+        diff(purls(cTrivy), purls(cbTrivy)),
+        [
+          "pkg:npm/%40types/node@20.11.0",
+          "pkg:npm/is-number@6.0.0",
+          "pkg:npm/is-odd@3.0.1",
+          "pkg:npm/undici-types@5.26.5",
+          "pkg:pypi/colorama@0.4.6",
+          "pkg:pypi/pytest@7.0.0",
+        ],
+      );
+      // coverage facts (not gaps of the union): Trivy never lists Maven test, provided or optional dependencies; Syft does
+      same(
+        p,
+        "treeC: Syft-only components kept (Maven test, provided and optional, the project root)",
+        diff(purls(cSyft), purls(cTrivy)),
+        [
+          "pkg:maven/com.google.guava/guava@32.0.0-jre",
+          "pkg:maven/javax.servlet/javax.servlet-api@4.0.1",
+          "pkg:maven/junit/junit@4.13.2",
+          "pkg:npm/web@1.0.0",
+        ],
+      );
+      const mergedC = mergeTaskCandidates({
+        taskRef: ctx.taskRef,
+        scanType: "sbom",
+        candidates: [...cSyft.candidates, ...cTrivy.candidates],
+      });
+      same(p, "treeC merge: findings", mergedC.findings.length, 22);
+      ok(
+        p,
+        ["pkg:maven/junit/junit@4.13.2", "pkg:npm/%40types/node@20.11.0"].every((x) =>
+          mergedC.findings.some((f) => f.component.purl === x),
+        ),
+        "the merged SBOM carries the test-scope Maven and the dev npm components",
+      );
+      ok(
+        p,
+        [...mergedC.findings, ...cSyft.candidates, ...cTrivy.candidates].every(
+          (f) => f.component.scope === "unknown",
+        ),
+        "neither tool writes a scope: every component is scope unknown (D-24 (a))",
       );
       // the cross-tool merge: shared packages become one finding with two provenance entries
       const merged = mergeTaskCandidates({
@@ -1490,7 +1629,7 @@ export const ENG_L20_CHECKS = [
         p,
         "sample merge: findings, confirmed by both tools",
         [merged.findings.length, merged.findings.filter((f) => f.provenance.length === 2).length],
-        [18, 12],
+        [19, 13],
       );
       // empty and archive results
       for (const tool of ["syft", "trivy"]) {

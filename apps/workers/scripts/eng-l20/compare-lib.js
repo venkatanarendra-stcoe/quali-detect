@@ -432,10 +432,17 @@ function stderrSummary(buffer, tool = null) {
  *   manifest: unknown,
  *   readOutput: (runId: string, stream: "stdout" | "stderr") => Buffer | null,
  *   lock?: { images?: { key: string, digest: string, version: string }[] },
- *   pathExists?: ((relativePath: string) => boolean) | null
+ *   pathExists?: ((relativePath: string) => boolean) | null,
+ *   devNpm?: { name: string, version: string }[]
  * }} input
  */
-export function compareCapture({ manifest, readOutput, lock = { images: [] }, pathExists = null }) {
+export function compareCapture({
+  manifest,
+  readOutput,
+  lock = { images: [] },
+  pathExists = null,
+  devNpm = [],
+}) {
   const { runs, images } = readManifest(manifest);
   const lockOf = (key) => asArray(lock.images).find((e) => e.key === key);
   const checks = [];
@@ -1052,6 +1059,36 @@ export function compareCapture({ manifest, readOutput, lock = { images: [] }, pa
         `${unparse} unparseable, ${idem} not idempotent`,
         "degraded",
       ),
+    );
+    // development dependencies (owner decision 2026-11-21, SPEC D-24: ALL components are listed)
+    const devWanted = devNpm
+      .slice(0, MAX_EXAMPLES * 4)
+      .map((d) =>
+        canonicalPurl(
+          `pkg:npm/${d.name.startsWith("@") ? `%40${d.name.slice(1)}` : d.name}@${d.version}`,
+        ),
+      )
+      .filter((c) => c !== null)
+      .map((c) => c.canonical);
+    const seenCanonical = new Set(f.purls.map((p) => p.canonical));
+    const devMissing = devWanted.filter((c) => !seenCanonical.has(c));
+    checks.push(
+      devWanted.length === 0
+        ? unknown(
+            `DEV-included-${tool}`,
+            tool,
+            "the npm development dependencies of the tree are listed (the include-dev setting of the sealed configuration is effective)",
+            "the extracted tree has no package-lock.json entry marked dev (pass --tree)",
+          )
+        : pick(
+            devMissing.length === 0,
+            `DEV-included-${tool}`,
+            tool,
+            "the npm development dependencies of the tree are listed (the include-dev setting of the sealed configuration is effective)",
+            `${devWanted.length} development package(s) present`,
+            `${devMissing.length} of ${devWanted.length} development package(s) missing: ${devMissing.map((c) => safeText(c, 80)).join(", ")} (an unknown configuration key is silently ignored by both tools)`,
+            "degraded",
+          ),
     );
     const vm = f.purls.filter(
       (p) =>

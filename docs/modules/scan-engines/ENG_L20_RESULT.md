@@ -189,3 +189,19 @@ Rootless Docker or Podman (`--userns` mapping, ENG-L18), a second operating syst
 | (d) exit 137 and out-of-memory | **Released.** Real: exit 137, no output (both tools); `classifyToolExit` gives `out_of_memory` |
 | (d) real stderr | **Released** for the fixed-word classification (`config_invalid` from the recorded Syft and Trivy texts); stderr is never stored or returned |
 | (d) Trivy database behaviour | **Settled for the SBOM role** (no database, no network); the failure texts of the vulnerability mode are recorded in `real/facts.json` for Part G, whose `db_unavailable` mapping stays held with it |
+
+## 8. Include ALL components, run for real on 2026-11-21 (owner decision D-24 (a), reverses section 3 item 7 and 17.n decision 1)
+
+Same sandbox (rootful Docker 29.1.3), same locked images, same production sandbox flags (`capture.js`), containers `qm-engl20-*` removed. Tools: Syft 1.57.2 (`-c /rules/syft.yaml` now with `javascript.include-dev-dependencies: true`), Trivy 0.76.2 (`--include-dev-deps` added to the sealed vector). Tree A is the bundled sample; tree C is new (the earlier tree B was not kept, its documents stay in `real/treeB` as the record of the default behaviour): npm (real lockfile v3 with dev, optional and peer entries, plus hand-written `pnpm-lock.yaml` and `yarn.lock`), a Maven pom with test, provided and optional dependencies, Python (`requirements.txt`, `requirements-dev.txt`, `Pipfile.lock` with a develop section, `poetry.lock` with a dev group and an optional extra; the Pipfile.lock and poetry.lock were written by hand, no Poetry was available) and a Go module with a test-only module.
+
+Verified flags: Syft has NO command-line flag for this; the key is `javascript.include-dev-dependencies` (env form `SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES`, also verified); Trivy `--include-dev-deps`. Coverage per ecosystem: `IMAGES.md` section 6.
+
+Counts (distinct canonical-ish purls; a package listed by both tools counts once in the union):
+
+| Tree | Syft before | Trivy before | Union before | Syft after | Trivy after | Union after | Components now present |
+|---|---|---|---|---|---|---|---|
+| A (sample) | 17 | 13 | 20 | 18 | 14 | 21 | `pkg:npm/%40types/node@18.0.0` (both tools) |
+| C | 18 | 12 | 21 | 20 | 18 | 23 | Syft: `@types/node@20.11.0`, `undici-types@5.26.5` (npm dev, package-lock); Trivy additionally `is-odd@3.0.1`, `is-number@6.0.0` (pnpm and yarn dev), `pytest@7.0.0` (poetry dev) and `colorama@0.4.6` (poetry optional extra) |
+
+(The union counts the Go module `BurntSushi/toml` once per spelling; the platform merge lower-cases it: tree C merges to 22 findings, ENG-S15f.) What the tools still do not agree on: Trivy never lists Maven `junit` (test), `javax.servlet-api` (provided) and `guava` (optional) and has no flag for them, and Syft alone lists the project roots; both are kept (D-24 (b)). Neither tool writes a `scope` (checked on every component), so every component is scope `unknown`. `compare.js` on both trees: tree A `PASS 63, MISMATCH 0, UNKNOWN 5` (was 61/0/5, the two new checks `DEV-included-syft` and `DEV-included-trivy` PASS), tree C `PASS 63, MISMATCH 0, UNKNOWN 5`. The remaining UNKNOWN are the two `scope` checks and OQ-5 deb, rpm and apk, as before. Fixtures: `real/sample/*-sealed.cdx.json` replaced by the new documents, `real/treeC/` (after) and `real/treeC/before/` added, `real/facts-dev.json`; `ENG-S15f` asserts the before and after counts.
+

@@ -156,6 +156,7 @@ export const ENSEMBLE_SBOM_CHECKS = [
             "/rules/trivy.yaml",
             "--scanners",
             "license",
+            "--include-dev-deps",
             "--format",
             "cyclonedx",
             "/src",
@@ -463,6 +464,14 @@ export const ENSEMBLE_SBOM_CHECKS = [
         ok(p, cfg.trim().length > 0, `${name} has no setting`);
         ok(p, !/exclude|ignore|skip|path|file|scan/i.test(cfg), `${name} changes what is scanned`);
       }
+      // D-24 (a): Syft takes no flag for development dependencies, only this key of the platform file (an unknown key is ignored silently)
+      ok(
+        p,
+        /^javascript:\n {2}include-dev-dependencies: true$/m.test(
+          readFileSync(path.join(SBOM_DIR, "rules", "syft.yaml"), "utf8"),
+        ),
+        "syft.yaml lacks javascript.include-dev-dependencies: true",
+      );
       return p;
     },
   },
@@ -581,7 +590,7 @@ export const ENSEMBLE_SBOM_CHECKS = [
           "pkg:npm/express@4.18.2",
           "pkg:npm/only-trivy@2.0.0",
         ].map((k) => byPurl.get(k).component.scope),
-        ["prod", "prod", "dev", undefined],
+        ["prod", "prod", "dev", "unknown"],
       );
       // declared-only range next to the locked version
       ok(p, !byPurl.has("pkg:npm/express"), "the declared-only range was kept");
@@ -744,15 +753,15 @@ export const ENSEMBLE_SBOM_CHECKS = [
       );
       eq(
         p,
-        "no scope stays absent",
-        "scope" in run(SYFT, cdx([lib("pkg:npm/u@1")])).candidates[0].component,
-        false,
+        "no scope is scope unknown (D-24 (a))",
+        run(SYFT, cdx([lib("pkg:npm/u@1")])).candidates[0].component.scope,
+        "unknown",
       );
       eq(
         p,
-        "unknown scope word is no scope",
-        "scope" in run(SYFT, cdx([lib("pkg:npm/v@1", { scope: "weird" })])).candidates[0].component,
-        false,
+        "unknown scope word is scope unknown",
+        run(SYFT, cdx([lib("pkg:npm/v@1", { scope: "weird" })])).candidates[0].component.scope,
+        "unknown",
       );
       // package types
       const types = run(
@@ -942,7 +951,7 @@ export const ENSEMBLE_SBOM_CHECKS = [
         p,
         "mapper on a minimal record",
         mapSbomRecord({ purl: "pkg:npm/m@1", paths: [], pathCount: 0 }).component,
-        { purl: "pkg:npm/m@1", name: "m", version: "1", ecosystem: "npm" },
+        { purl: "pkg:npm/m@1", name: "m", version: "1", ecosystem: "npm", scope: "unknown" },
       );
       ok(
         p,
@@ -1106,7 +1115,7 @@ export const ENSEMBLE_SBOM_CHECKS = [
             "peer",
             "optional",
             "peer",
-            undefined,
+            "unknown",
             "prod",
             "dev",
             "dev",
@@ -1641,7 +1650,7 @@ export const ENSEMBLE_SBOM_CHECKS = [
         "lite scope words",
         run(LITE, Buffer.from(JSON.stringify([liteItem({ data: { scope: "weird" } })])))
           .candidates[0].component.scope,
-        undefined,
+        "unknown",
       );
       // the global prototype is intact after everything
       ok(p, Object.keys(Object.prototype).length === 0, "Object.prototype gained a key");

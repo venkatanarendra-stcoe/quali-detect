@@ -17,13 +17,24 @@ import { signCursor, verifyCursor } from "./cursor-signing.js";
  * does not parse, fails its MAC (tampered, forged, signed with another or a retired key, minted for another endpoint, scope,
  * sort, filter set or parent), or carries values of the wrong type answers 400 `INVALID_CURSOR`.
  *
+ * Precision: timestamp columns are `timestamptz(6)` (microseconds) but a JavaScript `Date` holds milliseconds, so a Date-only
+ * keyset could page rows that differ below the millisecond wrongly. A date key therefore travels at microsecond precision:
+ * the cursor payload holds the six-digit ISO string read from the database (`to_char`, never rounded in JavaScript), the
+ * revived value is a `Date` (floor milliseconds) carrying that string as `micros`, and `findKeysetPage` resolves the exact
+ * position with bound parameters only (see there). Cursors minted before this change carry millisecond dates and are refused
+ * like any other malformed cursor (`INVALID_CURSOR`, a clean break: cursors are short-lived "Load more" positions).
+ *
  * Ordering: every supported sort is made total by appending the row `id` as the last term, so pages never overlap or skip
  * rows, even when rows are inserted while a client pages. Postgres puts NULLs last for `asc` and first for `desc`, which the
  * keyset predicate mirrors.
  */
 
 export const MAX_CURSOR_LENGTH = 1024;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/;
+/** A date key at the columns' full precision: always exactly six fractional digits (microseconds). */
+const ISO_MICROS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+/** Most rows one millisecond can hold inside one scoped query before the exact-position lookup refuses (fail closed). */
+export const MAX_MS_BAND = 5000;
+const IDENTIFIER = /^[a-z][a-z0-9_]{0,62}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 400 for a cursor that is malformed, tampered with or minted for another request shape. */
@@ -37,10 +48,11 @@ export class InvalidCursorError extends AppError {
 }
 
 /**
- * @typedef {{ type: "string" | "date" | "number" | "enum", nullable?: boolean, values?: readonly string[] }} KeySpec
+ * @typedef {{ type: "string" | "date" | "number" | "enum", nullable?: boolean, values?: readonly string[], column?: string }} KeySpec
+ * A `date` spec names its database `column` (snake_case) so the exact microsecond position can be read and compared.
  * `enum` is a Postgres enum column: it sorts in DECLARATION order (`values` must list it in that order) and Prisma has no
  * range filter for it, so the keyset predicate uses `in` with the values before or after the position.
- * @typedef {{ field: string, direction: "asc" | "desc", type: "string" | "date" | "number" | "uuid" | "enum", nullable: boolean, values?: readonly string[] }} KeyTerm
+ * @typedef {{ field: string, direction: "asc" | "desc", type: "string" | "date" | "number" | "uuid" | "enum", nullable: boolean, values?: readonly string[], column?: string }} KeyTerm
  */
 
 /** Query keys that choose the page, not the result set. */
@@ -70,6 +82,7 @@ export function keyTerms(sort, specs, tie) {
       type: specs[field].type,
       nullable: specs[field].nullable === true,
       ...(specs[field].values ? { values: specs[field].values } : {}),
+      ...(specs[field].column ? { column: specs[field].column } : {}),
     })),
     { field: "id", direction: tie, type: "uuid", nullable: false },
   ];
@@ -100,12 +113,31 @@ export function cursorBinding({ kind, scope, query, sort, terms, extra = {} }) {
   ).slice(0, 24);
 }
 
+/** `2026-05-01T10:00:00.123Z` for a Date, padded to the cursor format (`.123000Z`). @param {Date} date */
+const microsOfDate = (date) => date.toISOString().replace(/\.(\d{3})Z$/, ".$1000Z");
+
+/**
+ * A Date (floor milliseconds) that also carries its exact microsecond ISO string and serializes as it.
+ * @param {string} micros six fractional digits, UTC
+ * @returns {Date & { micros: string }}
+ */
+export function microDate(micros) {
+  if (typeof micros !== "string" || !ISO_MICROS.test(micros)) throw new InvalidCursorError();
+  const date = new Date(`${micros.slice(0, 23)}Z`);
+  if (Number.isNaN(date.getTime()) || microsOfDate(date).slice(0, 23) !== micros.slice(0, 23))
+    throw new InvalidCursorError();
+  return Object.assign(date, { micros, toJSON: () => micros });
+}
+
 /**
  * @param {{ binding: string, values: Array<string | number | Date | null> }} input
  * @returns {string} opaque, signed cursor
  */
 export function encodeCursor({ binding, values }) {
-  return signCursor({ binding, payload: Buffer.from(JSON.stringify(values), "utf8") });
+  const wire = values.map((value) =>
+    value instanceof Date ? (value.micros ?? microsOfDate(value)) : value,
+  );
+  return signCursor({ binding, payload: Buffer.from(JSON.stringify(wire), "utf8") });
 }
 
 function reviveValue(term, raw) {
@@ -115,10 +147,7 @@ function reviveValue(term, raw) {
   }
   switch (term.type) {
     case "date": {
-      if (typeof raw !== "string" || !ISO_DATE.test(raw)) throw new InvalidCursorError();
-      const date = new Date(raw);
-      if (Number.isNaN(date.getTime())) throw new InvalidCursorError();
-      return date;
+      return microDate(raw);
     }
     case "number":
       if (typeof raw !== "number" || !Number.isFinite(raw)) throw new InvalidCursorError();
@@ -256,22 +285,109 @@ export function cursorContext({ kind, scope, query, specs, tie = "asc", terms, e
   };
 }
 
+const MICROS_SQL = `to_char(%C AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+/**
+ * Exact (microsecond) text of a timestamp column for rows that a scoped query already returned. Identifiers come from code
+ * constants (validated), the ids are bound parameters.
+ * @param {any} db Prisma client
+ * @param {{ table: string, column: string, ids: string[] }} input
+ * @returns {Promise<Map<string, string>>}
+ */
+async function readMicros(db, { table, column, ids }) {
+  if (!IDENTIFIER.test(table) || !IDENTIFIER.test(column)) throw new TypeError("keyset identifier");
+  if (ids.length === 0) return new Map();
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id::text AS id, ${MICROS_SQL.replace("%C", `"${column}"`)} AS micros FROM "${table}" WHERE id = ANY($1::uuid[])`,
+    ids,
+  );
+  return new Map(rows.map((r) => [r.id, r.micros]));
+}
+
+/**
+ * The keyset predicate when the position holds a microsecond date key. A Prisma filter only compares milliseconds, so the
+ * position is resolved exactly in two steps: (1) the rows of the SAME scoped query (`where`) whose date falls in the
+ * position's millisecond are read with their exact microseconds, and split into those exactly after, exactly equal and
+ * before the position; (2) the predicate is rebuilt from filters that are exact by construction: dates outside that
+ * millisecond compare as before, rows inside it are decided by id lists, and a tie on the exact date falls through to the
+ * terms after it. Equal ids, ties and NULLs follow the plain predicate.
+ * @returns {Promise<Record<string, any>>} the `where` fragment to AND with `where`
+ */
+async function exactKeysetWhere({ delegate, db, table, where, terms, after, maxBand }) {
+  const d = terms.findIndex((t) => t.type === "date");
+  const position = d === -1 ? null : after[d];
+  if (!position || typeof position.micros !== "string") return keysetWhere(terms, after);
+  const term = terms[d];
+  if (!term.column) throw new TypeError(`keyset date term ${term.field} has no column`);
+  const floor = new Date(position.getTime());
+  const next = new Date(floor.getTime() + 1);
+  const band = await delegate.findMany({
+    where: { AND: [where, { [term.field]: { gte: floor, lt: next } }] },
+    select: { id: true },
+    take: maxBand + 1,
+  });
+  if (band.length > maxBand) throw new Error("keyset millisecond band is too large");
+  const micros = await readMicros(db, {
+    table,
+    column: term.column,
+    ids: band.map((r) => r.id),
+  });
+  const ahead = [];
+  const tied = [];
+  for (const { id } of band) {
+    const m = micros.get(id);
+    if (m === undefined) continue;
+    if (m === position.micros) tied.push(id);
+    else if (term.direction === "asc" ? m > position.micros : m < position.micros) ahead.push(id);
+  }
+  const prefix = terms.slice(0, d);
+  const prefixValues = after.slice(0, d);
+  const equalPrefix = prefix.map((t, i) => ({ [t.field]: prefixValues[i] }));
+  const outside =
+    term.direction === "asc"
+      ? {
+          OR: [{ [term.field]: { gte: next } }, ...(term.nullable ? [{ [term.field]: null }] : [])],
+        }
+      : { [term.field]: { lt: floor } };
+  return {
+    OR: [
+      ...(prefix.length > 0 ? [keysetWhere(prefix, prefixValues)] : []),
+      { AND: [...equalPrefix, { OR: [outside, { id: { in: ahead } }] }] },
+      {
+        AND: [
+          ...equalPrefix,
+          { id: { in: tied } },
+          keysetWhere(terms.slice(d + 1), after.slice(d + 1)),
+        ],
+      },
+    ],
+  };
+}
+
 /**
  * One page of a Prisma model in keyset order, plus the filtered total. Offset mode (`after` null) keeps `page`/`pageSize`;
- * cursor mode ignores `page`. One extra row is fetched to learn whether more follow.
+ * cursor mode ignores `page`. One extra row is fetched to learn whether more follow. When a term is a `date`, the model's
+ * `table` and the Prisma client `db` are required: the next position is read at microsecond precision and the cursor
+ * position is resolved exactly (see `exactKeysetWhere`).
  * @param {any} delegate Prisma model delegate (`db.repository`)
- * @param {{ where: Record<string, any>, args?: Record<string, any>, terms: KeyTerm[], after: any[] | null, page: number, pageSize: number, limit?: number }} input
+ * @param {{ where: Record<string, any>, args?: Record<string, any>, terms: KeyTerm[], after: any[] | null, page: number, pageSize: number, limit?: number, db?: any, table?: string, maxBand?: number }} input
  * `where` MUST already carry the tenant scope.
  */
 export async function findKeysetPage(
   delegate,
-  { where, args = {}, terms, after, page, pageSize, limit },
+  { where, args = {}, terms, after, page, pageSize, limit, db, table, maxBand = MAX_MS_BAND },
 ) {
   const take = limit ?? pageSize;
+  const dateIndex = terms.findIndex((t) => t.type === "date");
+  if (dateIndex !== -1 && (!db || !table))
+    throw new TypeError("A keyset with a date term needs the Prisma client and the table name.");
+  const position = after
+    ? await exactKeysetWhere({ delegate, db, table, where, terms, after, maxBand })
+    : null;
   const [rows, totalItems] = await Promise.all([
     delegate.findMany({
       ...args,
-      where: after ? { ...where, AND: [keysetWhere(terms, after)] } : where,
+      where: position ? { AND: [where, position] } : where,
       orderBy: keysetOrderBy(terms),
       take: take + 1,
       ...(after ? {} : { skip: (page - 1) * take }),
@@ -280,5 +396,13 @@ export async function findKeysetPage(
   ]);
   const hasMore = rows.length > take;
   const items = hasMore ? rows.slice(0, take) : rows;
-  return { items, totalItems, hasMore, nextKey: hasMore ? keyOf(items.at(-1), terms) : null };
+  const nextKey = hasMore ? keyOf(items.at(-1), terms) : null;
+  if (nextKey && dateIndex !== -1 && nextKey[dateIndex] instanceof Date) {
+    const last = items.at(-1);
+    const micros = (
+      await readMicros(db, { table, column: terms[dateIndex].column, ids: [last.id] })
+    ).get(last.id);
+    if (micros) nextKey[dateIndex] = microDate(micros);
+  }
+  return { items, totalItems, hasMore, nextKey };
 }

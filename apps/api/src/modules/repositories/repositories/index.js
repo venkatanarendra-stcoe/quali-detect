@@ -54,6 +54,8 @@ export function createRepositoryRepository({ db }) {
         page,
         pageSize,
         limit,
+        db,
+        table: "repositories",
       });
     },
     findById: ({ tenantId, id }, client = db) =>

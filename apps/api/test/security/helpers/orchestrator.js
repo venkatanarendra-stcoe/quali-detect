@@ -401,7 +401,8 @@ export async function buildOrchestratorWorld(db, github) {
     const user = await db.user.create({
       data: { email: `orch-${label}-${sfx}@orch.example`, name: label },
     });
-    const extId = String(7_000_000 + Math.floor(Math.random() * 1_000_000) + counter);
+    // unique by construction: the per-process counter leads, the random tail only keeps separate runs apart (a random-only id collided about once in 50 full runs)
+    const extId = `${7_000_000 + counter}${String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0")}`;
     const org = `orch-${sfx}`;
     const repoName = `repo-${label}`;
     const installation = await db.scmInstallation.create({

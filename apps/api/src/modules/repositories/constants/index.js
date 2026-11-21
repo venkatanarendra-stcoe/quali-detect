@@ -6,7 +6,7 @@ export const SORTABLE_FIELDS = Object.freeze(["fullName", "connectedAt", "lastEv
 /** Keyset terms of the list sort fields (`fullName` and `connectedAt` are never null; `lastEventAt` is). `id` breaks ties. */
 export const REPOSITORY_KEY_SPECS = Object.freeze({
   fullName: { type: "string" },
-  connectedAt: { type: "date" },
-  lastEventAt: { type: "date", nullable: true },
+  connectedAt: { type: "date", column: "connected_at" },
+  lastEventAt: { type: "date", nullable: true, column: "last_event_at" },
 });
 export const REPOSITORY_TIE = "asc";

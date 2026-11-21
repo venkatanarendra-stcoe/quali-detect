@@ -172,6 +172,8 @@ export function createPipelineRepository({ db }) {
           page,
           pageSize,
           limit,
+          db,
+          table: "pipelines",
         });
       // `lastRequestedAt` is an aggregate over executions: order the (bounded) id set in memory, then load one page.
       const take = limit ?? pageSize;

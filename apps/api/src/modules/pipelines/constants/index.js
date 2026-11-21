@@ -7,7 +7,7 @@ export const SORTABLE_FIELDS = Object.freeze(["name", "createdAt", "lastRequeste
 /** Keyset terms of the list sort fields stored on the row (`lastRequestedAt` is an aggregate: see `pipelineKeyTerms`). */
 export const PIPELINE_KEY_SPECS = Object.freeze({
   name: { type: "string" },
-  createdAt: { type: "date" },
+  createdAt: { type: "date", column: "created_at" },
 });
 export const PIPELINE_TIE = "asc";
 

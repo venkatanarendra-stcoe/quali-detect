@@ -152,7 +152,7 @@ export function createScanDbSnapshotRepository({ db }) {
      * The operator alert "a refresh was blocked by quarantine" (SPEC scan-engines SE-39, owner decision D-24 (f)): ONE platform audit
      * entry (`platform_audit_logs`, actor type `system`, no tenant, the Root Console audit log is where an operator reads it) per
      * (tool, digest). The advisory lock of the pair and the NOT EXISTS make it once even for two concurrent refreshes, and a repeated
-     * refresh of the same digest writes nothing (no spam). The time is cut to whole milliseconds, the precision of the audit log's keyset cursors (JavaScript dates), so rows written within one millisecond order by id like every other tie. The entry carries ONLY the tool id, the fixed reason word, the stage word,
+     * refresh of the same digest writes nothing (no spam). The entry carries ONLY the tool id, the fixed reason word, the stage word,
      * the digest and integer counts: no URL, host, token, source name, record id or upstream text ever reaches it.
      * @param {{ toolId: string, sha256: string, stage: string, counts?: { records?: number, quarantined?: number, notAllowed?: number, invalid?: number } }} input
      * @param {any} [client]
@@ -178,7 +178,7 @@ export function createScanDbSnapshotRepository({ db }) {
         const rows = await tx.$queryRaw`
           INSERT INTO platform_audit_logs (id, actor_type, action, target_type, metadata, created_at)
           SELECT gen_random_uuid(), 'system'::platform_actor_type, ${DB_ALERT_ACTIONS.QUARANTINE_DENIED}, 'scan_db_snapshot', ${JSON.stringify(metadata)}::jsonb,
-                 date_trunc('milliseconds', clock_timestamp())
+                 clock_timestamp()
           WHERE NOT EXISTS (
             SELECT 1 FROM platform_audit_logs
             WHERE action = ${DB_ALERT_ACTIONS.QUARANTINE_DENIED} AND metadata->>'toolId' = ${toolId} AND metadata->>'sha256' = ${sha256})

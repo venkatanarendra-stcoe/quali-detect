@@ -4,7 +4,7 @@ import { createCollectionQuerySchema } from "./query.js";
 
 /** Sort fields of both audit-log read APIs as keyset terms (createdAt, action; `id` breaks ties). */
 export const AUDIT_KEY_SPECS = Object.freeze({
-  createdAt: { type: "date" },
+  createdAt: { type: "date", column: "created_at" },
   action: { type: "string" },
 });
 

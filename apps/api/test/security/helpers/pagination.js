@@ -18,7 +18,13 @@ import {
   verifyCursor,
 } from "../../../src/lib/cursor-signing.js";
 import { AUDIT_KEY_SPECS } from "../../../src/lib/audit-view.js";
-import { InvalidCursorError, cursorBinding, keyTerms } from "../../../src/lib/keyset.js";
+import {
+  InvalidCursorError,
+  cursorBinding,
+  findKeysetPage,
+  keyTerms,
+  microDate,
+} from "../../../src/lib/keyset.js";
 import { TENANT_KEY_SPECS } from "../../../src/modules/platform-tenants/constants/index.js";
 
 const OK = { status: 200 };
@@ -1946,6 +1952,297 @@ export function buildPaginationChecks({ S, once, db }) {
           )
             problems.push(`${path}: nextCursor of offset page 1 does not lead to offset page 2`);
         }
+        return problems;
+      }),
+    verifyProblems,
+  );
+
+  // =====================================================================================================================
+  // Microsecond keyset positions (PAG-026..028): timestamp columns hold microseconds, JavaScript dates only milliseconds
+  // =====================================================================================================================
+  /** Ten instants inside ONE millisecond (different microseconds, two exact ties) plus rows in the neighbouring milliseconds. */
+  const MICRO_STAMPS = [
+    "2026-06-01 10:00:00.122999+00",
+    "2026-06-01 10:00:00.123000+00",
+    "2026-06-01 10:00:00.123001+00",
+    "2026-06-01 10:00:00.123001+00",
+    "2026-06-01 10:00:00.123250+00",
+    "2026-06-01 10:00:00.123500+00",
+    "2026-06-01 10:00:00.123500+00",
+    "2026-06-01 10:00:00.123999+00",
+    "2026-06-01 10:00:00.124000+00",
+    "2026-06-01 10:00:00.124001+00",
+  ];
+  const MICRO_ACTION = "pagmicro.event_created";
+  const microWorld = (x) =>
+    once("pag-micro-world", async () => {
+      const c = db();
+      const { P } = await worldOf(x);
+      const ids = { platform: [], tenant: [] };
+      for (const stamp of MICRO_STAMPS) {
+        const platform = await c.$queryRawUnsafe(
+          `INSERT INTO platform_audit_logs (id, actor_type, action, created_at)
+           VALUES (gen_random_uuid(), 'system', $1, $2::timestamptz) RETURNING id::text AS id`,
+          MICRO_ACTION,
+          stamp,
+        );
+        ids.platform.push(platform[0].id);
+        const tenant = await c.$queryRawUnsafe(
+          `INSERT INTO audit_logs (id, tenant_id, actor_type, action, created_at)
+           VALUES (gen_random_uuid(), $1::uuid, 'system', $2, $3::timestamptz) RETURNING id::text AS id`,
+          P.id,
+          MICRO_ACTION,
+          stamp,
+        );
+        ids.tenant.push(tenant[0].id);
+      }
+      // tenants: created through Prisma, then moved to the same instants (the tenants table is mutable)
+      const tenants = [];
+      for (const [index, stamp] of MICRO_STAMPS.entries()) {
+        const t = await c.tenant.create({
+          data: { slug: `pagmicro-${index}-${rand(4)}`, name: `PagMicro ${index}` },
+        });
+        await c.$executeRawUnsafe(
+          "UPDATE tenants SET created_at = $2::timestamptz WHERE id = $1::uuid",
+          t.id,
+          stamp,
+        );
+        tenants.push(t.id);
+      }
+      return { ids, tenants };
+    });
+  /** The exact order the database holds the rows in, at microsecond precision. */
+  const expectedOrder = async (table, where, params, direction, idDirection) => {
+    const rows = await db().$queryRawUnsafe(
+      `SELECT id::text AS id FROM ${table} WHERE ${where} ORDER BY created_at ${direction}, id ${idDirection}`,
+      ...params,
+    );
+    return rows.map((r) => r.id);
+  };
+  const MICRO_SORTS = [
+    { sort: undefined, direction: "DESC", tie: "DESC" },
+    { sort: "createdAt:asc", direction: "ASC", tie: "DESC" },
+    { sort: "createdAt:desc", direction: "DESC", tie: "DESC" },
+    { sort: "createdAt:asc,action:desc", direction: "ASC", tie: "DESC" },
+    { sort: "action:asc,createdAt:desc", direction: "DESC", tie: "DESC" },
+  ];
+  const microWalks = async (x, cookie, path, params, table, where, sqlParams, tie) => {
+    const problems = [];
+    for (const { sort, direction, tie: t } of MICRO_SORTS) {
+      const expected = await expectedOrder(table, where, sqlParams, direction, tie ?? t);
+      for (const limit of [1, 2, 3, 4]) {
+        const walked = await walk(x, cookie, path, { ...params, sort }, limit);
+        problems.push(...walked.problems.map((p) => `${sort} limit ${limit}: ${p}`));
+        const got = idsOf(walked.items);
+        if (dups(got).length > 0) problems.push(`${sort} limit ${limit}: duplicated rows`);
+        if (JSON.stringify(got) !== JSON.stringify(expected))
+          problems.push(
+            `${sort} limit ${limit}: ${got.length} rows differ from the exact microsecond order (${expected.length})`,
+          );
+      }
+    }
+    return problems;
+  };
+  add(
+    "PAG-026",
+    "microsecond keyset: audit rows written in the same millisecond but different microseconds (and exact ties) page exactly once in the database's exact order across every page boundary, in both directions and every supported sort, on the tenant audit log and the platform audit log",
+    OK,
+    (x) =>
+      collected(async () => {
+        const { ids } = await microWorld(x);
+        const { P } = await worldOf(x);
+        const problems = [];
+        const platform = await microWalks(
+          x,
+          S("sa")(x),
+          PAUDIT,
+          { action: MICRO_ACTION },
+          "platform_audit_logs",
+          "action = $1",
+          [MICRO_ACTION],
+        );
+        problems.push(...platform.map((p) => `platform audit: ${p}`));
+        const tenant = await microWalks(
+          x,
+          P.owner,
+          AUDIT,
+          { action: MICRO_ACTION },
+          "audit_logs",
+          "action = $1 AND tenant_id = $2::uuid",
+          [MICRO_ACTION, P.id],
+        );
+        problems.push(...tenant.map((p) => `tenant audit: ${p}`));
+        if (ids.platform.length !== MICRO_STAMPS.length) problems.push("fixture missing");
+        return problems;
+      }),
+    verifyProblems,
+  );
+  add(
+    "PAG-027",
+    "microsecond keyset: tenants created in the same millisecond page exactly once in both directions (createdAt keyset), and the position is a six-digit microsecond string the cursor carries (no millisecond rounding)",
+    OK,
+    (x) =>
+      collected(async () => {
+        const { tenants } = await microWorld(x);
+        const sa = S("sa")(x);
+        const problems = [];
+        const expectedFor = async (direction) =>
+          (
+            await db().$queryRawUnsafe(
+              `SELECT id::text AS id FROM tenants WHERE id = ANY($1::uuid[]) ORDER BY created_at ${direction}, id ASC`,
+              tenants,
+            )
+          ).map((r) => r.id);
+        for (const [sort, direction] of [
+          ["createdAt:asc", "ASC"],
+          ["createdAt:desc", "DESC"],
+          ["createdAt:desc,status:asc", "DESC"],
+        ])
+          for (const limit of [1, 3]) {
+            const walked = await walk(x, sa, PTENANTS, { q: "pagmicro", sort }, limit);
+            problems.push(...walked.problems);
+            const got = idsOf(walked.items);
+            if (JSON.stringify(got) !== JSON.stringify(await expectedFor(direction)))
+              problems.push(`${sort} limit ${limit}: tenants differ from the exact order`);
+          }
+        const r = await get(x, sa, PTENANTS, { q: "pagmicro", sort: "createdAt:asc", limit: 3 });
+        const payload = JSON.parse(
+          split(r.json?.meta?.pagination?.nextCursor ?? "AA").payload.toString("utf8"),
+        );
+        const stamp = payload[0];
+        if (typeof stamp !== "string" || !/^\d{4}-\d{2}-\d{2}T[\d:]{8}\.\d{6}Z$/.test(stamp))
+          problems.push(`the cursor position is not a six-digit microsecond string: ${stamp}`);
+        else if (stamp !== "2026-06-01T10:00:00.123001Z")
+          problems.push(`the cursor position lost microsecond precision: ${stamp}`);
+        return problems;
+      }),
+    verifyProblems,
+  );
+  add(
+    "PAG-028",
+    "microsecond keyset: a cursor whose date is a millisecond-only value (cursors minted before the change), has the wrong digit count, an impossible calendar date, an offset instead of Z, a number, injection text or is null is refused with 400 INVALID_CURSOR even when re-signed with the real key; the same cursor with a valid microsecond date is accepted (control)",
+    INVALID_CURSOR,
+    async (x) => {
+      const eps = await endpointsOf(x);
+      await microWorld(x);
+      const problems = [];
+      let sample;
+      const id = randomUUID();
+      for (const ep of [eps.audit, eps.platformAudit]) {
+        const binding = bindingFor(ep);
+        const mint = (values) =>
+          forgeToken({ binding, payload: Buffer.from(JSON.stringify(values), "utf8") });
+        const control = await get(x, ep.cookie, ep.path, {
+          limit: 2,
+          cursor: mint(["2026-06-01T10:00:00.123001Z", id]),
+        });
+        if (control.status !== 200) problems.push(`${ep.path}: control answered ${control.status}`);
+        for (const [what, value] of [
+          ["millisecond only (old cursor)", "2026-06-01T10:00:00.123Z"],
+          ["no fraction", "2026-06-01T10:00:00Z"],
+          ["seven digits", "2026-06-01T10:00:00.1230011Z"],
+          ["impossible date", "2026-02-31T10:00:00.123001Z"],
+          ["impossible time", "2026-06-01T25:00:00.123001Z"],
+          ["offset instead of Z", "2026-06-01T10:00:00.123001+00:00"],
+          ["epoch number", 1780308000123],
+          ["null", null],
+          ["injection", "2026-06-01T10:00:00.123001Z'; DROP TABLE audit_logs;--"],
+          ["array", ["2026-06-01T10:00:00.123001Z"]],
+        ]) {
+          const r = await get(x, ep.cookie, ep.path, { limit: 2, cursor: mint([value, id]) });
+          sample ??= r;
+          if (!refused(r)) problems.push(`${ep.path}: ${what} answered ${r.status}`);
+        }
+      }
+      sample.problems = problems;
+      return sample;
+    },
+    verifyProblems,
+  );
+
+  add(
+    "PAG-029",
+    "microsecond keyset, the mechanism itself (fake model, no database): a date term without the Prisma client or the table fails loudly (either one missing), the millisecond band is bounded and fails closed above its cap, the exact microseconds are read with bound ids and validated identifiers only (never a value in the SQL text), a hostile table or column name is refused, and the page's next position carries the microseconds the database returned",
+    OK,
+    () =>
+      collected(async () => {
+        const problems = [];
+        const terms = keyTerms([{ field: "createdAt", direction: "asc" }], AUDIT_KEY_SPECS, "desc");
+        const sqls = [];
+        const rowsOf = (n) =>
+          Array.from({ length: n }, (_, i) => ({
+            id: randomUUID(),
+            n: i,
+            createdAt: new Date(1780308000123 + i),
+          }));
+        const delegate = (findMany) => ({ findMany, count: async () => 0 });
+        const db = {
+          $queryRawUnsafe: async (sql, ids) => {
+            sqls.push({ sql, ids });
+            return ids.map((id, i) => ({ id, micros: `2026-06-01T10:00:00.12300${i % 10}Z` }));
+          },
+        };
+        const base = { where: {}, terms, after: null, page: 1, pageSize: 2 };
+        const throws = async (what, fn, kind = TypeError) => {
+          try {
+            await fn();
+            problems.push(`${what}: did not throw`);
+          } catch (error) {
+            if (!(error instanceof kind)) problems.push(`${what}: wrong error ${error?.name}`);
+          }
+        };
+        const three = rowsOf(3);
+        const page = delegate(async () => three);
+        await throws("no db, no table", () => findKeysetPage(page, base));
+        await throws("db without table", () => findKeysetPage(page, { ...base, db }));
+        await throws("table without db", () =>
+          findKeysetPage(page, { ...base, table: "audit_logs" }),
+        );
+        const ok = await findKeysetPage(page, { ...base, db, table: "audit_logs" });
+        if (ok.nextKey?.[0]?.micros !== "2026-06-01T10:00:00.123000Z")
+          problems.push(`the next position is ${ok.nextKey?.[0]?.micros}`);
+        const lastId = three[1].id;
+        const q = sqls.at(-1);
+        if (!q || q.ids.length !== 1 || q.ids[0] !== lastId || q.sql.includes(lastId))
+          problems.push("the micros lookup does not bind the id of the last row only");
+        if (!q?.sql.includes("WHERE id = ANY($1::uuid[])") || !q.sql.includes('FROM "audit_logs"'))
+          problems.push("the micros lookup is not a bound id list on the named table");
+        for (const bad of ['audit_logs"; DROP TABLE x;--', "Audit Logs", "", "a".repeat(80)])
+          await throws(`table ${JSON.stringify(bad).slice(0, 20)}`, () =>
+            findKeysetPage(page, { ...base, db, table: bad }),
+          );
+        const badColumn = keyTerms(
+          [{ field: "createdAt", direction: "asc" }],
+          { createdAt: { type: "date", column: 'created_at" OR 1=1 --' } },
+          "asc",
+        );
+        await throws("column", () =>
+          findKeysetPage(page, { ...base, terms: badColumn, db, table: "audit_logs" }),
+        );
+        // the position: a band query is made with the tenant scope kept, capped, and fails closed above the cap
+        const after = [microDate("2026-06-01T10:00:00.123500Z"), randomUUID()];
+        const bandRows = rowsOf(4).map(({ id }) => ({ id }));
+        const seenWhere = [];
+        const banded = delegate(async (args) => {
+          seenWhere.push(args);
+          return args.select ? bandRows : [];
+        });
+        await throws(
+          "band above the cap",
+          () => findKeysetPage(banded, { ...base, after, db, table: "audit_logs", maxBand: 3 }),
+          Error,
+        );
+        if (seenWhere[0]?.take !== 4)
+          problems.push(`the band query takes ${seenWhere[0]?.take}, not cap + 1`);
+        seenWhere.length = 0;
+        await findKeysetPage(banded, { ...base, after, db, table: "audit_logs", maxBand: 4 });
+        if (seenWhere.length < 2) problems.push("a band at the cap must still page");
+        const scoped = { tenantId: randomUUID() };
+        seenWhere.length = 0;
+        await findKeysetPage(banded, { ...base, where: scoped, after, db, table: "audit_logs" });
+        for (const call of seenWhere)
+          if (!JSON.stringify(call.where).includes(scoped.tenantId))
+            problems.push("a query of the page lost the scope filter");
         return problems;
       }),
     verifyProblems,

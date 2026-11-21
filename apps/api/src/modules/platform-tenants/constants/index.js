@@ -9,7 +9,7 @@ export const TENANT_KEY_SPECS = Object.freeze({
   name: { type: "string" },
   slug: { type: "string" },
   status: { type: "enum", values: TENANT_STATUSES },
-  createdAt: { type: "date" },
+  createdAt: { type: "date", column: "created_at" },
 });
 export const TENANT_TIE = "asc";
 

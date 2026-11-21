@@ -42,6 +42,8 @@ export function createAuditLogRepository({ db }) {
         page,
         pageSize,
         limit,
+        db,
+        table: "audit_logs",
       });
     },
   });

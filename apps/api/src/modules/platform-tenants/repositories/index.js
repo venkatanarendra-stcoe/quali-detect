@@ -57,6 +57,8 @@ export function createPlatformTenantRepository({ db, authzRepository }) {
         page,
         pageSize,
         limit,
+        db,
+        table: "tenants",
       });
       const { items: tenants, totalItems, hasMore, nextKey } = keyset;
       const ids = tenants.map((t) => t.id);

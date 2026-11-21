@@ -12,7 +12,7 @@
  * is used by the tools (`--network=none`); the script itself never uses the network, reads no token and prints no environment.
  */
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildRunArgs, resolveRunSpecImage, validateSandboxConfig } from "@qmentisai/infra";
@@ -71,18 +71,7 @@ function runOne(runtime, args, outDir, id, wallSeconds) {
   });
 }
 
-async function scan({
-  runtime,
-  work,
-  tree,
-  trivyDb,
-  osvDb,
-  rulesDir,
-  outDir,
-  label,
-  config,
-  resolver,
-}) {
+async function scan({ runtime, tree, trivyDb, osvDb, rulesDir, outDir, label, config, resolver }) {
   const adapters = [
     { adapter: createTrivyScaAdapter(), db: trivyDb },
     { adapter: createOsvScannerAdapter(), db: osvDb },
@@ -187,7 +176,7 @@ async function main() {
     egressNetworks: {},
   });
   const { resolver } = loadImageLock({});
-  const common = { runtime, work, trivyDb, osvDb, rulesDir, outDir, config, resolver };
+  const common = { runtime, trivyDb, osvDb, rulesDir, outDir, config, resolver };
   const clean = await scan({ ...common, tree, label: "clean" });
   summary("clean tree", clean);
   // the planted-configuration experiment: the same tree plus hostile repository configuration

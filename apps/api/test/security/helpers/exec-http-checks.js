@@ -1,3 +1,4 @@
+import { isNotModified } from "../../../src/lib/conditional.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   createExecutionArtifactRepository,
@@ -2383,7 +2384,7 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
 
   check(
     "ENG-S08i",
-    "the repository SBOM download over HTTP (SPEC scan-engines 17.r, 14.1 ENG-S08, owner decision D-24 (e)): GET /repositories/{id}/sbom serves the stored (redacted) document of the LATEST SUCCEEDED sbom scan task of the repository (a newer failed task, an artifact whose name matches no task and an older document are never served; with several pipelines the newest overall, or the one of `?pipelineId=`, which must belong to the repository: a pipeline of another repository, of another tenant, unknown or without a document is the same 404 as no document), byte for byte, as an attachment with a sanitised file name, the CycloneDX media type, nosniff, private no-store and the stored hash as ETag, and nothing else in the body; another tenant's repository, a missing repository and a member without repository.view get no document and the foreign case is identical to a missing id; a repository without a document is a 404 with the stable code RESOURCE_NOT_FOUND; a malformed or unknown query is 400; every served document writes exactly one audit entry repository.sbom_downloaded with only ids and a size, and nothing is audited for a refusal",
+    "the repository SBOM download over HTTP (SPEC scan-engines 17.r, 14.1 ENG-S08, owner decision D-24 (e)): GET /repositories/{id}/sbom serves the stored (redacted) document of the LATEST SUCCEEDED sbom scan task of the repository (a newer failed task, an artifact whose name matches no task and an older document are never served; with several pipelines the newest overall, or the one of `?pipelineId=`, which must belong to the repository: a pipeline of another repository, of another tenant, unknown or without a document is the same 404 as no document), byte for byte, as an attachment with a sanitised file name, the CycloneDX media type, nosniff, private no-store and the stored hash as ETag, and nothing else in the body; another tenant's repository, a missing repository and a member without repository.view get no document and the foreign case is identical to a missing id; a repository without a document is a 404 with the stable code RESOURCE_NOT_FOUND; a malformed or unknown query is 400; every served 200 document writes exactly one audit entry repository.sbom_downloaded with only ids and a size, written before the body is sent; a conditional request whose If-None-Match matches (exact, weak, in a list, wildcard) is an empty 304 with the ETag and writes NO entry, a non-matching ETag gets the document and one entry, HEAD sends no body and writes none, a matching ETag never turns a 404, 403 or 401 into a 304, and nothing is audited for a refusal",
     async () => {
       const k = await exeWorld();
       const d = k.d;
@@ -2547,6 +2548,105 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
         for (const needle of ["tenantId", "tenant_id", k.tenantA, "workspaceId"])
           if (ok1.text.includes(needle)) problems.push(`the body contains ${needle}`);
       }
+      // ---- conditional requests (owner decision 2026-11-21): a 304 is NOT a download and writes no audit entry; a 200 body writes exactly
+      // one, BEFORE it is sent; HEAD sends no body and writes none; a 304 is never an oracle (the 404 and 403 answers come first)
+      {
+        const etag = ok1.headers.get("etag");
+        const count = async () => (await audits(k.tenantA, x.payRepo)).length;
+        const conditional = (
+          value,
+          extra = {},
+          cookie = s.admin,
+          repositoryId = x.payRepo,
+          method = "GET",
+        ) =>
+          w.api(method, `/repositories/${repositoryId}/sbom`, {
+            cookie,
+            headers: { "if-none-match": value, ...extra },
+          });
+        const base = await count();
+        for (const [label, value] of [
+          ["the exact ETag", etag],
+          ["a weak validator", `W/${etag}`],
+          ["a list holding it", `"0000", ${etag}`],
+          ["the wildcard", "*"],
+        ]) {
+          const r = await conditional(value);
+          if (r.status !== 304 || r.text !== "" || r.headers.get("etag") !== etag)
+            problems.push(`${label} did not answer an empty 304 with the ETag (${r.status})`);
+          if (r.headers.get("content-disposition") !== null)
+            problems.push(`a 304 carried a content disposition (${label})`);
+        }
+        if ((await count()) !== base) problems.push("a 304 wrote an audit entry");
+        const stale = await conditional('"0000"');
+        const other = await conditional(`W/"${"0".repeat(64)}", "x"`);
+        for (const [label, r] of [
+          ["another ETag", stale],
+          ["a list without it", other],
+        ])
+          if (r.status !== 200 || r.text !== dNew)
+            problems.push(`${label} did not get the document (${r.status})`);
+        if ((await count()) !== base + 2)
+          problems.push("a 200 answer to a conditional request was not audited exactly once each");
+        // the pure validator test, with its bounds (a hostile header costs nothing: it is simply not matched)
+        const req = (inm, method = "GET") => ({ method, headers: { "if-none-match": inm } });
+        const tagOf = (n) => `"${String(n).padStart(64, "0")}"`;
+        const pad = (core, length) => `${core}${" ".repeat(Math.max(0, length - core.length))}`;
+        for (const [label, got, want] of [
+          ["exact", isNotModified(req(etag), etag), true],
+          ["weak", isNotModified(req(`W/${etag}`), etag), true],
+          ["wildcard", isNotModified(req("*"), etag), true],
+          ["another tag", isNotModified(req(tagOf(1)), etag), false],
+          ["an empty header", isNotModified(req(""), etag), false],
+          ["no header", isNotModified({ method: "GET", headers: {} }, etag), false],
+          ["POST", isNotModified(req(etag, "POST"), etag), false],
+          ["HEAD", isNotModified(req(etag, "HEAD"), etag), true],
+          ["2000 characters", isNotModified(req(pad(etag, 2000)), etag), true],
+          ["2001 characters", isNotModified(req(pad(etag, 2001)), etag), false],
+          [
+            "50 entries",
+            isNotModified(
+              req([...Array.from({ length: 49 }, (_, i) => `"${i}"`), etag].join(",")),
+              etag,
+            ),
+            true,
+          ],
+          [
+            "51 entries",
+            isNotModified(
+              req([...Array.from({ length: 50 }, (_, i) => `"${i}"`), etag].join(",")),
+              etag,
+            ),
+            false,
+          ],
+        ])
+          if (got !== want) problems.push(`isNotModified(${label}) is ${got}`);
+        const head = await w.api("HEAD", `/repositories/${x.payRepo}/sbom`, { cookie: s.admin });
+        if (head.status !== 200 || head.text !== "") problems.push(`HEAD answered ${head.status}`);
+        if ((await count()) !== base + 2) problems.push("a HEAD request wrote an audit entry");
+        // no oracle: the matching ETag does not turn a refusal into a 304
+        const foreignCond = await conditional(etag, {}, x.edge.owner);
+        const missingCond = await conditional(etag, {}, s.admin, MISSING());
+        const noDocCond = await conditional(etag, {}, s.admin, x.payRepo2);
+        if (foreignCond.status !== 404 || errorOf(foreignCond) !== errorOf(missingCond))
+          problems.push(`another tenant with the ETag answered ${foreignCond.status}`);
+        if (noDocCond.status !== 404)
+          problems.push(`no document with an ETag answered ${noDocCond.status}`);
+        const bareCond = await conditional(
+          etag,
+          {},
+          await edgeMember("sbomcond", ["workspace.view"]),
+          x.edgeRepo,
+        );
+        if (bareCond.status !== 403)
+          problems.push(`no permission with an ETag answered ${bareCond.status}`);
+        const anonCond = await w.api("GET", `/repositories/${x.payRepo}/sbom`, {
+          headers: { "if-none-match": etag },
+        });
+        if (anonCond.status !== 401)
+          problems.push(`no session with an ETag answered ${anonCond.status}`);
+        if ((await count()) !== base + 2) problems.push("a refusal was audited");
+      }
       // ---- several pipelines of ONE repository
       // a second pipeline of the SAME repository (written directly: the API's entitlement limits of other checks are not under test here)
       const p2 = await d.pipeline.create({
@@ -2604,8 +2704,8 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       }
       // ---- audit: exactly one entry per served document, ids and a size only
       const served = (await audits(k.tenantA, x.payRepo)).slice(before);
-      if (served.length !== 4)
-        problems.push(`${served.length} audit entries for 4 served documents`);
+      if (served.length !== 6)
+        problems.push(`${served.length} audit entries for 6 served documents`);
       for (const row of served) {
         const keys = Object.keys(row.metadata ?? {})
           .sort()
@@ -2650,7 +2750,7 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
         problems.push(
           `${edgeAudits.length} audit entries of tenant E, expected 2 (owner and viewer)`,
         );
-      if ((await audits(k.tenantA, x.payRepo)).length - before !== 4)
+      if ((await audits(k.tenantA, x.payRepo)).length - before !== 6)
         problems.push("a refused call was audited, or a served one was not");
       return done(problems);
     },

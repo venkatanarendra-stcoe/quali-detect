@@ -393,13 +393,14 @@ export function createRepositoryService({
      * (`repository.view`) and the tenant, workspace and repository scope were decided by the route (`repo` is the resolved row);
      * the lookup repeats them. WHICH document: the artifact of the latest SUCCEEDED `sbom` scan task over all the repository's
      * pipelines, or of the one `pipelineId` (a pipeline of another repository or tenant matches nothing). The bytes are the stored,
-     * REDACTED copy (D-23 (2), per-string redaction); nothing is added or removed. One audit entry per delivered document, written
-     * BEFORE the body is sent (a failed audit write refuses the download). No document: a 404 whose text is the same for an unknown
-     * pipeline and for a pipeline without SBOM.
-     * @param {{ tenantId: string, userId: string, requestId?: string, ip?: string }} actor
+     * REDACTED copy (D-23 (2), per-string redaction); nothing is added or removed. THIS FUNCTION WRITES NO AUDIT ENTRY: a lookup is not
+     * a download. The controller decides whether the body is sent (a conditional request whose ETag still matches is a 304 and no
+     * download) and calls {@link recordSbomDownload} BEFORE it sends a 200 body. No document: a 404 whose text is the same for an
+     * unknown pipeline and for a pipeline without SBOM.
+     * @param {{ tenantId: string }} actor
      * @param {{ id: string, workspaceId: string, fullName?: string }} repo
      * @param {{ pipelineId?: string }} [query]
-     * @returns {Promise<{ fileName: string, mediaType: string, etag: string, content: Buffer }>}
+     * @returns {Promise<{ fileName: string, mediaType: string, etag: string, content: Buffer, audit: { executionId: string, pipelineId: string, sizeBytes: number } }>}
      */
     async sbom(actor, repo, { pipelineId } = {}) {
       const doc = await artifacts?.findLatestSbomDocument({
@@ -409,21 +410,33 @@ export function createRepositoryService({
         pipelineId: pipelineId ?? null,
       });
       if (!doc) throw new NotFoundError("No SBOM is available for this repository yet.");
-      await audit.tenant.record(
-        entry(actor, AUDIT_ACTIONS.REPOSITORY_SBOM_DOWNLOADED, repo, {
-          metadata: {
-            executionId: doc.executionId,
-            pipelineId: doc.pipelineId,
-            sizeBytes: doc.sizeBytes,
-          },
-        }),
-      );
       return {
         fileName: sbomFileName(repo.fullName),
         mediaType: "application/vnd.cyclonedx+json",
         etag: `"${doc.sha256}"`,
         content: Buffer.from(doc.content.buffer, doc.content.byteOffset, doc.content.byteLength),
+        audit: {
+          executionId: doc.executionId,
+          pipelineId: doc.pipelineId,
+          sizeBytes: doc.sizeBytes,
+        },
       };
+    },
+
+    /**
+     * The audit entry of ONE delivered SBOM document (`repository.sbom_downloaded`): ids and a size only. Written BEFORE the 200 body is
+     * sent (a failed audit write refuses the download); NEVER written for a 304 (owner decision 2026-11-21: a conditional request that
+     * finds the ETag unchanged sends no body and is not a download), a HEAD request or a refusal.
+     * @param {{ tenantId: string, userId: string, requestId?: string, ip?: string }} actor
+     * @param {{ id: string, workspaceId: string, fullName?: string }} repo
+     * @param {{ audit: { executionId: string, pipelineId: string, sizeBytes: number } }} file the value of {@link sbom}
+     */
+    async recordSbomDownload(actor, repo, file) {
+      await audit.tenant.record(
+        entry(actor, AUDIT_ACTIONS.REPOSITORY_SBOM_DOWNLOADED, repo, {
+          metadata: { ...file.audit },
+        }),
+      );
     },
 
     async update(actor, repo, patch) {

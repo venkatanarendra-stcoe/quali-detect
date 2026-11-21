@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import {
@@ -350,6 +350,7 @@ export async function canaryExtra(p) {
         runner: createSandboxRunner({ runtime }),
         resolver,
         now: () => NOW.getTime(),
+        rulesDir: "/opt/qm/rules",
       }),
     };
   };
@@ -364,7 +365,21 @@ export async function canaryExtra(p) {
     stdoutBytes: 8 * 1024 * 1024,
     tmpfsMiB: 256,
   });
-  same(p, "stdin is the fixture", JSON.parse(spec.stdin), CANARY_FIXTURE);
+  same(p, "no stdin", spec.stdin, undefined);
+  same(
+    p,
+    "the platform fixture file is the fixture",
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../workers/src/execution/engines/ensemble/sbom/rules/canary.cdx.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+    CANARY_FIXTURE,
+  );
   same(
     p,
     "fixture component",
@@ -378,6 +393,7 @@ export async function canaryExtra(p) {
   same(p, "environment", spec.env, {
     TRIVY_SKIP_VERSION_CHECK: "true",
     TRIVY_DISABLE_TELEMETRY: "true",
+    TRIVY_CACHE_DIR: "/db",
   });
   same(p, "labels", spec.labels, {
     tenantId: "platform",
@@ -443,6 +459,7 @@ export async function workerExtra(p) {
       SCAN_DB_REFRESH_ENABLED: "true",
       SCAN_DB_MIRROR_ROOT: "/srv/qm/mirror",
       SCAN_DB_CACHE_ROOT: "/srv/qm/cache",
+      SANDBOX_RULES_DIR: "/srv/qm/rules",
     },
     { workerName: "dbrefresh" },
   );
@@ -556,6 +573,7 @@ export function configExtra(p) {
     SCAN_DB_REFRESH_ENABLED: "true",
     SCAN_DB_MIRROR_ROOT: "/srv/qm/mirror",
     SCAN_DB_CACHE_ROOT: "/srv/qm/cache",
+    SANDBOX_RULES_DIR: "/srv/qm/rules",
   };
   ok(
     p,

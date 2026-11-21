@@ -3,10 +3,10 @@ import { createLocalArtifactStore, createPostgresArtifactStore } from "@qmentisa
 import { createWorkerGitHub } from "../scm/github.js";
 import { createDecisionAgentRuntime } from "./decision/index.js";
 import { createOrchestrator } from "./orchestrator.js";
-import { engineRegistry } from "./registry.js";
+import { buildPipelineEngineRegistry, engineRegistry } from "./registry.js";
 
 export { createEngineRegistry, EngineError } from "./engines.js";
-export { buildEngineRegistry, engineRegistry } from "./registry.js";
+export { buildEngineRegistry, buildPipelineEngineRegistry, engineRegistry } from "./registry.js";
 export { createOrchestrator } from "./orchestrator.js";
 export { createScanTaskHandler, normalizeItems } from "./scan-handler.js";
 
@@ -21,7 +21,9 @@ export function buildPipelineOrchestrator({ db, config, logger }) {
     logger,
     github: createWorkerGitHub({ config, logger }),
     store: createLocalArtifactStore({ root: config.execution.artifactStoreRoot }),
-    engines: engineRegistry,
+    engines: config.scanEngines.ensembleEnabled
+      ? buildPipelineEngineRegistry({ ensembleEnabled: true })
+      : engineRegistry,
     decisionRuntime: createDecisionAgentRuntime({ db, config, logger }),
     // only used while the ensemble flag is on (the changed-paths artifact, scan engines part K core)
     artifacts: config.scanEngines.ensembleEnabled

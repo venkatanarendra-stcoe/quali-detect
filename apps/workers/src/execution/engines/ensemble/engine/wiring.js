@@ -2,15 +2,18 @@ import {
   createCapacityGate,
   createCliSandboxRuntime,
   createJanitor,
+  createLocalDbMirrorStore,
   createSandboxRunner,
 } from "@qmentisai/infra";
-import { createScanTaskRepository } from "@qmentisai/db";
+import { createScanDbSnapshotReader, createScanTaskRepository } from "@qmentisai/db";
 import { loadImageLock } from "../catalog/index.js";
+import { createDbSnapshotResolver } from "../db/resolve-db.js";
 import { createEnsembleSbomEngine } from "./engine.js";
+import { createEnsembleScaEngine } from "./sca-engine.js";
 import { createTreePathExists } from "./tree-paths.js";
 
 /**
- * Builds the ensemble engine and the pieces around it from the validated worker configuration (docs/modules/scan-engines/SPEC.md
+ * Builds the ensemble engines (SBOM and SCA) and the pieces around it from the validated worker configuration (docs/modules/scan-engines/SPEC.md
  * 5.8, 6.4, part K core). Called ONLY by the scan worker and ONLY while the ensemble rollout flag is true; nothing else
  * imports it. It creates the CLI runtime (execFile, never a shell, never a socket mount), the per-attempt runner, the capacity gate
  * (per worker, tenant, task and fork share), the image resolver from the reviewed lock file and the janitor. `startJanitor` sweeps
@@ -19,9 +22,21 @@ import { createTreePathExists } from "./tree-paths.js";
  */
 export function buildEnsembleEngine({ config, db, logger, runtime }) {
   const s = config.scanEngines;
+  // the verified vulnerability-database snapshots are materialized by the Part F store into `scanDb.cacheRoot` and mounted read-only
+  // at /db (SPEC SE-36); without both roots the SCA tools are `unavailable` / `db_unavailable` (fail visible, never a silent skip)
+  const d = config.scanDb ?? {};
+  const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";
+  if (!dbReady)
+    logger?.warn?.(
+      "SCAN_DB_MIRROR_ROOT and SCAN_DB_CACHE_ROOT are not both set: every SCA tool will be unavailable (db_unavailable)",
+    );
   const sandboxConfig = {
     ...s.sandbox,
-    mountRoots: { archive: [s.archiveRoot], db: [], rules: [s.rulesDir] },
+    mountRoots: {
+      archive: [s.archiveRoot],
+      db: dbReady ? [d.cacheRoot] : [],
+      rules: [s.rulesDir],
+    },
   };
   const rt = runtime ?? createCliSandboxRuntime({ config: sandboxConfig });
   const runner = createSandboxRunner({ runtime: rt });
@@ -41,6 +56,22 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
     toolWaitMs: s.waitSeconds * 1000,
     treePathExists: createTreePathExists,
   });
+  const dbResolver = dbReady
+    ? createDbSnapshotResolver({
+        repo: createScanDbSnapshotReader({ db }),
+        store: createLocalDbMirrorStore({ root: d.mirrorRoot, cacheRoot: d.cacheRoot }),
+        days: d.stalenessDays,
+      })
+    : { resolve: async () => ({ state: "missing" }) };
+  const scaEngine = createEnsembleScaEngine({
+    runner,
+    gate,
+    resolver,
+    dbResolver,
+    rulesDir: s.rulesDir,
+    toolWaitMs: s.waitSeconds * 1000,
+    treePathExists: createTreePathExists,
+  });
   const tasks = createScanTaskRepository({ db });
   const janitor = createJanitor({
     runtime: rt,
@@ -52,6 +83,9 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
   const log = logger?.child ? logger.child({ component: "scan-janitor" }) : logger;
   return {
     engine,
+    scaEngine,
+    /** Every ensemble engine, for the registry (the SBOM engine and the SCA engine). */
+    engines: [engine, scaEngine],
     runner,
     gate,
     janitor,

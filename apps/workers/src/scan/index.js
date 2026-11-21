@@ -41,7 +41,7 @@ export async function start() {
           engines: config.scanEngines.ensembleEnabled
             ? buildEngineRegistry({
                 ensembleEnabled: true,
-                createEnsembleEngine: () => ensembleFor({ db, config, logger }).engine,
+                createEnsembleEngine: () => ensembleFor({ db, config, logger }).engines,
               })
             : engineRegistry,
           artifacts: config.scanEngines.ensembleEnabled

@@ -49,7 +49,13 @@ import {
 } from "../../../../workers/src/execution/engines/ensemble/engine/tree-paths.js";
 import { SAMPLE_FILES } from "../../../../workers/scripts/eng-l20/sample-tree.js";
 import { buildEnsembleEngine } from "../../../../workers/src/execution/engines/ensemble/engine/wiring.js";
-import { buildEngineRegistry, engineRegistry } from "../../../../workers/src/execution/registry.js";
+import {
+  buildEngineRegistry,
+  buildPipelineEngineRegistry,
+  engineRegistry,
+} from "../../../../workers/src/execution/registry.js";
+import { createDbSnapshotResolver } from "../../../../workers/src/execution/engines/ensemble/db/resolve-db.js";
+import { createEnsembleScaEngine } from "../../../../workers/src/execution/engines/ensemble/engine/sca-engine.js";
 
 /**
  * Scan engines, part K core (ADR-008 area 18, SPEC scan-engines 14.1 ENG-S04, S05, S06, S10, S11, S14, 16.1 part K, 17.i): the
@@ -3788,6 +3794,289 @@ export const ENSEMBLE_WORLD_CHECKS = [
           );
       } finally {
         for (const c of cleanups) c();
+      }
+      return p;
+    },
+  },
+
+  {
+    id: "ENG-S16e",
+    name: "the SCA engine in the real worker path (SPEC scan-engines 5.4, 5.12, 7.3, D-22, part G; real orchestrator, scan handler and database, the fake runtime, the REAL Trivy and OSV-Scanner output of 2026-11-21): with the ensemble flag on the pipeline worker creates an SCA task (it is `unsupported` with the flag off) and the scan worker runs it; the result is schema version 2 with the engine version `ensemble-sca/1`, 51 vulnerability items with their detail rows (the advisories, the CVSS entries of both tools in the provenance, the fixed versions), one tool run per tool carrying the snapshot sha256 and build time and the image digests of the lock file, the coverage statement and a complete result; a stale snapshot gives partial `db_stale` tool runs, an incomplete result and a succeeded execution; no snapshot gives `unavailable` / `db_unavailable` tool runs and a failed task with the transient class, and no container is ever started without a snapshot",
+    async run(w) {
+      const p = [];
+      const cleanups = [];
+      try {
+        const SCA_ONLY = {
+          sbom: { enabled: false },
+          sca: { enabled: true },
+          sast: { enabled: false },
+          secrets: { enabled: false },
+        };
+        const fixDir = path.join(ROOT, "apps/api/test/security/fixtures/scan-engines/sca/real");
+        const TRIVY_SCA = readFileSync(path.join(fixDir, "trivy-sca-treeC.json"), "utf8");
+        const OSV_SCA = readFileSync(path.join(fixDir, "osv-sca-treeC.json"), "utf8");
+        const SCA_ENTRIES = [
+          "web/package-lock.json",
+          "java/pom.xml",
+          "py/requirements.txt",
+          "py/requirements-dev.txt",
+          "svc/go.mod",
+        ].map((name) => ({ name, content: "{}\n" }));
+        const NOW = new Date();
+        const dbRoot = mkdtempSync(path.join(os.tmpdir(), "qm-ens-db-"));
+        cleanups.push(() => rmSync(dbRoot, { recursive: true, force: true }));
+        const snap = (tool, c, ageDays) => ({
+          toolId: tool,
+          sha256: c.repeat(64),
+          upstreamBuiltAt: new Date(NOW.getTime() - ageDays * 86_400_000),
+          fetchedAt: NOW,
+          sources: [{ id: "ghsa", attributionRequired: true }],
+          status: "active",
+        });
+        const scaEnv = (snaps) => {
+          const rulesDir = mkdtempSync(path.join(os.tmpdir(), "qm-ens-rules-"));
+          cpSync(RULES, rulesDir, { recursive: true });
+          cleanups.push(() => rmSync(rulesDir, { recursive: true, force: true }));
+          const runtime = new FakeSandboxRuntime({
+            config: {
+              runtimeBin: "podman",
+              containerUser: "65534:65534",
+              usernsMode: "keep-id",
+              uidMap: [],
+              gidMap: [],
+              seccompProfile: null,
+              mountRoots: { archive: [w.scanTmp], db: [dbRoot], rules: [rulesDir] },
+              egressNetworks: {},
+            },
+          });
+          runtime.script("trivy", { exitCode: 0, stdout: TRIVY_SCA });
+          runtime.script("osv-scanner", { exitCode: 1, stdout: OSV_SCA });
+          const engine = createEnsembleScaEngine({
+            runner: createSandboxRunner({ runtime }),
+            gate: createCapacityGate({ perWorker: 4, perTenant: 4, perTask: 2, forkShare: 4 }),
+            resolver: loadImageLock().resolver,
+            dbResolver: createDbSnapshotResolver({
+              repo: { getActive: async (tool) => snaps[tool] ?? null },
+              store: {
+                materialize: async ({ tool, sha256 }) => {
+                  const dir = path.join(dbRoot, tool, sha256);
+                  mkdirSync(dir, { recursive: true });
+                  return { dir };
+                },
+              },
+              now: () => NOW,
+            }),
+            rulesDir,
+            toolWaitMs: 2000,
+            treePathExists: createTreePathExists,
+          });
+          return { engine, runtime, rulesDir };
+        };
+        const pg = createPostgresArtifactStore({
+          repository: createExecutionArtifactRepository({ db: w.db }),
+        });
+        const scaRun = async (label, snaps) => {
+          const env = scaEnv(snaps);
+          const over = {
+            SCAN_ENGINES_ENSEMBLE_ENABLED: "true",
+            SANDBOX_ARCHIVE_ROOT: w.scanTmp,
+            SANDBOX_RULES_DIR: env.rulesDir,
+          };
+          const pipelineEngines = buildPipelineEngineRegistry({ ensembleEnabled: true });
+          const scanEngines = buildEngineRegistry({
+            ensembleEnabled: true,
+            createEnsembleEngine: () => [env.engine],
+          });
+          const tree = await w.tree(label, { config: w.config1({ scans: SCA_ONLY }) });
+          const execution = await w.execution(tree, {
+            commitSha: w.sha(),
+            entries: SCA_ENTRIES,
+          });
+          const orch = w.orchestrator(over, { engines: pipelineEngines, artifacts: pg });
+          const scan = w.scanHandler(over, undefined, scanEngines, { artifacts: pg });
+          await w.run(tree, execution, { orch, scan });
+          return { env, tree, execution, rows: await rowsOf(w, tree, execution) };
+        };
+        // the flag off: SCA is unsupported
+        same(
+          p,
+          "flag off",
+          [
+            buildPipelineEngineRegistry().has("sca", "default"),
+            buildPipelineEngineRegistry({ ensembleEnabled: "true" }).has("sca", "default"),
+            buildPipelineEngineRegistry({ ensembleEnabled: true }).has("sca", "default"),
+            buildPipelineEngineRegistry({ ensembleEnabled: true }).has("sast", "default"),
+          ],
+          [false, false, true, false],
+        );
+        const presence = buildPipelineEngineRegistry({ ensembleEnabled: true }).get(
+          "sca",
+          "default",
+        );
+        same(
+          p,
+          "the presence entry",
+          [presence.version, presence.idempotent],
+          ["ensemble-sca/1", true],
+        );
+        let refusal = null;
+        try {
+          presence.runTask();
+        } catch (error) {
+          refusal = [error.code, error.errorClass];
+        }
+        same(p, "the pipeline worker never runs a scan", refusal, [
+          "engine_not_in_this_process",
+          "permanent",
+        ]);
+        // ---- fresh snapshots
+        const fresh = await scaRun("scaFresh", {
+          trivy: snap("trivy", "a", 1),
+          "osv-scanner": snap("osv-scanner", "b", 1),
+        });
+        const f = fresh.rows;
+        same(
+          p,
+          "task and execution",
+          [f.tasks.map((t) => `${t.scanType}/${t.status}`), f.row.status],
+          [["sca/succeeded"], "succeeded"],
+        );
+        const r = f.results[0];
+        same(
+          p,
+          "result identity",
+          [r?.schemaVersion, r?.engineVersion, r?.engineId, r?.completeness, r?.coverage?.state],
+          [2, "ensemble-sca/1", "default", "complete", "complete"],
+        );
+        ok(p, /^[0-9a-f]{64}$/.test(r?.runManifestSha256 ?? ""), "run manifest hash");
+        same(
+          p,
+          "items and details",
+          [f.items.length, f.details.length, [...new Set(f.items.map((i) => i.kind))]],
+          [51, 51, ["vulnerability"]],
+        );
+        same(
+          p,
+          "tool runs",
+          f.toolRuns.map((t) => [t.toolId, t.status, t.reason]),
+          [
+            ["osv-scanner", "succeeded", null],
+            ["trivy", "succeeded", null],
+          ],
+        );
+        const lock = JSON.parse(
+          readFileSync(
+            path.join(WORKERS, "execution/engines/ensemble/catalog/images.lock.json"),
+            "utf8",
+          ),
+        ).images;
+        same(
+          p,
+          "image digests",
+          f.toolRuns.map((t) => t.imageDigest),
+          [
+            lock.find((e) => e.key === "osv-scanner").digest,
+            lock.find((e) => e.key === "trivy").digest,
+          ],
+        );
+        const dbRows = await w.db
+          .$queryRaw`SELECT tool_id AS "toolId", db_snapshot_sha256 AS "sha", db_built_at AS "builtAt" FROM scan_tool_runs WHERE tenant_id = ${fresh.tree.tenant.id}::uuid AND execution_id = ${fresh.execution.id}::uuid ORDER BY tool_id`;
+        same(
+          p,
+          "snapshot provenance in the tool run rows",
+          dbRows.map((d) => [d.toolId, d.sha, d.builtAt instanceof Date]),
+          [
+            ["osv-scanner", "b".repeat(64), true],
+            ["trivy", "a".repeat(64), true],
+          ],
+        );
+        const lodash = f.details.find(
+          (d) =>
+            d.provenance.length === 2 && JSON.stringify(d.provenance).includes("CVE-2021-23337"),
+        );
+        ok(
+          p,
+          lodash &&
+            lodash.provenance.every((x) => Array.isArray(x.cvss) && x.cvss[0]?.version === "3.1"),
+          "the CVSS entries of both tools are stored in the provenance",
+        );
+        const calls = fresh.env.runtime.calls.filter((c) => c.type === "run");
+        same(
+          p,
+          "two containers, each with its own database mounted read-only",
+          calls
+            .map((c) => [
+              c.spec.toolId,
+              c.spec.mounts.db.endsWith(`${c.spec.toolId === "trivy" ? "a" : "b"}`.repeat(64)),
+              c.args.some((a) => a.endsWith("dst=/db,readonly")),
+            ])
+            .sort(),
+          [
+            ["osv-scanner", true, true],
+            ["trivy", true, true],
+          ],
+        );
+        same(p, "no container left", fresh.env.runtime.containers.size, 0);
+        // ---- a stale snapshot
+        const stale = await scaRun("scaStale", {
+          trivy: snap("trivy", "c", 20),
+          "osv-scanner": snap("osv-scanner", "d", 1),
+        });
+        const sr = stale.rows;
+        same(
+          p,
+          "stale tool runs",
+          sr.toolRuns.map((t) => [t.toolId, t.status, t.reason]),
+          [
+            ["osv-scanner", "succeeded", null],
+            ["trivy", "partial", "db_stale"],
+          ],
+        );
+        same(
+          p,
+          "stale result",
+          [
+            sr.results[0]?.completeness,
+            sr.results[0]?.coverage?.state,
+            sr.row.status,
+            sr.tasks[0]?.status,
+          ],
+          ["incomplete", "partial", "succeeded", "succeeded"],
+        );
+        // ---- no snapshot at all
+        const none = await scaRun("scaNone", {});
+        const nr = none.rows;
+        same(
+          p,
+          "no snapshot: tool runs (the transient class is retried within the budget: one pair per attempt)",
+          [
+            [
+              ...new Set(
+                nr.toolRuns.map((t) => `${t.toolId}/${t.status}/${t.reason}/${t.imageDigest}`),
+              ),
+            ].sort(),
+            nr.toolRuns.length >= 4 && nr.toolRuns.length % 2 === 0,
+            new Set(nr.toolRuns.map((t) => t.attempt)).size === nr.toolRuns.length / 2,
+          ],
+          [
+            [
+              "osv-scanner/unavailable/db_unavailable/null",
+              "trivy/unavailable/db_unavailable/null",
+            ],
+            true,
+            true,
+          ],
+        );
+        ok(p, nr.tasks[0]?.status === "failed", `no snapshot: the task is ${nr.tasks[0]?.status}`);
+        same(
+          p,
+          "no container without a snapshot",
+          none.env.runtime.calls.filter((c) => c.type === "run").length,
+          0,
+        );
+        same(p, "no result without a tool", nr.results.length, 0);
+      } finally {
+        for (const c of cleanups.reverse()) c();
       }
       return p;
     },

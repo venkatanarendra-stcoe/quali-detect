@@ -89,7 +89,11 @@ export function buildDbRefreshDeps({ db, config, logger, downloader }) {
   const s = config.scanDb;
   const sandboxConfig = {
     ...(config.scanEngines?.sandbox ?? {}),
-    mountRoots: { archive: [], db: [s.cacheRoot], rules: [] },
+    mountRoots: {
+      archive: [],
+      db: [s.cacheRoot],
+      rules: config.scanEngines?.rulesDir ? [config.scanEngines.rulesDir] : [],
+    },
   };
   const runner = createSandboxRunner({
     runtime: createCliSandboxRuntime({ config: sandboxConfig }),
@@ -103,7 +107,11 @@ export function buildDbRefreshDeps({ db, config, logger, downloader }) {
       repo: createScanDbSnapshotRepository({ db }),
       store: createLocalDbMirrorStore({ root: s.mirrorRoot, cacheRoot: s.cacheRoot }),
       downloader: downloader ?? createUnconfiguredDownloader(),
-      canary: createSandboxCanary({ runner, resolver }),
+      canary: createSandboxCanary({
+        runner,
+        resolver,
+        rulesDir: config.scanEngines?.rulesDir ?? null,
+      }),
       lock: redis ? createLockManager({ redis }) : null,
     },
     close: async () => {

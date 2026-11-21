@@ -213,3 +213,16 @@ export function createScanDbSnapshotRepository({ db }) {
   };
   return Object.freeze(api);
 }
+
+/**
+ * The READ-ONLY view of the snapshot table for the scan path (SPEC scan-engines SE-36, ENG-S12): the only function is `getActive`, so
+ * code that can only start tools can neither promote, reject, retire nor insert a snapshot, whatever it imports.
+ * @param {{ db: any }} deps Prisma client
+ */
+export function createScanDbSnapshotReader({ db }) {
+  const repository = createScanDbSnapshotRepository({ db });
+  return Object.freeze({
+    /** @param {string} toolId @param {any} [client] */
+    getActive: (toolId, client) => repository.getActive(toolId, client),
+  });
+}

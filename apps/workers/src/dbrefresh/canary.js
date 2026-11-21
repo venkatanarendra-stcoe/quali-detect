@@ -3,8 +3,11 @@
  * long-lived vulnerable package) is scanned in the same sandbox, sealed and offline, against the candidate snapshot mounted read-only
  * at `/db`; the expected advisory must appear. No repository content, no tenant data and no network are involved.
  *
- * UNVERIFIED (ENG-L09, SPEC 17.p): the command lines and the output parsers below are the Part F reading of the tools' documented
- * offline switches and have NOT been run against the real tools. The final argv of the SCA adapters (Part G) must replace them.
+ * VERIFIED for real on 2026-11-21 (ENG-G, Trivy 0.76.2 and OSV-Scanner 2.7.1 with the real databases of that day, SPEC 17.u and IMAGES.md
+ * section 7): neither tool reads an SBOM from stdin (`trivy sbom -` fails with `open -: no such file`, OSV-Scanner says `Invalid SBOM
+ * filename`), so the fixture is a PLATFORM-OWNED FILE in the platform rules directory (`canary.cdx.json`, mounted read-only at `/rules`, no
+ * repository content, no stdin): Trivy finds CVE-2021-23337 (exit 0), OSV-Scanner finds GHSA-35jh-r3h4-6jhm (exit 1). Without a rules
+ * directory the canary cannot run (`unavailable`: the candidate is kept, not rejected).
  */
 
 /** The fixture: CycloneDX with lodash 4.17.20 (CVE-2021-23337 / GHSA-35jh-r3h4-6jhm). Platform constant, never user data. */
@@ -58,14 +61,12 @@ function idsFromJson(stdout) {
   return ids;
 }
 
-/** Per tool: the catalog key, the sealed offline command (UNVERIFIED), the fixed environment and the output reader. */
+/** Per tool: the catalog key, the sealed offline command (verified, see the header), the fixed environment and the output reader. */
 export const CANARY_PLANS = Object.freeze({
   trivy: Object.freeze({
     imageKey: "trivy",
     argv: Object.freeze([
       "sbom",
-      "--cache-dir",
-      "/db",
       "--skip-db-update",
       "--skip-java-db-update",
       "--offline-scan",
@@ -75,35 +76,51 @@ export const CANARY_PLANS = Object.freeze({
       "library",
       "--format",
       "json",
-      "-",
+      "/rules/canary.cdx.json",
     ]),
-    env: Object.freeze({ TRIVY_SKIP_VERSION_CHECK: "true", TRIVY_DISABLE_TELEMETRY: "true" }),
+    env: Object.freeze({
+      TRIVY_SKIP_VERSION_CHECK: "true",
+      TRIVY_DISABLE_TELEMETRY: "true",
+      TRIVY_CACHE_DIR: "/db",
+    }),
     parse: idsFromJson,
   }),
   "osv-scanner": Object.freeze({
     imageKey: "osv-scanner",
     argv: Object.freeze([
+      "scan",
+      "source",
       "--offline",
-      "--download-offline-databases",
+      "--offline-vulnerabilities",
+      "--no-call-analysis=go",
+      "--no-ignore",
+      "--config",
+      "/rules/osv-scanner.toml",
       "--format",
       "json",
       "--sbom",
-      "/dev/stdin",
+      "/rules/canary.cdx.json",
     ]),
-    env: Object.freeze({}),
+    env: Object.freeze({ OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: "/db" }),
     parse: idsFromJson,
   }),
 });
 
 /**
- * @param {{ runner: { runTool: Function }, resolver: { resolve: Function }, plans?: typeof CANARY_PLANS, now?: () => number }} deps
+ * @param {{ runner: { runTool: Function }, resolver: { resolve: Function }, plans?: typeof CANARY_PLANS, now?: () => number, rulesDir?: string | null }} deps `rulesDir`: the platform rules directory holding `canary.cdx.json` and `osv-scanner.toml`
  * @returns {(input: { toolId: string, sha256: string, dir: string, signal?: AbortSignal }) => Promise<{ ok: boolean, reason?: "missing_advisory" | "unavailable" }>}
  *   `unavailable` means the canary could not run (runtime, image or timeout): the candidate is kept, not rejected; `missing_advisory` is a failed canary
  */
-export function createSandboxCanary({ runner, resolver, plans = CANARY_PLANS, now = Date.now }) {
+export function createSandboxCanary({
+  runner,
+  resolver,
+  plans = CANARY_PLANS,
+  now = Date.now,
+  rulesDir = null,
+}) {
   return async ({ toolId, sha256, dir, signal }) => {
     const plan = plans[toolId];
-    if (!plan) return { ok: false, reason: "unavailable" };
+    if (!plan || typeof rulesDir !== "string") return { ok: false, reason: "unavailable" };
     let image;
     try {
       image = resolver.resolve(plan.imageKey, { scanType: "sca" }).image;
@@ -114,9 +131,8 @@ export function createSandboxCanary({ runner, resolver, plans = CANARY_PLANS, no
       toolId,
       image,
       argv: [...plan.argv],
-      mounts: { db: dir },
+      mounts: { db: dir, rules: rulesDir },
       env: { ...plan.env },
-      stdin: JSON.stringify(CANARY_FIXTURE),
       limits: { ...LIMITS },
       labels: {
         tenantId: "platform",

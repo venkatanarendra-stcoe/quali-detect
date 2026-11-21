@@ -804,7 +804,12 @@ export const DBMIRROR_CHECKS = [
         const runner = createSandboxRunner({ runtime });
         return {
           runtime,
-          canary: createSandboxCanary({ runner, resolver, now: () => NOW.getTime() }),
+          canary: createSandboxCanary({
+            runner,
+            resolver,
+            now: () => NOW.getTime(),
+            rulesDir: "/opt/qm/rules",
+          }),
         };
       };
       const advisory = (id) =>
@@ -824,7 +829,14 @@ export const DBMIRROR_CHECKS = [
       const run = rig.runtime.calls.find((c) => c.type === "run");
       ok(p, !!run, "the runtime ran the canary");
       if (run) {
-        same(p, "mounts", run.spec.mounts, { db: dir("trivy") });
+        same(p, "mounts", run.spec.mounts, { db: dir("trivy"), rules: "/opt/qm/rules" });
+        ok(p, run.spec.stdin === undefined, "the fixture is a platform file, not stdin");
+        ok(p, run.spec.argv.at(-1) === "/rules/canary.cdx.json", "the fixture path");
+        ok(
+          p,
+          run.args.some((a) => a === "--mount=type=bind,src=/opt/qm/rules,dst=/rules,readonly"),
+          "the /rules bind is read-only",
+        );
         ok(p, run.spec.networkPurpose === undefined, "no network purpose");
         ok(p, !run.spec.mounts.archive && !run.spec.paths, "no repository content");
         ok(
@@ -892,7 +904,19 @@ export const DBMIRROR_CHECKS = [
         if (outcome.hang) setTimeout(() => ac.abort(), 20);
         same(p, label, await pending, { ok: false, reason: "unavailable" });
       }
+      same(
+        p,
+        "no rules directory",
+        await createSandboxCanary({
+          runner: createSandboxRunner({
+            runtime: new FakeSandboxRuntime({ config: CONFIG_INPUT }),
+          }),
+          resolver,
+        })({ toolId: "trivy", sha256: sha, dir: dir("trivy") }),
+        { ok: false, reason: "unavailable" },
+      );
       const noImage = createSandboxCanary({
+        rulesDir: "/opt/qm/rules",
         runner: createSandboxRunner({ runtime: new FakeSandboxRuntime({ config: CONFIG_INPUT }) }),
         resolver: {
           resolve() {
@@ -942,6 +966,7 @@ export const DBMIRROR_CHECKS = [
         SCAN_DB_REFRESH_ENABLED: "true",
         SCAN_DB_MIRROR_ROOT: "/srv/qm/mirror",
         SCAN_DB_CACHE_ROOT: "/srv/qm/cache",
+        SANDBOX_RULES_DIR: "/srv/qm/rules",
       };
       const on = loadWorkerConfig(enabled, { workerName: "dbrefresh" });
       ok(
@@ -964,6 +989,8 @@ export const DBMIRROR_CHECKS = [
       for (const [env, needle] of [
         [{ ...enabled, SCAN_DB_MIRROR_ROOT: undefined }, "SCAN_DB_MIRROR_ROOT"],
         [{ ...enabled, SCAN_DB_CACHE_ROOT: "relative/dir" }, "SCAN_DB_CACHE_ROOT"],
+        [{ ...enabled, SANDBOX_RULES_DIR: undefined }, "SANDBOX_RULES_DIR"],
+        [{ ...enabled, SANDBOX_RULES_DIR: "rules" }, "SANDBOX_RULES_DIR"],
         [{ ...enabled, SCAN_DB_CACHE_ROOT: "/srv/qm/mirror" }, "SCAN_DB_CACHE_ROOT"],
         [{ ...enabled, DATABASE_URL: undefined, REDIS_URL: "redis://localhost" }, "DATABASE_URL"],
         [{ ...enabled, SCAN_DB_REFRESH_TOOLS: "trivy,grype" }, "SCAN_DB_REFRESH_TOOLS"],

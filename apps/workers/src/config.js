@@ -326,6 +326,13 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
           variable,
           message: "an absolute path is required while SCAN_DB_REFRESH_ENABLED=true",
         });
+    // the promotion canary reads its platform fixture and configuration from the platform rules directory (SPEC 17.u)
+    if (!e.SANDBOX_RULES_DIR || !path.isAbsolute(e.SANDBOX_RULES_DIR))
+      executionProblems.push({
+        variable: "SANDBOX_RULES_DIR",
+        message:
+          "an absolute path is required while SCAN_DB_REFRESH_ENABLED=true (the canary scan reads canary.cdx.json from it)",
+      });
     if (e.SCAN_DB_MIRROR_ROOT && e.SCAN_DB_MIRROR_ROOT === e.SCAN_DB_CACHE_ROOT)
       executionProblems.push({
         variable: "SCAN_DB_CACHE_ROOT",

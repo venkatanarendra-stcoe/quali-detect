@@ -105,3 +105,27 @@ export const useDisconnectRepository = () =>
   useRepositoryMutation(({ repositoryId, confirm }) =>
     repositoriesService.disconnect(repositoryId, confirm),
   );
+
+/**
+ * Downloads the repository's latest SBOM through the browser (an object URL on a temporary link; nothing is cached or kept in
+ * the query cache). A read: it changes nothing on the screen, so no query is invalidated.
+ */
+export const useDownloadSbom = () =>
+  useMutation({
+    mutationFn: async (repositoryId) => {
+      const { blob, fileName } = await repositoriesService.downloadSbom(repositoryId);
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.rel = "noopener";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      }
+      return fileName;
+    },
+  });

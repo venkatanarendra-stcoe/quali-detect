@@ -20,6 +20,9 @@ export const repositoriesService = {
     api.delete(`/repositories/${repositoryId}`, { body: { confirm } }),
   branches: (repositoryId, { signal } = {}) =>
     api.get(`/repositories/${repositoryId}/branches`, { signal }),
+  /** The latest stored SBOM (CycloneDX JSON) of the repository: `{ blob, fileName }`. */
+  downloadSbom: (repositoryId, { signal } = {}) =>
+    api.download(`/repositories/${repositoryId}/sbom`, { signal }),
   pullRequests: (repositoryId, { signal } = {}) =>
     api.get(`/repositories/${repositoryId}/pull-requests`, { signal }),
 };

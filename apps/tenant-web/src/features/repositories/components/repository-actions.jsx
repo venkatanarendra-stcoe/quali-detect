@@ -14,6 +14,7 @@ import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import {
   useDisableRepository,
   useDisconnectRepository,
+  useDownloadSbom,
   useEnableRepository,
   useSyncRepository,
 } from "../hooks/use-repositories.js";
@@ -29,12 +30,14 @@ export function useRepositoryActions(repository, { onDisconnected } = {}) {
   const enable = useEnableRepository();
   const disable = useDisableRepository();
   const disconnect = useDisconnectRepository();
+  const downloadSbom = useDownloadSbom();
   const live = repository.status !== "disconnected";
   return {
     canSync: live && can("repository.sync", scope),
     canToggle: live && can("repository.toggle", scope),
     canDisconnect: live && can("repository.disconnect", scope),
     canUpdate: live && can("repository.update", scope),
+    canDownloadSbom: can("repository.view", scope),
     sync: () =>
       sync.mutate(repository.id, {
         onSuccess: () => toast.success("Sync queued"),
@@ -47,6 +50,16 @@ export function useRepositoryActions(repository, { onDisconnected } = {}) {
           toast.success(repository.enabled ? "Repository disabled" : "Repository enabled"),
         onError: (e) => toast.error(e.message ?? "Could not change the repository"),
       }),
+    sbom: () =>
+      downloadSbom.mutate(repository.id, {
+        onError: (e) =>
+          toast.error(
+            e?.status === 404
+              ? "No SBOM yet. One appears after a scan with the SBOM scan type succeeds."
+              : (e.message ?? "Could not download the SBOM"),
+          ),
+      }),
+    downloadingSbom: downloadSbom.isPending,
     disconnect,
     onDisconnected,
   };

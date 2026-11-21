@@ -18,7 +18,7 @@ import { ENTITLEMENT_KEYS } from "@qmentisai/db";
 import { toPage } from "../../../lib/http.js";
 import { cursorContext } from "../../../lib/keyset.js";
 import { REPOSITORY_KEY_SPECS, REPOSITORY_TIE } from "../constants/index.js";
-import { toRepositoryDto } from "../mappers/index.js";
+import { sbomFileName, toRepositoryDto } from "../mappers/index.js";
 
 const PROVIDER_DOWN = "GitHub is temporarily unavailable. Try again later.";
 const MAX_LOOKUP_PAGES = 50;
@@ -31,6 +31,7 @@ const MAX_LOOKUP_PAGES = 50;
  *   repository: ReturnType<typeof import("../repositories/index.js").createRepositoryRepository>,
  *   scm: ReturnType<typeof import("../../../runtime/scm.js").createScm>,
  *   audit: any, outbox: any, entitlements: any, infra: any,
+ *   artifacts?: { findLatestSbomDocument: (input: { tenantId: string, workspaceId: string, repositoryId: string, pipelineId?: string | null }) => Promise<null | { executionId: string, pipelineId: string, mediaType: string, sizeBytes: number, sha256: string, content: Buffer }> },
  *   pipelineCounts: { forRepositories: (input: { tenantId: string, repositoryIds: string[] }) => Promise<Map<string, number>> },
  * }} deps
  */
@@ -42,6 +43,7 @@ export function createRepositoryService({
   entitlements,
   infra,
   pipelineCounts,
+  artifacts,
 }) {
   const github = scm?.github ?? null;
   const requireGitHub = () => {
@@ -385,6 +387,44 @@ export function createRepositoryService({
     },
 
     get: (actor, repo) => toDto(actor, repo),
+
+    /**
+     * The newest stored SBOM document of the repository (SPEC scan-engines 17.r, owner decision D-24 (e)). Permission
+     * (`repository.view`) and the tenant, workspace and repository scope were decided by the route (`repo` is the resolved row);
+     * the lookup repeats them. WHICH document: the artifact of the latest SUCCEEDED `sbom` scan task over all the repository's
+     * pipelines, or of the one `pipelineId` (a pipeline of another repository or tenant matches nothing). The bytes are the stored,
+     * REDACTED copy (D-23 (2), per-string redaction); nothing is added or removed. One audit entry per delivered document, written
+     * BEFORE the body is sent (a failed audit write refuses the download). No document: a 404 whose text is the same for an unknown
+     * pipeline and for a pipeline without SBOM.
+     * @param {{ tenantId: string, userId: string, requestId?: string, ip?: string }} actor
+     * @param {{ id: string, workspaceId: string, fullName?: string }} repo
+     * @param {{ pipelineId?: string }} [query]
+     * @returns {Promise<{ fileName: string, mediaType: string, etag: string, content: Buffer }>}
+     */
+    async sbom(actor, repo, { pipelineId } = {}) {
+      const doc = await artifacts?.findLatestSbomDocument({
+        tenantId: actor.tenantId,
+        workspaceId: repo.workspaceId,
+        repositoryId: repo.id,
+        pipelineId: pipelineId ?? null,
+      });
+      if (!doc) throw new NotFoundError("No SBOM is available for this repository yet.");
+      await audit.tenant.record(
+        entry(actor, AUDIT_ACTIONS.REPOSITORY_SBOM_DOWNLOADED, repo, {
+          metadata: {
+            executionId: doc.executionId,
+            pipelineId: doc.pipelineId,
+            sizeBytes: doc.sizeBytes,
+          },
+        }),
+      );
+      return {
+        fileName: sbomFileName(repo.fullName),
+        mediaType: "application/vnd.cyclonedx+json",
+        etag: `"${doc.sha256}"`,
+        content: Buffer.from(doc.content.buffer, doc.content.byteOffset, doc.content.byteLength),
+      };
+    },
 
     async update(actor, repo, patch) {
       assertMutable(repo);

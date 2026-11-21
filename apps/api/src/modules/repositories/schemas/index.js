@@ -10,6 +10,8 @@ import { SORTABLE_FIELDS } from "../constants/index.js";
 
 export const repositoryParamsSchema = uuidParams("repositoryId");
 export const workspaceParamsSchema = uuidParams("workspaceId");
+/** `pipelineId` narrows the SBOM download to one pipeline of THIS repository (a foreign or unknown id is the same 404). */
+export const sbomQuerySchema = z.object({ pipelineId: z.string().uuid().optional() }).strict();
 export const listRepositoriesQuerySchema = createCollectionQuerySchema({
   cursor: true,
   sortableFields: SORTABLE_FIELDS,

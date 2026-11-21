@@ -82,6 +82,38 @@ export function createExecutionArtifactRepository({ db }) {
     },
 
     /**
+     * The newest stored SBOM document of ONE repository, or null: the `sbom_document` artifact of the latest SUCCEEDED `sbom` scan task
+     * (the task id is part of the artifact name, `sbom-<task id without dashes>-a<attempt>.cdx.json`, and the join below ties the
+     * artifact to a succeeded SBOM task of the same tenant and execution). Scoped by tenant, workspace and repository, and by the
+     * pipeline when one is given (a pipeline of another repository or tenant simply matches nothing); never by id alone. Newest by
+     * creation time, then id. Used by the repository SBOM download (SPEC scan-engines 17.r).
+     * @param {{ tenantId: string, workspaceId: string, repositoryId: string, pipelineId?: string | null }} input
+     * @param {any} [client]
+     * @returns {Promise<null | { id: string, executionId: string, pipelineId: string, name: string, mediaType: string, sizeBytes: number, sha256: string, content: Buffer, createdAt: Date }>}
+     */
+    async findLatestSbomDocument(
+      { tenantId, workspaceId, repositoryId, pipelineId = null },
+      client = db,
+    ) {
+      const pipelineFilter = pipelineId
+        ? Prisma.sql`AND a.pipeline_id = ${pipelineId}::uuid`
+        : Prisma.empty;
+      const rows = await client.$queryRaw`
+        SELECT a.id, a.execution_id AS "executionId", a.pipeline_id AS "pipelineId", a.name, a.media_type AS "mediaType",
+               a.size_bytes AS "sizeBytes", a.sha256, a.content, a.created_at AS "createdAt"
+        FROM execution_artifacts a
+        JOIN scan_tasks t
+          ON t.tenant_id = a.tenant_id AND t.execution_id = a.execution_id
+         AND t.scan_type = 'sbom'::scan_task_type AND t.status = 'succeeded'::scan_task_status
+         AND replace(t.id::text, '-', '') = substring(a.name from 6 for 32)
+        WHERE a.tenant_id = ${tenantId}::uuid AND a.workspace_id = ${workspaceId}::uuid
+          AND a.repository_id = ${repositoryId}::uuid AND a.artifact_class = 'sbom_document' ${pipelineFilter}
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 1`;
+      return rows[0] ?? null;
+    },
+
+    /**
      * Metadata of one artifact (no content), or null.
      * @param {{ tenantId: string, workspaceId?: string, executionId: string, name: string }} input
      * @param {any} [client]

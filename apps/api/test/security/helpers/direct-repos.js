@@ -595,6 +595,39 @@ export async function buildDalWorld(db) {
       },
     ],
   });
+  // scan engines, repository SBOM download (SPEC scan-engines 17.r, a DAL entry): a running execution with a SUCCEEDED sbom task and its
+  // `sbom_document` artifact, so a wrong-tenant `findLatestSbomDocument` has something to find
+  const plSbom = await db.execution.create({
+    data: executionData({ concurrencyGroup: "manual:sbom-dal" }),
+  });
+  await db.$executeRaw`
+    UPDATE executions SET status = 'preparing', claimed_at = now(), deadline_at = now() + interval '30 minutes', lease_owner = 'dal-worker',
+      lease_epoch = lease_epoch + 1, heartbeat_at = now(), lease_expires_at = now() + interval '1 hour' WHERE id = ${plSbom.id}::uuid`;
+  await db.$executeRaw`UPDATE executions SET status = 'running' WHERE id = ${plSbom.id}::uuid`;
+  const taskSbom = await db.scanTask.create({
+    data: { ...taskBase, executionId: plSbom.id, scanType: "sbom", status: "queued" },
+  });
+  await db.$executeRaw`
+    UPDATE scan_tasks SET status = 'running', lease_owner = 'dal-task-worker', heartbeat_at = now(), lease_expires_at = now() + interval '1 hour'
+    WHERE id = ${taskSbom.id}::uuid`;
+  await db.$executeRaw`
+    UPDATE scan_tasks SET status = 'succeeded', finished_at = now(), lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL
+    WHERE id = ${taskSbom.id}::uuid`;
+  await db.executionArtifact.create({
+    data: {
+      tenantId: X.id,
+      workspaceId: taskBase.workspaceId,
+      repositoryId: taskBase.repositoryId,
+      pipelineId: taskBase.pipelineId,
+      executionId: plSbom.id,
+      name: `sbom-${taskSbom.id.replaceAll("-", "")}-a0.cdx.json`,
+      mediaType: "application/json",
+      content: Buffer.from('{"bomFormat":"CycloneDX"}'),
+      sizeBytes: 25,
+      sha256: "f".repeat(64),
+      artifactClass: "sbom_document",
+    },
+  });
   await db.execution.create({
     data: executionData({
       concurrencyGroup: "manual:ex-stale",
@@ -5061,6 +5094,25 @@ export function buildDalEntries() {
     "executions-api.findToolRuns",
     (c) => XA(c).findToolRuns({ tenantId: c.y, executionId: c.pl.runningId }),
     { control: (c) => XA(c).findToolRuns({ tenantId: c.x, executionId: c.pl.runningId }) },
+  );
+
+  // repository SBOM download: appended LAST so no earlier DAL id shifts
+  E(
+    "artifacts.findLatestSbomDocument",
+    (c) =>
+      AR(c).findLatestSbomDocument({
+        tenantId: c.y,
+        workspaceId: c.pl.pipeline.workspaceId,
+        repositoryId: c.pl.pipeline.repositoryId,
+      }),
+    {
+      control: (c) =>
+        AR(c).findLatestSbomDocument({
+          tenantId: c.x,
+          workspaceId: c.pl.pipeline.workspaceId,
+          repositoryId: c.pl.pipeline.repositoryId,
+        }),
+    },
   );
 
   return list.map((entry, i) => ({

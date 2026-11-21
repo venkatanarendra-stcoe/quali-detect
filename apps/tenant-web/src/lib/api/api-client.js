@@ -30,11 +30,18 @@ export function createApiClient({
   onUnauthenticated,
   fetchImpl = (...args) => globalThis.fetch(...args),
 } = {}) {
-  /** @returns {Promise<{ envelope: any, status: number }>} */
+  /** @returns {Promise<{ envelope: any, status: number, response?: Response }>} */
   async function send(
     method,
     path,
-    { query, body, signal, headers: extraHeaders = {}, skipUnauthenticatedHandler = false } = {},
+    {
+      query,
+      body,
+      signal,
+      headers: extraHeaders = {},
+      skipUnauthenticatedHandler = false,
+      binary = false,
+    } = {},
   ) {
     const correlationId = newCorrelationId();
     const controller = new AbortController();
@@ -84,6 +91,8 @@ export function createApiClient({
     }
 
     const echoed = response.headers.get(CORRELATION_HEADER) ?? correlationId;
+    // a file download answers the file itself on success (never the envelope); every failure keeps the envelope below
+    if (binary && response.ok) return { envelope: null, status: response.status, response };
     let envelope = null;
     try {
       envelope = await response.json();
@@ -120,6 +129,17 @@ export function createApiClient({
     put: (path, body, options) => data("PUT", path, { ...options, body }),
     patch: (path, body, options) => data("PATCH", path, { ...options, body }),
     delete: (path, options) => data("DELETE", path, options),
+    /**
+     * File download (GET): resolves to `{ blob, fileName }`; the name is the server's `Content-Disposition` filename reduced to
+     * `[A-Za-z0-9._-]`. Failures are `ApiError`s with the server's code, as everywhere else.
+     */
+    async download(path, options) {
+      const { response } = await send("GET", path, { ...options, binary: true });
+      const header = response.headers.get("content-disposition") ?? "";
+      const named = /filename="([^"]{1,200})"/.exec(header)?.[1] ?? "download";
+      const fileName = named.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "") || "download";
+      return { blob: await response.blob(), fileName };
+    },
     /** Collection endpoint: `{ items, pagination }` from `data` and `meta.pagination`. */
     async getPage(path, options) {
       const { envelope } = await send("GET", path, options);

@@ -35,3 +35,19 @@ export const toRepositoryDto = (r, pipelineCount = 0) => ({
   disconnectReason: r.disconnectReason,
   pipelineCount,
 });
+
+/**
+ * The file name of the SBOM download: built from the repository's full name with every character outside `[A-Za-z0-9._-]` turned
+ * into `-` (so no quote, slash, control character, non-ASCII text or header injection can reach `Content-Disposition`), cut to 80
+ * characters, never starting with a dot or a hyphen; a name that leaves nothing becomes `repository`.
+ * @param {string | null | undefined} fullName
+ * @returns {string} e.g. `acme-payments-service-sbom.cdx.json`
+ */
+export function sbomFileName(fullName) {
+  const base = String(fullName ?? "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[.-]+/, "")
+    .slice(0, 80)
+    .replace(/[.-]+$/, "");
+  return `${base || "repository"}-sbom.cdx.json`;
+}

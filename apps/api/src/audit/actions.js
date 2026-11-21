@@ -64,6 +64,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   REPOSITORY_UNAVAILABLE: "repository.unavailable",
   REPOSITORY_DISCONNECTED: "repository.disconnected",
   REPOSITORY_RESTORED: "repository.restored",
+  // Download of the stored (redacted) SBOM document of a repository (docs/modules/scan-engines/SPEC.md 17.r). Metadata: ids and sizes only.
+  REPOSITORY_SBOM_DOWNLOADED: "repository.sbom_downloaded",
   // Pipelines and executions (docs/modules/pipelines-triggers/SPEC.md §7.4). Metadata: ids, version numbers, hashes, diff
   // summaries (paths only) and reason codes; never a secret and never commit text.
   PIPELINE_CREATED: "pipeline.created",

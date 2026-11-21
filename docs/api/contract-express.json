@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 118,
+  "operationCount": 119,
   "operations": [
     {
       "method": "GET",
@@ -4528,6 +4528,66 @@
         ]
       },
       "summary": "Open pull requests, read live from GitHub (60 s cache)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repositories/{repositoryId}/sbom",
+      "module": "repositories",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "repositoryId"
+        ],
+        "query": [
+          "pipelineId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": null,
+        "metaKeys": []
+      },
+      "summary": "Download the latest stored SBOM (CycloneDX JSON, redacted copy) of the repository as an attachment"
     },
     {
       "method": "POST",

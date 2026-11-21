@@ -8,7 +8,7 @@
  * @param {{ baseUrl: string, origin: string }} options `origin` is sent on every request (an allowed browser origin).
  */
 export function createClient({ baseUrl, origin }) {
-  /** @returns {Promise<{ status: number, json: any, cookie: string | null, headers: Headers }>} */
+  /** @returns {Promise<{ status: number, json: any, text: string, cookie: string | null, headers: Headers }>} */
   async function request(method, path, { body, cookie, headers = {} } = {}) {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
@@ -32,6 +32,7 @@ export function createClient({ baseUrl, origin }) {
     return {
       status: response.status,
       json,
+      text,
       cookie: first ? first.split(";")[0] : null,
       headers: response.headers,
     };

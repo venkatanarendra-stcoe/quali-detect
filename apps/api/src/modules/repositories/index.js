@@ -1,3 +1,4 @@
+import { createExecutionArtifactRepository } from "@qmentisai/db";
 import { API_PREFIX, MODULE_NAME } from "./constants/index.js";
 import { createPipelineCounts } from "../pipelines/index.js";
 import { createRepositoryController } from "./controllers/index.js";
@@ -15,6 +16,7 @@ async function repositoriesPlugin(app) {
     entitlements: app.entitlements,
     pipelineCounts: createPipelineCounts({ db: app.infra.db }),
     infra: app.infra,
+    artifacts: createExecutionArtifactRepository({ db: app.infra.db }),
   });
   await app.register(repositoryRoutes(createRepositoryController({ service }), app.authz));
 }

@@ -273,6 +273,7 @@ All tenant routes: tenant session, `/api/v1`, standard envelope, Zod on params/q
 | `POST /repositories/{repositoryId}/sync` | `repository.sync` | 202 queued (job `scm.repository.sync_requested`); rate limited |
 | `POST /repositories/{repositoryId}/disable` and `/enable` | `repository.toggle` | Sets `enabled`; disabled repositories ignore events and cannot be scanned |
 | `DELETE /repositories/{repositoryId}` | `repository.disconnect` | Soft disconnect; body `{ confirm: <full name> }`; 200; emits `repository.disconnected` |
+| `GET /repositories/{repositoryId}/sbom` | `repository.view` | **Added 2026-11-21 (scan-engines SPEC 17.r):** the latest stored (redacted) SBOM document as an attachment; optional `pipelineId`; 404 `RESOURCE_NOT_FOUND` without a document; one audit entry `repository.sbom_downloaded` per download; rate limit `read` |
 | `GET /repositories/{repositoryId}/branches`, `GET .../pull-requests` | `repository.view` | Live read-through with a short tenant-scoped cache (REPO-020, Open Q16) |
 
 Response DTOs never include internal ids of other tenants, tokens, installation numbers beyond `installationId` (our id) and `externalInstallationId` for tenant admins only. `externalRepoId` is returned.

@@ -11,6 +11,7 @@ import {
   repositoryListResponseSchema,
   repositoryParamsSchema,
   repositoryResponseSchema,
+  sbomQuerySchema,
   syncResponseSchema,
   updateBodySchema,
   workspaceParamsSchema,
@@ -90,6 +91,23 @@ export const repositoryRoutes = (controller, authz) =>
         },
       },
       controller.get,
+    );
+    app.get(
+      "/repositories/:repositoryId/sbom",
+      {
+        config,
+        rateLimit: "read",
+        preHandler: onRepository("repository.view"),
+        schema: {
+          tags,
+          summary:
+            "Download the latest stored SBOM (CycloneDX JSON, redacted copy) of the repository as an attachment",
+          params: repositoryParamsSchema,
+          querystring: sbomQuerySchema,
+          response: { 200: {} },
+        },
+      },
+      controller.sbom,
     );
     app.patch(
       "/repositories/:repositoryId",

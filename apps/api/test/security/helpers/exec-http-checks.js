@@ -1,12 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createExecutionArtifactRepository,
   createExecutionLogRepository,
   createScanDecisionRepository,
   createScanToolRunRepository,
 } from "@qmentisai/db";
-import { createLogStore } from "@qmentisai/infra";
+import { createLogStore, createPostgresArtifactStore } from "@qmentisai/infra";
 import { createExecutionsRepository } from "../../../src/modules/executions/index.js";
 import { toTaskDto, toToolRunDto } from "../../../src/modules/executions/mappers/index.js";
+import { sbomFileName } from "../../../src/modules/repositories/mappers/index.js";
 import { driveExecution } from "./execution-db.js";
 
 /**
@@ -2375,6 +2377,281 @@ export function buildExecHttpChecks({ w, db: getDb, pipWorld, KEY }) {
       const denied = await get(bare, `/executions/${execution.id}`);
       if (denied.status === 200 || JSON.stringify(denied.json).includes("trivy"))
         problems.push(`a member without execution.view got ${denied.status}`);
+      return done(problems);
+    },
+  );
+
+  check(
+    "ENG-S08i",
+    "the repository SBOM download over HTTP (SPEC scan-engines 17.r, 14.1 ENG-S08, owner decision D-24 (e)): GET /repositories/{id}/sbom serves the stored (redacted) document of the LATEST SUCCEEDED sbom scan task of the repository (a newer failed task, an artifact whose name matches no task and an older document are never served; with several pipelines the newest overall, or the one of `?pipelineId=`, which must belong to the repository: a pipeline of another repository, of another tenant, unknown or without a document is the same 404 as no document), byte for byte, as an attachment with a sanitised file name, the CycloneDX media type, nosniff, private no-store and the stored hash as ETag, and nothing else in the body; another tenant's repository, a missing repository and a member without repository.view get no document and the foreign case is identical to a missing id; a repository without a document is a 404 with the stable code RESOURCE_NOT_FOUND; a malformed or unknown query is 400; every served document writes exactly one audit entry repository.sbom_downloaded with only ids and a size, and nothing is audited for a refusal",
+    async () => {
+      const k = await exeWorld();
+      const d = k.d;
+      const x = k.x;
+      const s = x.sessions;
+      const problems = [];
+      const store = createPostgresArtifactStore({
+        repository: createExecutionArtifactRepository({ db: d }),
+      });
+      const doc = (label) =>
+        JSON.stringify({
+          bomFormat: "CycloneDX",
+          specVersion: "1.7",
+          components: [{ type: "library", name: label, purl: `pkg:npm/${label}@1.0.0` }],
+          metadata: { properties: [{ name: "note", value: "[redacted]" }] },
+        });
+      /** An execution with one sbom task in `taskStatus` and (when `bytes` is given) its sbom_document artifact. */
+      const sbomExecution = async (
+        p,
+        bytes,
+        {
+          taskStatus = "succeeded",
+          orphan = false,
+          scanType = "sbom",
+          artifactClass = "sbom_document",
+          nameOfTask = null,
+        } = {},
+      ) => {
+        const e = await k.make(p, "preparing");
+        await driveExecution(d, e.id, "running");
+        const t = await d.scanTask.create({
+          data: {
+            tenantId: e.tenantId,
+            workspaceId: e.workspaceId,
+            repositoryId: e.repositoryId,
+            pipelineId: e.pipelineId,
+            executionId: e.id,
+            scanType,
+            ordinal: 0,
+            status: "queued",
+            engineId: "suite-engine",
+            engineProfile: "default",
+            severityThreshold: "low",
+            timeoutSeconds: 900,
+          },
+        });
+        await d.$executeRaw`UPDATE scan_tasks SET status = 'running', started_at = now(), lease_owner = 'suite-worker', lease_expires_at = now() + interval '5 minutes', heartbeat_at = now() WHERE id = ${t.id}::uuid`;
+        if (bytes !== null) {
+          const hex = orphan
+            ? randomBytes(16).toString("hex")
+            : (nameOfTask ?? t.id).replaceAll("-", "");
+          await store.put(
+            { tenantId: e.tenantId, executionId: e.id, name: `sbom-${hex}-a0.cdx.json` },
+            Buffer.from(bytes),
+            { ifAbsent: true, mediaType: "application/json", artifactClass },
+          );
+        }
+        if (taskStatus === "succeeded")
+          await d.$executeRaw`UPDATE scan_tasks SET status = 'succeeded', finished_at = now(), lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL WHERE id = ${t.id}::uuid`;
+        else
+          await d.$executeRaw`UPDATE scan_tasks SET status = 'failed', status_reason = 'engine_failed', finished_at = now(), lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL WHERE id = ${t.id}::uuid`;
+        await driveExecution(d, e.id, "succeeded");
+        return { e, t };
+      };
+      const sbom = (cookie, repositoryId, params) =>
+        get(cookie, `/repositories/${repositoryId}/sbom`, params);
+      const audits = (tenantId, repositoryId) =>
+        d.auditLog.findMany({
+          where: { tenantId, action: "repository.sbom_downloaded", targetId: repositoryId },
+          orderBy: { createdAt: "asc" },
+        });
+      const errorOf = (r) => JSON.stringify(r.json?.error ?? null);
+
+      // the file name is built from the repository name and from nothing that can leave the header or the directory
+      for (const [input, want] of [
+        ["acme/payments-service", "acme-payments-service-sbom.cdx.json"],
+        ["../../etc/passwd", "etc-passwd-sbom.cdx.json"],
+        ['a"; filename="x', "a-filename-x-sbom.cdx.json"],
+        ["line\r\nbreak: 1", "line-break-1-sbom.cdx.json"],
+        [".hidden", "hidden-sbom.cdx.json"],
+        ["-dash", "dash-sbom.cdx.json"],
+        ["ünïcödé/repo", "n-c-d-repo-sbom.cdx.json"],
+        ["name.", "name-sbom.cdx.json"],
+        ["", "repository-sbom.cdx.json"],
+        ["..", "repository-sbom.cdx.json"],
+        [null, "repository-sbom.cdx.json"],
+        [undefined, "repository-sbom.cdx.json"],
+        ["a".repeat(200), `${"a".repeat(80)}-sbom.cdx.json`],
+      ])
+        if (sbomFileName(input) !== want)
+          problems.push(`file name of ${JSON.stringify(input)} is ${sbomFileName(input)}`);
+      const repoRow = (await get(s.admin, `/repositories/${x.payRepo}`)).json.data;
+      // ---- nothing yet: a stable 404
+      const none = await sbom(s.admin, x.payRepo);
+      if (none.status !== 404 || none.json?.error?.code !== "RESOURCE_NOT_FOUND")
+        problems.push(`a repository without a document answered ${none.status}`);
+      // ---- selection among documents
+      const dOld = doc("older");
+      const dNew = doc("newer");
+      await sbomExecution(k.pay, dOld);
+      await sbomExecution(k.pay, dNew);
+      await sbomExecution(k.pay, doc("failed-task"), { taskStatus: "failed" });
+      await sbomExecution(k.pay, doc("orphan"), { orphan: true });
+      // a tenant E task that really succeeded: its id is the name of a decoy in tenant A below
+      const edgeDoc = doc("edge-only");
+      const edgeRun = await sbomExecution(k.edge, edgeDoc);
+      // decoys named like a real document, none of which may be served: another artifact class, a succeeded task of another scan type,
+      // and the id of another tenant's succeeded sbom task
+      await sbomExecution(k.pay, doc("standard-class"), { artifactClass: "standard" });
+      await sbomExecution(k.pay, doc("sca-task"), { scanType: "sca" });
+      await sbomExecution(k.pay, doc("foreign-task"), { nameOfTask: edgeRun.t.id });
+      const artifactsRepo = createExecutionArtifactRepository({ db: d });
+      const lookup = (over) =>
+        artifactsRepo.findLatestSbomDocument({
+          tenantId: k.tenantA,
+          workspaceId: x.PAY,
+          repositoryId: x.payRepo,
+          ...over,
+        });
+      if (Buffer.from((await lookup({}))?.content ?? []).toString() !== dNew)
+        problems.push(
+          `control: the repository lookup does not find the newest document: ${Buffer.from(
+            (await lookup({}))?.content ?? [],
+          )
+            .toString()
+            .slice(0, 60)}`,
+        );
+      if ((await lookup({ workspaceId: x.IDN })) !== null)
+        problems.push("the lookup ignores the workspace");
+      if ((await lookup({ repositoryId: x.payRepo2 })) !== null)
+        problems.push("the lookup ignores the repository");
+      if ((await lookup({ tenantId: k.tenantE })) !== null)
+        problems.push("the lookup ignores the tenant");
+      const before = (await audits(k.tenantA, x.payRepo)).length;
+      const ok1 = await sbom(s.admin, x.payRepo);
+      if (ok1.status !== 200) problems.push(`the download answered ${ok1.status}`);
+      else {
+        if (ok1.text !== dNew) problems.push("the body is not the latest succeeded document");
+        const h = (n) => ok1.headers.get(n);
+        if (h("content-type") !== "application/vnd.cyclonedx+json")
+          problems.push(`content-type ${h("content-type")}`);
+        if (
+          !/^attachment; filename="[A-Za-z0-9._-]+-sbom\.cdx\.json"$/.test(
+            h("content-disposition") ?? "",
+          )
+        )
+          problems.push(`content-disposition ${h("content-disposition")}`);
+        if (
+          !(h("content-disposition") ?? "").includes(
+            String(repoRow.fullName).replace(/[^A-Za-z0-9._-]+/g, "-"),
+          )
+        )
+          problems.push("the file name is not built from the repository name");
+        if (h("x-content-type-options") !== "nosniff") problems.push("nosniff is missing");
+        if (h("cache-control") !== "private, no-store")
+          problems.push(`cache-control ${h("cache-control")}`);
+        const stored =
+          await d.$queryRaw`SELECT sha256 FROM execution_artifacts WHERE tenant_id = ${k.tenantA}::uuid AND artifact_class = 'sbom_document' AND encode(content, 'escape') = ${dNew}`;
+        if (h("etag") !== `"${stored[0]?.sha256}"`) problems.push(`etag ${h("etag")}`);
+        if (JSON.parse(ok1.text).bomFormat !== "CycloneDX") problems.push("the body is not JSON");
+        for (const needle of ["tenantId", "tenant_id", k.tenantA, "workspaceId"])
+          if (ok1.text.includes(needle)) problems.push(`the body contains ${needle}`);
+      }
+      // ---- several pipelines of ONE repository
+      // a second pipeline of the SAME repository (written directly: the API's entitlement limits of other checks are not under test here)
+      const p2 = await d.pipeline.create({
+        data: {
+          tenantId: k.tenantA,
+          workspaceId: x.PAY,
+          repositoryId: x.payRepo,
+          name: `sbom second ${w.suffix}`,
+          nameNormalized: `sbom second ${w.suffix}`,
+          enabled: true,
+          createdByUserId: k.pay.pipeline.createdByUserId,
+        },
+      });
+      const v2 = await d.pipelineConfigVersion.create({
+        data: {
+          tenantId: k.tenantA,
+          pipelineId: p2.id,
+          version: 1,
+          schemaVersion: k.pay.version.schemaVersion,
+          config: k.pay.version.config,
+          configHash: k.pay.version.configHash,
+          createdByUserId: k.pay.version.createdByUserId,
+        },
+      });
+      await d.pipeline.update({
+        where: { id: p2.id },
+        data: { currentVersion: 1, currentVersionId: v2.id },
+      });
+      const dP2 = doc("second-pipeline");
+      await sbomExecution({ pipeline: p2, version: v2 }, dP2);
+      const latest = await sbom(s.admin, x.payRepo);
+      if (latest.text !== dP2)
+        problems.push("without a pipeline the newest document overall is not served");
+      const one = await sbom(s.admin, x.payRepo, { pipelineId: k.pay.pipeline.id });
+      if (one.status !== 200 || one.text !== dNew)
+        problems.push(`pipelineId of the first pipeline: ${one.status}`);
+      const two = await sbom(s.admin, x.payRepo, { pipelineId: p2.id });
+      if (two.status !== 200 || two.text !== dP2)
+        problems.push(`pipelineId of the second pipeline: ${two.status}`);
+      const unknownPipeline = await sbom(s.admin, x.payRepo, { pipelineId: MISSING() });
+      for (const [label, id] of [
+        ["another repository's pipeline", x.pId.id],
+        ["another tenant's pipeline", x.pEdge.id],
+      ]) {
+        const r = await sbom(s.admin, x.payRepo, { pipelineId: id });
+        if (r.status !== 404 || errorOf(r) !== errorOf(unknownPipeline))
+          problems.push(`${label} did not answer the plain 404 (${r.status})`);
+      }
+      if (unknownPipeline.status !== 404 || errorOf(unknownPipeline) !== errorOf(none))
+        problems.push("an unknown pipeline is not the same 404 as no document");
+      for (const params of [{ pipelineId: "nope" }, { extra: "1" }]) {
+        const r = await sbom(s.admin, x.payRepo, params);
+        if (r.status !== 400)
+          problems.push(`the query ${JSON.stringify(params)} answered ${r.status}`);
+      }
+      // ---- audit: exactly one entry per served document, ids and a size only
+      const served = (await audits(k.tenantA, x.payRepo)).slice(before);
+      if (served.length !== 4)
+        problems.push(`${served.length} audit entries for 4 served documents`);
+      for (const row of served) {
+        const keys = Object.keys(row.metadata ?? {})
+          .sort()
+          .join();
+        if (keys !== "executionId,pipelineId,sizeBytes")
+          problems.push(`audit metadata keys ${keys}`);
+        if (row.workspaceId !== x.PAY || row.targetType !== "repository" || !row.actorUserId)
+          problems.push("an audit entry lacks its workspace, target or actor");
+        if (JSON.stringify(row).includes("components"))
+          problems.push("an audit entry carries document text");
+      }
+      // ---- isolation: another tenant, a missing id, no permission, no session
+      const mine = await sbom(x.edge.owner, x.edgeRepo);
+      if (mine.status !== 200 || mine.text !== edgeDoc)
+        problems.push(
+          `the owner of another tenant could not download its own document (${mine.status})`,
+        );
+      const missing = await sbom(s.admin, MISSING());
+      const foreign = await sbom(x.edge.owner, x.payRepo);
+      const foreignOther = await sbom(s.admin, x.edgeRepo);
+      for (const [label, r] of [
+        ["tenant E on tenant A's repository", foreign],
+        ["tenant A on tenant E's repository", foreignOther],
+      ]) {
+        if (r.status !== 404 || errorOf(r) !== errorOf(missing) || r.text.includes("CycloneDX"))
+          problems.push(`${label} did not answer the plain 404 (${r.status})`);
+      }
+      const bare = await edgeMember("sbomnoview", ["workspace.view", "execution.view"]);
+      const denied = await sbom(bare, x.edgeRepo);
+      if (denied.status !== 403 || denied.text.includes("CycloneDX"))
+        problems.push(`a member without repository.view got ${denied.status}`);
+      const viewer = await edgeMember("sbomview", ["workspace.view", "repository.view"]);
+      const allowed = await sbom(viewer, x.edgeRepo);
+      if (allowed.status !== 200 || allowed.text !== edgeDoc)
+        problems.push(`a member with repository.view only got ${allowed.status}`);
+      const anon = await w.api("GET", `/repositories/${x.payRepo}/sbom`);
+      if (anon.status !== 401 || anon.text.includes("CycloneDX"))
+        problems.push(`an anonymous call answered ${anon.status}`);
+      // ---- nothing audited for a refusal, one for the allowed viewer and the owner
+      const edgeAudits = await audits(k.tenantE, x.edgeRepo);
+      if (edgeAudits.length !== 2)
+        problems.push(
+          `${edgeAudits.length} audit entries of tenant E, expected 2 (owner and viewer)`,
+        );
+      if ((await audits(k.tenantA, x.payRepo)).length - before !== 4)
+        problems.push("a refused call was audited, or a served one was not");
       return done(problems);
     },
   );

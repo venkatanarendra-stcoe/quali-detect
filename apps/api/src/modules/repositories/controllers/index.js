@@ -24,6 +24,20 @@ export function createRepositoryController({ service }) {
         ),
     get: async (request, reply) =>
       reply.success(await service.get(actorFrom(request), repo(request))),
+    /** The one raw (non-envelope) response of this module: the stored SBOM document as an attachment. Errors keep the envelope. */
+    sbom: async (request, reply) => {
+      const file = await service.sbom(actorFrom(request), repo(request), request.query);
+      return reply
+        .status(200)
+        .set({
+          "Content-Type": file.mediaType,
+          "Content-Disposition": `attachment; filename="${file.fileName}"`,
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "private, no-store",
+          ETag: file.etag,
+        })
+        .send(file.content);
+    },
     update: async (request, reply) =>
       reply.success(await service.update(actorFrom(request), repo(request), request.body)),
     sync: async (request, reply) =>

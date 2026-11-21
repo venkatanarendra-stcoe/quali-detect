@@ -1,5 +1,5 @@
 import { AppPageLayout } from "@qmentisai/ui";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -159,6 +159,12 @@ function Detail({ repository }) {
         <>
           <RepositoryHealth repository={repository} />
           <AddPipelineButton repository={repository} />
+          {actions.canDownloadSbom ? (
+            <Button variant="secondary" disabled={actions.downloadingSbom} onClick={actions.sbom}>
+              <Download aria-hidden="true" />
+              {actions.downloadingSbom ? "Preparing SBOM" : "Download SBOM"}
+            </Button>
+          ) : null}
           {actions.canSync ? (
             <Button variant="secondary" disabled={actions.syncing} onClick={actions.sync}>
               <RefreshCw aria-hidden="true" />

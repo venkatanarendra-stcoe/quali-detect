@@ -7,6 +7,7 @@ import { createTrivySbomAdapter } from "../sbom/trivy-sbom.js";
 import { collectSbomLiteStreams, createSbomLiteAdapter } from "../sbom/sbom-lite.js";
 import { mergeTaskCandidatesAsync } from "../core/merger.js";
 import { runToolParseAsync } from "../core/run-parse.js";
+import { enrichFindings } from "../evidence/index.js";
 import { toStorageRowsAsync } from "../core/storage.js";
 import {
   DEFAULT_TOOL_WAIT_MS,
@@ -247,7 +248,14 @@ export function createEnsembleSbomEngine({
         // bounded: concatenates the candidate lists of the three tools (one native pass)
         candidates: parsed.flatMap((p) => p.candidates),
       });
-      const rows = await toStorageRowsAsync(merged.findings, platform.maxItems ?? 50_000);
+      // evidence part J: the provider link to the manifest file that declared the component (no line, SPEC 5.13.3)
+      const enriched = await enrichFindings({
+        findings: merged.findings,
+        sourceDir: context.sourceDir,
+        repo: platform.scm ?? null,
+        signal,
+      });
+      const rows = await toStorageRowsAsync(enriched.findings, platform.maxItems ?? 50_000);
       // bounded: one entry per tool (three)
       const syft = parsed.find((p) => p.record.toolId === SBOM_DOCUMENT_TOOL_ID);
       let document = null;

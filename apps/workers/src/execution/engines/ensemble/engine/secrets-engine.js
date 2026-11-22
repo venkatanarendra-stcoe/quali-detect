@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { rollUpTask } from "@qmentisai/shared";
+import {
+  EVIDENCE_CAPPED_NOTE_CODE,
+  SECRETS_COVERAGE_NOTE_CODE,
+  rollUpTask,
+} from "@qmentisai/shared";
 import { mergeTaskCandidatesAsync } from "../core/merger.js";
 import { runToolParseAsync } from "../core/run-parse.js";
 import { toStorageRowsAsync } from "../core/storage.js";
@@ -11,6 +15,7 @@ import {
   DETECT_SECRETS_ENV,
   createDetectSecretsAdapter,
 } from "../secrets/detect-secrets.js";
+import { enrichFindings } from "../evidence/index.js";
 import { createGitleaksAdapter } from "../secrets/gitleaks.js";
 import {
   isSecretsToolControlPath,
@@ -208,7 +213,20 @@ export function createEnsembleSecretsEngine({
       });
       // SE-24: merge first, filter after, once, identically for every kind of incremental scope
       const filtered = filterToChanged(merged.findings, scope.changed);
-      const rows = await toStorageRowsAsync(filtered.kept, platform.maxItems ?? 50_000);
+      // evidence part J: the provider link and the MASKED LINE PREVIEW (SPEC SE-42, 17.y), built from the extracted tree and the columns
+      // every tool reported; a preview that cannot be confirmed is omitted
+      const enriched = await enrichFindings({
+        findings: filtered.kept,
+        candidates: parsed.flatMap((p) => p.candidates),
+        sourceDir: context.sourceDir,
+        repo: platform.scm ?? null,
+        signal,
+      });
+      log(
+        "info",
+        `Secrets evidence: ${enriched.summary.secretPreviews} masked previews, ${enriched.summary.secretOmitted} omitted, ${enriched.summary.capped} beyond the cap, ${enriched.summary.linked} links`,
+      );
+      const rows = await toStorageRowsAsync(enriched.findings, platform.maxItems ?? 50_000);
       const incomplete = rollup.completeness === "incomplete" || rows.truncated;
       if (scope.kind !== "full")
         log(
@@ -236,6 +254,11 @@ export function createEnsembleSecretsEngine({
             coverageGaps: rollup.coverageGaps,
             toolsDegraded: rollup.toolsDegraded,
             tools: toolRuns.map((r) => ({ toolId: r.toolId, status: r.status })),
+            // fixed codes of the coverage statement (SPEC 17.y, 5.13.2): the Gitleaks default allowlist gap and the evidence budget
+            notes: [
+              SECRETS_COVERAGE_NOTE_CODE,
+              ...(enriched.summary.capped > 0 ? [EVIDENCE_CAPPED_NOTE_CODE] : []),
+            ],
           },
           runManifestSha256: runManifestSha256({
             ensembleVersion: ENSEMBLE_VERSION,

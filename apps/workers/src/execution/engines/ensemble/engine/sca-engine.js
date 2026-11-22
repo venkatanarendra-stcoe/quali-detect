@@ -4,6 +4,7 @@ import path from "node:path";
 import { rollUpTask } from "@qmentisai/shared";
 import { mergeTaskCandidatesAsync } from "../core/merger.js";
 import { runToolParseAsync } from "../core/run-parse.js";
+import { enrichFindings } from "../evidence/index.js";
 import { toStorageRowsAsync } from "../core/storage.js";
 import { createOsvScannerAdapter } from "../sca/osv-scanner.js";
 import { createTrivyScaAdapter } from "../sca/trivy-vuln.js";
@@ -189,7 +190,14 @@ export function createEnsembleScaEngine({
         // bounded: concatenates the candidate lists of the two tools (one native pass)
         candidates: parsed.flatMap((p) => p.candidates),
       });
-      const rows = await toStorageRowsAsync(merged.findings, platform.maxItems ?? 50_000);
+      // evidence part J: the provider link to the manifest file that declared the component (no line, SPEC 5.13.3)
+      const enriched = await enrichFindings({
+        findings: merged.findings,
+        sourceDir: context.sourceDir,
+        repo: platform.scm ?? null,
+        signal,
+      });
+      const rows = await toStorageRowsAsync(enriched.findings, platform.maxItems ?? 50_000);
       const incomplete = rollup.completeness === "incomplete" || rows.truncated;
       return {
         status: rollup.taskStatus === "failed" ? "failed" : "succeeded",

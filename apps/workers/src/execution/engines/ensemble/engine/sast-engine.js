@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { rollUpTask } from "@qmentisai/shared";
+import { EVIDENCE_CAPPED_NOTE_CODE, rollUpTask } from "@qmentisai/shared";
 import { mergeTaskCandidatesAsync } from "../core/merger.js";
 import { runToolParseAsync } from "../core/run-parse.js";
 import { toStorageRowsAsync } from "../core/storage.js";
@@ -12,6 +12,7 @@ import { loadRulePack } from "../sast/rule-pack.js";
 import { dropVendored, filterToChanged, planScope, scopedInventory } from "../sast/scope.js";
 import { createContainerToolRunner } from "./container-run.js";
 import { DEFAULT_TOOL_WAIT_MS, ENGINE_ID, ENSEMBLE_VERSION } from "./constants.js";
+import { enrichFindings } from "../evidence/index.js";
 import { runManifestSha256 } from "./run-manifest.js";
 
 /**
@@ -195,7 +196,19 @@ export function createEnsembleSastEngine({
       });
       // SE-24: merge first, filter after, once, identically for every kind of incremental scope
       const filtered = filterToChanged(dropVendored(merged.findings).kept, scope.changed);
-      const rows = await toStorageRowsAsync(filtered.kept, platform.maxItems ?? 50_000);
+      // evidence part J: the provider link and the enclosing block (extractor image) or the line window, for the highest-severity findings
+      const enriched = await enrichFindings({
+        findings: filtered.kept,
+        sourceDir: context.sourceDir,
+        repo: platform.scm ?? null,
+        extractor: { deps: { runner, gate, resolver }, ctx: { platform, context, signal } },
+        signal,
+      });
+      log(
+        "info",
+        `SAST evidence: ${enriched.summary.blocks} blocks, ${enriched.summary.windows} windows, ${enriched.summary.capped} beyond the cap, extractor ${enriched.summary.extractor}`,
+      );
+      const rows = await toStorageRowsAsync(enriched.findings, platform.maxItems ?? 50_000);
       // a mixed tree: the languages no tool covers are named and the result is not complete
       const gapped = [5, 6].includes(rollup.matchedRow) && app.gaps.length > 0;
       const incomplete = rollup.completeness === "incomplete" || rows.truncated || gapped;
@@ -225,6 +238,7 @@ export function createEnsembleSastEngine({
             coverageGaps: gapped ? app.gaps : rollup.coverageGaps,
             toolsDegraded: rollup.toolsDegraded,
             tools: toolRuns.map((r) => ({ toolId: r.toolId, status: r.status })),
+            ...(enriched.summary.capped > 0 ? { notes: [EVIDENCE_CAPPED_NOTE_CODE] } : {}),
           },
           runManifestSha256: runManifestSha256({
             ensembleVersion: ENSEMBLE_VERSION,

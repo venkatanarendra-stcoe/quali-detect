@@ -71,7 +71,7 @@ export const IMAGE_CATALOG_CHECKS = [
       const lock = realLock();
       const base = validateImageLock(lock);
       ok(p, base.errors.length === 0, `committed lock errors: ${base.errors.join("; ")}`);
-      for (const k of ["opengrep", "detect-secrets"])
+      for (const k of ["opengrep", "detect-secrets", "block-extractor"])
         ok(
           p,
           base.warnings.some((w) => w.startsWith(`${k}:`) && /locally built/.test(w)),
@@ -94,7 +94,8 @@ export const IMAGE_CATALOG_CHECKS = [
       const prod = errorsOf(lock, true);
       ok(
         p,
-        prod.length === 2 && prod.every((e) => /^(opengrep|detect-secrets): locally built/.test(e)),
+        prod.length === 3 &&
+          prod.every((e) => /^(opengrep|detect-secrets|block-extractor): locally built/.test(e)),
         `production errors ${JSON.stringify(prod)}`,
       );
       const mut = (label, fn, { production = false } = {}) => {
@@ -148,7 +149,7 @@ export const IMAGE_CATALOG_CHECKS = [
       mut("excluded with approval", (l) => (entryOf(l, "cdxgen").approvedBy = "owner"));
       mut(
         "unverified with approval date",
-        (l) => (entryOf(l, "block-extractor").approvedAt = "2026-11-19"),
+        (l) => (entryOf(l, "trufflehog").approvedAt = "2026-11-19"),
       );
       mut("deferred entry with approval", (l) => (entryOf(l, "grype").approvedBy = "owner"));
       mut("deferred status without its flag", (l) => (entryOf(l, "grype").flags = []));
@@ -292,7 +293,7 @@ export const IMAGE_CATALOG_CHECKS = [
         ok(
           p,
           !validateImageLock(lock).warnings.some((w) =>
-            /^(cdxgen|trufflehog|brakeman|codeql|semgrep-oss|block-extractor):.*(not yet approved|signature|self-scan)/.test(
+            /^(cdxgen|trufflehog|brakeman|codeql|semgrep-oss):.*(not yet approved|signature|self-scan)/.test(
               w,
             ),
           ),
@@ -368,14 +369,7 @@ export const IMAGE_CATALOG_CHECKS = [
           );
         }
       }
-      for (const k of [
-        "cdxgen",
-        "trufflehog",
-        "brakeman",
-        "codeql",
-        "semgrep-oss",
-        "block-extractor",
-      ])
+      for (const k of ["cdxgen", "trufflehog", "brakeman", "codeql", "semgrep-oss"])
         ok(
           p,
           throwsReason(() => resolver.resolve(k)) === "not_adopted",

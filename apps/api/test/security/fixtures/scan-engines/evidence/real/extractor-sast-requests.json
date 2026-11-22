@@ -1,0 +1,14 @@
+[
+  { "path": "go/main.go", "startLine": 16, "endLine": 16 },
+  { "path": "go/main.go", "startLine": 12, "endLine": 12 },
+  { "path": "svc/py/app.py", "startLine": 13, "endLine": 13 },
+  { "path": "svc/py/app.py", "startLine": 3, "endLine": 3 },
+  { "path": "svc/py/app.py", "startLine": 21, "endLine": 21 },
+  { "path": "web/app.js", "startLine": 11, "endLine": 11 },
+  { "path": "web/app.js", "startLine": 8, "endLine": 8 },
+  { "path": "web/render.ts", "startLine": 5, "endLine": 7 },
+  { "path": "safe/ok.py", "startLine": 7, "endLine": 7 },
+  { "path": "safe/ok.js", "startLine": 1, "endLine": 1 },
+  { "path": "safe/missing.py", "startLine": 1, "endLine": 1 },
+  { "path": "svc/py/app.py", "startLine": 999, "endLine": 999 }
+]

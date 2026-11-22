@@ -92,6 +92,7 @@ One sentence, plain text with an icon when it is not the normal case:
 | `gaps` | "No tool supports these languages: Haskell, Elixir. Results are incomplete." (language names come from a fixed platform list; an unknown language shows "other") | TriangleAlert |
 | `nothing_to_scan` | "Nothing to scan: no files of this kind were found." | Info |
 | `truncated` | "Results were cut at the platform limit." (the existing "Truncated" badge stays too) | TriangleAlert |
+| (standing note of every **Secrets** task that has tools, any state; owner decision 2026-11-22, SPEC D-27 (2), 17.y) | "Gitleaks skips node_modules, lock files, go.sum and image files by its default allowlist. detect-secrets scans those paths, so they are still covered." (the one text `SECRETS_COVERAGE_NOTE` of `@qmentisai/shared`; stored as the coverage note code `gitleaks_default_allowlist`) | Info |
 
 This text is consistent with the existing page-level notice for non-eligible runs ("This run did not complete a full scan. It cannot mark findings fixed.") and does not replace it. Note the task and execution status stay `succeeded` for a degraded task ("succeeded (degraded)", SPEC 5.4 row 6, Confirmed D-6); the coverage line is where the tenant sees the degradation, and a degraded result is never eligible to mark findings fixed. The execution status `partial` is not used for this case (owner decision 2026-11-19). A task where all tools failed shows the existing "Failed" treatment (3.5).
 

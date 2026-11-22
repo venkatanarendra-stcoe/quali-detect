@@ -1,0 +1,98 @@
+[
+  {
+    "path": "go/main.go",
+    "startLine": 16,
+    "endLine": 16,
+    "enclosingStart": 14,
+    "enclosingEnd": 22,
+    "nodeKind": "function"
+  },
+  {
+    "path": "go/main.go",
+    "startLine": 12,
+    "endLine": 12,
+    "enclosingStart": 12,
+    "enclosingEnd": 12,
+    "nodeKind": "module"
+  },
+  {
+    "path": "svc/py/app.py",
+    "startLine": 13,
+    "endLine": 13,
+    "enclosingStart": 11,
+    "enclosingEnd": 22,
+    "nodeKind": "function"
+  },
+  {
+    "path": "svc/py/app.py",
+    "startLine": 3,
+    "endLine": 3,
+    "enclosingStart": 3,
+    "enclosingEnd": 3,
+    "nodeKind": "module"
+  },
+  {
+    "path": "svc/py/app.py",
+    "startLine": 21,
+    "endLine": 21,
+    "enclosingStart": 11,
+    "enclosingEnd": 22,
+    "nodeKind": "function"
+  },
+  {
+    "path": "web/app.js",
+    "startLine": 11,
+    "endLine": 11,
+    "enclosingStart": 10,
+    "enclosingEnd": 19,
+    "nodeKind": "function"
+  },
+  {
+    "path": "web/app.js",
+    "startLine": 8,
+    "endLine": 8,
+    "enclosingStart": 8,
+    "enclosingEnd": 8,
+    "nodeKind": "module"
+  },
+  {
+    "path": "web/render.ts",
+    "startLine": 5,
+    "endLine": 7,
+    "enclosingStart": 4,
+    "enclosingEnd": 9,
+    "nodeKind": "function"
+  },
+  {
+    "path": "safe/ok.py",
+    "startLine": 7,
+    "endLine": 7,
+    "enclosingStart": 5,
+    "enclosingEnd": 8,
+    "nodeKind": "function"
+  },
+  {
+    "path": "safe/ok.js",
+    "startLine": 1,
+    "endLine": 1,
+    "enclosingStart": 1,
+    "enclosingEnd": 1,
+    "nodeKind": "module"
+  },
+  {
+    "path": "safe/missing.py",
+    "startLine": 1,
+    "endLine": 1,
+    "enclosingStart": 1,
+    "enclosingEnd": 1,
+    "nodeKind": "unknown"
+  },
+  {
+    "path": "svc/py/app.py",
+    "startLine": 999,
+    "endLine": 999,
+    "enclosingStart": 999,
+    "enclosingEnd": 999,
+    "nodeKind": "unknown"
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "path": "d/deep.js",
+    "startLine": 1,
+    "endLine": 1,
+    "enclosingStart": 1,
+    "enclosingEnd": 1,
+    "nodeKind": "module"
+  },
+  {
+    "path": "d/bin.py",
+    "startLine": 1,
+    "endLine": 1,
+    "enclosingStart": 1,
+    "enclosingEnd": 1,
+    "nodeKind": "module"
+  },
+  {
+    "path": "d/big.js",
+    "startLine": 5,
+    "endLine": 5,
+    "enclosingStart": 5,
+    "enclosingEnd": 5,
+    "nodeKind": "unknown"
+  },
+  {
+    "path": "d/ok.js",
+    "startLine": 2,
+    "endLine": 2,
+    "enclosingStart": 1,
+    "enclosingEnd": 3,
+    "nodeKind": "function"
+  },
+  {
+    "path": "d/nul.go",
+    "startLine": 2,
+    "endLine": 2,
+    "enclosingStart": 2,
+    "enclosingEnd": 2,
+    "nodeKind": "function"
+  },
+  {
+    "path": "d/link.py",
+    "startLine": 1,
+    "endLine": 1,
+    "enclosingStart": 1,
+    "enclosingEnd": 1,
+    "nodeKind": "unknown"
+  }
+]

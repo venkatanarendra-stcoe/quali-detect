@@ -269,15 +269,16 @@
       "digest": null,
       "version": "web-tree-sitter 0.27.2",
       "licence": "MIT",
-      "user": null,
-      "status": "UNVERIFIED",
+      "user": "65534:65534",
+      "status": "ADOPTED",
       "source": {
         "kind": "own_build",
-        "baseImageDigest": "sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402"
+        "baseImageDigest": "sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+        "localImageId": "sha256:61801fe80fd6398953d3c0a638ff0e3da93c2edb45bc989d7375e41e85f4e9de"
       },
-      "flags": ["own_build"],
-      "notes": "Installable and runnable in the spike; the extractor image itself is not built (Part J). Base node image digest recorded.",
-      "sourceUrl": null,
+      "flags": ["own_build", "local_build_requires_registry_digest"],
+      "notes": "Own build (Part J, recipe in engines/ensemble/evidence/extractor-image/Containerfile; npm packages pinned by package-lock.json; the final stage is a Node runtime without a package manager, user 65534:65534). Input is a JSON list on stdin, output numbers and one enumerated label only (SPEC 5.13.1). `repository` stays null until the image is pushed to the mirror registry and its registry digest is recorded (pre-production task).",
+      "sourceUrl": "https://github.com/tree-sitter/tree-sitter",
       "licenceReviewedAt": null,
       "approvedBy": null,
       "approvedAt": null,

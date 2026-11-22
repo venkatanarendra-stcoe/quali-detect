@@ -1,0 +1,26 @@
+# The block extractor image (docs/modules/scan-engines/SPEC.md 5.13.1, IMAGES.md section 10, ADR-014 scan-tool exception).
+# Build (ONLY by the owner or a provisioning job; the scan worker never builds an image, SPEC 9):
+#   docker build -f Containerfile -t qm-block-extractor:1.0.0 .
+# Every input is pinned: the base by digest, the npm packages by the committed package-lock.json (`npm ci`, scripts disabled).
+# The final stage is a Node runtime with NO package manager and NO shell script of ours; it runs as 65534:65534.
+
+FROM node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund \
+ && rm -rf node_modules/*/src node_modules/*/bindings node_modules/*/prebuilds node_modules/node-addon-api node_modules/node-gyp-build \
+ && find node_modules -name '*.map' -delete \
+ && rm -rf node_modules/web-tree-sitter/debug node_modules/tree-sitter-typescript/node_modules
+COPY extract.mjs ./
+
+FROM node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+LABEL org.opencontainers.image.title="qm-block-extractor" \
+      org.opencontainers.image.description="tree-sitter enclosing-block extractor: numbers only" \
+      org.opencontainers.image.licenses="MIT"
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn* /usr/local/bin/yarn* \
+ && apk del --purge apk-tools 2>/dev/null; true
+COPY --from=build /app /app
+WORKDIR /app
+USER 65534:65534
+ENTRYPOINT ["node", "--disallow-code-generation-from-strings", "/app/extract.mjs"]

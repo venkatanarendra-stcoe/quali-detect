@@ -339,9 +339,29 @@ export function createScanTaskHandler({
         assertNoCredentials(context, "scan context");
         // TEST-ONLY window (execution/test-delay.js); null in every normal process
         if (testDelay) await testDelay(abort.signal);
+        // The repository facts of the provider link (SPEC scan-engines 5.13.3), read by tenant AND workspace AND id; a failed or
+        // missing read means "no link" (`scm: null`), never a failed scan. The commit is the one the execution pinned.
+        const scm = adapter.needsPlatform
+          ? await db.repository
+              .findFirst({
+                where: { id: exec.repositoryId, tenantId, workspaceId: exec.workspaceId },
+                select: { provider: true, fullName: true },
+              })
+              .then((r) =>
+                r && exec.commitSha
+                  ? {
+                      provider: String(r.provider),
+                      fullName: r.fullName,
+                      commitSha: exec.commitSha,
+                    }
+                  : null,
+              )
+              .catch(() => null)
+          : null;
         const platform = adapter.needsPlatform
           ? {
               tenantId,
+              scm,
               deadlineEpoch: Math.floor(Date.now() / 1000) + Math.ceil(task.secondsToDeadline),
               secondsToDeadline: Math.max(1, Math.floor(task.secondsToDeadline)),
               fork: exec.trust === "untrusted_fork",

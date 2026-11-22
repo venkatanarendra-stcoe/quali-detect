@@ -1,6 +1,6 @@
-import { TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import { Fragment } from "react";
-import { ADVISORY_ATTRIBUTION } from "@qmentisai/shared";
+import { ADVISORY_ATTRIBUTION, SECRETS_COVERAGE_NOTE } from "@qmentisai/shared";
 import { Badge } from "@/components/ui/badge.jsx";
 import { inertText } from "../constants/decision-text.js";
 import { TASK_TITLES } from "../constants/index.js";
@@ -293,6 +293,14 @@ export function ToolsSection({ task, now: given }) {
       ) : null}
       <Notice line={stale ? { tone: "warning", icon: TriangleAlert, text: stale.text } : null} />
       <Notice line={line} />
+      {/* the standing coverage statement of a Secrets task (owner decision 2026-11-22, SPEC 17.y): the Gitleaks allowlist gap */}
+      <Notice
+        line={
+          task.scanType === "secrets" && tools.length
+            ? { tone: "info", icon: Info, text: SECRETS_COVERAGE_NOTE }
+            : null
+        }
+      />
       <Notice
         line={
           task.resultSummary?.truncated

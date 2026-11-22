@@ -190,3 +190,28 @@ export const FINDING_LIMITS = Object.freeze({
 export const SAST_LINE_TOLERANCE = 3;
 /** Share of dropped records above which a tool's output is `output_invalid` (Recommended, SPEC 7.2). */
 export const OUTPUT_DROP_RATIO_LIMIT = 0.2;
+
+/**
+ * Fixed codes of the coverage statement's `notes` (docs/modules/scan-engines/SPEC.md 17.y, 5.13.2). A note describes a standing limit of a result; it
+ * never changes the coverage state or the completeness. The stored coverage holds the code; the text below is the one place the wording lives.
+ */
+export const SECRETS_COVERAGE_NOTE_CODE = "gitleaks_default_allowlist";
+export const EVIDENCE_CAPPED_NOTE_CODE = "evidence_capped";
+export const COVERAGE_NOTE_CODES = Object.freeze([
+  SECRETS_COVERAGE_NOTE_CODE,
+  EVIDENCE_CAPPED_NOTE_CODE,
+]);
+
+/**
+ * The coverage text of a Secrets task (owner decision of 2026-11-22, D-27 (2)): Gitleaks skips some paths by the allowlist of its default
+ * configuration, detect-secrets scans them. Shown by the tenant UI under the Tools table of a Secrets task.
+ */
+export const SECRETS_COVERAGE_NOTE =
+  "Gitleaks skips node_modules, lock files, go.sum and image files by its default allowlist. detect-secrets scans those paths, so they are still covered.";
+
+/** The text of each note code. */
+export const COVERAGE_NOTE_TEXT = Object.freeze({
+  [SECRETS_COVERAGE_NOTE_CODE]: SECRETS_COVERAGE_NOTE,
+  [EVIDENCE_CAPPED_NOTE_CODE]:
+    "Code excerpts are stored for the 500 highest-severity findings of a task. The others keep their location and link.",
+});

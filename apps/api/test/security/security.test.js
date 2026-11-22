@@ -48,6 +48,12 @@ import { ENSEMBLE_SCA_CHECKS } from "./helpers/ensemble-sca-checks.js";
 import { ENG_L20_CHECKS } from "./helpers/eng-l20-checks.js";
 import { ENSEMBLE_ENGINE_CHECKS, ENSEMBLE_WORLD_CHECKS } from "./helpers/ensemble-engine-checks.js";
 import { ENSEMBLE_YIELD_CHECKS } from "./helpers/ensemble-yield-checks.js";
+import {
+  ENSEMBLE_DENY_WORLD_CHECKS,
+  ENSEMBLE_GUARD_CHECKS,
+} from "./helpers/ensemble-guard-checks.js";
+import { ENSEMBLE_ENV_CHECKS } from "./helpers/ensemble-env-checks.js";
+import { ENSEMBLE_KILL_CHECKS } from "./helpers/ensemble-kill-checks.js";
 import { DBMIRROR_CHECKS } from "./helpers/dbmirror-checks.js";
 import { DBMIRROR_DB_CHECKS } from "./helpers/dbmirror-db-checks.js";
 import { IMAGE_CATALOG_CHECKS } from "./helpers/image-catalog-checks.js";
@@ -70,7 +76,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 889;
+const EXPECTED_CHECKS = 898;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10405,6 +10411,7 @@ const schWorld = () =>
     ...STORE_CHECKS,
     ...PART_I_CHECKS,
     ...ENSEMBLE_WORLD_CHECKS,
+    ...ENSEMBLE_DENY_WORLD_CHECKS,
   ])
     add(
       id,
@@ -10434,6 +10441,9 @@ const schWorld = () =>
     ...ENG_L20_CHECKS,
     ...ENSEMBLE_ENGINE_CHECKS,
     ...ENSEMBLE_YIELD_CHECKS,
+    ...ENSEMBLE_GUARD_CHECKS,
+    ...ENSEMBLE_ENV_CHECKS,
+    ...ENSEMBLE_KILL_CHECKS,
     ...DBMIRROR_CHECKS,
   ])
     add(

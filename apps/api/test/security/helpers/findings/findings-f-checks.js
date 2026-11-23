@@ -1324,7 +1324,7 @@ export const FINDINGS_F_CHECKS = [
       // the DTOs of every read route
       const ids = found.map((f) => f.id);
       const reads = [
-        `/findings?workspaceId=${w.wsA}&pageSize=100`,
+        `/findings?workspaceId=${w.wsA}&pipelineId=${scn.pipeline.id}&pageSize=100`,
         `/findings/summary?workspaceId=${w.wsA}`,
         `/remediation/board?workspaceId=${w.wsA}`,
         `/review-queue?workspaceId=${w.wsA}`,
@@ -1340,7 +1340,10 @@ export const FINDINGS_F_CHECKS = [
         ok(p, r.status === 200, `control: GET ${path} answered ${r.status}`);
         leaks(`GET ${path.split("?")[0]}`, j(r.json));
       }
-      const listed = await api.get("fFull", `/findings?workspaceId=${w.wsA}&pageSize=100`);
+      const listed = await api.get(
+        "fFull",
+        `/findings?workspaceId=${w.wsA}&pipelineId=${scn.pipeline.id}&pageSize=100`,
+      );
       ok(
         p,
         ids.every((id) => j(listed.json).includes(id)),

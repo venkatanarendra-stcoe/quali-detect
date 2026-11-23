@@ -48687,6 +48687,9 @@
                         "externalConsent": {
                           "type": "boolean"
                         },
+                        "codeSnippetConsent": {
+                          "type": "boolean"
+                        },
                         "assistant": {
                           "type": "object",
                           "properties": {
@@ -48731,6 +48734,7 @@
                       },
                       "required": [
                         "externalConsent",
+                        "codeSnippetConsent",
                         "assistant",
                         "updatedAt",
                         "consentChangedAt",
@@ -48999,11 +49003,11 @@
                 "properties": {
                   "externalConsent": {
                     "type": "boolean"
+                  },
+                  "codeSnippetConsent": {
+                    "type": "boolean"
                   }
                 },
-                "required": [
-                  "externalConsent"
-                ],
                 "additionalProperties": false
               }
             }
@@ -49027,6 +49031,9 @@
                       "type": "object",
                       "properties": {
                         "externalConsent": {
+                          "type": "boolean"
+                        },
+                        "codeSnippetConsent": {
                           "type": "boolean"
                         },
                         "assistant": {
@@ -49073,6 +49080,7 @@
                       },
                       "required": [
                         "externalConsent",
+                        "codeSnippetConsent",
                         "assistant",
                         "updatedAt",
                         "consentChangedAt",

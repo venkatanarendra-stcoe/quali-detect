@@ -5378,7 +5378,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
+        "dataShape": "{ externalConsent, codeSnippetConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
         "metaKeys": [
           "correlationId"
         ]
@@ -5432,11 +5432,11 @@
       "request": {
         "params": [],
         "query": [],
-        "body": "{ externalConsent }"
+        "body": "{ externalConsent, codeSnippetConsent }"
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ externalConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
+        "dataShape": "{ externalConsent, codeSnippetConsent, assistant, updatedAt, consentChangedAt, consentChangedBy }",
         "metaKeys": [
           "correlationId"
         ]

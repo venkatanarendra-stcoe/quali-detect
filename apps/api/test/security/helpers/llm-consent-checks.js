@@ -666,7 +666,7 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
   // ------------------------------------------------------------------------------------- DEC-S11: GET/PUT /settings/ai
   const keysOf = (r) => Object.keys(r.json?.data ?? {}).sort();
   const dtoKeys =
-    '["assistant","consentChangedAt","consentChangedBy","externalConsent","updatedAt"]';
+    '["assistant","codeSnippetConsent","consentChangedAt","consentChangedBy","externalConsent","updatedAt"]';
   const rowOf = (tenantId) => db().tenantLlmSettings.findUnique({ where: { tenantId } });
   const auditOf = (tenantId) =>
     db().auditLog.findMany({ where: { tenantId, action: ACTION }, orderBy: { createdAt: "asc" } });

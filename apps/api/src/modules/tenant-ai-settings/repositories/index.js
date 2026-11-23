@@ -9,8 +9,10 @@ export function createTenantAiSettingsRepository({ db }) {
   const settings = createTenantLlmSettingsRepository({ db });
   return Object.freeze({
     findSettings: settings.findSettings,
+    getConsents: settings.getConsents,
     findConsentChangedBy: settings.findConsentChangedBy,
     setExternalConsent: settings.setExternalConsent,
+    setCodeSnippetConsent: settings.setCodeSnippetConsent,
     transaction: (fn) => db.$transaction(fn),
   });
 }

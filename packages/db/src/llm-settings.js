@@ -22,6 +22,24 @@ export function createTenantLlmSettingsRepository({ db }) {
     },
 
     /**
+     * Both consent tiers (ADR-013 addendum): `externalConsent` for metadata, `codeSnippetConsent` for source excerpts (which implies
+     * the first). False and false when there is no row.
+     * @param {{ tenantId: string }} scope
+     * @returns {Promise<{ externalConsent: boolean, codeSnippetConsent: boolean }>}
+     */
+    async getConsents({ tenantId }, client = db) {
+      const row = await client.tenantLlmSettings.findUnique({
+        where: { tenantId: assertTenantId(tenantId) },
+        select: { externalConsent: true, codeSnippetConsent: true },
+      });
+      const externalConsent = row?.externalConsent === true;
+      return {
+        externalConsent,
+        codeSnippetConsent: externalConsent && row?.codeSnippetConsent === true,
+      };
+    },
+
+    /**
      * The tenant's settings row or null.
      * @param {{ tenantId: string }} scope
      */
@@ -92,16 +110,61 @@ export function createTenantLlmSettingsRepository({ db }) {
       });
       return { previous, current: enabled, changed: true, row };
     },
+
+    /**
+     * Sets the code-snippet consent (tier 2, ADR-013 addendum). Same transaction rules as `setExternalConsent`. Turning it ON
+     * requires the external consent to be on already (the database CHECK says so too); the caller maps `requiresExternal` to a 400.
+     * @param {{ tenantId: string, enabled: boolean, userId: string }} input
+     * @param {any} tx transaction client
+     * @returns {Promise<{ previous: boolean, current: boolean, changed: boolean, requiresExternal: boolean, row: object | null }>}
+     */
+    async setCodeSnippetConsent({ tenantId, enabled, userId }, tx) {
+      assertTenantId(tenantId);
+      if (!tx)
+        throw new TypeError("setCodeSnippetConsent must run inside a transaction (pass tx).");
+      if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`llm-settings:${tenantId}`}))`;
+      const existing = await tx.tenantLlmSettings.findUnique({ where: { tenantId } });
+      const previous = existing?.codeSnippetConsent === true;
+      if (enabled && existing?.externalConsent !== true)
+        return {
+          previous,
+          current: previous,
+          changed: false,
+          requiresExternal: true,
+          row: existing,
+        };
+      if (previous === enabled)
+        return {
+          previous,
+          current: enabled,
+          changed: false,
+          requiresExternal: false,
+          row: existing,
+        };
+      const now = new Date();
+      const row = await tx.tenantLlmSettings.update({
+        where: { tenantId },
+        data: {
+          codeSnippetConsent: enabled,
+          codeSnippetConsentChangedAt: now,
+          codeSnippetConsentChangedBy: userId,
+        },
+      });
+      return { previous, current: enabled, changed: true, requiresExternal: false, row };
+    },
   });
 }
 
 /**
  * The consent port `resolveLLMProvider` needs, backed by the repository. The tenant id is the only input.
  * @param {ReturnType<typeof createTenantLlmSettingsRepository>} repository
- * @returns {{ isExternalAllowed: (tenantId: string) => Promise<boolean> }}
+ * @returns {{ isExternalAllowed: (tenantId: string) => Promise<boolean>, isCodeSnippetAllowed: (tenantId: string) => Promise<boolean> }}
  */
 export function createLlmConsentGate(repository) {
   return Object.freeze({
     isExternalAllowed: (tenantId) => repository.getExternalConsent({ tenantId }),
+    isCodeSnippetAllowed: async (tenantId) =>
+      (await repository.getConsents({ tenantId })).codeSnippetConsent,
   });
 }

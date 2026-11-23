@@ -51,7 +51,13 @@ export const findingsApi = {
   list: (params, { signal } = {}) => api.getPage("/findings", { query: params, signal }),
   summary: (workspaceId, { signal } = {}) =>
     api.get("/findings/summary", { query: { workspaceId }, signal }),
-  get: (id, { signal } = {}) => api.get(rev(id), { signal }),
+  /**
+   * `Cache-Control: no-cache` is a workaround for server defect S-1 (AS_BUILT_E2): the detail ETag covers `rev` only, while the DTO
+   * also holds the advisory, its pending and stale state, the per-caller actions and the SLA state, which change without a rev
+   * change. Without the header the browser revalidates and Express answers 304, so the screen keeps a stale body.
+   */
+  get: (id, { signal } = {}) =>
+    api.get(rev(id), { signal, headers: { "Cache-Control": "no-cache" } }),
   history: (id, params, { signal } = {}) =>
     api.getPage(`${rev(id)}/history`, { query: params, signal }),
   comments: (id, params, { signal } = {}) =>

@@ -404,10 +404,7 @@ export function ApprovalsQueue({ workspaceId }) {
         />
       )}
       <Sheet open={Boolean(open)} onOpenChange={(o) => !o && close()}>
-        <SheetContent
-          className={wide ? "max-w-xl" : "max-w-none"}
-          onOpenAutoFocus={focusSheet}
-        >
+        <SheetContent className={wide ? "max-w-xl" : "max-w-none"} onOpenAutoFocus={focusSheet}>
           {open ? (
             <ApprovalSheet
               workspaceId={workspaceId}

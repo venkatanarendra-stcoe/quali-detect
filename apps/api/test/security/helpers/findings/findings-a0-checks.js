@@ -2789,6 +2789,8 @@ export const FINDINGS_A0_CHECKS = [
           // Part A1 built its repositories (docs/modules/findings/AS_BUILT_A1.md): their frozen method names must exist, they no longer
           // reject as "not implemented". The parts that are still to come keep the guarantee.
           if (part === "A1") continue;
+          // Part B built its repositories (docs/modules/findings/AS_BUILT_B.md): same rule as A1 above.
+          if (part === "B") continue;
           const r = await attempt(() => repo?.[m]());
           ok(
             p,

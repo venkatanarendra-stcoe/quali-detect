@@ -19,7 +19,7 @@
 export const EXPECTED_FINDINGS_CHECKS = Object.freeze({
   A0: 15,
   A: 18,
-  B: 0,
+  B: 15,
   C: 0,
   D: 12,
   F: 0,

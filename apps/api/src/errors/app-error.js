@@ -67,12 +67,14 @@ export class ConflictError extends AppError {
 
 export class ValidationError extends AppError {
   /**
-   * @param {Array<{ path: string, code: string, message: string }>} issues
+   * @param {Array<{ path: string, code: string, message: string, reason?: string }>} issues
    * @param {{ source?: string }} [options] Request part: body, querystring, params or headers.
    */
   constructor(issues, { source } = {}) {
+    // `details.reason` is the machine reason of the first issue that has one (for example `credential_shape`), else absent
+    const reason = issues.find((issue) => typeof issue.reason === "string")?.reason;
     super(ERROR_CODES.VALIDATION_FAILED, "The request is invalid.", {
-      details: { source, issues },
+      details: { source, issues, ...(reason ? { reason } : {}) },
     });
   }
 }

@@ -108,6 +108,25 @@ export function start() {
         void purgeTick();
         timers.push(setInterval(purgeTick, r.purgeIntervalSeconds * 1000));
       }
+      // Accepted-risk and suppression expiry (docs/modules/findings/SPEC.md EX-3): every five minutes, ONLY while the findings worker runs
+      // (FINDINGS_INGESTION_ENABLED=true; with the flag off nothing consumes the `findings` queue). One platform job per time bucket (the
+      // bucket is in the message id, so several scheduler instances produce one job); the handler is naturally idempotent.
+      if (config.findings?.ingestionEnabled) {
+        const expirySeconds = 300;
+        const expiryTick = () =>
+          enqueuePlatformJob({
+            db,
+            queue: QUEUE_NAMES.FINDINGS,
+            type: "findings.exception.expire",
+            prefix: "findings-exception-expire",
+            intervalSeconds: expirySeconds,
+            payload: (bucket) => ({ bucket }),
+          }).catch((error) =>
+            logger.error({ err: error }, "Could not enqueue the findings exception expiry job"),
+          );
+        void expiryTick();
+        timers.push(setInterval(expiryTick, expirySeconds * 1000));
+      }
       // Vulnerability DB mirror refresh (SPEC scan-engines SE-34, part F): OFF unless SCAN_DB_REFRESH_ENABLED=true. One platform job per
       // interval bucket to the `dbrefresh` queue; the job carries tool ids only (no URL or credential) and the dbrefresh worker
       // refuses it again in a process where the flag is off.

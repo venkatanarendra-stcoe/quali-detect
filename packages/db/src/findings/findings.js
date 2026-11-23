@@ -331,6 +331,13 @@ export function createFindingsRepository({ db }) {
     list: listCore,
 
     /**
+     * The list-item source rows of the given finding ids (workspace scoped, in the order given; ids outside the workspace are left out).
+     * Used by the Approvals queue (Part B), whose rows are findings of mixed statuses. Additive to the frozen names.
+     * @type {(scope: FindingScope, ids: string[]) => Promise<object[]>}
+     */
+    hydrate: (scope, ids) => hydrateList(scope, ids),
+
+    /**
      * `GET /findings/summary`: counts only, by the EFFECTIVE status (an expired acceptance counts as reopened).
      * @type {(scope: FindingScope, caller: { userId: string }) => Promise<object>}
      */
@@ -427,6 +434,20 @@ export function createFindingsRepository({ db }) {
             select: { approverUserId: true },
           })
         : null;
+      // Part B: everyone who may NOT approve or reject a decision on this finding (SPEC SOD-1): any reviewer of any round and any
+      // requester of an exception. The per-caller `lifecycle.allowedActions` (the mapper) needs them; ids only, never exposed.
+      const [sodReviewers, sodRequesters] = await Promise.all([
+        db.findingReview.findMany({
+          where: { tenantId, findingId },
+          distinct: ["reviewerUserId"],
+          select: { reviewerUserId: true },
+        }),
+        db.findingException.findMany({
+          where: { tenantId, findingId },
+          distinct: ["requestedByUserId"],
+          select: { requestedByUserId: true },
+        }),
+      ]);
       const names = await userNames(db, tenantId, [
         finding.claimedByUserId,
         finding.assigneeUserId,
@@ -469,6 +490,12 @@ export function createFindingsRepository({ db }) {
           : null,
         lastRecord,
         similarCount,
+        sodUserIds: [
+          ...new Set([
+            ...sodReviewers.map((r) => r.reviewerUserId),
+            ...sodRequesters.map((r) => r.requestedByUserId),
+          ]),
+        ],
       };
     },
 

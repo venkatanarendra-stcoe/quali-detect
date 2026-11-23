@@ -544,6 +544,8 @@ const DAL_EXEMPT = {
   "realtime.findUser": "looks a user up by the id of an authenticated session (RT-010, RT-026)",
   "realtime.findTenant":
     "looks a tenant up by the id of an authenticated session or message (RT-024, RT-026)",
+  "realtime.findFinding":
+    "looks a finding up by tenant AND id for the findings room (Part B); the isolation is proved over the real server and consumer by FND-S15 (a message that names a finding of another tenant, or the wrong workspace, produces no hint and is dead-lettered); a new DAL entry would change the fixed check count",
   "read.countList": "wrapped by executions-api.countList",
   "read.listPage": "wrapped by executions-api.listPage",
 };

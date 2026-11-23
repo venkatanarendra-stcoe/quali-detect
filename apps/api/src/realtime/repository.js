@@ -42,6 +42,12 @@ export function createRealtimeRepository({ db }) {
         where: { id, tenantId },
         select: { id: true, tenantId: true, workspaceId: true, pipelineId: true },
       }),
+    /** A finding by tenant AND id (the findings room: the room comes from this row, never from a message). @param {{ tenantId: string, id: string }} input */
+    findFinding: ({ tenantId, id }) =>
+      db.finding.findFirst({
+        where: { id, tenantId },
+        select: { id: true, tenantId: true, workspaceId: true },
+      }),
     /** @param {{ tenantId: string, executionId: string, id: string }} input */
     findTask: ({ tenantId, executionId, id }) =>
       db.scanTask.findFirst({

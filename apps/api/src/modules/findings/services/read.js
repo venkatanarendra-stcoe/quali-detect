@@ -208,7 +208,7 @@ export function createFindingsReadService({ repository, clock = () => new Date()
 
     /**
      * `GET /findings/{id}`: `ref` is the authorized resource of the route (`id`, `workspaceId`); the row is re-read by tenant,
-     * workspace and id. @param {{ tenantId: string, permissions: any }} actor @param {{ id: string, workspaceId: string }} ref
+     * workspace and id. @param {{ tenantId: string, userId: string, permissions: any }} actor @param {{ id: string, workspaceId: string }} ref
      */
     async get(actor, ref) {
       const detail = await repository.getDetail(scopeOf(actor, ref.workspaceId), ref.id);
@@ -216,6 +216,7 @@ export function createFindingsReadService({ repository, clock = () => new Date()
       return toDetailDto(detail, {
         now: clock(),
         workspaceId: ref.workspaceId,
+        callerUserId: actor.userId,
         can: (key) =>
           can(actor.permissions, key, { type: "workspace", workspaceId: ref.workspaceId }),
       });

@@ -83,6 +83,17 @@ const POLICY_PERMISSIONS = Object.freeze({
   retryPolicy: { permission: "execution.run", scope: "workspace" },
 });
 
+/**
+ * Named route gates whose permission depends on the request (the findings module's exception request: `finding.accept_risk` for
+ * `kind: accept_risk`, `finding.suppress` for `kind: suppress`, picked from the validated body).
+ */
+const NAMED_GATES = Object.freeze({
+  requestGate: {
+    permission: "finding.accept_risk | finding.suppress (by body kind)",
+    scope: "workspace",
+  },
+});
+
 function extractRoutes(moduleName) {
   const routesDir = path.join(apiDir, "src/modules", moduleName, "routes");
   // A module that splits its routes into `routes/<part>.routes.js` files (the findings module, one file per building part) is read as ONE
@@ -117,6 +128,8 @@ function extractRoutes(moduleName) {
     let scope = null;
     const ident = handler.match(/^(\w+)\s*,/)?.[1];
     if (ident && consts.has(ident)) ({ permission, scope } = consts.get(ident));
+    else if (/^(\w+)\s*,/.test(handler) && NAMED_GATES[handler.match(/^(\w+)/)[1]])
+      ({ permission, scope } = NAMED_GATES[handler.match(/^(\w+)/)[1]]);
     else if (/^policies\.(cancelPolicy|retryPolicy)\b/.test(handler))
       ({ permission, scope } = POLICY_PERMISSIONS[handler.match(/^policies\.(\w+)/)[1]]);
     else if (/^authz\.context\b/.test(handler))

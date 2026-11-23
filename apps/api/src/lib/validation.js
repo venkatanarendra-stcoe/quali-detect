@@ -22,6 +22,8 @@ export function formatZodIssues(error) {
     path: issue.path.join("."),
     code: issue.code,
     message: issue.message,
+    // a custom issue may carry a machine reason (`params.reason`, the findings module's `credential_shape`); ValidationError lifts it
+    ...(typeof issue.params?.reason === "string" ? { reason: issue.params.reason } : {}),
   }));
 }
 

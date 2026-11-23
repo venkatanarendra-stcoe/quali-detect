@@ -1,5 +1,6 @@
 import { createFindingsIngestionRepository, withTransaction } from "@qmentisai/db";
 import { FINDING_SCAN_TYPES, planIngestion } from "@qmentisai/shared";
+import { createExceptionExpiryHandler } from "./expiry.js";
 
 /**
  * The ingestion handler of the `findings` worker (docs/modules/findings/SPEC.md 5.3, 5.4, IN-1 to IN-9, D-24, D-25).
@@ -21,6 +22,7 @@ import { FINDING_SCAN_TYPES, planIngestion } from "@qmentisai/shared";
  */
 export function createFindingsIngestHandler({ db, config }) {
   const repo = createFindingsIngestionRepository({ db });
+  const expireExceptions = createExceptionExpiryHandler({ db }); // Part B: the scheduled `findings.exception.expire` job
 
   /** One `(execution, scan type)` unit. @returns {Promise<{ outcome: "ingested" | "skipped" | "replayed" | "dropped", counters?: object }>} */
   async function ingestOne({ ids, scanType, eventEligible, log }) {
@@ -83,6 +85,7 @@ export function createFindingsIngestHandler({ db, config }) {
   }
 
   return async function handleFindingsMessage(message, { log }) {
+    if (message.type === "findings.exception.expire") return expireExceptions(message, { log });
     if (message.type !== "pipeline.execution.completed") {
       // the expiry, SLA and retention jobs belong to later parts of the module; an unknown type on this queue is acknowledged
       log.info({ type: message.type }, "findings worker: message type not handled yet");

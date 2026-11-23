@@ -9,12 +9,14 @@ import {
   ACK_CODES,
   CLIENT_EVENTS,
   ENGINE_QUERY_KEYS,
+  FINDINGS_JOIN_PERMISSION,
   HANDSHAKE_ERROR,
   JOIN_PERMISSION,
   REALTIME_NAMESPACE,
   REALTIME_PATH,
   SERVER_EVENTS,
 } from "./constants.js";
+import { buildFindingsRoom } from "./findings.js";
 import { createRealtimeRepository } from "./repository.js";
 import { HINT_SCHEMAS, subscriptionSchema } from "./schemas.js";
 
@@ -180,12 +182,22 @@ export function createRealtimeServer({
     return pending;
   }
 
-  /** Same decision as `authorize(...)` on HTTP: not visible -> NOT_FOUND, visible without the permission -> FORBIDDEN. */
-  function checkWorkspace(permissions, workspaceId) {
+  /**
+   * Same decision as `authorize(...)` on HTTP: not visible -> NOT_FOUND, visible without the permission -> FORBIDDEN. The permission
+   * depends on the room kind: `execution.view` for the execution rooms, `finding.view` for the findings room.
+   */
+  function checkWorkspace(permissions, workspaceId, scope = "workspace") {
     if (!permissions.workspaces.some((w) => w.id === workspaceId)) return ACK_CODES.NOT_FOUND;
-    if (!can(permissions, JOIN_PERMISSION, { type: "workspace", workspaceId }))
-      return ACK_CODES.FORBIDDEN;
+    const key = scope === "findings" ? FINDINGS_JOIN_PERMISSION : JOIN_PERMISSION;
+    if (!can(permissions, key, { type: "workspace", workspaceId })) return ACK_CODES.FORBIDDEN;
     return null;
+  }
+
+  /** The scope of a validated subscribe payload: `workspace`, `execution` or `findings` (the id is a workspace id for the first and last). */
+  function scopeOf(data) {
+    if ("executionId" in data) return { scope: "execution", id: data.executionId };
+    if ("findingsWorkspaceId" in data) return { scope: "findings", id: data.findingsWorkspaceId };
+    return { scope: "workspace", id: data.workspaceId };
   }
 
   function disconnect(entry, reason) {
@@ -213,7 +225,7 @@ export function createRealtimeServer({
     if (!access.ok) return disconnect(entry, access.reason);
     let removed = 0;
     for (const [key, subscription] of [...entry.subscriptions]) {
-      let denied = checkWorkspace(access.permissions, subscription.workspaceId);
+      let denied = checkWorkspace(access.permissions, subscription.workspaceId, subscription.scope);
       if (!denied && subscription.scope === "execution") {
         const execution = await repository.findExecution({
           tenantId: entry.tenantId,
@@ -282,8 +294,7 @@ export function createRealtimeServer({
     // A malformed payload (including a room name, a tenant id or any extra key) is answered like an unknown resource.
     const parsed = subscriptionSchema.safeParse(rawPayload);
     if (!parsed.success) return deny(ACK_CODES.NOT_FOUND, "invalid_payload");
-    const scope = "executionId" in parsed.data ? "execution" : "workspace";
-    const id = parsed.data.executionId ?? parsed.data.workspaceId;
+    const { scope, id } = scopeOf(parsed.data);
 
     const access = await loadAccess(entry);
     if (entry.socket.disconnected) return reply({ ok: false, code: ACK_CODES.NOT_FOUND });
@@ -297,7 +308,7 @@ export function createRealtimeServer({
       if (!execution) return deny(ACK_CODES.NOT_FOUND, "execution_not_found");
       workspaceId = execution.workspaceId;
     }
-    const denied = checkWorkspace(access.permissions, workspaceId);
+    const denied = checkWorkspace(access.permissions, workspaceId, scope);
     if (denied) return deny(denied, denied === ACK_CODES.FORBIDDEN ? "forbidden" : "not_visible");
 
     const key = `${scope}:${id}`;
@@ -307,7 +318,9 @@ export function createRealtimeServer({
       const room =
         scope === "workspace"
           ? buildTenantRoom({ tenantId: entry.tenantId, workspaceId })
-          : buildExecutionRoom({ tenantId: entry.tenantId, workspaceId, executionId: id });
+          : scope === "findings"
+            ? buildFindingsRoom({ tenantId: entry.tenantId, workspaceId })
+            : buildExecutionRoom({ tenantId: entry.tenantId, workspaceId, executionId: id });
       await entry.socket.join(room);
       entry.subscriptions.set(key, { scope, id, workspaceId, room });
     }
@@ -317,8 +330,8 @@ export function createRealtimeServer({
   function handleUnsubscribe(entry, rawPayload, ack) {
     const parsed = subscriptionSchema.safeParse(rawPayload);
     if (parsed.success) {
-      const scope = "executionId" in parsed.data ? "execution" : "workspace";
-      const key = `${scope}:${parsed.data.executionId ?? parsed.data.workspaceId}`;
+      const { scope, id } = scopeOf(parsed.data);
+      const key = `${scope}:${id}`;
       const subscription = entry.subscriptions.get(key);
       if (subscription) {
         entry.socket.leave(subscription.room);

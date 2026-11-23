@@ -2780,7 +2780,7 @@ export const FINDINGS_A0_CHECKS = [
           "C",
         ],
         ["createFindingRemediationRepository", ["record", "verifications"], "C"],
-        ["createFindingAdvisoriesRepository", ["latest", "latestFor", "requestAllowed"], "D"],
+        ["createFindingAdvisoriesRepository", ["latest", "latestFor", "requestAllowed"], "A1"], // built by Part D (Wave 2)
       ]) {
         const repo = db[factory]?.({ db: null });
         ok(p, !!repo, `@qmentisai/db does not export ${factory}`);

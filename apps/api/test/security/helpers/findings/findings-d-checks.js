@@ -27,6 +27,7 @@ import { createTenantAiSettingsService } from "../../../../src/modules/tenant-ai
 import { FAKE } from "../../fixtures/scan-engines/secrets/tree-builder.js";
 import { capturingLogger } from "../change-detection-checks.js";
 import { startLlm } from "../decision-agent-checks.js";
+import { FINDINGS_D_INTEGRATION_CHECKS } from "./findings-d-integration.js";
 
 /**
  * Findings, Part D (the false-positive advisory agent) (ADR-008 area 19, docs/modules/findings/SPEC.md 14.1 `FPA-S01..S07`, `FND-S10`
@@ -295,13 +296,15 @@ function scanImportGraph(sources, dirName = "findings-agent") {
     for (const m of code.matchAll(IMPORT_RE)) {
       const spec = m[1] ?? m[2];
       if (spec.startsWith(".")) {
+        // main.js is the one binding point: it may also hand the handler to the shared worker runtime (no database access of its own)
+        if (file === "main.js" && spec === "../runtime/run-worker.js") continue;
         const target = resolve("/x/" + dirName, dirname(file), spec);
         if (!target.startsWith("/x/" + dirName + "/"))
           problems.push(`${file}: leaves the directory (${spec})`);
         continue;
       }
       if (ALLOWED_BARE.has(spec)) continue;
-      if (spec === "@qmentisai/db" && file === "main.js") continue;
+      if (file === "main.js" && spec === "@qmentisai/db") continue;
       problems.push(`${file}: forbidden import ${spec}`);
     }
     const tok = code.match(FORBIDDEN_TOKENS);
@@ -1584,4 +1587,5 @@ export const FINDINGS_D_CHECKS = [
       return p;
     },
   },
+  ...FINDINGS_D_INTEGRATION_CHECKS,
 ];

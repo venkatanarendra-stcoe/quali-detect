@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 125,
+  "operationCount": 126,
   "operations": [
     {
       "method": "GET",
@@ -775,6 +775,76 @@
         ]
       },
       "summary": "Get a finding with its evidence, commit-pinned link, advisory and allowed actions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/findings/{id}/advisory/request",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.review",
+      "permissionScope": "workspace",
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": "{  }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ status, suggestion, confidence, confidenceBand, reasoning, provider, model, egressLevel, generatedAt, stale }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Ask the advisory agent for a fresh true/false-positive suggestion (advice only; never changes the finding)"
     },
     {
       "method": "GET",

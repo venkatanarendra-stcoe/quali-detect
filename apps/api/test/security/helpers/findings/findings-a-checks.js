@@ -2848,12 +2848,12 @@ const readChecks = [
       const seen = await repo.getFindingForAdvisory(ids(code));
       ok(
         p,
-        seen && seen.scanType === "sast" && seen.evidence?.snippet?.includes("eval(user_input)"),
+        seen?.finding?.scanType === "sast" && seen.evidence?.snippet?.includes("eval(user_input)"),
         "control: a code finding with its excerpt",
       );
       ok(
         p,
-        seen && !("title" in seen) && !("fingerprint" in seen),
+        seen?.finding && !("title" in seen.finding) && !("fingerprint" in seen.finding),
         "the view carries no title and no fingerprint",
       );
       same(

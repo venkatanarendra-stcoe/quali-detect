@@ -1,0 +1,69 @@
+# Findings, Part D-integration (Wave 2), false-positive advisory agent bound to the database, queue, API and worker runtime: as built
+
+**Status:** built 2026-11-24 on `4f6693f` (branch `worktree-agent-a15f6a37c0a56bf1c`, not pushed). Writes its notes **only here** (`SPEC.md` 16.4); Part F folds them into `SPEC.md` 17 and the progress tracker. **Starts from** `AS_BUILT_D.md` (the agent core, Wave 1), `AS_BUILT_A0.md` (migration, view, role) and `AS_BUILT_A1.md` (events, the ingestion producer).
+
+## Built
+
+### 1. The worker: `apps/workers/src/findings-agent/`
+
+| File | What |
+|---|---|
+| `main.js` (new) | the ONE binding point (the import-graph check allows `@qmentisai/db` here and nowhere else in the directory). Starts only with `FINDINGS_AGENT_ENABLED=true` (otherwise prints a line and exits 0). In production it **exits 1 without `FINDINGS_AGENT_DATABASE_URL`** (names the variable, never a value). It builds `createDbClient({ datasourceUrl: FINDINGS_AGENT_DATABASE_URL })` and `createFindingsAgentRepository({ db: restricted })`; with the URL unset (development) it uses the shared pool through the same five-method repository and logs a warning. Then `createFindingsAgentRuntime`, the Redis limiter, the hint publisher and `runWorker({ queue: QUEUE_NAMES.FINDINGS_AGENT, verifyOwnership: true })` |
+| `rate-limit.js` (new) | `createRedisTenantRateLimiter({ limiter, perMinute = 30 })` returns `{ tryAcquire(tenantId) }` over the shared `createRateLimiter` (`consume` with the tenant id, bucket `findings-agent`, 60 s window; keys are built by the shared tenant key builder). A Redis error propagates (the queue retries). Without `REDIS_URL` the in-process bucket of Wave 1 stays the default (development, warning) |
+| `completed.js` (new) | `buildAdvisoryCompletedEnvelope(hint)`: the event `finding.advisory.completed` (`messageId finding-advisory-done-<advisoryId>`, subject the finding, payload ids and the status word only). `main.js` publishes it with the shared `createPublisher` **straight to the broker** (queue `realtime`), never through the database (the role has no grant; SPEC 0.5 "Found while building A0" item 1). A failed hint is swallowed by the Wave 1 handler |
+| `index.js` | barrel, plus `rate-limit.js` and `completed.js` |
+| Wave 1 files | unchanged (`advise.js`, `handler.js`, `runtime.js`, `prompt.js`, `output.js`, `harden.js`, `controls.js`, `constants.js`) |
+
+`apps/workers/package.json`: scripts `start:findings-agent` and `dev:findings-agent`, export `./findings-agent`. `apps/workers/scripts/dev.js`: `findings-agent` is an allowed `WORKERS=` name (not in the default set).
+
+**Ownership check** (`apps/workers/src/ownership/index.js`): `finding.advisory.requested` is verified by `findingInChain`: the finding must exist in the message's tenant with exactly the payload's workspace, repository and pipeline, and the envelope's ids (when stated) must equal the payload's; otherwise `NonRetryableError` `resource-not-in-tenant` (dead letter). Tenant status (`tenant-not-usable`) and the envelope workspace are the existing generic checks. The core then re-reads the finding through the restricted view and drops a row that does not carry the same chain (Wave 1).
+
+### 2. `packages/db`
+
+- `agent-repository.js` (`createFindingsAgentRepository`, built in A1): **one change**, `getFindingForAdvisory` now returns `{ finding, evidence }` (the shape the core's port needs; A1 returned one flat object with the excerpt nested). The statements are unchanged: SELECT on the view and on `tenant_llm_settings` and `finding_ai_advisories`, one `INSERT ... ON CONFLICT DO NOTHING`.
+- `advisories.js` (`createFindingAdvisoriesRepository`, the API side), the three frozen methods plus four additive ones: `latest`, `latestFor`, `requestAllowed(scope, findingId, userId, now, tx?)` (per finding 3 and per user 30 manual requests per hour, counted on the outbox rows of this tenant); `transaction`, `lockForRequest` (a per-finding advisory lock, then the finding by tenant, workspace and id; `FindingNotFoundError` is the identical 404), `enqueueManual` (the `finding.advisory.requested` job, reason `manual`, initiator the user, ids only, message id `finding-advisory-<findingId>-m<ms>-<8 hex>`).
+- The producer for `created` and `reopened` already exists (A1 `ingestion.js` `advisoryJob`, flag `agentEnabled`, ids `finding-advisory-<id>-created` and `-r<rev>`, only when `agentRunsOn`); verified end to end by the A1 checks and the ownership/handler checks here, not changed.
+
+### 3. The API: `POST /findings/{id}/advisory/request` (SPEC 8.2)
+
+`routes/advisory.routes.js` (+ `controllers/advisory.js`, `services/advisory.js`, `schemas/advisory.js`, `policies/advisory.js`, `mappers/advisory.js`). Permission `finding.review` in the finding's workspace (`findingScope`: identical 404 for foreign, hidden, forged and unknown; 403 for a visible workspace without the permission; 401 without a session); body `{}` (strict); `Idempotency-Key` and the write rate limit by the route kit. In one transaction: lock, policy (`agentRunsOn`; a secret or `info` finding is `409 FINDING_STATE_CONFLICT`, `details.reason: transition_not_allowed`), the hourly limits (`429 RATE_LIMITED`), ONE outbox job, ONE audit entry `finding.advisory_requested` (metadata `{ reason: "manual" }`). Response `202` with the advisory DTO `{ status: "pending", stale: false }`. It writes no advisory row and touches no finding column. With the agent off (`config.findings.agentEnabled`, else `FINDINGS_AGENT_ENABLED`) it answers `202` `not_configured` and queues nothing. **Consent is not decided here**: the agent re-reads both consents before every request, so a request without consent stores `consent_required` (DTO `consent_blocked`) and nothing leaves the platform.
+
+**Reading the advisory** is through the finding detail (`GET /findings/{id}`, field `advisory`): the frozen contract has no separate read route. `mappers/advisory.js` holds `toAdvisoryDto`; `mappers/index.js` now only imports and re-exports it (the A1 inline copy is removed). Differences from A1's copy, both per SPEC 9.3.6: the confidence bands are low below 50, medium 50 to 79, high 80 and above (A1 had 34 and 67); a stored `skipped_untrusted` is `none` (SPEC 9.3.7: "the advisory is simply absent"; A1 mapped it to `failed`). The DTO is built field by field: no input hash, usage numbers, chain ids or tenant id.
+
+`pnpm contract:snapshot` re-run: `docs/api` gains the one operation (126 operations); parity unchanged.
+
+### 4. Checks (`findings-d-checks.js` registers `FINDINGS_D_INTEGRATION_CHECKS` of `findings-d-integration.js`; `expected.js` D = **19**: the 12 of Wave 1 and 7 new)
+
+| Id | Proves |
+|---|---|
+| `FPA-I01` | the REAL repository on a REAL restricted login (provisioned by the product's own script; `current_user` is the login, not a superuser, a member of `qm_fp_agent`): reads, per-tenant consent, insert replay is a no-op returning the first id, the secret-finding insert is refused, per-tenant daily count; the role cannot UPDATE/DELETE/TRUNCATE findings, INSERT history, outbox or reviews, SELECT findings, evidence, outbox or audit, UPDATE an advisory or the consents; finding, history and counts identical afterwards; controls on the owner connection |
+| `FPA-I02` | handler + runtime + repository + HTTP stub: secret and info findings: zero requests and zero rows at the local and external provider with both consents; the control stores one `ok` row and one hint (ids and status only, parses as the catalogued event); the replay stores, sends and publishes nothing; a manual request adds a row; the finding and every dependent count are identical; a `tenantId` key in the payload is refused |
+| `FPA-I03` | consent states through the real repository: external with no row, metadata only (no excerpt on the wire), both (excerpt), fork (`skipped_untrusted`), tenant B's consent never enables A, withdrawal, local needs no consent, local still never sends a secret |
+| `FPA-I04` | the route: 401, 403 with `finding.view` only, identical 404 for cross-tenant, hidden workspace, forged workspace and unknown id, 400s, 409 for secret and info, the 202 with exactly one job and one audit entry and no advisory row and the finding unchanged, the 4th request per finding and the 31st per user are 429, the agent-off case |
+| `FPA-I05` | the DTO through the real detail route: the status mapping, the bands (49, 50, 79, 80), no leak of hash, usage, tenant id or key, an advisory of 99% false positive changes neither status, rev nor allowed actions, a viewer of another tenant gets 404 |
+| `FPA-I06` | the ownership verifier: accepts the right chain; rejects another tenant, another workspace, repository or pipeline, an unknown finding, an envelope that disagrees with its payload, a suspended tenant |
+| `FPA-I07` | the Redis limiter (30 and the 31st refused, per tenant, tenant-scoped keys), the hint, `main.js` as a real process (flag off exits 0; production without the restricted URL exits 1 naming the variable and printing no value) and its source wiring, the package scripts |
+
+One edit in an A0 check: `FNDA0-15` (the frozen surface) listed `createFindingAdvisoriesRepository` as "must reject as owned by part D"; it is built now, so its entry moved to the "built" group (`"D"` to `"A1"`, one line, a comment says why).
+
+**Mutations tried (the checks failed each time):** ownership check replaced by `true` (I06); `agentRunsOn` removed from the core (I02); `readConsent` always true (I01, I03); per-finding hourly limit off (I04); policy allows secrets (I04); band thresholds changed (I05); hint published to another queue (I07). Subject-only change of the limiter key does not fail because the shared builder already scopes the key by `tenantId` (the mutation is equivalent).
+
+## Verification of the restricted role
+
+1. **In the suite (ephemeral cluster, trust authentication):** `FPA-I01` runs the product's `provision-fp-agent-login.js` and connects the repository as the real LOGIN role (not `SET ROLE`). Under trust authentication the password is not checked, so this proves the grants and the membership, not the password.
+2. **On a hand-made throwaway cluster with `scram-sha-256` for every connection** (no trust; `initdb -A scram-sha-256 --pwfile`, `prisma migrate deploy`, the provisioning script, then Prisma connections; the cluster and its password files were deleted afterwards; no credential printed): a wrong password is refused; the right password logs in as `qm_fp_agent_login` (not a superuser); SELECT on the view, on `finding_ai_advisories` and on `tenant_llm_settings` succeed; SELECT on `findings` and the outbox, UPDATE and DELETE of findings, INSERT into the outbox, UPDATE of advisories and of consents, and TRUNCATE are all `42501 permission denied`. (One probe, `SELECT id FROM finding_evidence`, failed with `42703` because the table has no `id` column, so it proved nothing; `FPA-I01` selects `finding_id` and it is refused.)
+
+## Deviations and open points
+
+1. **`getFindingForAdvisory` return shape** changed in A1's file `agent-repository.js` (A1 returned a flat object; the core's port needs `{ finding, evidence }`). In my ownership; A1's checks only list the method names.
+2. **No separate GET for the advisory** (the contract has none): detail only. The detail cannot show `pending` or `stale`: that needs the read repository (A1's `findings.js`, not mine) to pass the outbox state and the evidence capture time to `toAdvisoryDto(row, { pending, stale })`, which already supports both. Until then the card shows `none` or the previous advisory after a request and refreshes on the `finding.advisory.completed` hint or the 60 s poll. The POST response is `pending`.
+3. **Manual requests within one clock hour usually find the same input hash** (the hash holds the hour bucket and the egress level, Wave 1 deviation 3), so a second manual request in the same hour stores nothing new; the per-finding limit of 3 is therefore a ceiling, not a count of new advisories.
+4. **`skipped_untrusted` shows as `none`** and the bands follow SPEC 9.3.6 (see section 3); both differ from A1's mapper.
+5. **The API reads the agent switch from `config.findings.agentEnabled` or the process variable `FINDINGS_AGENT_ENABLED`** (the API configuration has no field for it; adding one is outside this part). Set the variable on the API process too, or manual requests answer `not_configured`.
+6. **The idempotency store, the ownership check and the message claim use the shared pool** (`DATABASE_URL`), as for every worker; only the agent repository uses the restricted connection. The restricted connection is a second Prisma pool in the same process.
+7. **The Redis limiter is a fixed window** (the shared limiter), so a burst across a minute boundary can reach twice the limit; the in-process bucket (development) is a true token bucket.
+8. **Defects to report, not fixed (frozen files):** the shared credential shapes are narrower than the scan-engine secret classes (Wave 1, unchanged); `docs/modules/findings/SPEC.md` 8 says `POST` returns `pending` but 9.3.6 has no way to read `pending` (see 2).
+
+## Not verified
+
+A real Ollama or any real model (the adapters ran against the HTTP stub only); a live RabbitMQ round trip (outbox relay to the `findings-agent` queue, the consumer with the real broker, the `realtime` publish of the hint; the worker process was started only in its two refusal paths); a live Redis (the limiter ran on an in-memory Redis that implements the one command it uses); the realtime consumer of `finding.advisory.completed` (Part B's room); the API with the real authentication chain (a stub chain with the real authorization engine, route kit, services and mappers ran); publish order by severity for a first scan (A1's `applyPlan` queues in creation order; no ordering check was added).

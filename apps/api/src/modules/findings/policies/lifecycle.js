@@ -44,6 +44,14 @@ export const DISABLED_REASONS = Object.freeze({
 export const isSodBlocked = (sodUserIds, userId) => sodUserIds.includes(userId);
 
 /**
+ * RM-1: who may move a finding that is assigned (start work, submit a fix): its assignee, or a caller who also holds `finding.assign`
+ * in the workspace. ONE definition for the per-caller `allowedActions` and for the remediation write service (Part C).
+ * @param {{ assigneeUserId: string | null | undefined, callerUserId: string, canAssign: boolean }} input
+ */
+export const mayMoveAssigned = ({ assigneeUserId, callerUserId, canAssign }) =>
+  (typeof assigneeUserId === "string" && assigneeUserId === callerUserId) || canAssign === true;
+
+/**
  * `lifecycle.allowedActions` for ONE caller (SPEC 8.3).
  * @param {LifecycleFacts} f
  * @param {(key: string) => boolean} can permission check in the finding's workspace (the central engine)
@@ -59,7 +67,6 @@ export function computeAllowedActions(f, can) {
   const reviewer = can("finding.review");
   const assigner = can("finding.assign");
   const remediator = can("finding.remediate");
-  const mine = f.assigneeUserId !== null && f.assigneeUserId === me;
   const pendingException = f.pendingException !== null;
   const blocked = isSodBlocked(f.sodUserIds, me);
 
@@ -84,7 +91,11 @@ export function computeAllowedActions(f, can) {
     add("reassign");
     add("unassign");
   }
-  const mayMove = mine || assigner;
+  const mayMove = mayMoveAssigned({
+    assigneeUserId: f.assigneeUserId,
+    callerUserId: me,
+    canAssign: assigner,
+  });
   if (remediator && s === "assigned") add("start_work", mayMove, DISABLED_REASONS.assigneeOnly);
   if (remediator && (s === "assigned" || s === "in_remediation")) {
     if (f.pipelineDeleted) add("submit_fix", false, DISABLED_REASONS.pipelineDeleted);

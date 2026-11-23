@@ -79,6 +79,11 @@ function buildWhere(scope, q, caller, now) {
   if (q.scanType?.length)
     where.push(Prisma.sql`f.scan_type IN (${literals(q.scanType, ["sca", "sast", "secrets"])})`);
   if (q.pipelineId) where.push(Prisma.sql`f.pipeline_id = ${q.pipelineId}::uuid`);
+  // Part C (the board's "Verified fixed, last 30 days" column): only findings verified at or after this instant
+  if (q.verifiedSince)
+    where.push(
+      Prisma.sql`f.verified_at >= ${new Date(q.verifiedSince).toISOString()}::timestamptz`,
+    );
   if (q.repositoryId) where.push(Prisma.sql`f.repository_id = ${q.repositoryId}::uuid`);
   if (q.assignee === "me") where.push(Prisma.sql`f.assignee_user_id = ${caller.userId}::uuid`);
   else if (q.assignee === "unassigned") where.push(Prisma.sql`f.assignee_user_id IS NULL`);
@@ -175,6 +180,33 @@ function afterPredicate(sort, primaryDir, tieDir, after) {
         : Prisma.sql`${col} > ${v}`
       : Prisma.sql`${col} < ${v}`;
   return Prisma.sql`(${strictlyAfter} OR (${col} = ${v} AND ${idAfter}))`;
+}
+
+/** How long a queued `finding.advisory.requested` job counts as "advice is being prepared" (a dropped or duplicate job never keeps it forever). */
+export const ADVISORY_PENDING_WINDOW_MINUTES = 5;
+
+/**
+ * Whether advice has been requested for the finding and not answered yet (Part C, the pending half of the advisory DTO): an outbox row of
+ * type `finding.advisory.requested` for THIS tenant and finding, written within the last few minutes and newer than the latest advisory
+ * row. Both producers write that row (ingestion for created and reopened findings, D's manual request), so the outbox is the marker; no
+ * new table. One indexed read (by tenant) for the detail only, never run for the list. An answered request leaves a newer advisory
+ * row; a request the agent drops (the same input hash, a secret finding) times out after the window.
+ * @param {any} db @param {string} tenantId @param {string} findingId
+ * @returns {Promise<boolean>}
+ */
+async function hasPendingAdvisoryRequest(db, tenantId, findingId) {
+  const rows = await db.$queryRaw`
+    SELECT 1 AS present
+    FROM outbox_messages o
+    WHERE o.tenant_id = ${tenantId}::uuid
+      AND o.type = 'finding.advisory.requested'
+      AND o.created_at > now() - make_interval(mins => ${ADVISORY_PENDING_WINDOW_MINUTES}::int)
+      AND o.payload #>> '{payload,findingId}' = ${findingId}
+      AND NOT EXISTS (
+        SELECT 1 FROM finding_ai_advisories a
+        WHERE a.tenant_id = o.tenant_id AND a.finding_id = ${findingId}::uuid AND a.created_at > o.created_at)
+    LIMIT 1`;
+  return rows.length > 0;
 }
 
 /** Display names of users of THIS tenant (never reaches another tenant's members). */
@@ -392,42 +424,51 @@ export function createFindingsRepository({ db }) {
       });
       if (!finding) return null;
       const tenantId = scope.tenantId;
-      const [repository, review, lastException, advisory, assignment, lastRecord, similarCount] =
-        await Promise.all([
-          db.repository.findFirst({
-            where: { tenantId, workspaceId: scope.workspaceId, id: finding.repositoryId },
-            select: { id: true, fullName: true },
-          }),
-          finding.pendingReview
-            ? Promise.resolve(finding.pendingReview)
-            : db.findingReview.findFirst({
-                where: { tenantId, findingId, state: { in: ["pending", "approved"] } },
-                orderBy: { createdAt: "desc" },
-              }),
-          finding.pendingException || finding.activeException
-            ? Promise.resolve(finding.pendingException ?? finding.activeException)
-            : Promise.resolve(null),
-          db.findingAiAdvisory.findFirst({
-            where: { tenantId, findingId },
-            orderBy: { createdAt: "desc" },
-          }),
-          db.findingAssignment.findFirst({
-            where: { tenantId, findingId, endedAt: null },
-            orderBy: { createdAt: "desc" },
-          }),
-          db.remediationRecord.findFirst({
-            where: { tenantId, findingId },
-            orderBy: { createdAt: "desc" },
-          }),
-          db.finding.count({
-            where: {
-              tenantId,
-              workspaceId: scope.workspaceId,
-              correlationKey: finding.correlationKey,
-              pipelineId: { not: finding.pipelineId },
-            },
-          }),
-        ]);
+      const [
+        repository,
+        review,
+        lastException,
+        advisory,
+        assignment,
+        lastRecord,
+        similarCount,
+        advisoryPending,
+      ] = await Promise.all([
+        db.repository.findFirst({
+          where: { tenantId, workspaceId: scope.workspaceId, id: finding.repositoryId },
+          select: { id: true, fullName: true },
+        }),
+        finding.pendingReview
+          ? Promise.resolve(finding.pendingReview)
+          : db.findingReview.findFirst({
+              where: { tenantId, findingId, state: { in: ["pending", "approved"] } },
+              orderBy: { createdAt: "desc" },
+            }),
+        finding.pendingException || finding.activeException
+          ? Promise.resolve(finding.pendingException ?? finding.activeException)
+          : Promise.resolve(null),
+        db.findingAiAdvisory.findFirst({
+          where: { tenantId, findingId },
+          orderBy: { createdAt: "desc" },
+        }),
+        db.findingAssignment.findFirst({
+          where: { tenantId, findingId, endedAt: null },
+          orderBy: { createdAt: "desc" },
+        }),
+        db.remediationRecord.findFirst({
+          where: { tenantId, findingId },
+          orderBy: { createdAt: "desc" },
+        }),
+        db.finding.count({
+          where: {
+            tenantId,
+            workspaceId: scope.workspaceId,
+            correlationKey: finding.correlationKey,
+            pipelineId: { not: finding.pipelineId },
+          },
+        }),
+        hasPendingAdvisoryRequest(db, tenantId, findingId),
+      ]);
       const approval = lastException
         ? await db.findingApproval.findFirst({
             where: { tenantId, findingId, exceptionId: lastException.id, decision: "approve" },
@@ -472,6 +513,7 @@ export function createFindingsRepository({ db }) {
         claimedBy: userRef(names, finding.claimedByUserId),
         assignee: userRef(names, finding.assigneeUserId),
         advisory,
+        advisoryPending,
         advisoryHint: hint ? { suggestion: hint.suggestion, confidence: hint.confidence } : null,
         review: review ? { ...review, reviewer: userRef(names, review.reviewerUserId) } : null,
         exception: lastException

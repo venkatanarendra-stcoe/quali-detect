@@ -127,6 +127,24 @@ export function start() {
         void expiryTick();
         timers.push(setInterval(expiryTick, expirySeconds * 1000));
       }
+      // SLA sweep (docs/modules/findings/SPEC.md SL-4): every five minutes, under the same condition and with the same one-job-per-bucket
+      // rule; the handler marks due-soon and breached findings once per cycle and writes their events.
+      if (config.findings?.ingestionEnabled) {
+        const slaSeconds = 300;
+        const slaTick = () =>
+          enqueuePlatformJob({
+            db,
+            queue: QUEUE_NAMES.FINDINGS,
+            type: "findings.sla.sweep",
+            prefix: "findings-sla-sweep",
+            intervalSeconds: slaSeconds,
+            payload: (bucket) => ({ bucket }),
+          }).catch((error) =>
+            logger.error({ err: error }, "Could not enqueue the findings SLA sweep job"),
+          );
+        void slaTick();
+        timers.push(setInterval(slaTick, slaSeconds * 1000));
+      }
       // Vulnerability DB mirror refresh (SPEC scan-engines SE-34, part F): OFF unless SCAN_DB_REFRESH_ENABLED=true. One platform job per
       // interval bucket to the `dbrefresh` queue; the job carries tool ids only (no URL or credential) and the dbrefresh worker
       // refuses it again in a process where the flag is off.

@@ -4,7 +4,7 @@ import {
   deriveSlaState,
   hasCredentialShape,
 } from "@qmentisai/shared";
-import { toAdvisoryDto } from "./advisory.js";
+import { isAdvisoryStale, toAdvisoryDto } from "./advisory.js";
 import { computeAllowedActions } from "../policies/lifecycle.js";
 
 /**
@@ -213,6 +213,14 @@ export function toDetailDto(detail, { now = new Date(), can, workspaceId, caller
   const exception = detail.exception;
   const rec = detail.lastRecord;
   const a = detail.assignment;
+  // Part C: pending (a queued request, no newer advisory row) and stale (the advice predates the last observation or reopening)
+  const advisory = toAdvisoryDto(detail.advisory, {
+    pending: detail.advisoryPending === true,
+    stale: isAdvisoryStale(detail.advisory, {
+      evidenceCapturedAt: f.evidence?.capturedAt ?? null,
+      reopenedAt: f.reopenedAt ?? null,
+    }),
+  });
   return {
     ...item,
     workspaceId: workspaceId ?? f.workspaceId,
@@ -229,7 +237,7 @@ export function toDetailDto(detail, { now = new Date(), can, workspaceId, caller
     provenance: { tools },
     evidence: toEvidenceDto(f.evidence, f.scanType),
     link: toLinkDto(f.evidence),
-    advisory: toAdvisoryDto(detail.advisory),
+    advisory,
     review: {
       current: review
         ? {
@@ -290,7 +298,7 @@ export function toDetailDto(detail, { now = new Date(), can, workspaceId, caller
             ? { requestedByUserId: f.pendingException.requestedByUserId }
             : null,
           sodUserIds: detail.sodUserIds ?? [],
-          advisoryStatus: toAdvisoryDto(detail.advisory).status,
+          advisoryStatus: advisory.status,
         },
         can,
       ),

@@ -656,6 +656,13 @@ export function createMockFindingsService() {
     else touch(rec, { to: "assigned", reason: "assigned", type: "assignment", note });
   };
 
+  /** The PR link and ticket key of the latest submitted fix, the optional fields of the board card (SPEC 0.5 OD-10). */
+  const cardFix = (r) => ({
+    pullRequestUrl:
+      r.lastRecord?.kind === "fix_submitted" ? (r.lastRecord.pullRequestUrl ?? null) : null,
+    ticketKey: r.lastRecord?.kind === "fix_submitted" ? (r.lastRecord.ticketKey ?? null) : null,
+  });
+
   const service = {
     async list(q, { signal } = {}) {
       await gate(signal);
@@ -836,6 +843,7 @@ export function createMockFindingsService() {
           .map((r) => ({
             ...toListItem(r),
             canRemediate: r.assignee?.id === a.userId || holds("finding.assign"),
+            ...cardFix(r),
           }))
           .sort(cmp("severity"));
         columns[col] = {
@@ -856,6 +864,7 @@ export function createMockFindingsService() {
         .map((r) => ({
           ...toListItem(r),
           canRemediate: r.assignee?.id === a.userId || holds("finding.assign"),
+          ...cardFix(r),
         }))
         .sort(cmp("severity"));
       const page = cursorPage(items, q ?? {});

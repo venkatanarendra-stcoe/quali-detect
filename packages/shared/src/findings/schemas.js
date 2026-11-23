@@ -623,12 +623,27 @@ export const approvalQueueItemSchema = z
   })
   .strict();
 
+/**
+ * A board card: a list item plus `canRemediate` (computed by the server for the caller) and, since the owner's decision of 2026-11-24
+ * (Part C), the PR link and the ticket key of the latest submitted fix, both OPTIONAL and nullable so an older producer still validates.
+ * The PR URL is the https-only value of `pullRequestUrlSchema` (text with a safe link, never followed by the server).
+ */
+const boardCardSchema = findingListItemSchema
+  .extend({
+    canRemediate: z.boolean(),
+    pullRequestUrl: pullRequestUrlSchema.nullable().optional(),
+    ticketKey: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9]{1,9}-[0-9]{1,8}$/)
+      .nullable()
+      .optional(),
+  })
+  .strict();
+
 export const boardColumnSchema = z
   .object({
     count: z.number().int().min(0),
-    items: z
-      .array(findingListItemSchema.extend({ canRemediate: z.boolean() }).strict())
-      .max(L.boardFirstItems),
+    items: z.array(boardCardSchema).max(L.boardFirstItems),
     nextCursor: z.string().nullable(),
   })
   .strict();

@@ -38,7 +38,7 @@ import {
   TimeAgo,
   Untrusted,
 } from "./finding-bits.jsx";
-import { ConflictBanner } from "./form-bits.jsx";
+import { ConflictBanner, focusSheet } from "./form-bits.jsx";
 
 function Pick({ id, label, children }) {
   return (
@@ -507,7 +507,7 @@ export function ReviewQueue({ workspaceId }) {
           </div>
         ) : (
           <Sheet open={Boolean(selectedId)} onOpenChange={(open) => !open && choose(null)}>
-            <SheetContent className="max-w-none">
+            <SheetContent className="max-w-none" onOpenAutoFocus={focusSheet}>
               <SheetTitle className="sr-only">Review finding</SheetTitle>
               <SheetDescription className="sr-only">
                 Evidence, advice and your decision.

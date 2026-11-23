@@ -2,8 +2,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useSession, useTenantId } from "@/features/auth/hooks/use-session.js";
 import { useCursorList } from "@/hooks/use-cursor-list.js";
 import { usePageList } from "@/hooks/use-page-list.js";
-import { isApiError } from "@/lib/api/index.js";
-import { CONFLICT_TEXT, CREDENTIAL_SHAPE_TEXT, REASONS } from "../constants/index.js";
+import { toast } from "sonner";
+import { describeError, isApiError } from "@/lib/api/index.js";
+import { CONFLICT_TEXT, CREDENTIAL_SHAPE_TEXT, FORBIDDEN_TEXT } from "../constants/index.js";
 import { conflictReason, validationDetails } from "../schemas/validate.js";
 import { FINDINGS_MOCK_ENABLED, findingsService } from "../services/findings-service.js";
 import { bindMockActor } from "../services/findings-api.mock.js";
@@ -167,6 +168,39 @@ export function useAssigneeSearch(workspaceId, q, { enabled = true } = {}) {
   });
 }
 
+/** Tenant settings keys: the tenant id first, nothing crosses tenants. */
+export const slaSettingsKey = (tenantId) => ["tenant", tenantId, "settings", "findings-sla"];
+
+/** The tenant's findings SLA targets (`GET /settings/findings-sla`, needs `tenant_settings.view`). @param {{ enabled?: boolean }} [options] */
+export function useSlaSettings({ enabled = true } = {}) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: slaSettingsKey(tenantId),
+    queryFn: ({ signal }) => findingsService.slaSettings({ signal }),
+    enabled,
+  });
+}
+
+/**
+ * Saves the SLA targets (`PUT /settings/findings-sla`, needs `tenant_settings.manage`). The server answer replaces the cache (no
+ * optimistic write). Not retroactive: the toast says so.
+ */
+export function useUpdateSlaSettings() {
+  const tenantId = useTenantId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (targets) => findingsService.putSlaSettings({ targets }),
+    onSuccess: (stored) => {
+      queryClient.setQueryData(slaSettingsKey(tenantId), stored);
+      toast.success("SLA targets saved.", {
+        description: "Findings already open keep their due dates.",
+      });
+    },
+    onError: (error) =>
+      toast.error("Could not save the SLA targets.", { description: describeError(error) }),
+  });
+}
+
 /**
  * Runs one finding write. `run(service)` returns the promise of the write (so the caller picks the function and arguments and
  * owns the Idempotency-Key); after it settles every findings query of the workspace is refetched (the detail the write returns
@@ -202,19 +236,28 @@ export function describeActionError(error) {
     return { text: "Choose an expiry within the allowed range.", field: "expiresAt" };
   if (validation?.reason === "assignee_not_eligible")
     return { text: "This person can't be assigned this finding.", field: "assigneeUserId" };
+  if (validation?.reason === "approver_not_eligible")
+    return {
+      text: "This person can't approve this request. Choose another lead or leave it empty.",
+      field: "requestedApproverUserId",
+    };
+  if (validation?.reason === "invalid_pull_request_url")
+    return { text: "Enter an https link without credentials.", field: "pullRequestUrl" };
+  if (
+    isApiError(error) &&
+    error.code === "CONFLICT" &&
+    error.details?.reason === "workspace_archived"
+  )
+    return { text: "This workspace is archived, so findings can't change." };
+  if (isApiError(error) && error.code === "IDEMPOTENCY_CONFLICT")
+    return { text: "This action was already sent with different details. Reload and try again." };
   if (validation?.reason === "override_requires_tp")
     return {
       text: "A severity override only applies to a true positive.",
       field: "severityOverride",
     };
   if (isApiError(error) && error.status === 403) {
-    const reason = error.details?.reason;
-    return {
-      text:
-        reason === "separation_of_duties"
-          ? REASONS.sod_review
-          : "You don't have permission to do this.",
-    };
+    return { text: FORBIDDEN_TEXT[error.details?.reason] ?? FORBIDDEN_TEXT.missing_permission };
   }
   if (isApiError(error) && error.status === 429)
     return { text: "Too many requests. Try again in a few minutes." };

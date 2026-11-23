@@ -24,6 +24,17 @@ export const taskChangedHint = z.object({
 /** `execution.decision`: the scan decision was recorded. Ids and a revision only; the decision itself is read through the API. */
 export const decisionHint = z.object({ executionId: id, rev: z.number().int().optional() });
 export const logAppendedHint = z.object({ executionId: id, lastSeq: z.number().int() });
+/**
+ * `finding.changed` (findings module, SPEC findings 9.5): the type of the domain event plus ids, the status word and the revision.
+ * A HINT: the page invalidates and refetches through the API, nothing here is shown as data. Strict on the server, tolerant here.
+ */
+export const findingChangedHint = z.object({
+  type: z.string(),
+  findingId: id,
+  workspaceId: id,
+  status: z.string().optional(),
+  rev: z.number().int().optional(),
+});
 export const subscriptionEndedHint = z.object({ scope: z.string(), id: z.string() });
 
 export const HINT_SCHEMAS = Object.freeze({
@@ -31,6 +42,7 @@ export const HINT_SCHEMAS = Object.freeze({
   "execution.decision": decisionHint,
   "task.changed": taskChangedHint,
   "log.appended": logAppendedHint,
+  "finding.changed": findingChangedHint,
   "subscription.ended": subscriptionEndedHint,
 });
 export const HINT_EVENTS = Object.freeze(Object.keys(HINT_SCHEMAS));

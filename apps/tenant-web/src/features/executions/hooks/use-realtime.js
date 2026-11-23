@@ -5,7 +5,7 @@ import { realtime } from "../services/realtime-client.js";
  * Subscribes the component to the hints of one workspace or execution while it is mounted and `enabled`. `onHint(name, hint)`
  * must refetch through the API; hints are never data. `live` is true only when the socket is connected AND the server accepted
  * the join: any other state means the page polls (the status, never the socket, is the truth).
- * @param {{ scope: "workspace" | "execution", id?: string, enabled?: boolean,
+ * @param {{ scope: "workspace" | "execution" | "findings", id?: string, enabled?: boolean,
  *   onHint?: (name: string, hint: any) => void }} options
  * @returns {{ live: boolean, connection: string, subscription: string, lastLiveAt: string | null, retry: () => void }}
  */

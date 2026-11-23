@@ -5,7 +5,7 @@ import {
   pullRequestUrlSchema,
 } from "@qmentisai/shared";
 import { z } from "zod";
-import { CREDENTIAL_SHAPE_TEXT } from "../constants/index.js";
+import { CREDENTIAL_SHAPE_TEXT, EXPIRY_PICKER_MAX_DAYS } from "../constants/index.js";
 
 /**
  * Form schemas of the Findings dialogs (React Hook Form). They mirror the FROZEN request schemas of `@qmentisai/shared` for
@@ -70,9 +70,9 @@ export const exceptionFormSchema = z
     const at = new Date(`${v.expiresAt}T23:59:59`).getTime();
     if (Number.isNaN(at)) return issue("Enter the date as YYYY-MM-DD.");
     const days = (at - Date.now()) / DAY;
-    const max = v.kind === "accept_risk" ? L.acceptRiskMaxDays : L.suppressMaxDays;
+    const max = EXPIRY_PICKER_MAX_DAYS[v.kind];
     if (days < 0) issue("Choose a date from tomorrow on.");
-    else if (days > max + 1) issue(`Choose a date within ${max} days.`);
+    else if (v.expiresAt > dateInDays(max)) issue(`Choose a date within ${max} days.`);
   });
 
 export const submitFixSchema = z.object({

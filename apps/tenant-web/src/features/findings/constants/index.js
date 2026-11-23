@@ -140,11 +140,21 @@ export const REASONS = Object.freeze({
 
 /** The stable `details.reason` of a 409 `FINDING_STATE_CONFLICT` as a sentence (SCREENS 5, 6, 9). */
 export const CONFLICT_TEXT = Object.freeze({
-  stale_revision: "This finding changed. Reload to continue.",
-  transition_not_allowed: "This finding changed. Reload to continue.",
-  exception_pending: "This finding changed or already has a pending request.",
+  stale_revision: "This finding changed since you opened it. Reload to continue.",
+  transition_not_allowed:
+    "This finding can't take that action in its current status. Reload to continue.",
+  exception_pending: "A request is already pending for this finding. Reload to see it.",
   pipeline_deleted: "The pipeline was deleted, so this finding can no longer change.",
   already_decided: "This request was already decided or the finding changed.",
+});
+
+/** The stable `details.reason` of a 403 `FORBIDDEN` as a sentence (never a permission key). */
+export const FORBIDDEN_TEXT = Object.freeze({
+  separation_of_duties: REASONS.sod_review,
+  not_assignee: "You can only move findings assigned to you.",
+  not_reviewer: "Only the person who recorded this decision can withdraw it.",
+  not_requester: "Only the person who made this request can withdraw it.",
+  missing_permission: "You don't have permission to do this.",
 });
 
 export const CREDENTIAL_SHAPE_TEXT =
@@ -173,3 +183,13 @@ export const ACTION_LABELS = Object.freeze({
 });
 
 export const LIMITS = FINDINGS_LIMITS;
+
+/**
+ * The most days ahead the date picker offers. The server allows an expiry of at most 180 days (accepted risk) or 365 days
+ * (suppression) from ITS clock, with no slack (AS_BUILT_B deviation 10); the picker stores the END of the chosen local day, so the
+ * last offered date is one day short of the limit (179 and 364).
+ */
+export const EXPIRY_PICKER_MAX_DAYS = Object.freeze({
+  accept_risk: FINDINGS_LIMITS.acceptRiskMaxDays - 1,
+  suppress: FINDINGS_LIMITS.suppressMaxDays - 1,
+});

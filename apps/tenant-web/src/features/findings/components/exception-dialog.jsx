@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea.jsx";
 import { useSession } from "@/features/auth/hooks/use-session.js";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { cn } from "@/lib/cn.js";
-import { LIMITS } from "../constants/index.js";
+import { EXPIRY_PICKER_MAX_DAYS, LIMITS } from "../constants/index.js";
 import { describeActionError, useFindingAction } from "../hooks/use-findings.js";
 import { dateInDays, exceptionFormSchema, expiryInstant } from "../schemas/forms.js";
 import { newIdempotencyKey } from "../services/findings-service.js";
@@ -33,7 +33,7 @@ const KIND_TEXT = {
 
 /**
  * T-33: request accepted risk or suppression (SCREENS 5). One dialog, a two-option control at the top (an option the user may not
- * use is not offered), expiry required for accepted risk (1 to 180 days), optional for suppression (up to 365 days). The
+ * use is not offered), expiry required for accepted risk (tomorrow to 179 days), optional for suppression (up to 364 days; the server limits are 180 and 365 with no slack). The
  * requester can never approve it (SOD note). `initialKind` comes from the menu item that opened it.
  * @param {{ workspaceId: string, finding: any, initialKind: "accept_risk" | "suppress", onClose: () => void, onReload?: () => void }} props
  */
@@ -70,8 +70,8 @@ export function ExceptionDialog({ workspaceId, finding, initialKind, onClose, on
   const justification = watch("justification") ?? "";
   const controls = watch("compensatingControls") ?? "";
   const expiresAt = watch("expiresAt");
-  const maxDays = kind === "accept_risk" ? LIMITS.acceptRiskMaxDays : LIMITS.suppressMaxDays;
-  const presets = kind === "accept_risk" ? [30, 90, 180] : [30, 90, 365];
+  const maxDays = EXPIRY_PICKER_MAX_DAYS[kind];
+  const presets = [30, 90, maxDays];
 
   const submit = handleSubmit(async (v) => {
     setBanner(null);

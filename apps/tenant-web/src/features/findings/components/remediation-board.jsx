@@ -1,5 +1,5 @@
 import { Combobox } from "@qmentisai/ui";
-import { GripVertical, MoveRight, Wrench } from "lucide-react";
+import { ExternalLink, GripVertical, MoveRight, Wrench } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -49,8 +49,15 @@ const SYSTEM_TEXT = "Only a complete scan can verify or reopen a finding.";
  * @returns {{ moves: Array<{ to: string, label: string }>, reason: string | null }}
  */
 export function movesFor(column, card, can) {
-  if (card.pipeline?.deleted && ["assigned", "in_remediation", "reopened"].includes(column))
-    return { moves: [], reason: "The pipeline was deleted, so this finding can't change." };
+  // SPEC 5.13: a deleted pipeline only blocks submitting a fix (no scan can verify it). The server's `canRemediate` is false for such
+  // a card, so the board offers no move; Start work stays available on the finding page (its `allowedActions`). Assigning a reopened
+  // card is not affected.
+  if (card.pipeline?.deleted && ["assigned", "in_remediation"].includes(column))
+    return {
+      moves: [],
+      reason:
+        "The pipeline was deleted, so no scan can verify a fix. Open the finding for the other actions.",
+    };
   if (column === "assigned" || column === "in_remediation") {
     if (!card.canRemediate) return { moves: [], reason: REASONS.own_only };
     return {
@@ -67,6 +74,46 @@ export function movesFor(column, card, can) {
       : { moves: [], reason: REASONS.no_assign };
   }
   return { moves: [], reason: null };
+}
+
+const isHttps = (url) => typeof url === "string" && /^https:\/\/[^\s]+$/.test(url);
+
+/**
+ * The pull request link and ticket key of the latest submitted fix (SPEC 0.5 OD-10; both optional and nullable on the card). The
+ * link is a real anchor only for an `https` URL (opens in a new tab, `noopener noreferrer`); anything else is shown as plain text.
+ * The ticket key is an identifier (mono) and not a link: the platform knows no ticket system.
+ * @param {{ card: { pullRequestUrl?: string | null, ticketKey?: string | null } }} props
+ */
+function CardFixLinks({ card }) {
+  const { pullRequestUrl, ticketKey } = card;
+  if (!pullRequestUrl && !ticketKey) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      {pullRequestUrl ? (
+        isHttps(pullRequestUrl) ? (
+          <a
+            href={pullRequestUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            draggable={false}
+            className="inline-flex items-center gap-1 rounded-sm underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Pull request
+            <ExternalLink aria-hidden="true" className="size-3" />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : (
+          <Untrusted className="break-all">{pullRequestUrl}</Untrusted>
+        )
+      ) : null}
+      {ticketKey ? (
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          <span className="sr-only">Ticket</span>
+          <span className="font-mono">{ticketKey}</span>
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 /** One card: severity, title (a link), repository, assignee, SLA, recurrence; a "Move to" menu and, when allowed, a drag handle. */
@@ -133,6 +180,7 @@ function BoardCard({ card, column, workspaceId, can, onMove, onDragStart, onDrag
         <Person user={card.assignee} />
         <SlaChip sla={card.sla} />
       </div>
+      <CardFixLinks card={card} />
       {draggable ? (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>

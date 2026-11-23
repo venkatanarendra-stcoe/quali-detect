@@ -1,5 +1,6 @@
 import { AppPageLayout } from "@qmentisai/ui";
 import { useParams } from "react-router";
+import { useFindingsRealtime } from "../hooks/use-findings-realtime.js";
 import { RemediationBoard } from "../components/remediation-board.jsx";
 
 /**
@@ -8,6 +9,7 @@ import { RemediationBoard } from "../components/remediation-board.jsx";
  */
 export function RemediationPage() {
   const { workspaceId } = useParams();
+  useFindingsRealtime(workspaceId);
   return (
     <AppPageLayout
       title="Remediation"

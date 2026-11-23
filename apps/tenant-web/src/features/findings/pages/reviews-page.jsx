@@ -1,5 +1,6 @@
 import { AppPageLayout } from "@qmentisai/ui";
 import { useParams } from "react-router";
+import { useFindingsRealtime } from "../hooks/use-findings-realtime.js";
 import { ReviewQueue } from "../components/review-queue.jsx";
 
 /**
@@ -8,6 +9,7 @@ import { ReviewQueue } from "../components/review-queue.jsx";
  */
 export function ReviewsPage() {
   const { workspaceId } = useParams();
+  useFindingsRealtime(workspaceId);
   return (
     <AppPageLayout
       title="Reviews"

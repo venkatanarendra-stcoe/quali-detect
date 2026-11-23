@@ -28,7 +28,8 @@ function Frame({ children }) {
           Analysis assistant
         </CardTitle>
         <CardDescription>
-          Helps choose which scans a change needs. It can only add scans to the required ones.
+          Helps choose which scans a change needs and prepares advice on findings. It can only add
+          scans to the required ones, and its advice never decides a finding.
         </CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
@@ -45,13 +46,74 @@ function Note({ children }) {
   );
 }
 
+const CODE_EXPLANATION =
+  "Short excerpts of your source code (never secrets) would leave your deployment when the AI advisory runs with an external provider. Findings of secrets never get advice, and secret values are never sent. A local model needs no consent. Changes are recorded in the audit log.";
+
+/**
+ * The second switch (ADR-013 addendum, SCREENS 11): code excerpts of findings to the external model. Off by default, usable only
+ * while the first consent is on; turning the first one off clears it on the server and this switch shows the stored value.
+ */
+function CodeSnippetSwitch({ settings, canManage }) {
+  const update = useUpdateAiConsent();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const external = settings.externalConsent;
+  const on = external && settings.codeSnippetConsent === true;
+  const change = (next) => {
+    if (next) setConfirmOpen(true);
+    else update.mutate({ codeSnippetConsent: false });
+  };
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <div className="flex items-start gap-3">
+        <Switch
+          id="ai-code-consent"
+          checked={on}
+          disabled={!canManage || !external || update.isPending}
+          onCheckedChange={change}
+          aria-describedby="ai-code-consent-help"
+          aria-labelledby="ai-code-consent-label"
+        />
+        <div className="min-w-0 space-y-1 text-sm">
+          <p id="ai-code-consent-label" className="font-medium">
+            Send short code excerpts of findings to the external model provider
+          </p>
+          <p id="ai-code-consent-help" className="text-muted-foreground">
+            {CODE_EXPLANATION}
+          </p>
+          {!external ? (
+            <p className="text-muted-foreground">
+              Turn on the setting above first. Without it, no file names or code leave the platform.
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">{on ? "On" : "Off"}</p>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(v) => {
+          setConfirmOpen(v);
+          if (!v) update.reset();
+        }}
+        title="Send code excerpts to the external provider?"
+        description="A few lines of source code around a finding (never secrets) will be sent to the external provider this platform uses, to prepare advice for your reviewers. You can turn this off at any time. The change is recorded in the audit log."
+        confirmLabel="Allow"
+        pending={update.isPending}
+        error={update.error}
+        onConfirm={() =>
+          update.mutate({ codeSnippetConsent: true }, { onSuccess: () => setConfirmOpen(false) })
+        }
+      />
+    </div>
+  );
+}
+
 function ConsentSwitch({ settings, canManage }) {
   const update = useUpdateAiConsent();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const on = settings.externalConsent;
   const change = (next) => {
     if (next) setConfirmOpen(true);
-    else update.mutate(false);
+    else update.mutate({ externalConsent: false });
   };
   return (
     <div className="space-y-3">
@@ -106,7 +168,9 @@ function ConsentSwitch({ settings, canManage }) {
         confirmLabel="Allow"
         pending={update.isPending}
         error={update.error}
-        onConfirm={() => update.mutate(true, { onSuccess: () => setConfirmOpen(false) })}
+        onConfirm={() =>
+          update.mutate({ externalConsent: true }, { onSuccess: () => setConfirmOpen(false) })
+        }
       />
     </div>
   );
@@ -158,7 +222,10 @@ export function AnalysisAssistantCard() {
           needed.
         </Note>
       ) : (
-        <ConsentSwitch settings={settings} canManage={canManage} />
+        <div className="space-y-4">
+          <ConsentSwitch settings={settings} canManage={canManage} />
+          <CodeSnippetSwitch settings={settings} canManage={canManage} />
+        </div>
       )}
     </Frame>
   );

@@ -31,7 +31,13 @@ export function parseOrApiError(schema, value) {
 /** The form field a `VALIDATION_FAILED` refusal points at, and the stable reason, or null. @param {unknown} error */
 export function validationDetails(error) {
   if (!(error instanceof ApiError) || error.code !== "VALIDATION_FAILED") return null;
-  return { reason: error.details?.reason ?? null, field: error.details?.field ?? null };
+  // the server names the field itself for a service refusal (`details.field`); for a schema refusal it lists the issues
+  const issue = Array.isArray(error.details?.issues) ? error.details.issues[0] : null;
+  const path = typeof issue?.path === "string" ? issue.path.split(".")[0] : null;
+  return {
+    reason: error.details?.reason ?? null,
+    field: error.details?.field ?? path ?? null,
+  };
 }
 
 /** The `details.reason` of a 409 `FINDING_STATE_CONFLICT`, else null. @param {unknown} error */

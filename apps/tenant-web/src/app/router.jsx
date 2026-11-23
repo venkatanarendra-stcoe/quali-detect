@@ -10,6 +10,7 @@ import {
 import { AccountPage, SettingsPage } from "@/features/account/index.js";
 import { RequirePermission } from "@/features/authorization/index.js";
 import { ExecutionAliasRedirect } from "@/features/executions/index.js";
+import { FindingAliasRedirect } from "@/features/findings/index.js";
 import { PipelineAliasRedirect } from "@/features/pipelines/index.js";
 import { ConnectAliasRedirect, RepositoryAliasRedirect } from "@/features/repositories/index.js";
 import { WorkspaceScope } from "@/features/workspaces/index.js";
@@ -66,6 +67,7 @@ export function AppRouter() {
                 path="executions/:executionId"
                 element={<ExecutionAliasRedirect kind="detail" />}
               />
+              <Route path="findings/:findingId" element={<FindingAliasRedirect />} />
               <Route path="workspaces/:workspaceId" element={<WorkspaceScope />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="edit" element={<Navigate to="../settings" replace />} />

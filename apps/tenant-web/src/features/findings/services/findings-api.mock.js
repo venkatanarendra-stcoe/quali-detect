@@ -362,6 +362,19 @@ export function createMockFindingsService() {
     };
   }
 
+  /** The server's SOD rule (SPEC SOD-1, SOD-2): the caller recorded a review or requested an exception on this finding. */
+  const sodBlocked = (rec) =>
+    rec.review?.reviewer?.id === actor().userId ||
+    rec.exception?.requestedBy?.id === actor().userId ||
+    (rec.sodUserIds ?? []).includes(actor().userId);
+
+  /** RM-1 and the card rule of the server (AS_BUILT_C 1.2): `finding.remediate`, a card that can move, theirs unless they assign. */
+  const canRemediateCard = (rec) =>
+    holds("finding.remediate") &&
+    ["assigned", "in_remediation"].includes(rec.status) &&
+    !rec.pipeline.deleted &&
+    (rec.assignee?.id === actor().userId || holds("finding.assign"));
+
   /** The server's `lifecycle.allowedActions`: omitted = hidden, `allowed: false` = disabled with the reason. */
   function allowedActions(rec) {
     const a = actor();
@@ -373,17 +386,20 @@ export function createMockFindingsService() {
     const assigner = holds("finding.assign");
     const remediator = holds("finding.remediate");
     const mine = rec.assignee?.id === a.userId;
-    const stale = rec.pipeline.deleted;
-    if (stale) return list;
+    const deleted = rec.pipeline.deleted;
     if (reviewer && s === "new") add("claim");
-    if (reviewer && s === "in_review") {
-      if (rec.claimedBy && rec.claimedBy.id !== a.userId) add("claim");
-      add("record_review");
-    }
-    if (reviewer && s === "new") add("record_review");
+    const requestPending = rec.exception?.state === "pending";
+    if (reviewer && s === "in_review" && rec.claimedBy && rec.claimedBy.id !== a.userId)
+      add("claim");
+    if (reviewer && (s === "new" || s === "in_review"))
+      add(
+        "record_review",
+        !requestPending,
+        requestPending ? "A request is pending for this finding. Decide it first." : undefined,
+      );
     if (s === "awaiting_approval" && rec.review) {
       if (rec.review.reviewer.id === a.userId && reviewer) add("withdraw_review");
-      const own = rec.review.reviewer.id === a.userId;
+      const own = sodBlocked(rec);
       if (holds("approval.approve"))
         add(
           "approve_review",
@@ -413,12 +429,16 @@ export function createMockFindingsService() {
         mine || assigner,
         mine || assigner ? undefined : "You can only move findings assigned to you.",
       );
-    if (remediator && (s === "assigned" || s === "in_remediation"))
-      add(
-        "submit_fix",
-        mine || assigner,
-        mine || assigner ? undefined : "You can only move findings assigned to you.",
-      );
+    if (remediator && (s === "assigned" || s === "in_remediation")) {
+      if (deleted)
+        add("submit_fix", false, "The pipeline was deleted, so no scan can verify a fix.");
+      else
+        add(
+          "submit_fix",
+          mine || assigner,
+          mine || assigner ? undefined : "You can only move findings assigned to you.",
+        );
+    }
     if (EXCEPTION_SOURCE_STATUSES.includes(s)) {
       const pending = rec.exception?.state === "pending";
       if (holds("finding.accept_risk"))
@@ -435,24 +455,19 @@ export function createMockFindingsService() {
         );
     }
     if (rec.exception?.state === "pending") {
-      if (rec.exception.requestedBy.id === a.userId) add("withdraw_exception");
-      const own = rec.exception.requestedBy.id === a.userId;
-      if (holds("approval.approve"))
-        add(
-          "approve_exception",
-          !own,
-          own ? "You requested this. Another lead must approve it." : undefined,
-        );
-      if (holds("approval.reject"))
-        add(
-          "reject_exception",
-          !own,
-          own ? "You requested this. Another lead must approve it." : undefined,
-        );
+      const requester = rec.exception.requestedBy.id === a.userId;
+      if (requester) add("withdraw_exception");
+      const blocked = sodBlocked(rec);
+      const why = requester
+        ? "You requested this. Another lead must approve it."
+        : "You recorded a decision on this finding. Another lead must approve it.";
+      if (holds("approval.approve")) add("approve_exception", !blocked, blocked ? why : undefined);
+      if (holds("approval.reject")) add("reject_exception", !blocked, blocked ? why : undefined);
     }
     if (s === "accepted_risk" && holds("finding.accept_risk")) add("revoke_accept_risk");
     if (s === "suppressed" && holds("finding.suppress")) add("revoke_suppression");
-    if (reviewer && rec.scanType !== "secrets")
+    if (holds("finding.comment")) add("comment");
+    if (reviewer && rec.scanType !== "secrets" && rec.severity !== "info")
       add(
         "request_advisory",
         rec.advisory.status !== "pending",
@@ -615,7 +630,6 @@ export function createMockFindingsService() {
   };
   const checkRev = (rec, expectedRev) => {
     if (rec.rev !== expectedRev) throw conflict("stale_revision");
-    if (rec.pipeline.deleted) throw conflict("pipeline_deleted");
   };
   const result = (rec) => validated(findingDetailSchema, toDetail(rec));
 
@@ -644,6 +658,7 @@ export function createMockFindingsService() {
     const re = rec.status === "assigned" || rec.status === "in_remediation";
     if (!re && !["approved", "reopened"].includes(rec.status))
       throw conflict("transition_not_allowed");
+    if (re && rec.assignee?.id === who.id) throw conflict("transition_not_allowed");
     rec.assignee = who;
     rec.assignment = {
       id: uid("assignment", Math.floor(Math.random() * 1e9)),
@@ -781,12 +796,11 @@ export function createMockFindingsService() {
     async approvals(q, { signal } = {}) {
       await gate(signal);
       requireKey("approval.view");
-      const a = actor();
       const rows = modeOf() === "empty" ? [] : ensure();
       const out = [];
       for (const rec of rows) {
         if (rec.status === "awaiting_approval" && rec.review) {
-          const own = rec.review.reviewer.id === a.userId;
+          const own = sodBlocked(rec);
           const may = holds("approval.approve") || holds("approval.reject");
           out.push({
             kind: "review",
@@ -801,7 +815,7 @@ export function createMockFindingsService() {
           });
         }
         if (rec.exception?.state === "pending") {
-          const own = rec.exception.requestedBy.id === a.userId;
+          const own = sodBlocked(rec);
           const may = holds("approval.approve") || holds("approval.reject");
           out.push({
             kind: "exception",
@@ -842,7 +856,7 @@ export function createMockFindingsService() {
           .filter((r) => matches(r, { ...q, view: undefined }, a))
           .map((r) => ({
             ...toListItem(r),
-            canRemediate: r.assignee?.id === a.userId || holds("finding.assign"),
+            canRemediate: canRemediateCard(r),
             ...cardFix(r),
           }))
           .sort(cmp("severity"));
@@ -863,7 +877,7 @@ export function createMockFindingsService() {
         .filter((r) => matches(r, { ...q, view: undefined }, a))
         .map((r) => ({
           ...toListItem(r),
-          canRemediate: r.assignee?.id === a.userId || holds("finding.assign"),
+          canRemediate: canRemediateCard(r),
           ...cardFix(r),
         }))
         .sort(cmp("severity"));
@@ -933,7 +947,7 @@ export function createMockFindingsService() {
     approveReview: (id, _reviewId, body) =>
       write(id, approveBodySchema, body, "approval.approve", (rec, b) => {
         if (rec.status !== "awaiting_approval") throw conflict("already_decided");
-        if (rec.review.reviewer.id === actor().userId) throw forbidden("separation_of_duties");
+        if (sodBlocked(rec)) throw forbidden("separation_of_duties");
         rec.review.decided = true;
         const tp = rec.review.decision === "true_positive";
         touch(rec, {
@@ -946,7 +960,7 @@ export function createMockFindingsService() {
     rejectReview: (id, _reviewId, body) =>
       write(id, rejectBodySchema, body, "approval.reject", (rec, b) => {
         if (rec.status !== "awaiting_approval") throw conflict("already_decided");
-        if (rec.review.reviewer.id === actor().userId) throw forbidden("separation_of_duties");
+        if (sodBlocked(rec)) throw forbidden("separation_of_duties");
         rec.severity = rec.toolSeverity;
         touch(rec, { to: "in_review", reason: "rejected", type: "approval", note: b.comment });
         rec.review = null;
@@ -969,6 +983,7 @@ export function createMockFindingsService() {
       }),
     startRemediation: (id, body) =>
       write(id, remediationStartBodySchema, body, "finding.remediate", (rec) => {
+        if (rec.status !== "assigned") throw conflict("transition_not_allowed");
         if (rec.assignee?.id !== actor().userId && !holds("finding.assign"))
           throw forbidden("not_assignee");
         touch(rec, { to: "in_remediation", reason: "work_started", type: "remediation" });
@@ -982,8 +997,11 @@ export function createMockFindingsService() {
       }),
     submitRemediation: (id, body) =>
       write(id, remediationSubmitBodySchema, body, "finding.remediate", (rec, b) => {
+        if (!["assigned", "in_remediation"].includes(rec.status))
+          throw conflict("transition_not_allowed");
         if (rec.assignee?.id !== actor().userId && !holds("finding.assign"))
           throw forbidden("not_assignee");
+        if (rec.pipeline.deleted) throw conflict("pipeline_deleted");
         touch(rec, {
           to: "fixed_pending_verification",
           reason: "fix_submitted",
@@ -1010,7 +1028,7 @@ export function createMockFindingsService() {
             b.kind === "accept_risk"
               ? FINDINGS_LIMITS.acceptRiskMaxDays
               : FINDINGS_LIMITS.suppressMaxDays;
-          if (days < 0 || days > max + 1)
+          if (days <= 0 || days > max)
             throw apiError(400, "VALIDATION_FAILED", "The expiry is out of range.", {
               reason: "expiry_out_of_range",
               field: "expiresAt",
@@ -1049,8 +1067,7 @@ export function createMockFindingsService() {
     approveException: (id, _exceptionId, body) =>
       write(id, exceptionApproveBodySchema, body, "approval.approve", (rec, b) => {
         if (rec.exception?.state !== "pending") throw conflict("already_decided");
-        if (rec.exception.requestedBy.id === actor().userId)
-          throw forbidden("separation_of_duties");
+        if (sodBlocked(rec)) throw forbidden("separation_of_duties");
         rec.exception.state = "approved";
         rec.exception.approvedBy = me();
         touch(rec, {
@@ -1063,8 +1080,7 @@ export function createMockFindingsService() {
     rejectException: (id, _exceptionId, body) =>
       write(id, exceptionRejectBodySchema, body, "approval.reject", (rec, b) => {
         if (rec.exception?.state !== "pending") throw conflict("already_decided");
-        if (rec.exception.requestedBy.id === actor().userId)
-          throw forbidden("separation_of_duties");
+        if (sodBlocked(rec)) throw forbidden("separation_of_duties");
         rec.exception = null;
         rec.rev += 1;
         history.get(rec.id).push({
@@ -1099,7 +1115,9 @@ export function createMockFindingsService() {
       await gate();
       requireKey("finding.review");
       const rec = record(id);
-      if (rec.scanType === "secrets") throw conflict("transition_not_allowed");
+      if (rec.scanType === "secrets" || rec.severity === "info")
+        throw conflict("transition_not_allowed");
+      if (rec.advisory.status === "pending") throw conflict("transition_not_allowed");
       rec.advisory = { status: "pending", stale: false };
       rec.rev += 1;
       setTimeout(() => {

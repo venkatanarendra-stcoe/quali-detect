@@ -20,6 +20,7 @@ const ACK_TIMEOUT_MS = 5000;
 
 /** @typedef {"idle" | "connecting" | "live" | "reconnecting" | "unavailable"} Connection */
 /** @typedef {"pending" | "joined" | "denied" | "ended"} Joined */
+/** @typedef {"workspace" | "execution" | "findings"} Scope */
 
 export function createRealtimeClient({ ioFactory = io, origin } = {}) {
   /** @type {import("socket.io-client").Socket | null} */
@@ -32,7 +33,7 @@ export function createRealtimeClient({ ioFactory = io, origin } = {}) {
     lastLiveAt: null,
   });
   const watchers = new Set();
-  /** @type {Map<string, { scope: "workspace" | "execution", id: string, handlers: Set<any>, state: Joined }>} */
+  /** @type {Map<string, { scope: Scope, id: string, handlers: Set<any>, state: Joined }>} */
   const subs = new Map();
 
   const setSnapshot = (patch) => {
@@ -41,7 +42,11 @@ export function createRealtimeClient({ ioFactory = io, origin } = {}) {
   };
   const keyOf = (scope, id) => `${scope}:${id}`;
   const payloadOf = (sub) =>
-    sub.scope === "workspace" ? { workspaceId: sub.id } : { executionId: sub.id };
+    sub.scope === "workspace"
+      ? { workspaceId: sub.id }
+      : sub.scope === "findings"
+        ? { findingsWorkspaceId: sub.id }
+        : { executionId: sub.id };
   const setState = (sub, state) => {
     sub.state = state;
     sub.handlers.forEach((h) => h.onState?.(state));
@@ -61,16 +66,19 @@ export function createRealtimeClient({ ioFactory = io, origin } = {}) {
     if (!parsed.success) return;
     const hint = parsed.data;
     if (name === "subscription.ended") {
-      const scope = hint.scope === "workspace" ? "workspace" : "execution";
+      const scope =
+        hint.scope === "workspace" || hint.scope === "findings" ? hint.scope : "execution";
       const sub = subs.get(keyOf(scope, hint.id));
       if (sub) setState(sub, "ended");
       return;
     }
     for (const sub of subs.values()) {
       const matches =
-        sub.scope === "workspace"
-          ? name === "execution.changed" && hint.workspaceId === sub.id
-          : hint.executionId === sub.id;
+        sub.scope === "findings"
+          ? name === "finding.changed" && hint.workspaceId === sub.id
+          : sub.scope === "workspace"
+            ? name === "execution.changed" && hint.workspaceId === sub.id
+            : hint.executionId === sub.id;
       if (matches) sub.handlers.forEach((h) => h.onHint?.(name, hint));
     }
   }
@@ -129,9 +137,10 @@ export function createRealtimeClient({ ioFactory = io, origin } = {}) {
     },
     getSnapshot: () => snapshot,
     /**
-     * Subscribes to a workspace or an execution. Returns the release function. The socket opens with the first
+     * Subscribes to a workspace, an execution or the findings of a workspace (`scope: "findings"`, joined with
+     * `{ findingsWorkspaceId }`, hint `finding.changed`). Returns the release function. The socket opens with the first
      * subscriber and closes shortly after the last one leaves.
-     * @param {{ scope: "workspace" | "execution", id: string, onHint?: (name: string, hint: any) => void, onState?: (state: Joined) => void }} input
+     * @param {{ scope: Scope, id: string, onHint?: (name: string, hint: any) => void, onState?: (state: Joined) => void }} input
      */
     subscribe({ scope, id, onHint, onState }) {
       clearTimeout(closeTimer);

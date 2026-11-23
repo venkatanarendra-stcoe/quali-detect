@@ -192,7 +192,7 @@ export function AiAdvisoryCard({
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Info aria-hidden="true" className="size-4" />
-                Evidence changed since this advice was written.
+                Evidence changed since this advice was written. Ask again for fresh advice.
               </span>
               {requestButton}
             </div>

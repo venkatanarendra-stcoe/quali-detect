@@ -71,6 +71,16 @@ export function ConflictBanner({ text, onReload }) {
   );
 }
 
+/**
+ * `onOpenAutoFocus` of a sheet: focus the sheet itself, not its first focusable child. Without it the first control is the
+ * "submitted ... ago" time button, whose tooltip then opens on top of the badges the moment the sheet appears.
+ * @param {Event} event
+ */
+export function focusSheet(event) {
+  event.preventDefault();
+  /** @type {HTMLElement} */ (event.currentTarget).focus({ preventScroll: true });
+}
+
 /** A quiet notice with an info icon (segregation of duties notes, limits). @param {{ children: any, id?: string }} props */
 export function InfoNote({ children, id }) {
   return (

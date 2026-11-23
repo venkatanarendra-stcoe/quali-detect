@@ -21,6 +21,7 @@ import {
 import { useMediaQuery } from "../hooks/use-media-query.js";
 import { readFindingFilters, readId } from "../schemas/filters.js";
 import { AiAdvisoryCard } from "./ai-advisory-card.jsx";
+import { focusSheet } from "./form-bits.jsx";
 import { DecideDialog } from "./action-dialogs.jsx";
 import { EvidencePanel } from "./code-viewer.jsx";
 import { Person, SeverityBadge, SlaChip, TimeAgo, Untrusted } from "./finding-bits.jsx";
@@ -118,10 +119,19 @@ function ApprovalSheet({ workspaceId, item, onClose, onDecided }) {
     exceptionKind: item.exceptionKind,
   };
   const sod = item.cannotDecideReason === "separation_of_duties";
+  // the words come from the server (`disabledReason` of the finding's allowed action, computed for THIS caller); the constant is
+  // only the fallback while the finding is still loading
+  const serverReason = finding?.lifecycle.allowedActions.find(
+    (a) =>
+      !a.allowed &&
+      a.disabledReason &&
+      (item.kind === "exception"
+        ? ["approve_exception", "reject_exception"]
+        : ["approve_review", "reject_review"]
+      ).includes(a.action),
+  )?.disabledReason;
   const reason = sod
-    ? item.kind === "exception"
-      ? REASONS.sod_exception
-      : REASONS.sod_review
+    ? (serverReason ?? (item.kind === "exception" ? REASONS.sod_exception : REASONS.sod_review))
     : null;
   const decide = item.cannotDecideReason !== "missing_permission";
   const detail = finding?.review.current ?? null;
@@ -394,7 +404,10 @@ export function ApprovalsQueue({ workspaceId }) {
         />
       )}
       <Sheet open={Boolean(open)} onOpenChange={(o) => !o && close()}>
-        <SheetContent className={wide ? "max-w-xl" : "max-w-none"}>
+        <SheetContent
+          className={wide ? "max-w-xl" : "max-w-none"}
+          onOpenAutoFocus={focusSheet}
+        >
           {open ? (
             <ApprovalSheet
               workspaceId={workspaceId}

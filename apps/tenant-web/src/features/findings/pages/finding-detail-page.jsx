@@ -21,6 +21,7 @@ import {
 import { CommentsTab, HistoryTab } from "../components/finding-history.jsx";
 import { FindingOverview } from "../components/finding-overview.jsx";
 import { statusPresentation } from "../constants/index.js";
+import { useFindingsRealtime } from "../hooks/use-findings-realtime.js";
 import { useBindMockActor, useFinding, useFindingComments } from "../hooks/use-findings.js";
 
 const TABS = ["overview", "evidence", "history", "comments"];
@@ -136,6 +137,7 @@ function Banners({ finding }) {
  */
 export function FindingDetailPage() {
   const { workspaceId, findingId } = useParams();
+  useFindingsRealtime(workspaceId);
   useBindMockActor(workspaceId);
   const location = useLocation();
   const [params, setParams] = useSearchParams();

@@ -1,5 +1,6 @@
 import { AppPageLayout } from "@qmentisai/ui";
 import { useParams } from "react-router";
+import { useFindingsRealtime } from "../hooks/use-findings-realtime.js";
 import { FindingsList } from "../components/findings-list.jsx";
 
 /**
@@ -8,6 +9,7 @@ import { FindingsList } from "../components/findings-list.jsx";
  */
 export function FindingsPage() {
   const { workspaceId } = useParams();
+  useFindingsRealtime(workspaceId);
   return (
     <AppPageLayout
       title="Findings"

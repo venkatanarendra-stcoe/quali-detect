@@ -367,7 +367,7 @@ export function SubmitFixDialog({ workspaceId, finding, onClose, onReload, onDon
       {
         setError,
         setFocus,
-        fields: ["note"],
+        fields: ["pullRequestUrl", "ticketKey", "note"],
         onDone: () => {
           toast.success("Fix submitted. It is verified by the next complete scan.");
           onDone?.();

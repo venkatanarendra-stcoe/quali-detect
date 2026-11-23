@@ -16,6 +16,7 @@ const ALLOWED = [
   "outbox",
   "scm",
   "dbrefresh",
+  "findings",
 ];
 const names = (process.env.WORKERS ? process.env.WORKERS.split(",") : DEFAULT)
   .map((n) => n.trim())

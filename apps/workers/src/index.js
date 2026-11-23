@@ -7,4 +7,5 @@ export const WORKER_NAMES = Object.freeze([
   "scheduler",
   "outbox",
   "scm",
+  "findings",
 ]);

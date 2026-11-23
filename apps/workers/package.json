@@ -17,7 +17,8 @@
     "./scheduler": "./src/scheduler/index.js",
     "./outbox": "./src/outbox/index.js",
     "./scm": "./src/scm/index.js",
-    "./dbrefresh": "./src/dbrefresh/index.js"
+    "./dbrefresh": "./src/dbrefresh/index.js",
+    "./findings": "./src/findings/index.js"
   },
   "scripts": {
     "lint": "eslint .",
@@ -39,7 +40,9 @@
     "start:scm": "node --env-file-if-exists=.env src/scm/main.js",
     "dev:scm": "node --watch --env-file-if-exists=.env src/scm/main.js",
     "start:dbrefresh": "node --env-file-if-exists=.env src/dbrefresh/main.js",
-    "dev:dbrefresh": "node --watch --env-file-if-exists=.env src/dbrefresh/main.js"
+    "dev:dbrefresh": "node --watch --env-file-if-exists=.env src/dbrefresh/main.js",
+    "start:findings": "node --env-file-if-exists=.env src/findings/main.js",
+    "dev:findings": "node --watch --env-file-if-exists=.env src/findings/main.js"
   },
   "dependencies": {
     "@qmentisai/contracts": "workspace:*",

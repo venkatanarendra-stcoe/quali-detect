@@ -2768,6 +2768,9 @@ export const FINDINGS_A0_CHECKS = [
         ok(p, !!repo, `@qmentisai/db does not export ${factory}`);
         for (const m of methods) {
           ok(p, typeof repo?.[m] === "function", `${factory}.${m} is missing`);
+          // Part A1 built its repositories (docs/modules/findings/AS_BUILT_A1.md): their frozen method names must exist, they no longer
+          // reject as "not implemented". The parts that are still to come keep the guarantee.
+          if (part === "A1") continue;
           const r = await attempt(() => repo?.[m]());
           ok(
             p,

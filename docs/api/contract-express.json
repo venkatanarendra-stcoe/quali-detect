@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 119,
+  "operationCount": 125,
   "operations": [
     {
       "method": "GET",
@@ -626,6 +626,427 @@
         ]
       },
       "summary": "Retry an execution as a NEW execution with the same snapshot and commit (Idempotency-Key is REQUIRED)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "view",
+          "severity",
+          "status",
+          "scanType",
+          "pipelineId",
+          "repositoryId",
+          "assignee",
+          "sla",
+          "aiSuggestion",
+          "q",
+          "sort",
+          "direction",
+          "page",
+          "pageSize",
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "List findings of one workspace (filters, saved views, numbered or cursor pages)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings/{id}",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Get a finding with its evidence, commit-pinned link, advisory and allowed actions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings/{id}/comments",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, author, body, createdAt }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "Comments of a finding, oldest first (cursor pages)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings/{id}/history",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, type, at, actor, fromStatus, toStatus, reason, note, detail }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "The immutable timeline of a finding, newest first (cursor pages)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings/{id}/similar",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "[{ id, title, severity, status, pipeline }]",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "The same vulnerability in OTHER pipelines of the workspace (links only, never merged)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/findings/summary",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ views, bySeverity, byStatus, pendingApprovals, awaitingVerification }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Counts for the saved views, severities and statuses of one workspace"
     },
     {
       "method": "GET",

@@ -6,3 +6,5 @@ export * from "./advise.js";
 export * from "./runtime.js";
 export * from "./handler.js";
 export * from "./harden.js";
+export * from "./rate-limit.js";
+export * from "./completed.js";

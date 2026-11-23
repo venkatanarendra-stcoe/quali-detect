@@ -51,7 +51,32 @@ const taskInChain = async (db, message) => {
   return Boolean(await db.scanTask.findFirst({ where, select: { id: true } }));
 };
 
+/**
+ * The advisory job (docs/modules/findings/SPEC.md 9.3.1 step 2, ADR-011): the finding must exist IN THE MESSAGE'S TENANT with exactly the
+ * workspace, repository and pipeline the payload states (a composite chain), and the envelope must agree with the payload when it states
+ * them too. A mismatch is `resource-not-in-tenant`; the agent then re-reads the finding through its restricted view.
+ */
+const findingInChain = async (db, message) => {
+  const { payload } = message;
+  for (const key of STATED_CHAIN)
+    if (message[key] !== undefined && payload[key] !== undefined && message[key] !== payload[key])
+      return false;
+  return Boolean(
+    await db.finding.findFirst({
+      where: {
+        id: payload.findingId,
+        tenantId: message.tenantId,
+        workspaceId: payload.workspaceId,
+        repositoryId: payload.repositoryId,
+        pipelineId: payload.pipelineId,
+      },
+      select: { id: true },
+    }),
+  );
+};
+
 const RESOURCE_CHECKS = {
+  "finding.advisory.requested": findingInChain,
   "pipeline.execution.started": executionInChain,
   "pipeline.execution.completed": executionInChain,
   "pipeline.execution.cancel_requested": executionInChain,

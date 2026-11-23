@@ -8,6 +8,7 @@ import {
   deriveSlaState,
   hasCredentialShape,
 } from "@qmentisai/shared";
+import { toAdvisoryDto } from "./advisory.js";
 
 /**
  * DTO mappers of the findings read routes (docs/modules/findings/SPEC.md 8.3). NEVER a Prisma model: every field is named here, so a
@@ -109,38 +110,8 @@ export function toListItemDto(entry, now = new Date()) {
   };
 }
 
-// ---- the advisory card (SPEC 9.3.6) ---------------------------------------------------------------------------------------------
-
-const ADVISORY_STATUS_DTO = Object.freeze({
-  ok: "ready",
-  consent_required: "consent_blocked",
-  not_configured: "not_configured",
-  failed: "failed",
-  timeout: "failed",
-  invalid_output: "failed",
-  skipped_cap: "failed",
-  skipped_untrusted: "failed",
-});
-const band = (n) => (n < 34 ? "low" : n < 67 ? "medium" : "high");
-
-/** The `AiAdvisoryCard` data. Advisory only: never a status. Reasoning is model text, stored redacted, shown as plain text. */
-export function toAdvisoryDto(row) {
-  if (!row) return { status: "none", stale: false };
-  const status = ADVISORY_STATUS_DTO[row.status] ?? "failed";
-  if (status !== "ready") return { status, egressLevel: row.egressLevel, stale: false };
-  return {
-    status,
-    suggestion: row.suggestion,
-    confidence: row.confidence,
-    confidenceBand: band(row.confidence),
-    reasoning: row.reasoning,
-    ...(row.provider ? { provider: row.provider } : {}),
-    ...(row.model ? { model: row.model } : {}),
-    egressLevel: row.egressLevel,
-    generatedAt: iso(row.createdAt),
-    stale: false,
-  };
-}
+// The advisory card (SPEC 9.3.6) is built in ./advisory.js (Part D).
+export { toAdvisoryDto };
 
 // ---- the commit-pinned link (SPEC 5.5, 8.3) -------------------------------------------------------------------------------------
 

@@ -18,7 +18,8 @@
     "./outbox": "./src/outbox/index.js",
     "./scm": "./src/scm/index.js",
     "./dbrefresh": "./src/dbrefresh/index.js",
-    "./findings": "./src/findings/index.js"
+    "./findings": "./src/findings/index.js",
+    "./findings-agent": "./src/findings-agent/index.js"
   },
   "scripts": {
     "lint": "eslint .",
@@ -42,7 +43,9 @@
     "start:dbrefresh": "node --env-file-if-exists=.env src/dbrefresh/main.js",
     "dev:dbrefresh": "node --watch --env-file-if-exists=.env src/dbrefresh/main.js",
     "start:findings": "node --env-file-if-exists=.env src/findings/main.js",
-    "dev:findings": "node --watch --env-file-if-exists=.env src/findings/main.js"
+    "dev:findings": "node --watch --env-file-if-exists=.env src/findings/main.js",
+    "start:findings-agent": "node --env-file-if-exists=.env src/findings-agent/main.js",
+    "dev:findings-agent": "node --watch --env-file-if-exists=.env src/findings-agent/main.js"
   },
   "dependencies": {
     "@qmentisai/contracts": "workspace:*",

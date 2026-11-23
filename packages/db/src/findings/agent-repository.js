@@ -18,9 +18,9 @@ export function createFindingsAgentRepository({ db }) {
   return Object.freeze({
     /**
      * The finding as the agent may see it, by tenant, workspace and id, with the chain ids of the message verified against the row.
-     * Null on any mismatch, and for a secret finding (not in the view). The shape is what `buildAdvisoryInput` takes plus the ids,
-     * `rev`, `originTrust` and the `evidence` excerpt (code findings only).
-     * @type {(ids: { tenantId: string, workspaceId: string, repositoryId: string, pipelineId: string, findingId: string }) => Promise<object | null>}
+     * Null on any mismatch, and for a secret finding (not in the view). Returns `{ finding, evidence }`: `finding` is what
+     * `buildAdvisoryInput` takes plus the ids, `rev`, `severity` and `originTrust`; `evidence` is the excerpt row or null.
+     * @type {(ids: { tenantId: string, workspaceId: string, repositoryId: string, pipelineId: string, findingId: string }) => Promise<{ finding: Record<string, any>, evidence: Record<string, any> | null } | null>}
      */
     async getFindingForAdvisory(ids) {
       const rows = await db.$queryRaw`
@@ -31,7 +31,7 @@ export function createFindingsAgentRepository({ db }) {
       const r = rows[0];
       if (!r) return null;
       const tools = Array.isArray(r.last_seen_tools) ? r.last_seen_tools : [];
-      return {
+      const finding = {
         id: r.id,
         tenantId: r.tenant_id,
         workspaceId: r.workspace_id,
@@ -59,20 +59,22 @@ export function createFindingsAgentRepository({ db }) {
         lastSeenAt: r.last_seen_at,
         reopenCount: r.reopen_count,
         originTrust: r.origin_trust,
-        evidence:
-          r.evidence_snippet === null || r.evidence_snippet === undefined
-            ? null
-            : {
-                language: r.evidence_language,
-                nodeKind: r.evidence_node_kind,
-                kind: r.evidence_kind,
-                startLine: r.evidence_start_line,
-                focusStart: r.evidence_focus_start,
-                focusEnd: r.evidence_focus_end,
-                snippet: r.evidence_snippet,
-                truncated: r.evidence_truncated,
-              },
       };
+      const evidence =
+        r.evidence_snippet === null || r.evidence_snippet === undefined
+          ? null
+          : {
+              language: r.evidence_language ?? undefined,
+              nodeKind: r.evidence_node_kind ?? undefined,
+              kind: r.evidence_kind ?? undefined,
+              startLine: r.evidence_start_line ?? undefined,
+              focusStart: r.evidence_focus_start ?? undefined,
+              focusEnd: r.evidence_focus_end ?? undefined,
+              snippet: r.evidence_snippet,
+              truncated: r.evidence_truncated,
+              capturedAt: r.evidence_captured_at,
+            };
+      return { finding, evidence };
     },
 
     /**

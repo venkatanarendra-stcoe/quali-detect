@@ -17,6 +17,7 @@ const ALLOWED = [
   "scm",
   "dbrefresh",
   "findings",
+  "findings-agent",
 ];
 const names = (process.env.WORKERS ? process.env.WORKERS.split(",") : DEFAULT)
   .map((n) => n.trim())

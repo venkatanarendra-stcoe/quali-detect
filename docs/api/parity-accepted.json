@@ -72,6 +72,10 @@
     {
       "pattern": "(extra operation: |OpenAPI: extra )GET /api/v1/findings",
       "reason": "New operations of the findings module, Part A1 (docs/modules/findings/SPEC.md 8.1, docs/modules/findings/AS_BUILT_A1.md, 2026-11-23): the read routes GET /findings (filters, saved views, numbered or cursor pages, workspaceId required), GET /findings/summary, GET /findings/{id} (detail with evidence, commit-pinned link, advisory and allowed actions, ETag), GET /findings/{id}/history (newest first), GET /findings/{id}/comments (oldest first) and GET /findings/{id}/similar. Tenant audience; permission finding.view (workspace scope, through the workspace of the query or of the finding); read rate-limit profile. No write route yet (Parts B, C and D). None of them was in the Fastify baseline."
+    },
+    {
+      "pattern": "(extra operation: |OpenAPI: extra )(GET /api/v1/(review-queue|approvals)$|POST /api/v1/findings/(\\{id\\}/(claim|reviews|reopen-review|comments|exceptions)|bulk/claim))",
+      "reason": "New operations of the findings module, Part B (docs/modules/findings/SPEC.md 8.1, 8.2, docs/modules/findings/AS_BUILT_B.md, 2026-11-24): GET /review-queue and GET /approvals (the latter with canDecide and cannotDecideReason computed per caller), POST claim, reviews (record a decision), reviews/{reviewId}/withdraw|approve|reject, reopen-review, comments, exceptions (accepted risk or suppression request; the key depends on the body kind) and exceptions/{exceptionId}/withdraw|approve|reject|revoke, and POST /findings/bulk/claim. Tenant audience; workspace-scope permissions finding.review, finding.comment, approval.view, approval.approve, approval.reject, security_review.view (finding.view for withdraw and revoke, whose service then checks the requester or the key of the exception's kind); write and read rate-limit profiles; every POST accepts Idempotency-Key; stale or disallowed transitions are 409 FINDING_STATE_CONFLICT. None of them was in the Fastify baseline."
     }
   ]
 }

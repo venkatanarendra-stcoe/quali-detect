@@ -2791,6 +2791,8 @@ export const FINDINGS_A0_CHECKS = [
           if (part === "A1") continue;
           // Part B built its repositories (docs/modules/findings/AS_BUILT_B.md): same rule as A1 above.
           if (part === "B") continue;
+          // Part C built its repositories (docs/modules/findings/AS_BUILT_C.md): same rule.
+          if (part === "C") continue;
           const r = await attempt(() => repo?.[m]());
           ok(
             p,

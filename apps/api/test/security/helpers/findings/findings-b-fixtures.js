@@ -3,6 +3,7 @@ import http from "node:http";
 import express from "express";
 import pino from "pino";
 import { createProcessedMessageStore } from "@qmentisai/db";
+import { createAuditService } from "../../../../src/audit/audit-service.js";
 import { configureCursorSigning } from "../../../../src/lib/cursor-signing.js";
 import { createRouteKit } from "../../../../src/lib/route-kit.js";
 import { correlation } from "../../../../src/middleware/correlation.js";
@@ -146,7 +147,7 @@ export async function startWriteApi(db, { limits } = {}) {
   await findingsRoutes({
     db,
     authz,
-    audit: null,
+    audit: createAuditService({ db, logger: silent }), // the real audit writer (Part C: the advisory request route audits)
     outbox: null,
     entitlements: null,
     config: {},
@@ -185,11 +186,12 @@ export async function startWriteApi(db, { limits } = {}) {
     /**
      * Registers a principal: `workspaces` is `[{ id, permissions: [...] }]` (each also gets `workspace.view`). Returns its user id.
      * @param {string} name
-     * @param {{ userId: string, tenantId: string, workspaces: Array<{ id: string, permissions: readonly string[] }> }} spec
+     * @param {{ userId: string, tenantId: string, workspaces: Array<{ id: string, permissions: readonly string[] }>, tenantPermissions?: readonly string[] }} spec
+     * `tenantPermissions` (Part C, the SLA settings): tenant-scope keys such as `tenant_settings.view`.
      */
-    register(name, { userId, tenantId, workspaces }) {
+    register(name, { userId, tenantId, workspaces, tenantPermissions = [] }) {
       const permissions = {
-        tenant: [],
+        tenant: [...tenantPermissions],
         allWorkspaces: [],
         workspaces: workspaces.map((w) => ({
           id: w.id,
@@ -204,6 +206,7 @@ export async function startWriteApi(db, { limits } = {}) {
     },
     get: (name, path, options) => call("GET", name, path, undefined, options),
     post: (name, path, body, options) => call("POST", name, path, body ?? {}, options),
+    put: (name, path, body, options) => call("PUT", name, path, body ?? {}, options),
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }

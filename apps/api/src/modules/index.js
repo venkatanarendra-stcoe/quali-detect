@@ -2,6 +2,7 @@ import { auditLogsModule } from "./audit-logs/index.js";
 import { integrationsModule } from "./integrations/index.js";
 import { scmWebhooksModule } from "./scm-webhooks/index.js";
 import { executionsModule } from "./executions/index.js";
+import { findingsModule } from "./findings/index.js";
 import { pipelinesModule } from "./pipelines/index.js";
 import { repositoriesModule } from "./repositories/index.js";
 import { groupsModule } from "./groups/index.js";
@@ -39,4 +40,5 @@ export const modules = [
   executionsModule,
   userPreferencesModule,
   tenantAiSettingsModule,
+  findingsModule,
 ];

@@ -34,4 +34,7 @@ export const ERROR_CODES = Object.freeze({
   // Subscription gates (separate from authorization; they never grant permissions).
   ENTITLEMENT_REQUIRED: "ENTITLEMENT_REQUIRED",
   QUOTA_EXCEEDED: "QUOTA_EXCEEDED",
+  // Findings (docs/modules/findings/SPEC.md 8): a stale `expectedRev`, a refused state-machine transition, a pending exception, a
+  // deleted pipeline or an already decided request. `details.reason` is one of FINDING_CONFLICT_REASONS (@qmentisai/shared).
+  FINDING_STATE_CONFLICT: "FINDING_STATE_CONFLICT",
 });

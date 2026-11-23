@@ -13,6 +13,21 @@ import { messageEnvelopeSchema } from "./messages.js";
  * handlers must be naturally idempotent.
  */
 const uuid = z.string().uuid();
+const findingSeverity = z.enum(["critical", "high", "medium", "low", "info"]);
+const findingStatus = z.enum([
+  "new",
+  "in_review",
+  "awaiting_approval",
+  "approved",
+  "false_positive",
+  "assigned",
+  "in_remediation",
+  "fixed_pending_verification",
+  "verified_fixed",
+  "reopened",
+  "accepted_risk",
+  "suppressed",
+]);
 
 export const MESSAGE_TYPES = Object.freeze({
   "organization.workspace.created": Object.freeze({
@@ -483,6 +498,257 @@ export const MESSAGE_TYPES = Object.freeze({
     scope: "platform",
     schemaVersion: 1,
     payload: z.object({ retentionSeconds: z.number().int().min(0).max(31536000) }),
+  }),
+  // ---- Findings (docs/modules/findings/SPEC.md 9.1, contract freeze Part A0). Ids, enums and short validated strings ONLY: never a
+  // snippet, a rationale, a comment, a prompt, a model answer or a secret. Every consumer re-validates ownership from the database.
+  /**
+   * A finding needs an advisory (FP agent). A job for the `findings-agent` queue; messageId `finding-advisory-<findingId>-<inputHashShort>`.
+   * The chain ids exist only so the consumer can verify them against the finding row (ADR-011 ownership re-validation).
+   */
+  "finding.advisory.requested": Object.freeze({
+    kind: "job",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        repositoryId: uuid,
+        pipelineId: uuid,
+        reason: z.enum(["created", "reopened", "manual"]),
+      })
+      .strict(),
+  }),
+  "finding.created": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        repositoryId: uuid,
+        pipelineId: uuid,
+        scanType: z.enum(["sca", "sast", "secrets"]),
+        severity: findingSeverity,
+        title: z.string().min(1).max(200),
+      })
+      .strict(),
+  }),
+  /** Realtime hint after any status change (`transitionFinding`): ids, statuses, rev. */
+  "finding.status_changed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        fromStatus: findingStatus.nullable(),
+        toStatus: findingStatus,
+        rev: z.number().int().min(0),
+        actorType: z.enum(["user", "system"]),
+      })
+      .strict(),
+  }),
+  "finding.review_recorded": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        reviewId: uuid,
+        decision: z.enum(["true_positive", "false_positive"]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.approval_decided": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        approvalId: uuid,
+        kind: z.enum(["review", "exception"]),
+        decision: z.enum(["approve", "reject"]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.assigned": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        assignmentId: uuid.nullable(),
+        assigneeUserId: uuid.nullable(),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.fix_submitted": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        remediationId: uuid,
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.verified": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        verificationId: uuid,
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.reopened": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        reason: z.enum([
+          "recurred",
+          "risk_acceptance_expired",
+          "suppression_expired",
+          "revoked",
+          "severity_increased",
+        ]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.exception_requested": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        exceptionId: uuid,
+        kind: z.enum(["accept_risk", "suppress"]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.exception_decided": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        exceptionId: uuid,
+        kind: z.enum(["accept_risk", "suppress"]),
+        decision: z.enum(["approve", "reject", "withdraw", "revoke"]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.exception_expired": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        exceptionId: uuid,
+        kind: z.enum(["accept_risk", "suppress"]),
+        rev: z.number().int().min(0),
+      })
+      .strict(),
+  }),
+  "finding.comment_added": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({ findingId: uuid, workspaceId: uuid, commentId: uuid }).strict(),
+  }),
+  "finding.sla_due_soon": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        severity: findingSeverity,
+        dueAt: z.string().datetime(),
+      })
+      .strict(),
+  }),
+  "finding.sla_breached": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        severity: findingSeverity,
+        dueAt: z.string().datetime(),
+      })
+      .strict(),
+  }),
+  /** The FP agent stored an advisory row (a realtime hint: ids and the status word only). */
+  "finding.advisory.completed": Object.freeze({
+    kind: "event",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        findingId: uuid,
+        workspaceId: uuid,
+        advisoryId: uuid,
+        status: z.enum([
+          "ok",
+          "failed",
+          "consent_required",
+          "not_configured",
+          "skipped_untrusted",
+          "skipped_cap",
+          "timeout",
+          "invalid_output",
+        ]),
+      })
+      .strict(),
+  }),
+  /** Scheduler ticks of the `findings` worker (every 5 minutes): platform jobs, naturally idempotent per slot (SPEC 5.8 EX-3, 5.9 SL-4). */
+  "findings.exception.expire": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z.object({ bucket: z.number().int().min(0) }).strict(),
+  }),
+  "findings.sla.sweep": Object.freeze({
+    kind: "job",
+    scope: "platform",
+    schemaVersion: 1,
+    payload: z.object({ bucket: z.number().int().min(0) }).strict(),
   }),
 });
 

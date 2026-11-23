@@ -1,0 +1,496 @@
+// ---------------------------------------------------------------- Findings (docs/modules/findings/SPEC.md section 7, Part A0)
+// 14 new tenant-owned tables in ONE migration (SPEC D-33, 16.1). Conventions copied from the scan-engines tables: `tenant_id` in every
+// primary key (so a lookup by id alone is impossible: `findUnique` needs `tenantId_id`), COMPOSITE foreign keys that carry
+// tenant, workspace, repository and pipeline, ON DELETE RESTRICT, timestamptz(6). A finding has NO foreign key to executions,
+// scan_results or scan_result_items (execution metadata is purged after 13 months; a finding outlives it): `*_execution_id` and
+// `*_scan_result_id` are soft references, re-validated by the worker before use. User columns are plain uuids without a foreign
+// key (the precedent of execution_events.actor_user_id): history must survive a membership change; the SERVICE validates membership.
+// CHECK constraints, immutability and state-machine triggers, the SOD trigger, the fp_agent view and the restricted role grants live in the
+// migration SQL because Prisma cannot express them.
+
+enum FindingStatus {
+  new
+  in_review
+  awaiting_approval
+  approved
+  false_positive
+  assigned
+  in_remediation
+  fixed_pending_verification
+  verified_fixed
+  reopened
+  accepted_risk
+  suppressed
+
+  @@map("finding_status")
+}
+
+/// Declaration order is the keyset sort order (critical first).
+enum FindingSeverity {
+  critical
+  high
+  medium
+  low
+  info
+
+  @@map("finding_severity")
+}
+
+enum FindingScanType {
+  sca
+  sast
+  secrets
+
+  @@map("finding_scan_type")
+}
+
+enum FindingKind {
+  vulnerability
+  code_issue
+  secret
+
+  @@map("finding_kind")
+}
+
+enum FindingConfidence {
+  low
+  medium
+  high
+
+  @@map("finding_confidence")
+}
+
+enum FindingAnchorKind {
+  focus_text
+  masked_line
+  line
+  ordinal
+  component
+
+  @@map("finding_anchor_kind")
+}
+
+enum FindingOriginTrust {
+  trusted
+  untrusted_fork
+
+  @@map("finding_origin_trust")
+}
+
+/// Current state of one finding: one row per (pipeline, fingerprint). Changed only through `transitionFinding` and the ingestion update
+/// path; the BEFORE UPDATE trigger enforces the state machine, the immutable columns and `rev + 1`; a deferred constraint trigger
+/// refuses a status or assignee change without its history row.
+/// The three pointers to the open decision requests (pending review, pending exception, active exception) are DEFERRABLE INITIALLY
+/// DEFERRED in the migration (ON DELETE NO ACTION) because the requests point back at the finding.
+model Finding {
+  id                   String             @default(uuid()) @db.Uuid
+  tenantId             String             @map("tenant_id") @db.Uuid
+  workspaceId          String             @map("workspace_id") @db.Uuid
+  repositoryId         String             @map("repository_id") @db.Uuid
+  pipelineId           String             @map("pipeline_id") @db.Uuid
+  fingerprint          String
+  fpVersion            Int                @default(1) @map("fp_version") @db.SmallInt
+  correlationKey       String             @map("correlation_key")
+  scanType             FindingScanType    @map("scan_type")
+  kind                 FindingKind
+  ruleId               String             @map("rule_id")
+  ruleName             String?            @map("rule_name")
+  title                String
+  toolSeverity         FindingSeverity    @map("tool_severity")
+  severityOverride     FindingSeverity?   @map("severity_override")
+  severity             FindingSeverity
+  severityRank         Int                @map("severity_rank") @db.SmallInt
+  severityAssumed      Boolean            @default(false) @map("severity_assumed")
+  confidence           FindingConfidence
+  cwe                  Int[]              @default([])
+  advisoryIds          Json               @default("[]") @map("advisory_ids")
+  componentPurl        String?            @map("component_purl")
+  componentName        String?            @map("component_name")
+  componentVersion     String?            @map("component_version")
+  ecosystem            String?
+  fixedVersions        Json               @default("[]") @map("fixed_versions")
+  path                 String?
+  startLine            Int?               @map("start_line")
+  endLine              Int?               @map("end_line")
+  anchorKind           FindingAnchorKind  @map("anchor_kind")
+  lastSeenTools        Json               @default("[]") @map("last_seen_tools")
+  status               FindingStatus      @default(new)
+  statusChangedAt      DateTime           @default(now()) @map("status_changed_at") @db.Timestamptz(6)
+  rev                  Int                @default(0)
+  claimedByUserId      String?            @map("claimed_by_user_id") @db.Uuid
+  assigneeUserId       String?            @map("assignee_user_id") @db.Uuid
+  assignedAt           DateTime?          @map("assigned_at") @db.Timestamptz(6)
+  pendingReviewId      String?            @map("pending_review_id") @db.Uuid
+  pendingExceptionId   String?            @map("pending_exception_id") @db.Uuid
+  activeExceptionId    String?            @map("active_exception_id") @db.Uuid
+  exceptionExpiresAt   DateTime?          @map("exception_expires_at") @db.Timestamptz(6)
+  acceptedSeverity     FindingSeverity?   @map("accepted_severity")
+  firstDetectedAt      DateTime           @map("first_detected_at") @db.Timestamptz(6)
+  /// Soft references (no foreign key): the execution row may be purged after 13 months.
+  firstExecutionId     String             @map("first_execution_id") @db.Uuid
+  firstCommitSha       String             @map("first_commit_sha")
+  lastSeenAt           DateTime           @map("last_seen_at") @db.Timestamptz(6)
+  lastSeenExecutionId  String             @map("last_seen_execution_id") @db.Uuid
+  lastSeenScanResultId String?            @map("last_seen_scan_result_id") @db.Uuid
+  lastSeenCommitSha    String             @map("last_seen_commit_sha")
+  occurrenceCount      Int                @default(1) @map("occurrence_count")
+  absentCount          Int                @default(0) @map("absent_count")
+  fixClaimedAt         DateTime?          @map("fix_claimed_at") @db.Timestamptz(6)
+  verifiedAt           DateTime?          @map("verified_at") @db.Timestamptz(6)
+  reopenedAt           DateTime?          @map("reopened_at") @db.Timestamptz(6)
+  reopenCount          Int                @default(0) @map("reopen_count")
+  closedAt             DateTime?          @map("closed_at") @db.Timestamptz(6)
+  slaStartedAt         DateTime?          @map("sla_started_at") @db.Timestamptz(6)
+  slaDueAt             DateTime?          @map("sla_due_at") @db.Timestamptz(6)
+  slaDueSoonNotifiedAt DateTime?          @map("sla_due_soon_notified_at") @db.Timestamptz(6)
+  slaBreachNotifiedAt  DateTime?          @map("sla_breach_notified_at") @db.Timestamptz(6)
+  originTrust          FindingOriginTrust @default(trusted) @map("origin_trust")
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  pipeline         Pipeline          @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict, map: "findings_pipeline_fkey")
+  pendingReview    FindingReview?    @relation("FindingPendingReview", fields: [tenantId, id, pendingReviewId], references: [tenantId, findingId, id], onDelete: NoAction, map: "findings_pending_review_fkey")
+  pendingException FindingException? @relation("FindingPendingException", fields: [tenantId, id, pendingExceptionId], references: [tenantId, findingId, id], onDelete: NoAction, map: "findings_pending_exception_fkey")
+  activeException  FindingException? @relation("FindingActiveException", fields: [tenantId, id, activeExceptionId], references: [tenantId, findingId, id], onDelete: NoAction, map: "findings_active_exception_fkey")
+
+  evidence      FindingEvidence?
+  history       FindingStatusHistory[]
+  reviews       FindingReview[]        @relation("FindingReviews")
+  exceptions    FindingException[]     @relation("FindingExceptions")
+  approvals     FindingApproval[]
+  assignments   FindingAssignment[]
+  remediation   RemediationRecord[]
+  verifications VerificationRecord[]
+  comments      FindingComment[]
+  advisories    FindingAiAdvisory[]
+
+  @@id([tenantId, id])
+  @@unique([tenantId, workspaceId, repositoryId, pipelineId, id], map: "findings_chain_id_key")
+  @@unique([tenantId, pipelineId, fingerprint], map: "findings_pipeline_fingerprint_key")
+  @@index([tenantId, correlationKey], map: "findings_correlation_idx")
+  @@index([tenantId, workspaceId, status, severityRank(sort: Desc), id], map: "findings_status_idx")
+  @@index([tenantId, workspaceId, pipelineId, firstDetectedAt(sort: Desc), id], map: "findings_pipeline_first_detected_idx")
+  @@map("findings")
+}
+
+/// The latest redacted evidence copy and SCM link of a finding (1:1), replaced on every positive observation. The snippet is purged
+/// 90 days after the finding closes (SPEC 7.6). A secret finding's copy holds only the masked line of SE-42, or nothing.
+model FindingEvidence {
+  tenantId            String    @map("tenant_id") @db.Uuid
+  workspaceId         String    @map("workspace_id") @db.Uuid
+  repositoryId        String    @map("repository_id") @db.Uuid
+  pipelineId          String    @map("pipeline_id") @db.Uuid
+  findingId           String    @map("finding_id") @db.Uuid
+  kind                String
+  language            String?
+  nodeKind            String?   @map("node_kind")
+  startLine           Int?      @map("start_line")
+  endLine             Int?      @map("end_line")
+  focusStart          Int?      @map("focus_start")
+  focusEnd            Int?      @map("focus_end")
+  snippet             String?
+  truncated           Boolean   @default(false)
+  scmRef              Json?     @map("scm_ref")
+  url                 String?
+  capturedExecutionId String    @map("captured_execution_id") @db.Uuid
+  capturedAt          DateTime  @map("captured_at") @db.Timestamptz(6)
+  snippetPurgedAt     DateTime? @map("snippet_purged_at") @db.Timestamptz(6)
+
+  finding Finding @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_evidence_finding_fkey")
+
+  @@id([tenantId, findingId])
+  @@unique([tenantId, workspaceId, repositoryId, pipelineId, findingId], map: "finding_evidence_chain_key")
+  @@map("finding_evidence")
+}
+
+/// Every transition, immutable. `rev` is the NEW rev of the finding; (finding, rev) is unique.
+model FindingStatusHistory {
+  id           String         @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  workspaceId  String         @map("workspace_id") @db.Uuid
+  repositoryId String         @map("repository_id") @db.Uuid
+  pipelineId   String         @map("pipeline_id") @db.Uuid
+  findingId    String         @map("finding_id") @db.Uuid
+  rev          Int
+  fromStatus   FindingStatus? @map("from_status")
+  toStatus     FindingStatus  @map("to_status")
+  actorType    String         @map("actor_type")
+  actorUserId  String?        @map("actor_user_id") @db.Uuid
+  actorCode    String?        @map("actor_code")
+  reasonCode   String         @map("reason_code")
+  note         String?
+  executionId  String?        @map("execution_id") @db.Uuid
+  commitSha    String?        @map("commit_sha")
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding Finding @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_status_history_finding_fkey")
+
+  @@id([tenantId, id])
+  @@unique([tenantId, findingId, rev], map: "finding_status_history_rev_key")
+  @@index([tenantId, findingId, rev(sort: Desc)], map: "finding_status_history_finding_idx")
+  @@map("finding_status_history")
+}
+
+/// A TP/FP decision with rationale and optional severity override. Insert-only; `state` advances once from `pending` (guarded).
+model FindingReview {
+  id                   String           @default(uuid()) @db.Uuid
+  tenantId             String           @map("tenant_id") @db.Uuid
+  workspaceId          String           @map("workspace_id") @db.Uuid
+  repositoryId         String           @map("repository_id") @db.Uuid
+  pipelineId           String           @map("pipeline_id") @db.Uuid
+  findingId            String           @map("finding_id") @db.Uuid
+  reviewerUserId       String           @map("reviewer_user_id") @db.Uuid
+  decision             String
+  rationale            String
+  severityOverride     FindingSeverity? @map("severity_override")
+  advisoryIdAtDecision String?          @map("advisory_id_at_decision") @db.Uuid
+  state                String           @default("pending")
+  decidedAt            DateTime?        @map("decided_at") @db.Timestamptz(6)
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding   Finding           @relation("FindingReviews", fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_reviews_finding_fkey")
+  pendingOn Finding[]         @relation("FindingPendingReview")
+  approvals FindingApproval[]
+
+  @@id([tenantId, id])
+  @@unique([tenantId, findingId, id], map: "finding_reviews_finding_id_key")
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "finding_reviews_finding_idx")
+  @@map("finding_reviews")
+}
+
+/// Accept-risk and suppression requests and their outcome (guarded state machine, SPEC 5.8). One `pending` and one `approved` per
+/// finding (partial unique indexes in the migration).
+model FindingException {
+  id                      String          @default(uuid()) @db.Uuid
+  tenantId                String          @map("tenant_id") @db.Uuid
+  workspaceId             String          @map("workspace_id") @db.Uuid
+  repositoryId            String          @map("repository_id") @db.Uuid
+  pipelineId              String          @map("pipeline_id") @db.Uuid
+  findingId               String          @map("finding_id") @db.Uuid
+  kind                    String
+  requestedByUserId       String          @map("requested_by_user_id") @db.Uuid
+  justification           String
+  compensatingControls    String?         @map("compensating_controls")
+  requestedApproverUserId String?         @map("requested_approver_user_id") @db.Uuid
+  expiresAt               DateTime?       @map("expires_at") @db.Timestamptz(6)
+  acceptedSeverity        FindingSeverity @map("accepted_severity")
+  state                   String          @default("pending")
+  stateReason             String?         @map("state_reason")
+  decidedAt               DateTime?       @map("decided_at") @db.Timestamptz(6)
+  endedAt                 DateTime?       @map("ended_at") @db.Timestamptz(6)
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding   Finding           @relation("FindingExceptions", fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_exceptions_finding_fkey")
+  pendingOn Finding[]         @relation("FindingPendingException")
+  activeOn  Finding[]         @relation("FindingActiveException")
+  approvals FindingApproval[]
+
+  @@id([tenantId, id])
+  @@unique([tenantId, findingId, id], map: "finding_exceptions_finding_id_key")
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "finding_exceptions_finding_idx")
+  @@map("finding_exceptions")
+}
+
+/// One approve or reject decision on a review OR an exception (exactly one, CHECK). Insert-only; the SOD trigger refuses an approver
+/// who reviewed, or requested an exception on, the same finding.
+model FindingApproval {
+  id             String   @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  repositoryId   String   @map("repository_id") @db.Uuid
+  pipelineId     String   @map("pipeline_id") @db.Uuid
+  findingId      String   @map("finding_id") @db.Uuid
+  reviewId       String?  @map("review_id") @db.Uuid
+  exceptionId    String?  @map("exception_id") @db.Uuid
+  approverUserId String   @map("approver_user_id") @db.Uuid
+  decision       String
+  comment        String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding   Finding           @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_approvals_finding_fkey")
+  review    FindingReview?    @relation(fields: [tenantId, findingId, reviewId], references: [tenantId, findingId, id], onDelete: Restrict, map: "finding_approvals_review_fkey")
+  exception FindingException? @relation(fields: [tenantId, findingId, exceptionId], references: [tenantId, findingId, id], onDelete: Restrict, map: "finding_approvals_exception_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "finding_approvals_finding_idx")
+  @@map("finding_approvals")
+}
+
+/// Assignment events (insert-only; `ended_at` is set once by a guarded update).
+model FindingAssignment {
+  id               String    @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  repositoryId     String    @map("repository_id") @db.Uuid
+  pipelineId       String    @map("pipeline_id") @db.Uuid
+  findingId        String    @map("finding_id") @db.Uuid
+  assigneeUserId   String    @map("assignee_user_id") @db.Uuid
+  assignedByUserId String    @map("assigned_by_user_id") @db.Uuid
+  note             String?
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  endedAt          DateTime? @map("ended_at") @db.Timestamptz(6)
+  endedReason      String?   @map("ended_reason")
+
+  finding     Finding             @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_assignments_finding_fkey")
+  remediation RemediationRecord[]
+
+  @@id([tenantId, id])
+  @@unique([tenantId, findingId, id], map: "finding_assignments_finding_id_key")
+  @@index([tenantId, workspaceId, assigneeUserId, createdAt(sort: Desc)], map: "finding_assignments_assignee_idx")
+  @@map("finding_assignments")
+}
+
+/// Start-work and submit-fix events (human). Insert-only.
+model RemediationRecord {
+  id             String   @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  workspaceId    String   @map("workspace_id") @db.Uuid
+  repositoryId   String   @map("repository_id") @db.Uuid
+  pipelineId     String   @map("pipeline_id") @db.Uuid
+  findingId      String   @map("finding_id") @db.Uuid
+  assignmentId   String   @map("assignment_id") @db.Uuid
+  kind           String
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  pullRequestUrl String?  @map("pull_request_url")
+  ticketKey      String?  @map("ticket_key")
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding    Finding           @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "remediation_records_finding_fkey")
+  assignment FindingAssignment @relation(fields: [tenantId, findingId, assignmentId], references: [tenantId, findingId, id], onDelete: Restrict, map: "remediation_records_assignment_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "remediation_records_finding_idx")
+  @@map("remediation_records")
+}
+
+/// Scan-derived verification outcomes. Written by ingestion only; insert-only. `execution_id` and `scan_result_id` are soft references.
+model VerificationRecord {
+  id           String   @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  pipelineId   String   @map("pipeline_id") @db.Uuid
+  findingId    String   @map("finding_id") @db.Uuid
+  outcome      String
+  executionId  String   @map("execution_id") @db.Uuid
+  commitSha    String   @map("commit_sha")
+  scanResultId String?  @map("scan_result_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding Finding @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "verification_records_finding_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "verification_records_finding_idx")
+  @@map("verification_records")
+}
+
+/// Comments (insert-only, plain text, no credential shape).
+model FindingComment {
+  id           String   @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  workspaceId  String   @map("workspace_id") @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  pipelineId   String   @map("pipeline_id") @db.Uuid
+  findingId    String   @map("finding_id") @db.Uuid
+  authorUserId String   @map("author_user_id") @db.Uuid
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding Finding @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_comments_finding_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "finding_comments_finding_idx")
+  @@map("finding_comments")
+}
+
+/// The FP advisory agent's output (insert-only; the agent's database role may write ONLY this table). No prompt, no raw response.
+model FindingAiAdvisory {
+  id            String   @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  repositoryId  String   @map("repository_id") @db.Uuid
+  pipelineId    String   @map("pipeline_id") @db.Uuid
+  findingId     String   @map("finding_id") @db.Uuid
+  inputHash     String   @map("input_hash")
+  schemaVersion Int      @default(1) @map("schema_version")
+  status        String
+  suggestion    String?
+  confidence    Int?
+  reasoning     String?
+  egressLevel   String   @map("egress_level")
+  provider      String?
+  model         String?
+  usage         Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding Finding @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId, findingId], references: [tenantId, workspaceId, repositoryId, pipelineId, id], onDelete: Restrict, map: "finding_ai_advisories_finding_fkey")
+
+  @@id([tenantId, id])
+  @@unique([tenantId, findingId, inputHash], map: "finding_ai_advisories_input_key")
+  @@index([tenantId, findingId, createdAt(sort: Desc)], map: "finding_ai_advisories_finding_idx")
+  @@map("finding_ai_advisories")
+}
+
+/// Per-tenant SLA hours by severity (SPEC SL-1). No row means the shared default. Editing is a tenant setting (audited).
+model FindingSlaTarget {
+  tenantId        String          @map("tenant_id") @db.Uuid
+  severity        FindingSeverity
+  hours           Int
+  updatedByUserId String?         @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([tenantId, severity])
+  @@map("finding_sla_targets")
+}
+
+/// Per-pipeline ingestion markers and the tracked baseline ref. Markers never decrease (trigger).
+model FindingPipelineState {
+  tenantId                     String    @map("tenant_id") @db.Uuid
+  workspaceId                  String    @map("workspace_id") @db.Uuid
+  repositoryId                 String    @map("repository_id") @db.Uuid
+  pipelineId                   String    @map("pipeline_id") @db.Uuid
+  trackedRef                   String?   @map("tracked_ref")
+  lastIngestedStartedAt        DateTime? @map("last_ingested_started_at") @db.Timestamptz(6)
+  resolutionWatermarkStartedAt DateTime? @map("resolution_watermark_started_at") @db.Timestamptz(6)
+  updatedAt                    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict, map: "finding_pipeline_state_pipeline_fkey")
+
+  @@id([tenantId, pipelineId])
+  @@unique([tenantId, workspaceId, repositoryId, pipelineId], map: "finding_pipeline_state_chain_key")
+  @@map("finding_pipeline_state")
+}
+
+/// One row per (execution, scan type) processed: idempotency (a replay is a no-op) and the metrics counters. Insert-only.
+/// `execution_id` is a soft reference. `failed` rows do not block a retry (the unique index excludes them).
+model FindingIngestion {
+  id                 String          @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  workspaceId        String          @map("workspace_id") @db.Uuid
+  repositoryId       String          @map("repository_id") @db.Uuid
+  pipelineId         String          @map("pipeline_id") @db.Uuid
+  executionId        String          @map("execution_id") @db.Uuid
+  scanType           FindingScanType @map("scan_type")
+  status             String
+  skipReason         String?         @map("skip_reason")
+  itemsSeen          Int             @default(0) @map("items_seen")
+  created            Int             @default(0)
+  recurred           Int             @default(0)
+  autoPending        Int             @default(0) @map("auto_pending")
+  verified           Int             @default(0)
+  reopened           Int             @default(0)
+  dropped            Int             @default(0)
+  resolutionEligible Boolean         @default(false) @map("resolution_eligible")
+  durationMs         Int             @default(0) @map("duration_ms")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Restrict, map: "finding_ingestions_pipeline_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, pipelineId, createdAt(sort: Desc)], map: "finding_ingestions_pipeline_idx")
+  @@map("finding_ingestions")
+}

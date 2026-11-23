@@ -99,6 +99,8 @@ model Tenant {
   scanResultItems     ScanResultItem[]
   scanResultDetails   ScanResultItemDetail[]
   scanToolRuns        ScanToolRun[]
+  findings            Finding[]
+  findingSlaTargets   FindingSlaTarget[]
   executionLogs       ExecutionLog[]
   logCounters         ExecutionLogCounter[]
   taskLogCounters     ExecutionTaskLogCounter[]

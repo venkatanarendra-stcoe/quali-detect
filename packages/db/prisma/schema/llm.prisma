@@ -2,11 +2,16 @@
 /// on the first change; no row means no consent. An external provider (Anthropic, OpenAI) is used for a tenant only while
 /// `externalConsent` is true. Read by tenant id only; changed through `PUT /settings/ai` with an audit entry in the same transaction.
 model TenantLlmSettings {
-  tenantId         String    @id @map("tenant_id") @db.Uuid
-  externalConsent  Boolean   @default(false) @map("external_consent")
-  updatedByUserId  String?   @map("updated_by_user_id") @db.Uuid
-  consentChangedAt DateTime? @map("consent_changed_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  tenantId                    String    @id @map("tenant_id") @db.Uuid
+  externalConsent             Boolean   @default(false) @map("external_consent")
+  updatedByUserId             String?   @map("updated_by_user_id") @db.Uuid
+  consentChangedAt            DateTime? @map("consent_changed_at") @db.Timestamptz(6)
+  /// Second, separate consent tier (ADR-013 addendum, Findings SPEC 11.3, owner decision 2026-11-23): sending short SOURCE excerpts of
+  /// findings to an external provider. Implies `externalConsent` (CHECK). Default off. Never applies to secret findings.
+  codeSnippetConsent          Boolean   @default(false) @map("code_snippet_consent")
+  codeSnippetConsentChangedAt DateTime? @map("code_snippet_consent_changed_at") @db.Timestamptz(6)
+  codeSnippetConsentChangedBy String?   @map("code_snippet_consent_changed_by") @db.Uuid
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   updatedBy User?  @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)

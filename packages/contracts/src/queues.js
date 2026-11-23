@@ -24,6 +24,14 @@ export const QUEUE_NAMES = Object.freeze({
   SCAN_UNTRUSTED: "scan-untrusted",
   /** The vulnerability DB mirror refresh job (docs/modules/scan-engines/SPEC.md SE-34); platform worker role `dbrefresh`. */
   DBREFRESH: "dbrefresh",
+  /**
+   * Findings ingestion (docs/modules/findings/SPEC.md IN-1, 9.2): the `pipeline.execution.completed` event is also written to this queue
+   * (a second outbox row, message id `execution-completed-findings-<executionId>`), plus the expiry, SLA and retention jobs. Hosted by
+   * the `findings` worker, only while FINDINGS_INGESTION_ENABLED=true (default off).
+   */
+  FINDINGS: "findings",
+  /** The false-positive advisory agent's jobs (`finding.advisory.requested`), hosted by the `findings-agent` worker (FINDINGS_AGENT_ENABLED, default off; SPEC 9.2). */
+  FINDINGS_AGENT: "findings-agent",
 });
 
 /** Topic exchange for webhook-derived SCM events; routing key `scm.github.<event>` (SPEC Q11). */

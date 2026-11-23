@@ -76,7 +76,19 @@ export function createTenantLlmSettingsRepository({ db }) {
           updatedByUserId: userId,
           consentChangedAt: now,
         },
-        update: { externalConsent: enabled, updatedByUserId: userId, consentChangedAt: now },
+        update: {
+          externalConsent: enabled,
+          updatedByUserId: userId,
+          consentChangedAt: now,
+          // the code-snippet tier implies the external tier (CHECK, ADR-013 addendum): withdrawing the first withdraws the second
+          ...(!enabled && existing?.codeSnippetConsent === true
+            ? {
+                codeSnippetConsent: false,
+                codeSnippetConsentChangedAt: now,
+                codeSnippetConsentChangedBy: userId,
+              }
+            : {}),
+        },
       });
       return { previous, current: enabled, changed: true, row };
     },

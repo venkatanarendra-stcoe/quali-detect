@@ -64,6 +64,11 @@ import { STORE_CHECKS } from "./helpers/exec-store-checks.js";
 import { buildRealtimeWorld, REALTIME_CHECKS } from "./helpers/realtime-checks.js";
 import { buildExecHttpChecks } from "./helpers/exec-http-checks.js";
 import {
+  buildFindingsWorld,
+  FINDINGS_CHECKS,
+  FINDINGS_CHECKS_TOTAL,
+} from "./helpers/findings/index.js";
+import {
   DAY_FIRES,
   NEXT_FIRES,
   OVERLAP_WALKS,
@@ -77,7 +82,8 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 909;
+/** 909 checks before the Findings module (ADR-008 area 19); each part's range is pre-assigned in helpers/findings/expected.js. */
+const EXPECTED_CHECKS = 909 + FINDINGS_CHECKS_TOTAL;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5720,6 +5726,24 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       name,
       { status: 200 },
       async () => ({ status: 200, json: null, problems: await run(await execdbWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Findings (ADR-008 area 19, docs/modules/findings/SPEC.md 14.1, 16.1): the contract freeze (Part A0) and, as the parts land, their own
+// checks. Database checks run in process against the disposable database; the shared-package properties need no world. Each part
+// registers in its own file (helpers/findings/findings-<part>-checks.js) and its own line of helpers/findings/expected.js.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Findings: contract freeze, database integrity and shared properties");
+  const findingsWorld = () => once("findings", () => buildFindingsWorld(suiteDb()));
+  for (const { id, name, run } of FINDINGS_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await findingsWorld()) }),
       (r) => r.problems,
     );
 }

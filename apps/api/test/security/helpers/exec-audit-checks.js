@@ -109,6 +109,10 @@ async function compositeKeyProblems(db) {
   // the vulnerability DB mirror's snapshot table (scan engines part F) is public platform data: no tenant, no execution
   // (ENG-S12h proves it has no tenant-owned column and no foreign key)
   found.delete("scan_db_snapshots");
+  // the Findings tables keep a SOFT uuid reference to an execution on purpose (execution rows are purged after 13 months, a finding
+  // outlives them: SPEC findings 7.1); FNDA0-09 proves they have no foreign key to executions and that every foreign key carries tenant_id
+  for (const t of ["finding_ingestions", "finding_status_history", "verification_records"])
+    found.delete(t);
   const expected = new Set(EXECUTION_CHILD_TABLES);
   for (const t of found)
     if (!expected.has(t))

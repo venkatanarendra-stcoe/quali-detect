@@ -94,6 +94,15 @@ const envSchema = z.object({
   // scan workers: while it is "true" the ensemble SBOM engine replaces the built-in one and the decision stores the changed paths.
   // The sandbox settings below only describe the container runtime CLI; no secret is involved.
   SCAN_ENGINES_ENSEMBLE_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Findings (docs/modules/findings/SPEC.md IN-1, 9.2, owner decisions of 2026-11-23): BOTH flags default OFF and nothing is written, queued or
+  // handled while they are "false". FINDINGS_AGENT_DATABASE_URL is the connection string of the restricted `qm_fp_agent` login role (read
+  // view + advisory insert only; a secret: never logged). It is REQUIRED in production while FINDINGS_AGENT_ENABLED=true.
+  FINDINGS_INGESTION_ENABLED: z.enum(["true", "false"]).default("false"),
+  FINDINGS_AGENT_ENABLED: z.enum(["true", "false"]).default("false"),
+  FINDINGS_AGENT_DATABASE_URL: z.string().url().optional(),
+  FINDINGS_FIX_CONFIRMATIONS: z.coerce.number().int().min(1).max(5).default(1),
+  FINDINGS_AGENT_MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(32).default(2),
+  FINDINGS_AGENT_TENANT_DAILY_CAP: z.coerce.number().int().min(1).max(100000).default(500),
   // The Docker-compatible CLI (execFile, never a shell). Nothing assumes a rootful runtime; rootless operation and uid mapping are
   // UNVERIFIED (SPEC D-20, ENG-L18). The Docker socket is never mounted into a container.
   SANDBOX_RUNTIME_BIN: z.enum(["docker", "podman"]).default("podman"),
@@ -254,6 +263,17 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
     executionProblems.push({
       variable: "EXECUTION_METADATA_RETENTION_MONTHS",
       message: "must keep execution metadata at least as long as the logs",
+    });
+  // SPEC 9.3.4 layer 1: in production the advisory agent refuses to start without the restricted database role.
+  if (
+    e.FINDINGS_AGENT_ENABLED === "true" &&
+    e.NODE_ENV === "production" &&
+    !e.FINDINGS_AGENT_DATABASE_URL
+  )
+    executionProblems.push({
+      variable: "FINDINGS_AGENT_DATABASE_URL",
+      message:
+        "required in production while FINDINGS_AGENT_ENABLED=true (the restricted qm_fp_agent login role)",
     });
   const sandbox = {
     runtimeBin: e.SANDBOX_RUNTIME_BIN,
@@ -467,6 +487,15 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       untrustedCapacityShare: e.SCAN_UNTRUSTED_CAPACITY_SHARE,
       waitSeconds: e.SCAN_RUNNER_WAIT_SECONDS,
       janitorSeconds: e.SCAN_RUNNER_JANITOR_SECONDS,
+    }),
+    findings: Object.freeze({
+      ingestionEnabled: e.FINDINGS_INGESTION_ENABLED === "true",
+      agentEnabled: e.FINDINGS_AGENT_ENABLED === "true",
+      /** The restricted-role connection string; null in development when unset (SPEC 9.3.4: the agent then uses the normal pool through the code layer and warns). */
+      agentDatabaseUrl: e.FINDINGS_AGENT_DATABASE_URL ?? null,
+      fixConfirmations: e.FINDINGS_FIX_CONFIRMATIONS,
+      agentMaxConcurrentCalls: e.FINDINGS_AGENT_MAX_CONCURRENT_CALLS,
+      agentTenantDailyCap: e.FINDINGS_AGENT_TENANT_DAILY_CAP,
     }),
     scanDecision: Object.freeze({
       secretsRule: e.SCAN_DECISION_SECRETS_RULE,

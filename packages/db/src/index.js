@@ -9,3 +9,4 @@ export * from "./entitlements/index.js";
 export * from "./executions/index.js";
 export * from "./llm-settings.js";
 export * from "./scan-db-snapshots.js";
+export * from "./findings/index.js";

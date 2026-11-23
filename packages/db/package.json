@@ -18,7 +18,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "node --env-file-if-exists=.env prisma/seed.js",
-    "db:format": "prisma format"
+    "db:format": "prisma format",
+    "provision:fp-agent-login": "node --env-file-if-exists=.env scripts/provision-fp-agent-login.js"
   },
   "dependencies": {
     "@prisma/client": "catalog:",

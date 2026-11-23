@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import * as dbPackage from "@qmentisai/db";
-import { buildAdvisoryInput } from "@qmentisai/shared";
+import { buildAdvisoryInput, evaluateCoverage } from "@qmentisai/shared";
+import {
+  createConcurrencyLimiter,
+  runAdvisory,
+} from "../../../../../workers/src/findings-agent/index.js";
 import { createFindingsIngestHandler } from "../../../../../workers/src/findings/handler.js";
 import { findingsRoutes } from "../../../../src/modules/findings/routes/index.js";
 import { createExceptionExpiryHandler } from "../../../../../workers/src/findings/expiry.js";
@@ -996,10 +1000,11 @@ export const FINDINGS_F_CHECKS = [
             // (202, one outbox job and one audit entry) in an archived workspace. It changes no finding, but FND-S16 says every mutation
             // is refused. The day the route refuses it with 409 workspace_archived this assertion fails: replace it with the refusal.
             advisoryAccepted = r.status === 202;
-            ok(
+            eq(
               p,
-              [202, 409].includes(r.status),
-              `${label}: archived workspace answered ${r.status}`,
+              `${label}: KNOWN DEFECT D-F1 (if this is now 409 the defect is fixed: replace this branch by the 409 assertion)`,
+              r.status,
+              202,
             );
           } else {
             eq(
@@ -1308,6 +1313,14 @@ export const FINDINGS_F_CHECKS = [
         evidenceRows.some((r) => r.snippet?.includes(MARK)),
         "control: the excerpt itself is stored (the marker is in the evidence copy)",
       );
+      // KNOWN DEFECT D-F2: the widened-list canaries ARE still stored in the evidence copy. When this fails the defect is fixed:
+      // remove the `passing` exemption of the evidence surface above and this control.
+      ok(
+        p,
+        passing.length === 0 ||
+          evidenceRows.some((r) => passing.some((n) => r.snippet?.includes(CANARY[n]))),
+        "D-F2 seems fixed: the evidence copy no longer keeps a canary the widened redaction flags; remove the exemption",
+      );
       // the DTOs of every read route
       const ids = found.map((f) => f.id);
       const reads = [
@@ -1380,6 +1393,195 @@ export const FINDINGS_F_CHECKS = [
       // the logs of the ingestion handler
       ok(p, lines.length > 0, "control: the ingestion handler logged");
       leaks("the ingestion logs", lines.join("\n"));
+      return p;
+    },
+  },
+  {
+    id: "FND-S19",
+    name: "the advisory agent trusts a loaded finding only when it carries the WHOLE chain of the message (SPEC 9.3.1 steps 1 and 2, FPA-S07, ADR-003, part F; kills the survivors of the mutation sweep on the five comparisons of runAdvisory): a repository that hands back a row whose tenant, workspace, repository, pipeline or id differs from the message in exactly ONE of the five (a buggy or hostile port, however unlikely) gets the request dropped, with no provider resolved, no consent read and no advisory stored, and a row with the whole chain proceeds (the control)",
+    async run() {
+      const p = [];
+      const T = randomUUID();
+      const row = (over = {}) => ({
+        tenantId: T,
+        workspaceId: randomUUID(),
+        repositoryId: randomUUID(),
+        pipelineId: randomUUID(),
+        id: randomUUID(),
+        scanType: "sast",
+        severity: "high",
+        originTrust: "trusted",
+        ruleId: "python.lang.security.eval",
+        ruleName: "Use of eval",
+        toolSeverity: "high",
+        confidence: "medium",
+        toolCount: 1,
+        cwe: [95],
+        advisoryIds: [],
+        path: "src/app.py",
+        startLine: 10,
+        endLine: 10,
+        occurrenceCount: 1,
+        firstDetectedAt: new Date(Date.now() - 86_400_000),
+        reopenCount: 0,
+        ...over,
+      });
+      const messageFor = (f) => ({
+        tenantId: f.tenantId,
+        payload: {
+          findingId: f.id,
+          workspaceId: f.workspaceId,
+          repositoryId: f.repositoryId,
+          pipelineId: f.pipelineId,
+          reason: "created",
+        },
+      });
+      const attempt = async (messageRow, returnedRow) => {
+        const seen = { resolved: 0, consent: 0, inserted: 0 };
+        const outcome = await runAdvisory({
+          message: messageFor(messageRow),
+          repository: {
+            getFindingForAdvisory: async () => ({ finding: returnedRow, evidence: null }),
+            readConsent: async () => {
+              seen.consent += 1;
+              return { externalConsent: false, codeSnippetConsent: false };
+            },
+            findAdvisoryByHash: async () => null,
+            countAdvisoriesSince: async () => 0,
+            insertAdvisory: async () => {
+              seen.inserted += 1;
+              return { id: randomUUID(), created: true };
+            },
+          },
+          llm: {
+            providerKind: "local",
+            resolveProvider: async () => {
+              seen.resolved += 1;
+              return { provider: null, status: "not_configured" };
+            },
+          },
+          config: { findings: { agentTenantDailyCap: 500 } },
+          limiter: createConcurrencyLimiter(2),
+          rateLimiter: { tryAcquire: async () => true },
+          now: () => new Date(),
+        });
+        return { outcome: outcome.outcome, ...seen };
+      };
+      const base = row();
+      const control = await attempt(base, base);
+      ok(
+        p,
+        control.outcome !== "dropped",
+        `control: a row with the whole chain was dropped (${j(control)})`,
+      );
+      for (const field of ["tenantId", "workspaceId", "repositoryId", "pipelineId", "id"]) {
+        const got = await attempt(base, { ...base, [field]: randomUUID() });
+        eq(p, `a row that differs in ${field}`, got, {
+          outcome: "dropped",
+          resolved: 0,
+          consent: 0,
+          inserted: 0,
+        });
+      }
+      eq(p, "a missing row", (await attempt(base, null)).outcome, "dropped");
+      return p;
+    },
+  },
+  {
+    id: "FND-S20",
+    name: "resolution coverage, every refusal and the gap matching (SPEC 5.4, D-2, D-25, OD-5, part F; kills the survivors of the mutation sweep on evaluateCoverage): from one eligible, complete, covering, undegraded full-tree baseline result that reports a finding absent, ONE condition at a time (event disagreement, not eligible, not baseline, a stale watermark including the equal start, a disabled type, no result, incomplete, truncated, coverage not complete, a degraded tool, a partial scope, a tool that did not run or has no run) answers not absent with its own reason; a coverage gap equal to the finding's ecosystem (any case) or equal to its path or a directory prefix of it blocks the resolution, while a sibling directory that merely shares the prefix, an empty gap and a gap of another ecosystem do not",
+    async run() {
+      const p = [];
+      const finding = {
+        scanType: "sca",
+        ecosystem: "npm",
+        path: "services/api/package-lock.json",
+        lastSeenTools: ["trivy"],
+      };
+      const execution = {
+        resolutionEligible: true,
+        isBaseline: true,
+        startedAt: new Date("2026-11-23T10:00:00Z"),
+        resolutionWatermarkStartedAt: new Date("2026-11-23T09:00:00Z"),
+        typeEnabled: true,
+      };
+      const result = {
+        completeness: "complete",
+        truncated: false,
+        fullTree: true,
+        coverage: { state: "complete", coverageGaps: [], toolsDegraded: 0 },
+      };
+      const runs = [{ toolId: "trivy", status: "succeeded" }];
+      const ask = (f = {}, e = {}, r = {}, t = runs) =>
+        evaluateCoverage(
+          { ...finding, ...f },
+          { ...execution, ...e },
+          r === null
+            ? null
+            : {
+                ...result,
+                ...r,
+                coverage: r.coverage === undefined ? result.coverage : r.coverage,
+              },
+          t,
+        );
+      eq(p, "control: every condition holds", ask(), { absent: true });
+      const refusals = [
+        ["eligibility_disagrees", ask({}, { eligibilityDisagrees: true })],
+        ["not_eligible", ask({}, { resolutionEligible: false })],
+        ["not_baseline", ask({}, { isBaseline: false })],
+        [
+          "stale_watermark",
+          ask({}, { resolutionWatermarkStartedAt: new Date("2026-11-23T11:00:00Z") }),
+        ],
+        [
+          "stale_watermark",
+          ask({}, { resolutionWatermarkStartedAt: new Date("2026-11-23T10:00:00Z") }),
+        ],
+        ["type_disabled", ask({}, { typeEnabled: false })],
+        ["no_result", ask({}, {}, null)],
+        ["incomplete", ask({}, {}, { completeness: "incomplete" })],
+        ["truncated", ask({}, {}, { truncated: true })],
+        ["coverage_not_complete", ask({}, {}, { coverage: null })],
+        [
+          "coverage_not_complete",
+          ask({}, {}, { coverage: { state: "partial", coverageGaps: [], toolsDegraded: 0 } }),
+        ],
+        [
+          "tools_degraded",
+          ask({}, {}, { coverage: { state: "complete", coverageGaps: [], toolsDegraded: 1 } }),
+        ],
+        ["tools_degraded", ask({}, {}, { coverage: { state: "complete", coverageGaps: [] } })],
+        ["partial_scope", ask({}, {}, { fullTree: false })],
+        ["tool_not_run", ask({}, {}, {}, [{ toolId: "trivy", status: "failed" }])],
+        ["tool_not_run", ask({}, {}, {}, [])],
+      ];
+      for (const [reason, got] of refusals)
+        eq(p, `refusal ${reason}`, got, { absent: false, reason });
+      // a watermark strictly before the start is fine, and so is no watermark at all
+      eq(p, "no watermark", ask({}, { resolutionWatermarkStartedAt: null }), { absent: true });
+      const gap = (g, f = {}) =>
+        ask(f, {}, { coverage: { state: "complete", coverageGaps: g, toolsDegraded: 0 } });
+      const blocked = { absent: false, reason: "coverage_gap" };
+      eq(p, "a gap equal to the ecosystem", gap(["npm"]), blocked);
+      eq(p, "a gap equal to the ecosystem in another case", gap(["NPM"]), blocked);
+      eq(p, "a gap equal to the path", gap(["services/api/package-lock.json"]), blocked);
+      eq(p, "a gap that is a directory prefix of the path", gap(["services/api"]), blocked);
+      eq(p, "a gap with a trailing path of another directory", gap(["services/ap"]), {
+        absent: true,
+      });
+      eq(p, "a sibling directory sharing the prefix", gap(["services/api-legacy"]), {
+        absent: true,
+      });
+      eq(p, "an empty gap", gap([""]), { absent: true });
+      eq(p, "a gap of another ecosystem", gap(["pypi"]), { absent: true });
+      eq(
+        p,
+        "a gap on a finding without a path or ecosystem",
+        gap(["npm"], { ecosystem: null, path: null }),
+        { absent: true },
+      );
+      eq(p, "no gaps listed", gap([]), { absent: true });
       return p;
     },
   },

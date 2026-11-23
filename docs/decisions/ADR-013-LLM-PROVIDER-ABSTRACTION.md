@@ -3,6 +3,7 @@
 - **Status:** **Accepted, as built (2026-11-18)**; approved 2026-11-17 by the product owner. Live-verified on 2026-11-18: only the local Ollama adapter (`gpt-oss:20b`, through a counting proxy) and `LLM_PROVIDER=none`; the stand-in addition path is in scan-decisioning SPEC 17.i. **The real-vendor adapters (Anthropic, OpenAI) are NOT verified live** (LT-11 deferred; their tool-result format is an open pre-production item in `docs/decisions/OPEN_DECISIONS.md`), and no real model has yet made an addition on its own. Original status line follows.
 - **Approved:** (2026-11-17, product owner). The choices are recorded in "Decisions (owner, 2026-11-17)" below. Part B (the `LLMProvider` layer, the three adapters, the deployment configuration, the platform-secret names and the consent gate) and part D (the harness, section 3) are implemented (see "As built, part B" and "As built, part D" below).
 - **Date:** 2026-11-17
+- **Amended:** 2026-11-23 (Findings module, `docs/modules/findings/SPEC.md` 11.3, **Accepted by the product owner 2026-11-23**): addendum "A second consent tier for source-code snippets" below. The existing decisions and the `{ provider, status }` shape of the resolver are unchanged.
 - **Decision owners:** Product owner (decision); Claude Code (proposal)
 - **Relation to existing documents:** the open item "AI provider/model selection: provider-independent abstraction recommended" in `docs/decisions/OPEN_DECISIONS.md`; ADR-001 (JavaScript only), ADR-002 (modular monolith and separate workers), ADR-009 (SecretStore and PlatformSecretProvider), ADR-011 (envelopes); `docs/technical/SECURITY_GUIDELINES.md` "Repository and AI safety".
 
@@ -125,8 +126,24 @@ The layer is small, optional and security-critical. A thin owned interface keeps
 - Failures never fail the caller's workflow: `null` provider, timeout, error and invalid output are normal results with a documented fallback.
 - Security-suite coverage for the properties above is proposed in `docs/modules/scan-decisioning/SPEC.md` 14.1 (ADR-008 scope extension needs the owner's approval).
 
+## Addendum (2026-11-23): a second consent tier for source-code snippets
+
+**Status: Accepted (product owner decision, 2026-11-23).** Context: the false-positive advisory agent of the Findings module (`docs/modules/findings/SPEC.md` 5.12, 9.3) is the second caller of this layer, with `purpose: "finding_advisory"`. Its input is more sensitive than the paths of the scan decision agent: a short excerpt of the tenant's **source code**. Decision 4 and the security rule "repository-derived data (paths, never contents or patches in v1)" keep covering the decision agent unchanged; this addendum adds a stronger gate for the one purpose that may send code.
+
+1. **Two consent tiers, both per tenant, both off by default, both changed only through `PUT /settings/ai` and audited in the same transaction.**
+   - Tier 1 `externalConsent` (existing, unchanged): allows an external provider to receive **metadata** (file paths, rule ids, component names and versions, severities).
+   - Tier 2 `codeSnippetConsent` (new): allows an external provider to receive **short source excerpts** of findings. It **implies tier 1** (a database CHECK: `code_snippet_consent` requires `external_consent`); withdrawing tier 1 withdraws tier 2 in the same write. Audit actions: `tenant.llm_consent_changed` (existing) and `tenant.llm_code_consent_changed` (new).
+2. **The resolver contract is otherwise unchanged.** `resolveLLMProvider({ purpose: "finding_advisory", tenantId, ... })` returns the same `{ provider, status }`. The consent port gains `isCodeSnippetAllowed(tenantId)` next to `isExternalAllowed`. The data level actually sent is then computed by one pure function (`egressLevelFor` in `@qmentisai/shared`): with an external provider and no tier 1 consent, **nothing is sent and no request is made**; with tier 1 only, metadata only; with both tiers, metadata plus an excerpt of at most 1,500 characters and 40 lines. Both flags are read by the **tenant id of the finding row**, never of a message, and are re-checked **immediately before every provider request**.
+3. **Local Ollama needs no consent** (unchanged, decision 4) and may receive metadata plus an excerpt, but a finding from a non-trusted origin (a fork) receives metadata only from a local provider and **nothing** from an external one.
+4. **Secrets never leave, at any tier and for any provider (owner decision 2026-11-23).** The advisory agent **does not run on secret findings in v1**. Neither a snippet, a preview, a masked line nor any metadata of a secret finding is ever sent, **not even to a local model**. The restricted database role of the agent cannot read secret findings at all (SPEC 9.3.4).
+5. **The excerpt is untrusted data and bounded**: redacted by the platform redaction again before sending, no tenant, workspace, repository, pipeline, user or commit identifier, no URL, no fingerprint; the raw prompt and the raw response are not stored (alternative 3 stays rejected); only the validated structured output, provider, model, usage and egress level are stored.
+6. **The tenant consent card** (scan-decisioning SCREENS 3b) gains a second switch with a stronger warning: "Send short code excerpts of findings to the external model provider". It is enabled only while the first switch is on.
+7. **Not changed:** the choice of framework, providers, configuration, the harness bounds, the failure behaviour (a failed advisory never fails the workflow), and the rule that a hosted provider is unusable in production until a real platform secret provider exists.
+
+Security-suite coverage of tier 2 (zero requests without tier 1, no excerpt without tier 2, never for secrets or non-trusted origins, consent changes audited) is `FPA-S03` of `docs/modules/findings/SPEC.md` 14.1, under ADR-008 area 19 (approved 2026-11-23). The database CHECK, the consent columns and the group role of the agent are part of the Part A0 contract freeze (migration `20261123100000_findings_core`).
+
 ## Related documents
 
-- `docs/modules/scan-decisioning/SPEC.md`, `docs/modules/scan-decisioning/SCREENS.md`
+- `docs/modules/scan-decisioning/SPEC.md`, `docs/modules/scan-decisioning/SCREENS.md`, `docs/modules/findings/SPEC.md` (the addendum's caller)
 - `docs/decisions/ADR-009-INTEGRATION-CREDENTIAL-STORAGE.md`, `docs/decisions/ADR-011-TRANSACTIONAL-OUTBOX-AND-MESSAGE-ENVELOPE.md`, `docs/decisions/ADR-001-JAVASCRIPT.md`, `docs/decisions/ADR-002-MODULAR-MONOLITH.md`
 - `docs/technical/SECURITY_GUIDELINES.md`, `docs/decisions/OPEN_DECISIONS.md`

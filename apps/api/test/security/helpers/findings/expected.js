@@ -15,7 +15,7 @@
  * A letter suffix splits a spec id into checks (`FND-S04a`); a check id is unique across the whole suite.
  * @type {Readonly<{ A0: number, A: number, B: number, C: number, D: number, F: number }>}
  */
-export const EXPECTED_FINDINGS_CHECKS = Object.freeze({ A0: 15, A: 0, B: 0, C: 0, D: 0, F: 0 });
+export const EXPECTED_FINDINGS_CHECKS = Object.freeze({ A0: 15, A: 18, B: 0, C: 0, D: 0, F: 0 });
 
 /** The part names in registration order. */
 export const FINDINGS_PARTS = Object.freeze(["A0", "A", "B", "C", "D", "F"]);

@@ -1,6 +1,8 @@
 # Scan Engines, part M: suite coverage matrix and mutation sweep backlog
 
-Written 2026-11-22 for part M of `SPEC.md` 16.1 (security suite completion and mutation sweep). Three parts: (1) the coverage matrix of the requirements `SE-1` to `SE-48` and of the ADR-008 area 18 properties against the registered checks, with the gaps found and filled; (2) the mutation sweep method, tooling and totals; (3) the survivors of the sweep, grouped by file, **NOT triaged** (standing order: triage is deferred; a survivor is either a missing check or an equivalent mutant and none may be assumed equivalent).
+Written 2026-11-22 for part M of `SPEC.md` 16.1 (security suite completion and mutation sweep). Four parts: (1) the coverage matrix of the requirements `SE-1` to `SE-48` and of the ADR-008 area 18 properties against the registered checks, with the gaps found and filled; (2) the mutation sweep method, tooling and totals; (3) the survivors of the sweep, grouped by file, each with its disposition where it has been triaged; (4) **the triage round of 2026-11-23** (owner decision, option B: the security-relevant groups plus a 20 percent sample now, full triage (A) before general availability). A survivor is either a missing check or an equivalent mutant and none may be assumed equivalent: every disposition below is a check that kills the mutant (re-run against the mutant with `mutation-sweep.js one`) or a written proof.
+
+**Status after the triage round (2026-11-23): 909 checks; 104 of the 219 survivors triaged (88 killed by 10 new kill checks, 14 equivalent with a proof, 2 deferred); 115 survivors not triaged; kill rate 90.8 percent (section 4.3). Full triage (A) remains REQUIRED before general availability (gate G-7).**
 
 ## 1. Coverage matrix
 
@@ -119,7 +121,7 @@ The earlier sweeps (Executions part I, 365 mutants, stopped at 308) kept their g
 - Mutation of a module is in memory, so a check that READS a source file (the source guards `ENG-S03a`, `ENG-S03b`, `ENG-S12g`, `ENG-S17b`, `ENG-S03k`) sees the original text; a guard is never credited with a kill it did not earn, and a mutant that only a guard could kill shows as a survivor.
 - Equivalent mutants are not removed (triage is deferred): a changed memory or CPU limit by one, an error message, a sort comparator that never ties and a log line are among the survivors.
 
-## 3. Survivors (NOT triaged)
+## 3. Survivors (disposition in section 4; a line without a `->` disposition is NOT triaged and stays on the full triage (A))
 
 ### 3.1 Totals per file
 
@@ -228,7 +230,7 @@ Three survivors, all probably equivalent or low value, not asserted: `H009` (the
 - `H015` apps/api/src/modules/repositories/routes/index.js line 96 manual: `sbom route without rate limit` -> (the route declaration without the rate limit line)
 - `H017` apps/api/src/modules/repositories/controllers/index.js line 45 manual: `sbom nosniff removed` -> `(removed)`
 
-### 3.2 Which survivors look security-relevant (a note for the triage, not a triage)
+### 3.2 Which survivors look security-relevant (the note that drove the triage of section 4)
 
 Killed after the sweep by the checks of section 1.3 (the survivors are listed with their verdict changed to killed): `build-run-args.js` 160, `config.js` 41 and 42, `cli-runtime.js` 139, `dbmirror/sources.js` 38 to 40, `archive/tree.js` 40, `sast/plan.js` 58, `evidence/permalink.js` 100, `evidence/mask.js` 47, 48 and 52 (16 mutants).
 
@@ -253,7 +255,7 @@ Format: `id`, line, operator, the replaced text and its replacement, the line. A
 
 killed 11, survived 1, timeout 0, invalid 0
 
-- `R0501` line 57 bound: `<=` -> `<` in `if (typeof node[key] === "string" && node[key].length <= 120) ids.add(node[key]);`
+- `R0501` line 57 bound: `<=` -> `<` in `if (typeof node[key] === "string" && node[key].length <= 120) ids.add(node[key]);` **-> killed by ENG-S09h**
 
 ### apps/workers/src/dbrefresh/index.js
 
@@ -278,7 +280,7 @@ killed 7, survived 0, timeout 0, invalid 0
 killed 28, survived 2, timeout 0, invalid 0
 
 - `M0628` line 84 quantifier: `every` -> `some` in `!exitCodes.every((c) => Number.isInteger(c))`
-- `M0630` line 124 drop-element: `          "An adapter is already registered for this tool and scan type.",` -> `(removed)` in `"An adapter is already registered for this tool and scan type.",`
+- `M0630` line 124 drop-element: `          "An adapter is already registered for this tool and scan type.",` -> `(removed)` in `"An adapter is already registered for this tool and scan type.",` **-> killed by ENG-S06o**
 
 ### apps/workers/src/execution/engines/ensemble/core/fingerprint.js
 
@@ -298,12 +300,12 @@ killed 27, survived 3, timeout 0, invalid 0
 
 killed 20, survived 8, timeout 2, invalid 2
 
-- `M0689` line 54 int: `1` -> `2` in `const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);`
+- `M0689` line 54 int: `1` -> `2` in `const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);` **-> equivalent: `cmp` is read only as the sign (or the truthiness) of a sort comparator, so `1` and `2` order identically**
 - `M0700` line 54 int: `1` -> `2` in `const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);`
 - `M0711` line 60 int: `3` -> `4` in `const SCOPE_RANK = { prod: 3, dev: 2, optional: 1, peer: 1, unknown: 0 };`
 - `M0712` line 69 logic: `||` -> `&&` in `cmp(pathOf(a), pathOf(b)) ||`
 - `M0715` line 273 drop-jump: `break;` -> `;` in `break;`
-- `M0717` line 317 logic (not executed by any Docker-free check): `||` -> `&&` in `cmp(a.ruleId ?? "", b.ruleId ?? "") ||`
+- `M0717` line 317 logic (not executed by any Docker-free check): `||` -> `&&` in `cmp(a.ruleId ?? "", b.ruleId ?? "") ||` **-> equivalent given the merge invariant: the tie-break operands run only for two members of ONE tool, and a merged finding holds at most one member per tool (SE-12: two records of one tool at one key stay two findings, shown for SBOM, SAST, Secrets and SCA); the line is never executed**
 - `M0718` line 403 int (not executed by any Docker-free check): `1` -> `2` in `? -1`
 - `M0707` line 450 drop-element: `        "A candidate belongs to another scan type.",` -> `(removed)` in `"A candidate belongs to another scan type.",`
 
@@ -318,7 +320,7 @@ killed 28, survived 1, timeout 1, invalid 0
 killed 28, survived 2, timeout 0, invalid 0
 
 - `M0754` line 75 bound: `>` -> `>=` in `Number.isInteger(parsed.fileErrors) && parsed.fileErrors > 0 ? parsed.fileErrors : 0;`
-- `M0773` line 75 logic: `&&` -> `||` in `Number.isInteger(parsed.fileErrors) && parsed.fileErrors > 0 ? parsed.fileErrors : 0;`
+- `M0773` line 75 logic: `&&` -> `||` in `Number.isInteger(parsed.fileErrors) && parsed.fileErrors > 0 ? parsed.fileErrors : 0;` **-> killed by ENG-S06o**
 
 ### apps/workers/src/execution/engines/ensemble/core/scrub.js
 
@@ -333,7 +335,7 @@ killed 27, survived 5, timeout 0, invalid 0
 - `M0815` line 112 int: `1` -> `2` in `const normalized = normalizeItems([findingToItem(finding)], 1);`
 - `M0832` line 115 drop-jump (not executed by any Docker-free check): `continue;` -> `;` in `continue;`
 - `M0827` line 133 logic: `||` -> `&&` in `detailRowBytes(detail) > FINDING_LIMITS.detailRowBytes ||`
-- `M0833` line 136 int (not executed by any Docker-free check): `1` -> `2` in `dropped += 1;`
+- `M0833` line 136 int (not executed by any Docker-free check): `1` -> `2` in `dropped += 1;` **-> killed by ENG-S06o**
 
 ### apps/workers/src/execution/engines/ensemble/core/yield.js
 
@@ -366,7 +368,7 @@ killed 11, survived 1, timeout 0, invalid 0
 
 killed 1, survived 4, timeout 0, invalid 0
 
-- `R0016` line 15 bound: `>` -> `>=` in `.sort((a, b) => (a.toolId < b.toolId ? -1 : a.toolId > b.toolId ? 1 : 0))`
+- `R0016` line 15 bound: `>` -> `>=` in `.sort((a, b) => (a.toolId < b.toolId ? -1 : a.toolId > b.toolId ? 1 : 0))` **-> equivalent given the unique tool id invariant: the adapter registry refuses a second adapter for a tool and scan type (`adapter_duplicate`, ENG-S06o), so the comparator never sees two equal ids**
 - `R0017` line 15 int: `1` -> `2` in `.sort((a, b) => (a.toolId < b.toolId ? -1 : a.toolId > b.toolId ? 1 : 0))`
 - `R0013` line 15 bound: `<` -> `<=` in `.sort((a, b) => (a.toolId < b.toolId ? -1 : a.toolId > b.toolId ? 1 : 0))`
 - `R0014` line 15 int: `1` -> `2` in `.sort((a, b) => (a.toolId < b.toolId ? -1 : a.toolId > b.toolId ? 1 : 0))`
@@ -393,7 +395,7 @@ killed 11, survived 1, timeout 0, invalid 0
 killed 10, survived 2, timeout 0, invalid 0
 
 - `R0058` line 141 bool: `true` -> `false` in `candidates: outcome.candidates.map((c) => ({ ...c, scope: { kind, inScope: true } })),`
-- `R0060` line 260 bound: `>` -> `>=` in `...(enriched.summary.capped > 0 ? [EVIDENCE_CAPPED_NOTE_CODE] : []),`
+- `R0060` line 260 bound: `>` -> `>=` in `...(enriched.summary.capped > 0 ? [EVIDENCE_CAPPED_NOTE_CODE] : []),` **-> killed by ENG-S16h**
 
 ### apps/workers/src/execution/engines/ensemble/engine/tool-exit.js
 
@@ -412,24 +414,24 @@ killed 10, survived 2, timeout 0, invalid 0
 
 killed 3, survived 11, timeout 0, invalid 0
 
-- `R0090` line 30 eq: `===` -> `!==` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";`
-- `R0102` line 30 logic (not executed by any Docker-free check): `&&` -> `||` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";`
-- `R0103` line 30 eq (not executed by any Docker-free check): `===` -> `!==` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";`
-- `R0091` line 31 negation: `!` -> `(removed)` in `if (!dbReady)`
-- `R0093` line 45 int: `1` -> `2` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));`
-- `R0092` line 45 minmax: `max` -> `min` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));`
-- `R0098` line 45 int: `100` -> `101` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));`
-- `R0099` line 58 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,`
-- `R0100` line 74 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,`
-- `R0101` line 84 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,`
-- `R0095` line 121 bound: `>` -> `>=` in `if (r.removed.length > 0)`
+- `R0090` line 30 eq: `===` -> `!==` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";` **-> killed by ENG-S16h**
+- `R0102` line 30 logic (not executed by any Docker-free check): `&&` -> `||` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";` **-> killed by ENG-S16h**
+- `R0103` line 30 eq (not executed by any Docker-free check): `===` -> `!==` in `const dbReady = typeof d.cacheRoot === "string" && typeof d.mirrorRoot === "string";` **-> killed by ENG-S16h**
+- `R0091` line 31 negation: `!` -> `(removed)` in `if (!dbReady)` **-> killed by ENG-S16h**
+- `R0093` line 45 int: `1` -> `2` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));` **-> killed by ENG-S16h**
+- `R0092` line 45 minmax: `max` -> `min` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));` **-> killed by ENG-S16h**
+- `R0098` line 45 int: `100` -> `101` in `const forkShare = Math.max(1, Math.floor((s.maxContainers * s.untrustedCapacityShare) / 100));` **-> killed by ENG-S16h**
+- `R0099` line 58 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,` **-> killed by ENG-S16h**
+- `R0100` line 74 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,` **-> deferred to full triage A before GA: the SCA engine acquires capacity only with a promoted database snapshot (a mirror object, a database row and a cache directory); the same expression is killed for the SBOM engine (`R0099`) and the SAST engine (`R0101`) by ENG-S16h**
+- `R0101` line 84 int: `1000` -> `1001` in `toolWaitMs: s.waitSeconds * 1000,` **-> killed by ENG-S16h**
+- `R0095` line 121 bound: `>` -> `>=` in `if (r.removed.length > 0)` **-> killed by ENG-S16h**
 
 ### apps/workers/src/execution/engines/ensemble/evidence/block-extractor.js
 
 killed 10, survived 4, timeout 0, invalid 0
 
 - `R0104` line 15 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
-- `R0114` line 15 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
+- `R0114` line 15 int: `1024` -> `1025` in `const MiB = 1024 * 1024;` **-> killed by ENG-S09h**
 - `R0116` line 225 logic (not executed by any Docker-free check): `&&` -> `||` in `return error instanceof SandboxError && error.code === "image_unavailable"`
 - `R0117` line 225 eq (not executed by any Docker-free check): `===` -> `!==` in `return error instanceof SandboxError && error.code === "image_unavailable"`
 
@@ -444,7 +446,7 @@ killed 3, survived 1, timeout 0, invalid 0
 killed 8, survived 6, timeout 0, invalid 0
 
 - `R0122` line 30 int: `1` -> `2` in `const RANK = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, info: 4 });`
-- `R0130` line 30 int: `2` -> `3` in `const RANK = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, info: 4 });`
+- `R0130` line 30 int: `2` -> `3` in `const RANK = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, info: 4 });` **-> killed by ENG-S13i**
 - `R0131` line 35 logic: `||` -> `&&` in `(a.location?.path ?? "").localeCompare(b.location?.path ?? "") ||`
 - `R0127` line 98 bound: `>` -> `>=` in `if (extractor && code.length > 0 && !signal?.aborted) {`
 - `R0134` line 160 eq (not executed by any Docker-free check): `===` -> `!==` in `if (f.kind === "secret") summary.secretOmitted += 1;`
@@ -454,43 +456,43 @@ killed 8, survived 6, timeout 0, invalid 0
 
 killed 6, survived 8, timeout 0, invalid 0
 
-- `R0136` line 18 int: `300` -> `301` in `export const MAX_LINE_CHARS = 300;`
-- `R0146` line 36 int: `1` -> `2` in `for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);`
-- `R0137` line 39 return-undefined: `return h;` -> `return undefined;` in `return h;`
-- `R0141` line 65 minmax: `max` -> `min` in `KNOWN_PREFIX.test(line.slice(Math.max(0, start - 12), start + m[0].length))`
-- `R0143` line 86 eq: `===` -> `!==` in `if (s < e && (line[s] === "=" || line[s] === ":")) s += 1;`
-- `R0144` line 87 negation: `!` -> `(removed)` in `while (s > 0 && !BOUNDARY.has(line[s - 1]) && line[s - 1] !== "=" && line[s - 1] !== ":") s -= 1;`
-- `R0149` line 103 int (not executed by any Docker-free check): `1` -> `2` in `const start = span.startColumn === undefined ? 1 : span.startColumn;`
-- `R0145` line 170 quantifier: `every` -> `some` in `if (own.every(([a, b]) => b <= a)) return null;`
+- `R0136` line 18 int: `300` -> `301` in `export const MAX_LINE_CHARS = 300;` **-> killed by ENG-S13g**
+- `R0146` line 36 int: `1` -> `2` in `for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);` **-> killed by ENG-S13g**
+- `R0137` line 39 return-undefined: `return h;` -> `return undefined;` in `return h;` **-> killed by ENG-S13g**
+- `R0141` line 65 minmax: `max` -> `min` in `KNOWN_PREFIX.test(line.slice(Math.max(0, start - 12), start + m[0].length))` **-> killed by ENG-S13g**
+- `R0143` line 86 eq: `===` -> `!==` in `if (s < e && (line[s] === "=" || line[s] === ":")) s += 1;` **-> killed by ENG-S13g, ENG-S13h**
+- `R0144` line 87 negation: `!` -> `(removed)` in `while (s > 0 && !BOUNDARY.has(line[s - 1]) && line[s - 1] !== "=" && line[s - 1] !== ":") s -= 1;` **-> killed by ENG-S13g**
+- `R0149` line 103 int (not executed by any Docker-free check): `1` -> `2` in `const start = span.startColumn === undefined ? 1 : span.startColumn;` **-> equivalent: only reached as `Math.max(0, a - 1)` with `a = start - 1`; a start column of 1 and of 2 both give `0` (the UTF-8 reading gives `unitAt(1) - 1 = 0` as well), so the default start column cannot be observed**
+- `R0145` line 170 quantifier: `every` -> `some` in `if (own.every(([a, b]) => b <= a)) return null;` **-> killed by ENG-S13g**
 
 ### apps/workers/src/execution/engines/ensemble/evidence/permalink.js
 
 killed 11, survived 2, timeout 0, invalid 0
 
-- `R0150` line 23 int: `2000` -> `2001` in `const MAX_URL = 2000;`
+- `R0150` line 23 int: `2000` -> `2001` in `const MAX_URL = 2000;` **-> killed by ENG-S13i**
 - `R0162` line 116 return-undefined (not executed by any Docker-free check): `return null;` -> `return undefined;` in `return null;`
 
 ### apps/workers/src/execution/engines/ensemble/evidence/secret-preview.js
 
 killed 5, survived 7, timeout 0, invalid 0
 
-- `R0163` line 16 int (not executed by any Docker-free check): `2000` -> `2001` in `const MAX_RANGE_MARKED = 2000;`
-- `R0165` line 29 bool: `false` -> `true` in `entry = { spans: [], unknown: false, carries: true, typeClass: "other" };`
-- `R0168` line 36 logic: `||` -> `&&` in `if (!loc?.path || !Number.isInteger(loc.startLine)) continue;`
-- `R0169` line 45 eq: `===` -> `!==` in `if (end === loc.startLine) {`
-- `R0170` line 52 drop-jump: `continue;` -> `;` in `continue;`
-- `R0171` line 55 bound: `<=` -> `<` in `if (end - loc.startLine <= MAX_RANGE_MARKED)`
-- `R0173` line 56 int: `1` -> `2` in `for (let n = loc.startLine + 1; n < end; n += 1) mark(n, null);`
+- `R0163` line 16 int (not executed by any Docker-free check): `2000` -> `2001` in `const MAX_RANGE_MARKED = 2000;` **-> killed by ENG-S13h**
+- `R0165` line 29 bool: `false` -> `true` in `entry = { spans: [], unknown: false, carries: true, typeClass: "other" };` **-> killed by ENG-S13h**
+- `R0168` line 36 logic: `||` -> `&&` in `if (!loc?.path || !Number.isInteger(loc.startLine)) continue;` **-> killed by ENG-S13h**
+- `R0169` line 45 eq: `===` -> `!==` in `if (end === loc.startLine) {` **-> killed by ENG-S13h**
+- `R0170` line 52 drop-jump: `continue;` -> `;` in `continue;` **-> killed by ENG-S13h**
+- `R0171` line 55 bound: `<=` -> `<` in `if (end - loc.startLine <= MAX_RANGE_MARKED)` **-> killed by ENG-S13h**
+- `R0173` line 56 int: `1` -> `2` in `for (let n = loc.startLine + 1; n < end; n += 1) mark(n, null);` **-> killed by ENG-S13h**
 
 ### apps/workers/src/execution/engines/ensemble/evidence/snippet.js
 
 killed 9, survived 5, timeout 0, invalid 0
 
-- `R0175` line 17 bound: `>` -> `>=` in `return line.length > EVIDENCE_CAPS.lineChars`
-- `R0185` line 19 bool: `false` -> `true` in `: { text: line, cut: false };`
-- `R0177` line 32 int: `1` -> `2` in `let last = from - 1;`
-- `R0187` line 83 bool (not executed by any Docker-free check): `true` -> `false` in `...(joined.truncated ? { truncated: true } : {}),`
-- `R0188` line 97 bound (not executed by any Docker-free check): `<` -> `<=` in `if (again.last < startLine) return null;`
+- `R0175` line 17 bound: `>` -> `>=` in `return line.length > EVIDENCE_CAPS.lineChars` **-> killed by ENG-S13h**
+- `R0185` line 19 bool: `false` -> `true` in `: { text: line, cut: false };` **-> killed by ENG-S13h**
+- `R0177` line 32 int: `1` -> `2` in `let last = from - 1;` **-> killed by ENG-S13h**
+- `R0187` line 83 bool (not executed by any Docker-free check): `true` -> `false` in `...(joined.truncated ? { truncated: true } : {}),` **-> killed by ENG-S13h**
+- `R0188` line 97 bound (not executed by any Docker-free check): `<` -> `<=` in `if (again.last < startLine) return null;` **-> killed by ENG-S13h**
 
 ### apps/workers/src/execution/engines/ensemble/evidence/source.js
 
@@ -499,7 +501,7 @@ killed 7, survived 6, timeout 0, invalid 0
 - `R0191` line 29 logic: `||` -> `&&` in `if (typeof root !== "string" || !path.isAbsolute(root) || !isSafeRelativePath(relativePath))`
 - `R0199` line 29 logic: `||` -> `&&` in `if (typeof root !== "string" || !path.isAbsolute(root) || !isSafeRelativePath(relativePath))`
 - `R0194` line 35 bound: `>` -> `>=` in `if (!stat.isFile() || stat.size > maxBytes) return null;`
-- `R0196` line 51 int: `1` -> `2` in `if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();`
+- `R0196` line 51 int: `1` -> `2` in `if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();` **-> killed by ENG-S13i**
 - `R0201` line 52 int (not executed by any Docker-free check): `1` -> `2` in `return lines.map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));`
 - `R0197` line 70 drop-call: `cache.delete(relativePath);` -> `;` in `cache.delete(relativePath);`
 
@@ -514,7 +516,7 @@ killed 11, survived 1, timeout 0, invalid 0
 killed 9, survived 4, timeout 0, invalid 0
 
 - `R0214` line 19 int: `1` -> `2` in `export const text = (max, min = 1) =>`
-- `R0217` line 36 logic: `&&` -> `||` in `return Number.isInteger(n) && n >= 1 && n <= 100000 ? n : null;`
+- `R0217` line 36 logic: `&&` -> `||` in `return Number.isInteger(n) && n >= 1 && n <= 100000 ? n : null;` **-> killed by ENG-S13i**
 - `R0218` line 36 bound: `>=` -> `>` in `return Number.isInteger(n) && n >= 1 && n <= 100000 ? n : null;`
 - `R0226` line 81 bool (not executed by any Docker-free check): `true` -> `false` in `truncated = true;`
 
@@ -530,7 +532,7 @@ killed 6, survived 2, timeout 0, invalid 0
 killed 11, survived 2, timeout 0, invalid 0
 
 - `R0247` line 164 int (not executed by any Docker-free check): `1` -> `2` in `list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));`
-- `R0244` line 164 drop-call: `list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));` -> `;` in `list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));`
+- `R0244` line 164 drop-call: `list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));` -> `;` in `list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));` **-> deferred to full triage A before GA: only the order of `readdir` is changed, which decides WHICH entries survive a truncating cap; killing it needs a filesystem seam (or a fixed directory order) that does not exist**
 
 ### apps/workers/src/execution/engines/ensemble/sast/opengrep.js
 
@@ -544,7 +546,7 @@ killed 9, survived 3, timeout 0, invalid 0
 
 - `R0267` line 11 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
 - `R0260` line 11 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
-- `R0271` line 16 int: `2` -> `3` in `cpus: 2,`
+- `R0271` line 16 int: `2` -> `3` in `cpus: 2,` **-> killed by ENG-S09h**
 
 ### apps/workers/src/execution/engines/ensemble/sast/rule-pack.js
 
@@ -554,7 +556,7 @@ killed 7, survived 5, timeout 0, invalid 0
 - `R0281` line 21 int: `512` -> `513` in `export const RULE_PACK_LIMITS = Object.freeze({ files: 50, bytesPerFile: 512 * 1024, rules: 2000 });`
 - `R0276` line 53 bound: `>` -> `>=` in `if (files.length > RULE_PACK_LIMITS.files) problems.push("the pack has too many files");`
 - `R0283` line 60 logic: `||` -> `&&` in `if (typeof text !== "string" || text.length === 0) {`
-- `R0278` line 62 drop-jump: `continue;` -> `;` in `continue;`
+- `R0278` line 62 drop-jump: `continue;` -> `;` in `continue;` **-> killed by ENG-S13i**
 
 ### apps/workers/src/execution/engines/ensemble/sast/scope.js
 
@@ -584,7 +586,7 @@ killed 12, survived 0, timeout 0, invalid 0
 
 killed 10, survived 2, timeout 0, invalid 0
 
-- `R0332` line 25 int: `1100` -> `1101` in `path: z.string().max(1100),`
+- `R0332` line 25 int: `1100` -> `1101` in `path: z.string().max(1100),` **-> equivalent: the schema bound 1100 is looser than `isSafeRelativePath` (1024) applied on the next line, so a path of 1101 is refused either way (checked: 1100 and 1101 both give the same dropped record)**
 - `R0341` line 26 int: `1000` -> `1001` in `componentPurl: z.string().max(1000),`
 
 ### apps/workers/src/execution/engines/ensemble/sbom/syft.js
@@ -619,7 +621,7 @@ killed 12, survived 0, timeout 0, invalid 0
 killed 9, survived 3, timeout 0, invalid 0
 
 - `R0389` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
-- `R0395` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
+- `R0395` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;` **-> killed by ENG-S09h**
 - `R0399` line 14 int: `2` -> `3` in `cpus: 2,`
 
 ### apps/workers/src/execution/engines/ensemble/sca/trivy-vuln.js
@@ -633,60 +635,60 @@ killed 12, survived 2, timeout 0, invalid 0
 
 killed 6, survived 6, timeout 0, invalid 0
 
-- `R0418` line 55 logic: `&&` -> `||` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;`
-- `R0419` line 55 bound: `>` -> `>=` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;`
-- `R0421` line 55 eq: `!==` -> `===` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;`
-- `R0424` line 59 int: `200` -> `201` in `title: redactLogText(cleanText(SECRET_TITLES[typeClass])).slice(0, 200),`
-- `R0426` line 62 int: `200` -> `201` in `...(ruleName ? { name: redactLogText(cleanText(ruleName)).slice(0, 200) } : {}),`
-- `R0423` line 67 eq: `!==` -> `===` in `...(end !== undefined ? { endLine: end } : {}),`
+- `R0418` line 55 logic: `&&` -> `||` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;` **-> killed by ENG-S05g**
+- `R0419` line 55 bound: `>` -> `>=` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;` **-> killed by ENG-S05g**
+- `R0421` line 55 eq: `!==` -> `===` in `const end = endLine !== undefined && endLine > startLine ? endLine : undefined;` **-> killed by ENG-S05g**
+- `R0424` line 59 int: `200` -> `201` in `title: redactLogText(cleanText(SECRET_TITLES[typeClass])).slice(0, 200),` **-> equivalent: `SECRET_TITLES` is a frozen table whose longest title is 49 characters, so `slice(0, 200)` and `slice(0, 201)` return the same string**
+- `R0426` line 62 int: `200` -> `201` in `...(ruleName ? { name: redactLogText(cleanText(ruleName)).slice(0, 200) } : {}),` **-> killed by ENG-S05g**
+- `R0423` line 67 eq: `!==` -> `===` in `...(end !== undefined ? { endLine: end } : {}),` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/detect-secrets.js
 
 killed 10, survived 2, timeout 0, invalid 0
 
-- `R0429` line 50 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);`
-- `R0436` line 50 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);`
+- `R0429` line 50 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);` **-> killed by ENG-S05g**
+- `R0436` line 50 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/gitleaks.js
 
 killed 9, survived 3, timeout 0, invalid 0
 
-- `R0442` line 90 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);`
-- `R0448` line 90 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);`
-- `R0450` line 110 int: `1` -> `2` in `endColumn: Number.isInteger(r.EndColumn) && r.EndColumn >= 1 ? r.EndColumn : undefined,`
+- `R0442` line 90 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);` **-> killed by ENG-S05g**
+- `R0448` line 90 logic: `&&` -> `||` in `const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);` **-> killed by ENG-S05g**
+- `R0450` line 110 int: `1` -> `2` in `endColumn: Number.isInteger(r.EndColumn) && r.EndColumn >= 1 ? r.EndColumn : undefined,` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/index.js
 
 killed 6, survived 2, timeout 0, invalid 0
 
-- `R0457` line 70 drop-call (not executed by any Docker-free check): `outcomes.push({ toolId: run.toolId, status: run.status, reason: run.reason });` -> `;` in `outcomes.push({ toolId: run.toolId, status: run.status, reason: run.reason });`
-- `R0458` line 76 return-undefined (not executed by any Docker-free check): `return { outcomes, rollup, findings: merged.findings, stats: merged.stats };` -> `return undefined;` in `return { outcomes, rollup, findings: merged.findings, stats: merged.stats };`
+- `R0457` line 70 drop-call (not executed by any Docker-free check): `outcomes.push({ toolId: run.toolId, status: run.status, reason: run.reason });` -> `;` in `outcomes.push({ toolId: run.toolId, status: run.status, reason: run.reason });` **-> killed by ENG-S05g**
+- `R0458` line 76 return-undefined (not executed by any Docker-free check): `return { outcomes, rollup, findings: merged.findings, stats: merged.stats };` -> `return undefined;` in `return { outcomes, rollup, findings: merged.findings, stats: merged.stats };` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/plan.js
 
 killed 1, survived 4, timeout 0, invalid 0
 
-- `R0461` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
-- `R0459` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;`
-- `R0462` line 14 int: `1` -> `2` in `cpus: 1,`
-- `R0463` line 15 int: `1024` -> `1025` in `memoryMiB: 1024,`
+- `R0461` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;` **-> killed by ENG-S05g**
+- `R0459` line 9 int: `1024` -> `1025` in `const MiB = 1024 * 1024;` **-> killed by ENG-S05g**
+- `R0462` line 14 int: `1` -> `2` in `cpus: 1,` **-> killed by ENG-S05g**
+- `R0463` line 15 int: `1024` -> `1025` in `memoryMiB: 1024,` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/scope.js
 
 killed 11, survived 3, timeout 0, invalid 0
 
-- `R0476` line 74 drop-jump (not executed by any Docker-free check): `continue;` -> `;` in `continue;`
-- `R0473` line 77 int: `1` -> `2` in `entries += 1;`
-- `R0477` line 112 bool (not executed by any Docker-free check): `true` -> `false` in `else inv.truncated = true;`
+- `R0476` line 74 drop-jump (not executed by any Docker-free check): `continue;` -> `;` in `continue;` **-> killed by ENG-S05g**
+- `R0473` line 77 int: `1` -> `2` in `entries += 1;` **-> killed by ENG-S05g**
+- `R0477` line 112 bool (not executed by any Docker-free check): `true` -> `false` in `else inv.truncated = true;` **-> killed by ENG-S05g**
 
 ### apps/workers/src/execution/engines/ensemble/secrets/type-class.js
 
 killed 8, survived 4, timeout 0, invalid 0
 
-- `R0478` line 52 drop-element: `  "AWS Access Key",` -> `(removed)` in `"AWS Access Key",`
-- `R0484` line 53 drop-element: `  "Artifactory Credentials",` -> `(removed)` in `"Artifactory Credentials",`
-- `R0488` line 54 drop-element: `  "Azure Storage Account access key",` -> `(removed)` in `"Azure Storage Account access key",`
-- `R0489` line 123 eq: `===` -> `!==` in `const generic = GENERIC.has(typeClass) || typeClass === "password_assignment";`
+- `R0478` line 52 drop-element: `  "AWS Access Key",` -> `(removed)` in `"AWS Access Key",` **-> killed by ENG-S05g**
+- `R0484` line 53 drop-element: `  "Artifactory Credentials",` -> `(removed)` in `"Artifactory Credentials",` **-> killed by ENG-S05g**
+- `R0488` line 54 drop-element: `  "Azure Storage Account access key",` -> `(removed)` in `"Azure Storage Account access key",` **-> killed by ENG-S05g**
+- `R0489` line 123 eq: `===` -> `!==` in `const generic = GENERIC.has(typeClass) || typeClass === "password_assignment";` **-> killed by ENG-S05g**
 
 ### packages/infra/src/archive/errors.js
 
@@ -697,31 +699,31 @@ killed 1, survived 0, timeout 0, invalid 0
 
 killed 20, survived 12, timeout 0, invalid 0
 
-- `M0464` line 33 int: `100000` -> `100001` in `maxEntries: 100000,`
-- `M0476` line 34 int: `50` -> `51` in `maxFileBytes: 50 * 1024 * 1024,`
-- `M0488` line 34 int: `1024` -> `1025` in `maxFileBytes: 50 * 1024 * 1024,`
-- `M0467` line 62 bound: `<` -> `<=` in `while (pos < data.length) {`
-- `M0469` line 66 logic: `||` -> `&&` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;`
-- `M0479` line 66 bound: `<=` -> `<` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;`
-- `M0481` line 66 logic: `||` -> `&&` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;`
-- `M0474` line 130 drop-element: `          "The archive does not contain the requested commit.",` -> `(removed)` in `"The archive does not contain the requested commit.",`
-- `M0483` line 143 bool: `true` -> `false` in `if (zeroBlocks >= 2) ended = true;`
-- `M0494` line 177 logic (not executed by any Docker-free check): `&&` -> `||` in `(prefix && field(block, 257, 262) === "ustar" ? '${prefix}/${baseName}' : baseName);`
-- `M0495` line 177 int (not executed by any Docker-free check): `257` -> `258` in `(prefix && field(block, 257, 262) === "ustar" ? '${prefix}/${baseName}' : baseName);`
-- `M0486` line 324 drop-element: `      "The extraction parent directory is not private.",` -> `(removed)` in `"The extraction parent directory is not private.",`
+- `M0464` line 33 int: `100000` -> `100001` in `maxEntries: 100000,` **-> killed by ENG-S07e**
+- `M0476` line 34 int: `50` -> `51` in `maxFileBytes: 50 * 1024 * 1024,` **-> killed by ENG-S07e**
+- `M0488` line 34 int: `1024` -> `1025` in `maxFileBytes: 50 * 1024 * 1024,` **-> killed by ENG-S07e**
+- `M0467` line 62 bound: `<` -> `<=` in `while (pos < data.length) {` **-> equivalent: `data.indexOf(0x20, data.length)` is always -1, so the extra iteration of `pos <= data.length` ends at the next line (`break`) with the same result**
+- `M0469` line 66 logic: `||` -> `&&` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;` **-> killed by ENG-S07e**
+- `M0479` line 66 bound: `<=` -> `<` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;` **-> killed by ENG-S07e**
+- `M0481` line 66 logic: `||` -> `&&` in `if (!Number.isFinite(length) || length <= space - pos + 1 || pos + length > data.length) break;` **-> killed by ENG-S07e**
+- `M0474` line 130 drop-element: `          "The archive does not contain the requested commit.",` -> `(removed)` in `"The archive does not contain the requested commit.",` **-> killed by ENG-S07e**
+- `M0483` line 143 bool: `true` -> `false` in `if (zeroBlocks >= 2) ended = true;` **-> killed by ENG-S07e**
+- `M0494` line 177 logic (not executed by any Docker-free check): `&&` -> `||` in `(prefix && field(block, 257, 262) === "ustar" ? '${prefix}/${baseName}' : baseName);` **-> killed by ENG-S07e**
+- `M0495` line 177 int (not executed by any Docker-free check): `257` -> `258` in `(prefix && field(block, 257, 262) === "ustar" ? '${prefix}/${baseName}' : baseName);` **-> killed by ENG-S07e**
+- `M0486` line 324 drop-element: `      "The extraction parent directory is not private.",` -> `(removed)` in `"The extraction parent directory is not private.",` **-> killed by ENG-S07e**
 
 ### packages/infra/src/archive/tree.js
 
 killed 29, survived 1, timeout 0, invalid 0
 
-- `M0499` line 43 return-undefined: `return null;` -> `return undefined;` in `return null;`
+- `M0499` line 43 return-undefined: `return null;` -> `return undefined;` in `return null;` **-> killed by ENG-S07e**
 
 ### packages/infra/src/dbmirror/inspect.js
 
 killed 27, survived 3, timeout 0, invalid 0
 
 - `M0535` line 45 bool: `true` -> `false` in `if (size > limit) this.over = true;`
-- `M0537` line 53 return-undefined: `return undefined;` -> `return undefined;` in `return undefined;`
+- `M0537` line 53 return-undefined: `return undefined;` -> `return undefined;` in `return undefined;` **-> equivalent: the replacement text is identical to the original (`return undefined;`), a no-op mutant produced by the sweep tool**
 - `M0543` line 96 return-undefined: `return null;` -> `return undefined;` in `return null;`
 
 ### packages/infra/src/dbmirror/sources.js
@@ -741,15 +743,15 @@ killed 30, survived 1, timeout 0, invalid 0
 
 killed 30, survived 1, timeout 0, invalid 0
 
-- `M0202` line 17 int: `100` -> `101` in `const fmt = (n) => String(Math.round(n * 100) / 100);`
+- `M0202` line 17 int: `100` -> `101` in `const fmt = (n) => String(Math.round(n * 100) / 100);` **-> killed by ENG-S09h**
 
 ### packages/infra/src/sandbox/capacity.js
 
 killed 27, survived 3, timeout 1, invalid 0
 
-- `M0263` line 43 int (not executed by any Docker-free check): `1` -> `2` in `const left = (map.get(key) ?? 1) - 1;`
-- `M0240` line 92 drop-element: `              "capacity",` -> `(removed)` in `"capacity",`
-- `M0245` line 99 eq: `===` -> `!==` in `if (queue.length === 0 && fits(r)) {`
+- `M0263` line 43 int (not executed by any Docker-free check): `1` -> `2` in `const left = (map.get(key) ?? 1) - 1;` **-> equivalent: `drop` runs only for a reference that `take` registered, and `take` sets both map keys to at least 1; the `?? 1` fallback is unreachable (release is idempotent)**
+- `M0240` line 92 drop-element: `              "capacity",` -> `(removed)` in `"capacity",` **-> killed by ENG-S14c**
+- `M0245` line 99 eq: `===` -> `!==` in `if (queue.length === 0 && fits(r)) {` **-> equivalent: the `queue.length === 0` guard is a shortcut; `pump()` grants in FIFO order with skipping after every push and release, so a waiter that fits is granted at once either way and a waiter behind blocked ones is granted by the pump; the observable order and timing are the same**
 
 ### packages/infra/src/sandbox/cli-runtime.js
 
@@ -759,7 +761,7 @@ killed 27, survived 5, timeout 0, invalid 0
 - `M0294` line 126 drop-element (not executed by any Docker-free check): `        "container runtime binary not found",` -> `(removed)` in `"container runtime binary not found",`
 - `M0280` line 144 int: `262144` -> `262145` in `const r = await call(["info"], { maxBuffer: 262144, timeoutMs: config.cliTimeoutMs });`
 - `M0295` line 180 drop-element (not executed by any Docker-free check): `          "container runtime binary not found",` -> `(removed)` in `"container runtime binary not found",`
-- `M0274` line 304 drop-jump: `continue;` -> `;` in `continue;`
+- `M0274` line 304 drop-jump: `continue;` -> `;` in `continue;` **-> equivalent: `o` is declared inside the loop and stays `undefined` when the parse throws; the next statement `if (!o || ...) continue;` makes the same jump**
 
 ### packages/infra/src/sandbox/config.js
 
@@ -779,17 +781,17 @@ killed 25, survived 5, timeout 0, invalid 0
 - `M0338` line 40 return-undefined: `return this;` -> `return undefined;` in `return this;`
 - `M0332` line 91 int: `125` -> `126` in `if (outcome.runtimeFault) return result({ status: "runtime_error", exitCode: 125 });`
 - `M0356` line 98 drop-call: `clearTimeout(timer);` -> `;` in `clearTimeout(timer);`
-- `M0341` line 136 int: `1000` -> `1001` in `const wall = setTimeout(() => finish("timeout"), spec.limits.wallClockSeconds * 1000);`
+- `M0341` line 136 int: `1000` -> `1001` in `const wall = setTimeout(() => finish("timeout"), spec.limits.wallClockSeconds * 1000);` **-> equivalent for the product: `fake-runtime.js` is a test double used only by the suite; the 0.1 percent longer fake wall clock changes no production behaviour**
 - `M0342` line 144 negation: `!` -> `(removed)` in `if (!c) return;`
 
 ### packages/infra/src/sandbox/image-catalog.js
 
 killed 27, survived 4, timeout 0, invalid 0
 
-- `M0384` line 94 logic: `||` -> `&&` in `if (!lock || typeof lock !== "object" || Array.isArray(lock))`
-- `M0366` line 129 quantifier: `every` -> `some` in `!e.roles.every((r) => typeof r === "string" && r.length > 0 && r.length <= 40)`
-- `M0376` line 132 quantifier: `every` -> `some` in `if (!Array.isArray(e.scanTypes) || !e.scanTypes.every((s) => SCAN_TYPES.includes(s)))`
-- `M0387` line 305 logic (not executed by any Docker-free check): `&&` -> `||` in `if (production && isPlaceholderDigest(e.digest)) return refuse("placeholder_digest");`
+- `M0384` line 94 logic: `||` -> `&&` in `if (!lock || typeof lock !== "object" || Array.isArray(lock))` **-> killed by ENG-S02d**
+- `M0366` line 129 quantifier: `every` -> `some` in `!e.roles.every((r) => typeof r === "string" && r.length > 0 && r.length <= 40)` **-> killed by ENG-S02d**
+- `M0376` line 132 quantifier: `every` -> `some` in `if (!Array.isArray(e.scanTypes) || !e.scanTypes.every((s) => SCAN_TYPES.includes(s)))` **-> killed by ENG-S02d**
+- `M0387` line 305 logic (not executed by any Docker-free check): `&&` -> `||` in `if (production && isPlaceholderDigest(e.digest)) return refuse("placeholder_digest");` **-> killed by ENG-S02d**
 
 ### packages/infra/src/sandbox/janitor.js
 
@@ -803,7 +805,7 @@ killed 17, survived 2, timeout 0, invalid 0
 killed 8, survived 2, timeout 0, invalid 0
 
 - `M0414` line 19 drop-element: `  "GRYPE_DB_VALIDATE_AGE",` -> `(removed)` in `"GRYPE_DB_VALIDATE_AGE",`
-- `M0415` line 20 drop-element: `  "GRYPE_CHECK_FOR_APP_UPDATE",` -> `(removed)` in `"GRYPE_CHECK_FOR_APP_UPDATE",`
+- `M0415` line 20 drop-element: `  "GRYPE_CHECK_FOR_APP_UPDATE",` -> `(removed)` in `"GRYPE_CHECK_FOR_APP_UPDATE",` **-> killed by ENG-S09h**
 
 ### packages/infra/src/sandbox/run-spec.js
 
@@ -823,7 +825,7 @@ killed 8, survived 2, timeout 0, invalid 0
 
 killed 0, survived 4, timeout 1, invalid 0
 
-- `M0458` line 35 drop-element: `  "exited",` -> `(removed)` in `"exited",`
+- `M0458` line 35 drop-element: `  "exited",` -> `(removed)` in `"exited",` **-> killed by ENG-S09h**
 - `M0459` line 36 drop-element: `  "timed_out",` -> `(removed)` in `"timed_out",`
 - `M0460` line 37 drop-element: `  "aborted",` -> `(removed)` in `"aborted",`
 - `M0461` line 38 drop-element: `  "output_limit",` -> `(removed)` in `"output_limit",`
@@ -833,7 +835,7 @@ killed 0, survived 4, timeout 1, invalid 0
 killed 13, survived 2, timeout 0, invalid 0
 
 - `M0010` line 24 int: `4` -> `5` in `export const SEVERITY_RANK = Object.freeze({ critical: 4, high: 3, medium: 2, low: 1, info: 0 });`
-- `M0015` line 26 int: `2` -> `3` in `export const CONFIDENCE_RANK = Object.freeze({ low: 0, medium: 1, high: 2 });`
+- `M0015` line 26 int: `2` -> `3` in `export const CONFIDENCE_RANK = Object.freeze({ low: 0, medium: 1, high: 2 });` **-> equivalent: `CONFIDENCE_RANK` is used only as a sign (`merger.js` 81, 308) and in `Math.min(rank + 1, 2)` (`severity.js` 161); `high: 3` instead of `2` gives the same result**
 
 ### packages/shared/src/scan-engines/cvss.js
 
@@ -848,7 +850,7 @@ killed 25, survived 4, timeout 1, invalid 0
 
 killed 25, survived 4, timeout 1, invalid 0
 
-- `M0046` line 24 drop-element: `  "integrity_mismatch",` -> `(removed)` in `"integrity_mismatch",`
+- `M0046` line 24 drop-element: `  "integrity_mismatch",` -> `(removed)` in `"integrity_mismatch",` **-> killed by ENG-S09h**
 - `M0056` line 25 drop-element: `  "integrity_unverified",` -> `(removed)` in `"integrity_unverified",`
 - `M0070` line 27 drop-element: `  "empty",` -> `(removed)` in `"empty",`
 - `M0075` line 28 drop-element: `  "too_small",` -> `(removed)` in `"too_small",`
@@ -858,7 +860,7 @@ killed 25, survived 4, timeout 1, invalid 0
 killed 28, survived 2, timeout 0, invalid 0
 
 - `M0078` line 43 logic: `||` -> `&&` in `if (typeof value !== "string" || value.length === 0 || value.length > L.path) return false;`
-- `M0081` line 44 string-method: `startsWith` -> `endsWith` in `if (value.startsWith("/") || value.includes("\\") || CONTROL.test(value)) return false;`
+- `M0081` line 44 string-method: `startsWith` -> `endsWith` in `if (value.startsWith("/") || value.includes("\\") || CONTROL.test(value)) return false;` **-> equivalent: a leading `/` leaves an empty first segment, which `every((s) => s !== "")` on the next line refuses; the same holds for a trailing `/`**
 
 ### packages/shared/src/scan-engines/json-size.js
 
@@ -883,10 +885,97 @@ killed 1, survived 9, timeout 0, invalid 0
 - `M0192` line 28 drop-element: `  "complete",` -> `(removed)` in `"complete",`
 - `M0193` line 29 drop-element: `  "partial",` -> `(removed)` in `"partial",`
 - `M0194` line 30 drop-element: `  "partial_tools",` -> `(removed)` in `"partial_tools",`
-- `M0195` line 31 drop-element: `  "gaps",` -> `(removed)` in `"gaps",`
+- `M0195` line 31 drop-element: `  "gaps",` -> `(removed)` in `"gaps",` **-> killed by ENG-S09h**
 - `M0196` line 32 drop-element: `  "nothing_to_scan",` -> `(removed)` in `"nothing_to_scan",`
 - `M0198` line 49 drop-element: `  "cpp",` -> `(removed)` in `"cpp",`
 - `M0199` line 50 drop-element: `  "csharp",` -> `(removed)` in `"csharp",`
 - `M0200` line 51 drop-element: `  "dart",` -> `(removed)` in `"dart",`
-- `M0201` line 52 drop-element: `  "elixir",` -> `(removed)` in `"elixir",`
+- `M0201` line 52 drop-element: `  "elixir",` -> `(removed)` in `"elixir",` **-> killed by ENG-S09h**
 
+## 4. Triage round of 2026-11-23 (owner decision, option B)
+
+### 4.1 Decision, scope and method
+
+- **Decision (owner, 2026-11-23, option B):** triage NOW the security-relevant groups of 3.2 (secret masking boundaries, hostile archive parsing, engine wiring gates and capacity, the placeholder digest rule and the image catalog, and the Secrets mapping), plus a deterministic sample of about 20 percent of the remaining survivors; keep the whole backlog; **full triage (A) stays required before general availability** (gate G-7 of `LIVE_TEST_PLAN.md`). No existing check was edited or weakened (the only edit to an earlier check file is the `export` keyword on eleven constants of `ensemble-evidence-checks.js` that the new checks reuse).
+- **Groups triaged in full (75 survivors):** `evidence/mask.js`, `evidence/secret-preview.js` and `evidence/snippet.js` (secret masking and the code excerpt caps, 20); everything under `secrets/` (the Secrets mapping, 24); `archive/tar.js` and `archive/tree.js` (hostile archive parsing, 13); `engine/wiring.js` and `sandbox/capacity.js` (engine wiring gates and capacity, 14); `sandbox/image-catalog.js` (the placeholder digest rule and the catalog validation, 4). The image lock loader is `catalog/index.js` (no survivor) over `image-catalog.js`.
+- **Sample (29 survivors):** the 141 survivors outside those files were sorted by file path, then line, then id, and **every fifth one (positions 0, 5, 10, and so on) was taken** (141 / 5 rounded up = 29, 20.6 percent). The same rule reproduces the sample from section 3.3.
+- **Verification:** each new check was first run alone on the unmutated sources (it passes), then every mutant of its survivors was applied IN MEMORY (`node scripts/mutation-sweep.js one --file F --line N --only REGEX`, a new command of the sweep tool that re-runs the mutants of one line; the working tree is never written) and must make a check fail. The disposition names the check that failed. The 3 repository SBOM download survivors of 3.1b are not triaged.
+- **Two findings about the sweep tool:** (1) a survivor marked "not executed by any Docker-free check" can still be killed by a check that the coverage map does not attribute to the line; the triage re-ran such mutants against the whole Docker-free set. (2) The mutator can produce a no-op mutant: `M0537` replaces `return undefined;` by `return undefined;` (identical text); the sweep was left unchanged so its seed and numbering stay reproducible.
+
+### 4.2 The new checks (11; each names its mutants in its description)
+
+| Check | Covers | Kills |
+|---|---|---|
+| `ENG-S13g` | the line mask boundaries (300 character cap, the entropy rule of a token run, the known-prefix window, the operator tolerance and the left widening of a reported span) | `R0136`, `R0137`, `R0141`, `R0143`, `R0144`, `R0145`, `R0146` |
+| `ENG-S13h` | the secret line index and the evidence caps (the 2000 line range limit, what the index ignores, the cap figures of SPEC 5.13.2, the line and byte caps of the code snippet) | `R0121`, `R0163`, `R0165` to `R0171`, `R0173`, `R0175`, `R0177`, `R0185`, `R0187`, `R0188` |
+| `ENG-S05g` | the Secrets mapping and parsers (end line, rule name length, hostile report records, the 27 detect-secrets labels, the confidence table, the tool limits, the tree inventory walk, a run of tools that did not run) | `R0418`, `R0419`, `R0421`, `R0423`, `R0426`, `R0429`, `R0436`, `R0442`, `R0448`, `R0450`, `R0457`, `R0458`, `R0459`, `R0461` to `R0463`, `R0473`, `R0476`, `R0477`, `R0478`, `R0484`, `R0488`, `R0489` |
+| `ENG-S07e` | the hostile archive parser (a pax record that is too small, too large or not a number, the end-of-archive marker, the ustar prefix and its magic, the default caps, the fixed error texts, the strict `null` of the name guard) | `M0464`, `M0469`, `M0474`, `M0476`, `M0479`, `M0481`, `M0483`, `M0486`, `M0488`, `M0494`, `M0495`, `M0499` |
+| `ENG-S14c` | the capacity refusal names its rule and no id | `M0240` |
+| `ENG-S16h` | the wiring gates (the database readiness warning, the fork share arithmetic, the orphan warning, the wait for capacity of the wired SBOM, SAST and Secrets engines, the Secrets coverage notes) | `R0090` to `R0093`, `R0095`, `R0098`, `R0099`, `R0101` to `R0103`, `R0060` |
+| `ENG-S02d` | the image catalog rules (a hostile lock never throws, one bad role or scan type refuses the entry, the placeholder digest rule differs between development and production) | `M0366`, `M0376`, `M0384`, `M0387` |
+| `ENG-S13i` | the evidence readers and guards (a trailing newline, the 2000 character link cap, CWE labels, the rule pack check, the excerpt budget order) | `R0130`, `R0150`, `R0196`, `R0217`, `R0278` |
+| `ENG-S09h` | the fixed limits and word lists of the sandbox layer (the container limits of five tools, the environment allowlist, the run, reject and coverage words, the CPU flag, the canary id length) | `R0114`, `R0271`, `R0395`, `R0501`, `M0046`, `M0195`, `M0201`, `M0202`, `M0415`, `M0458` |
+| `ENG-S06o` | the parse and merge steps (the duplicate adapter text, a fractional file error count, the provenance order, a credential-shaped row) | `M0630`, `M0773`, `M0833` |
+| `ENG-S13j` | the extractor fallback counts of the SAST coverage statement (SPEC 17.ac; not a kill check, it covers the new `coverage.evidence`) | none (new behaviour) |
+
+All 11 live in `apps/api/test/security/helpers/ensemble-triage-checks.js`.
+
+### 4.3 Totals after the triage round
+
+| | Part M sweep | Triage round | After |
+|---|---|---|---|
+| Checks (`pnpm test:security` reports 19 more tests than checks) | 898 | +11 | 909 |
+| Mutants in the sample | 1426 | 0 | 1426 |
+| Killed | 1191 | +88 | **1279** |
+| Timeouts (a kill by the clock) | 12 | 0 | 12 |
+| Survived | 219 | -88 | **131** |
+| Invalid | 4 | 0 | 4 |
+| **Kill rate** (killed plus timeouts over the 1422 valid mutants) | 84.6 percent | | **90.8 percent** (1291 / 1422) |
+
+Of the 131 survivors: **14 are equivalent with a proof** (4.5), **2 are deferred** (4.6), and **115 are not triaged** (112 in the files of 3.3 plus the 3 of 3.1b). Counting the 14 equivalents out of the valid mutants the rate is 91.7 percent (1291 / 1408). The sample is a bounded one (1426 of 4367 candidates), so this is not a statement about the whole population (2.3 still applies).
+
+### 4.4 Disposition per group
+
+| Group | Survivors | Killed (check) | Equivalent (proof) | Deferred |
+|---|---|---|---|---|
+| Secret masking boundaries (`mask.js` 8, `secret-preview.js` 7, `snippet.js` 5) | 20 | 19 (`ENG-S13g`, `ENG-S13h`) | 1 (`R0149`) | 0 |
+| Secrets mapping and hostile records (`secrets/*`) | 24 | 23 (`ENG-S05g`) | 1 (`R0424`) | 0 |
+| Hostile archive parsing (`tar.js` 12, `tree.js` 1) | 13 | 12 (`ENG-S07e`) | 1 (`M0467`) | 0 |
+| Engine wiring gates and capacity (`wiring.js` 11, `capacity.js` 3) | 14 | 11 (`ENG-S16h`, `ENG-S14c`) | 2 (`M0263`, `M0245`) | 1 (`R0100`) |
+| Placeholder digest rule and image catalog (`image-catalog.js`) | 4 | 4 (`ENG-S02d`) | 0 | 0 |
+| **Security-relevant groups** | **75** | **69** | **5** | **1** |
+| Sample, every fifth of the other 141 | 29 | 19 (`ENG-S13i`, `ENG-S09h`, `ENG-S06o`, `ENG-S16h`) | 9 (`M0717`, `R0016`, `M0689`, `M0537`, `R0332`, `M0341`, `M0274`, `M0015`, `M0081`) | 1 (`R0244`) |
+| **Total triaged** | **104** | **88** | **14** | **2** |
+
+The placeholder digest rule (3.2 item 6): the survivor `M0387` (`production && isPlaceholderDigest(...)` turned into `||`, so that a placeholder digest was also refused in development) is killed by `ENG-S02d`, which also asserts that a production lock with registry digests resolves every adopted entry to `repository@digest`. The production rule itself is asserted by `ENG-S02b` (the resolver cannot even be built from a placeholder lock in production, so the `resolve` guard is a second line of defence).
+
+### 4.5 The equivalent mutants (proofs)
+
+Each proof is also on the survivor's line in 3.3. An equivalent mutant is NOT removed from the totals above.
+
+| Survivor | Why no check can observe it |
+|---|---|
+| `R0149` `mask.js` 103 | the default start column 1 against 2 only feeds `Math.max(0, a - 1)`; both give 0 (also for the UTF-8 reading) |
+| `R0424` `secrets/common.js` 59 | the titles are a frozen table, the longest has 49 characters; `slice(0, 200)` and `slice(0, 201)` are the same |
+| `M0467` `tar.js` 62 | `data.indexOf(0x20, data.length)` is -1, so the extra iteration breaks at once |
+| `M0263` `capacity.js` 43 | `drop` runs only after `take` set both keys to 1 or more; the `?? 1` is unreachable |
+| `M0245` `capacity.js` 99 | the `queue.length === 0` shortcut and `pump()` grant the same waiter at the same time (FIFO with skipping) |
+| `M0717` `merger.js` 317 | needs two members of one tool in one finding; merging is cross-tool only (SE-12), shown for four scan types |
+| `R0016` `run-manifest.js` 15 | needs two equal tool ids; the adapter registry refuses a duplicate (`ENG-S06o`) |
+| `M0689` `merger.js` 54 | `cmp` is read only as a sign |
+| `M0537` `inspect.js` 53 | the replacement text equals the original |
+| `R0332` `sbom-lite.js` 25 | the next line refuses any path over 1024 characters, so 1100 against 1101 changes nothing |
+| `M0341` `fake-runtime.js` 136 | a test double, not shipped |
+| `M0274` `cli-runtime.js` 304 | `o` stays `undefined` and the next line makes the same jump |
+| `M0015` `constants.js` 26 | the rank is used as a sign and in `Math.min(rank + 1, 2)` |
+| `M0081` `finding.js` 44 | the empty first segment of a leading `/` is refused by the next line |
+
+### 4.6 The deferred survivors
+
+- `R0100` (`engine/wiring.js` 74): the capacity wait of the SCA engine (`waitSeconds * 1000` against `1001`). The same expression is killed for the SBOM and SAST engines (`ENG-S16h` arms the capacity timer and reads its delay); the SCA engine reaches that timer only with a promoted database snapshot (a mirror object, a snapshot row and a cache directory). **Deferred to full triage A.**
+- `R0244` (`sast/languages.js` 164): the dropped sort of directory entries decides which entries survive a truncating cap; no filesystem seam exists to fix the order of `readdir`. **Deferred to full triage A.**
+
+### 4.7 What remains
+
+- 115 survivors are not triaged: 112 in the files of 3.3 outside the groups above and the sample, and the 3 repository SBOM download survivors of 3.1b. They are the lines of 3.3 without a `->` note. **Full triage (A) before general availability** (gate G-7).
+- The limits of 2.3 still apply (database-only code was swept by sampling; `ENG-S02a` and `ENG-S09d` are load sensitive at 12 workers). The new checks are not load sensitive except the timer based ones (`ENG-S16h` uses 20 to 200 millisecond waits on a fake runtime and a 7 second configured wait that is never waited out).

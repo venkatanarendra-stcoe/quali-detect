@@ -84,8 +84,15 @@ const POLICY_PERMISSIONS = Object.freeze({
 });
 
 function extractRoutes(moduleName) {
-  const file = path.join(apiDir, "src/modules", moduleName, "routes/index.js");
-  const src = read(file);
+  const routesDir = path.join(apiDir, "src/modules", moduleName, "routes");
+  // A module that splits its routes into `routes/<part>.routes.js` files (the findings module, one file per building part) is read as ONE
+  // source: the index plus every `*.routes.js`, in a fixed order.
+  const parts = readdirSync(routesDir)
+    .filter((f) => f.endsWith(".routes.js"))
+    .sort();
+  const src = [path.join(routesDir, "index.js"), ...parts.map((f) => path.join(routesDir, f))]
+    .map((f) => read(f))
+    .join("\n");
   const consts = new Map(); // helper constant -> { permission, scope }
   for (const m of src.matchAll(/const\s+(\w+)\s*=\s*(?:authz\.)?authorize\(\s*"([^"]+)"\s*\)/g))
     consts.set(m[1], { permission: m[2], scope: "tenant" });

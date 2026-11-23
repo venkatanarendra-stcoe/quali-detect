@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 141,
+  "operationCount": 150,
   "operations": [
     {
       "method": "GET",
@@ -928,6 +928,154 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/findings/{id}/assignments",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.assign",
+      "permissionScope": "workspace",
+      "successStatus": 201,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": "{ assigneeUserId, note, expectedRev }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, workspaceId, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Assign an approved or reopened finding, or reassign one in progress, to a member who can remediate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/findings/{id}/assignments/clear",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.assign",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": "{ note, expectedRev }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, workspaceId, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Unassign a finding (back to approved)"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/findings/{id}/claim",
       "module": "findings",
       "audience": "tenant",
@@ -1594,6 +1742,154 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/findings/{id}/remediation/start",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.remediate",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": "{ expectedRev }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, workspaceId, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Start work on an assigned finding (its assignee, or a holder of the assign permission)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/findings/{id}/remediation/submit",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.remediate",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": "{ pullRequestUrl, ticketKey, note, expectedRev }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, workspaceId, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Submit a fix with an optional pull request link, ticket key and note; a later complete scan verifies it"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/findings/{id}/reopen-review",
       "module": "findings",
       "audience": "tenant",
@@ -2028,6 +2324,78 @@
         ]
       },
       "summary": "The same vulnerability in OTHER pipelines of the workspace (links only, never merged)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/findings/bulk/assign",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "finding.assign",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ workspaceId, findingIds, assigneeUserId, note }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ results }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Assign up to 50 findings of one workspace to one assignee (per-item result)"
     },
     {
       "method": "POST",
@@ -5269,6 +5637,151 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/remediation/board",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "remediation.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "assignee",
+          "severity",
+          "pipelineId",
+          "sla"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ columns }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "The remediation board: five columns with counts, the first 25 cards and a cursor each"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/remediation/board/{column}",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "remediation.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "column"
+        ],
+        "query": [
+          "workspaceId",
+          "assignee",
+          "severity",
+          "pipelineId",
+          "sla",
+          "cursor",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "paginated",
+        "dataShape": "[{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, canRemediate, pullRequestUrl, ticketKey }]",
+        "metaKeys": [
+          "correlationId",
+          "pagination"
+        ]
+      },
+      "summary": "One board column, keyset paged (most severe first)"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/repositories",
       "module": "repositories",
       "audience": "tenant",
@@ -7059,6 +7572,130 @@
         ]
       },
       "summary": "Allow or forbid sending repository metadata (file paths) to an external AI provider (audited)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/settings/findings-sla",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "tenant_settings.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ targets }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "The findings SLA targets of the organization (hours per severity, with the defaults)"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/settings/findings-sla",
+      "module": "findings",
+      "audience": "tenant",
+      "permission": "tenant_settings.manage",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FINDING_STATE_CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ targets }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ targets }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Replace the findings SLA targets (audited; a severity left out returns to its default)"
     },
     {
       "method": "GET",

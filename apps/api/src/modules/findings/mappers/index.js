@@ -1,13 +1,10 @@
 import {
-  FINDING_ACTIONS,
-  FINDING_TRANSITIONS,
-  EXCEPTION_SOURCE_STATUSES,
   OPEN_FINDING_STATUSES,
   TOOL_DISPLAY_NAMES,
-  agentRunsOn,
   deriveSlaState,
   hasCredentialShape,
 } from "@qmentisai/shared";
+import { computeAllowedActions } from "../policies/lifecycle.js";
 
 /**
  * DTO mappers of the findings read routes (docs/modules/findings/SPEC.md 8.3). NEVER a Prisma model: every field is named here, so a
@@ -207,61 +204,21 @@ export function toEvidenceDto(evidence, scanType) {
 // ---- lifecycle.allowedActions ---------------------------------------------------------------------------------------------------
 
 /**
- * `lifecycle.allowedActions` (SPEC 8.3): what the caller MAY ask for on this finding, computed on the server from the permissions of the
- * workspace and the state machine, so the UI renders it and never recomputes. Part A1 evaluates the permission and the machine; the own
- * rules of an action (`ownRule` of `FINDING_ACTIONS`: segregation of duties, assignee, requester) are enforced by the write services of
- * Part B and C, which replace this function in their integration and add the `disabledReason` for them. The server always enforces.
- * @param {{ status: string, hasPendingException: boolean, hasActiveException: boolean, pipelineDeleted: boolean, scanType: string, severity: string }} f
- * @param {(key: string) => boolean} can permission check in the finding's workspace
+ * `lifecycle.allowedActions` (SPEC 8.3), computed PER CALLER on the server by the policy of `../policies/lifecycle.js` (Part B):
+ * permissions of the workspace, the state machine and the caller's own rules (segregation of duties, assignee, requester). Re-exported
+ * under the name Part A1 gave it.
  */
-export function computeAllowedActions(f, can) {
-  const out = [];
-  for (const [action, def] of Object.entries(FINDING_ACTIONS)) {
-    const permitted = def.permission === null ? true : can(def.permission);
-    let available;
-    if (def.transitions.length > 0)
-      available = FINDING_TRANSITIONS.some(
-        (t) => def.transitions.includes(t.id) && t.from.includes(f.status),
-      );
-    else if (action === "request_accept_risk" || action === "request_suppression")
-      available = EXCEPTION_SOURCE_STATUSES.includes(f.status) && !f.hasPendingException;
-    else if (action === "withdraw_exception" || action === "reject_exception")
-      available = f.hasPendingException;
-    else if (action === "request_advisory") available = agentRunsOn(f);
-    else available = true; // comment
-    if (action === "approve_exception") available = available && f.hasPendingException;
-    if (action === "approve_review" || action === "reject_review")
-      available = f.status === "awaiting_approval";
-    if (action === "revoke_accept_risk") available = f.status === "accepted_risk";
-    if (action === "revoke_suppression") available = f.status === "suppressed";
-    if (action === "submit_fix" && f.pipelineDeleted) available = false;
-    const allowed = permitted && available;
-    out.push({
-      action,
-      allowed,
-      ...(allowed
-        ? {}
-        : {
-            disabledReason: !permitted
-              ? "missing_permission"
-              : action === "submit_fix" && f.pipelineDeleted
-                ? "pipeline_deleted"
-                : "not_available_in_status",
-          }),
-    });
-  }
-  return out;
-}
+export { computeAllowedActions };
 
 // ---- the detail -------------------------------------------------------------------------------------------------------------------
 
 /**
  * `GET /findings/{id}`: the `findingDetailSchema` shape.
  * @param {any} detail the repository's `getDetail` record
- * @param {{ now?: Date, can: (key: string) => boolean, workspaceId?: string }} context `workspaceId` is the caller's authorized workspace
+ * @param {{ now?: Date, can: (key: string) => boolean, workspaceId?: string, callerUserId: string }} context `callerUserId` is the authenticated user (the per-caller `lifecycle.allowedActions`); `workspaceId` is the caller's authorized workspace
  *   (owner decision 2026-11-24: the DETAIL DTO, and no other, carries it so the `/findings/:findingId` alias can resolve its workspace)
  */
-export function toDetailDto(detail, { now = new Date(), can, workspaceId }) {
+export function toDetailDto(detail, { now = new Date(), can, workspaceId, callerUserId }) {
   const f = detail.finding;
   const item = toListItemDto(
     {
@@ -349,11 +306,20 @@ export function toDetailDto(detail, { now = new Date(), can, workspaceId }) {
       allowedActions: computeAllowedActions(
         {
           status: item.status,
-          hasPendingException: Boolean(f.pendingExceptionId),
-          hasActiveException: Boolean(f.activeExceptionId),
           pipelineDeleted: item.pipeline.deleted,
           scanType: f.scanType,
           severity: f.severity,
+          callerUserId,
+          claimedByUserId: f.claimedByUserId ?? null,
+          assigneeUserId: f.assigneeUserId ?? null,
+          pendingReview: f.pendingReview
+            ? { reviewerUserId: f.pendingReview.reviewerUserId }
+            : null,
+          pendingException: f.pendingException
+            ? { requestedByUserId: f.pendingException.requestedByUserId }
+            : null,
+          sodUserIds: detail.sodUserIds ?? [],
+          advisoryStatus: toAdvisoryDto(detail.advisory).status,
         },
         can,
       ),

@@ -1,6 +1,7 @@
 import { QUEUE_NAMES } from "@qmentisai/contracts";
 import { NonRetryableError, createConsumer } from "@qmentisai/infra";
 import { USABLE_TENANT_STATUSES } from "@qmentisai/shared";
+import { buildFindingHint, isFindingHintType } from "./findings.js";
 import { buildHint } from "./hints.js";
 
 /**
@@ -19,7 +20,7 @@ import { buildHint } from "./hints.js";
  * @param {{ repository: ReturnType<typeof import("./repository.js").createRealtimeRepository> }} deps
  */
 export function createHintResolver({ repository }) {
-  /** @type {WeakMap<object, HintTarget>} */
+  /** @type {WeakMap<object, HintTarget | { tenantId: string, workspaceId: string, findingId: string }>} */
   const resolved = new WeakMap();
   const reject = (reason) =>
     new NonRetryableError("The message does not belong to the tenant.", { reason });
@@ -30,6 +31,21 @@ export function createHintResolver({ repository }) {
       if (!tenant || !USABLE_TENANT_STATUSES.includes(tenant.status))
         throw reject("tenant-not-usable");
       const { payload } = message;
+      if (isFindingHintType(message.type)) {
+        // the findings room (SPEC findings 9.5): the finding must exist IN THE MESSAGE'S TENANT with the workspace the payload states
+        const finding = await repository.findFinding({
+          tenantId: message.tenantId,
+          id: payload.findingId,
+        });
+        if (!finding || finding.workspaceId !== payload.workspaceId)
+          throw reject("resource-not-in-tenant");
+        resolved.set(message, {
+          tenantId: finding.tenantId,
+          workspaceId: finding.workspaceId,
+          findingId: finding.id,
+        });
+        return;
+      }
       const execution = await repository.findExecution({
         tenantId: message.tenantId,
         id: payload.executionId,
@@ -68,7 +84,9 @@ export function createHintHandler({ resolver, realtime }) {
     const target = resolver.targetOf(message);
     if (!target)
       throw new NonRetryableError("The message was not verified.", { reason: "unverified" });
-    const hint = buildHint(message, target);
+    const hint = isFindingHintType(message.type)
+      ? buildFindingHint(message, /** @type {any} */ (target))
+      : buildHint(message, /** @type {HintTarget} */ (target));
     if (hint) realtime.emit(hint);
   };
 }

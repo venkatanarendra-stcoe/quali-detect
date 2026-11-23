@@ -10,12 +10,16 @@ export const REALTIME_NAMESPACE = "/realtime";
 export const ENGINE_QUERY_KEYS = Object.freeze(["EIO", "transport", "sid", "t", "b64"]);
 /** Permission checked on every join, through the central authorization engine. */
 export const JOIN_PERMISSION = "execution.view";
+/** Permission checked on every join of the FINDINGS room (docs/modules/findings/SPEC.md 9.5), through the same engine. */
+export const FINDINGS_JOIN_PERMISSION = "finding.view";
 export const CLIENT_EVENTS = Object.freeze({ SUBSCRIBE: "subscribe", UNSUBSCRIBE: "unsubscribe" });
 export const SERVER_EVENTS = Object.freeze({
   EXECUTION_CHANGED: "execution.changed",
   EXECUTION_DECISION: "execution.decision",
   TASK_CHANGED: "task.changed",
   LOG_APPENDED: "log.appended",
+  /** One hint of the findings room (a finding changed; ids, status, rev and a type only). */
+  FINDING_CHANGED: "finding.changed",
   SUBSCRIPTION_ENDED: "subscription.ended",
 });
 /** The only acknowledgement codes a client can ever see on a refused join. */

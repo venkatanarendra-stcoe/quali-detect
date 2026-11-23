@@ -344,6 +344,11 @@ export const FORBIDDEN_FINDING_DTO_KEYS = Object.freeze([
   "baseUrl",
 ]);
 
+/** The keys forbidden in the DETAIL DTO: every one of {@link FORBIDDEN_FINDING_DTO_KEYS} except the top-level `workspaceId` (owner decision 2026-11-24). */
+export const FORBIDDEN_FINDING_DETAIL_DTO_KEYS = Object.freeze(
+  FORBIDDEN_FINDING_DTO_KEYS.filter((k) => k !== "workspaceId"),
+);
+
 export const slaDtoSchema = z
   .object({
     state: z.enum(/** @type {[string, ...string[]]} */ ([...SLA_STATES])),
@@ -452,6 +457,9 @@ const evidenceDtoSchema = z
 /** `GET /findings/{id}`: the list item plus the detail (SPEC 8.3). */
 export const findingDetailSchema = findingListItemSchema
   .extend({
+    // Owner decision 2026-11-24 (SPEC 8.3): `workspaceId` is allowed in the DETAIL DTO only, so the `/findings/:findingId` alias can resolve
+    // its workspace. It is the caller's own authorized workspace (never another tenant's), and no other DTO carries it.
+    workspaceId: uuid,
     fingerprint: z.string().regex(/^fp1:[0-9a-f]{64}$/),
     fix: z
       .object({ fixedVersions: z.array(z.string().max(100)).max(10) })

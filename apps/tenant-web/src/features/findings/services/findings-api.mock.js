@@ -464,6 +464,7 @@ export function createMockFindingsService() {
   function toDetail(rec) {
     return {
       ...toListItem(rec),
+      workspaceId: actor().workspaceId, // the detail DTO alone carries it (owner decision 2026-11-24)
       fingerprint: rec.fingerprint,
       fix: rec.fix,
       advisories: rec.advisories,

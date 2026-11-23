@@ -1,4 +1,5 @@
 import { FINDINGS_LIMITS } from "./constants.js";
+import { redactSecretShapes } from "../secret-redaction.js";
 
 /**
  * Pure normalization shared by the fingerprint, the ingestion plan and the advisory input (docs/modules/findings/SPEC.md 5.2.1).
@@ -107,6 +108,7 @@ export function redactCredentialShapes(text) {
   for (const re of SHAPES)
     out = out.replace(new RegExp(re.source, `${re.flags.replace("g", "")}g`), "[REDACTED]");
   out = out.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*$/, "[REDACTED]");
+  out = redactSecretShapes(out); // the widened shared list (Stripe, Slack, JWT, quoted assignments, ...)
   return hasCredentialShape(out) ? "[REDACTED]" : out;
 }
 

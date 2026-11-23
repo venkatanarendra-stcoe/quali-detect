@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { parseMessage } from "@qmentisai/contracts";
-import { FINDING_STATUSES, FORBIDDEN_FINDING_DTO_KEYS } from "@qmentisai/shared";
+import {
+  FINDING_STATUSES,
+  FORBIDDEN_FINDING_DETAIL_DTO_KEYS,
+  FORBIDDEN_FINDING_DTO_KEYS,
+} from "@qmentisai/shared";
 import {
   SHA40,
   at,
@@ -2101,12 +2105,28 @@ const readChecks = [
             walk(x);
           }
       };
-      const all = [list, summary, history, comments, similar, ...Object.values(detail)].map(
-        (r) => r.json,
-      );
-      all.forEach((j) => walk(j));
+      // owner decision 2026-11-24: ONLY the detail DTO may carry `workspaceId`, and only at its top level (not nested, not elsewhere)
+      const nonDetail = [list, summary, history, comments, similar].map((r) => r.json);
+      const details = Object.values(detail).map((r) => r.json);
+      const all = [...nonDetail, ...details];
+      nonDetail.forEach((j) => walk(j));
       for (const k of FORBIDDEN_FINDING_DTO_KEYS)
-        ok(p, !keys.has(k), `forbidden key "${k}" appears in a response`);
+        ok(p, !keys.has(k), `forbidden key "${k}" appears in a non-detail response`);
+      for (const d of details) {
+        const { workspaceId: ws, ...rest } = d.data ?? {};
+        ok(p, typeof ws === "string" && ws.length > 0, "the detail DTO must carry its workspaceId");
+        const detailKeys = new Set();
+        keys.clear();
+        walk(rest);
+        for (const k of keys) detailKeys.add(k);
+        for (const k of FORBIDDEN_FINDING_DETAIL_DTO_KEYS)
+          ok(p, !detailKeys.has(k), `forbidden key "${k}" appears in a detail response`);
+        ok(
+          p,
+          !detailKeys.has("workspaceId"),
+          "workspaceId appears below the top level of a detail",
+        );
+      }
       const text = JSON.stringify(all);
       const email = (await c.db.user.findUnique({ where: { id: author } })).email;
       for (const needle of [

@@ -1350,8 +1350,26 @@ export const FINDINGS_A0_CHECKS = [
         ["detail", findingDetailSchema],
       ]) {
         const keys = schemaKeys(schema);
+        // owner decision 2026-11-24: `workspaceId` is allowed in the detail DTO ONLY (and nowhere below its top level)
         for (const bad of FORBIDDEN_FINDING_DTO_KEYS)
-          ok(p, !keys.has(bad), `${name} DTO has the forbidden key ${bad}`);
+          ok(
+            p,
+            bad === "workspaceId" && name === "detail" ? true : !keys.has(bad),
+            `${name} DTO has the forbidden key ${bad}`,
+          );
+        if (name === "detail") {
+          ok(p, "workspaceId" in findingDetailSchema.shape, "the detail DTO lost workspaceId");
+          ok(
+            p,
+            !schemaKeys(findingDetailSchema.omit({ workspaceId: true })).has("workspaceId"),
+            "workspaceId is nested inside the detail DTO",
+          );
+        } else
+          ok(
+            p,
+            !("workspaceId" in findingListItemSchema.shape),
+            "the list DTO carries workspaceId",
+          );
         ok(
           p,
           keys.has("rev") && keys.has("severity"),
@@ -2814,6 +2832,7 @@ export const FINDINGS_A0_CHECKS = [
         "C",
         "D",
         "F",
+        "AM",
       ]);
       // the worker flags
       const { loadWorkerConfig } = await import("../../../../../workers/src/config.js");

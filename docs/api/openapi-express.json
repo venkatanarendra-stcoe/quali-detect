@@ -51065,6 +51065,10 @@
                           "type": "integer",
                           "minimum": 0
                         },
+                        "workspaceId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
                         "fingerprint": {
                           "type": "string",
                           "pattern": "^fp1:[0-9a-f]{64}$"
@@ -51691,6 +51695,7 @@
                         "pendingDecision",
                         "advisoryHint",
                         "rev",
+                        "workspaceId",
                         "fingerprint",
                         "fix",
                         "advisories",

@@ -769,7 +769,7 @@
       },
       "response": {
         "envelope": "success",
-        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
+        "dataShape": "{ id, title, scanType, kind, ruleId, cwe, severity, toolSeverity, severityOverridden, status, claimedBy, location, component, pipeline, repository, assignee, sla, firstDetectedAt, lastSeenAt, occurrenceCount, reopenCount, pendingDecision, advisoryHint, rev, workspaceId, fingerprint, fix, advisories, confidence, provenance, evidence, link, advisory, review, exception, remediation, lifecycle, coverage, similarCount }",
         "metaKeys": [
           "correlationId"
         ]

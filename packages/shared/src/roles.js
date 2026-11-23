@@ -120,6 +120,8 @@ export const BUILT_IN_ROLES = Object.freeze([
       "security_review.view",
       "finding.review",
       "remediation.view",
+      "finding.accept_risk",
+      "finding.suppress",
     ],
   ),
   role("dev_lead", "Dev Lead", "Manages repositories and drives remediation.", [
@@ -137,12 +139,14 @@ export const BUILT_IN_ROLES = Object.freeze([
     "remediation.view",
     "finding.assign",
     "finding.remediate",
+    "finding.accept_risk",
   ]),
   role("developer", "Developer", "Remediates findings assigned to them.", [
     ...READ,
     "finding.comment",
     "remediation.view",
     "finding.remediate",
+    "finding.accept_risk",
   ]),
   role("viewer", "Guest / Viewer", "Read-only access.", [...READ]),
 ]);

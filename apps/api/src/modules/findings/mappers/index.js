@@ -258,9 +258,10 @@ export function computeAllowedActions(f, can) {
 /**
  * `GET /findings/{id}`: the `findingDetailSchema` shape.
  * @param {any} detail the repository's `getDetail` record
- * @param {{ now?: Date, can: (key: string) => boolean }} context
+ * @param {{ now?: Date, can: (key: string) => boolean, workspaceId?: string }} context `workspaceId` is the caller's authorized workspace
+ *   (owner decision 2026-11-24: the DETAIL DTO, and no other, carries it so the `/findings/:findingId` alias can resolve its workspace)
  */
-export function toDetailDto(detail, { now = new Date(), can }) {
+export function toDetailDto(detail, { now = new Date(), can, workspaceId }) {
   const f = detail.finding;
   const item = toListItemDto(
     {
@@ -286,6 +287,7 @@ export function toDetailDto(detail, { now = new Date(), can }) {
   const a = detail.assignment;
   return {
     ...item,
+    workspaceId: workspaceId ?? f.workspaceId,
     fingerprint: f.fingerprint,
     fix:
       f.scanType === "sca" && (f.fixedVersions ?? []).length > 0

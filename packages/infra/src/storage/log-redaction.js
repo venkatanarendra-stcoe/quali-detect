@@ -1,3 +1,4 @@
+import { redactSecretShapes } from "@qmentisai/shared";
 import { findCredentials, redactCredentialText } from "../credential-guard.js";
 
 /** Longest stored message in characters (SPEC §7.4); the database repeats it as a CHECK. */
@@ -34,6 +35,7 @@ export function redactLogText(text) {
     (_m, proxy) => `${proxy ? "proxy-" : ""}authorization: ${REDACTED}`,
   );
   out = out.replace(SECRET_PAIR, (_m, key) => `${key}: ${REDACTED}`);
+  out = redactSecretShapes(out); // the ONE shared list (Stripe, Slack, JWT, quoted assignments, scan-engine secret classes)
   return findCredentials(out).length > 0 ? REDACTED : out;
 }
 

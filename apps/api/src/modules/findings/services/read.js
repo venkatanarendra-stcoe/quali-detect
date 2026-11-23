@@ -215,6 +215,7 @@ export function createFindingsReadService({ repository, clock = () => new Date()
       if (!detail) throw new NotFoundError();
       return toDetailDto(detail, {
         now: clock(),
+        workspaceId: ref.workspaceId,
         can: (key) =>
           can(actor.permissions, key, { type: "workspace", workspaceId: ref.workspaceId }),
       });

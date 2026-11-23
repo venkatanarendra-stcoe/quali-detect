@@ -28,3 +28,6 @@ Implement backend APIs, database schemas, real OAuth or repository connections, 
 
 ## Working protocol
 Plan briefly, implement incrementally, update the relevant docs in the same change, report what was actually run. Never claim a command or check succeeded unless it was executed and observed.
+
+## Tests
+The only test suite allowed is the security regression suite, `pnpm test:security` (ADR-008, areas 1 to 19; area 19 is the Findings module, `apps/api/test/security/helpers/findings/`). Do not add feature or unit test directories. Findings module documents: `docs/modules/findings/SPEC.md` (17.x is the as-built summary), `AS_BUILT_*.md`, `MUTATION_BACKLOG.md`.

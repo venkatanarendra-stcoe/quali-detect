@@ -70,7 +70,7 @@ export const NAV_ITEMS = Object.freeze({
   pipelines: ws("Pipelines", Workflow, "pipelines"),
   executions: ws("Executions", Play, "executions"),
   findings: ws("Findings", ShieldAlert, "findings"),
-  "security-reviews": ws("Security reviews", FileSearch, "security-reviews"),
+  "security-reviews": ws("Security reviews", FileSearch, "reviews"),
   approvals: ws("Approvals", ClipboardCheck, "approvals"),
   remediation: ws("Remediation", Wrench, "remediation"),
   policies: ws("Policies", Scale, "policies"),

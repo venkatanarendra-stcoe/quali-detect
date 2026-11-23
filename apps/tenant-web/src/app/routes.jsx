@@ -1,6 +1,13 @@
 import { AuditLogsPage } from "@/features/audit/index.js";
 import { ExecutionDetailPage, ExecutionsPage } from "@/features/executions/index.js";
 import {
+  ApprovalsPage,
+  FindingDetailPage,
+  FindingsPage,
+  RemediationPage,
+  ReviewsPage,
+} from "@/features/findings/index.js";
+import {
   GitHubCallbackPage,
   GitHubSetupPage,
   IntegrationDetailPage,
@@ -174,6 +181,35 @@ export const WORKSPACE_ROUTES = [
     path: "executions/:executionId",
     permission: "execution.view",
     element: <ExecutionDetailPage />,
+  },
+  {
+    itemId: "findings",
+    path: "findings",
+    permission: "finding.view",
+    element: <FindingsPage />,
+  },
+  {
+    path: "findings/:findingId",
+    permission: "finding.view",
+    element: <FindingDetailPage />,
+  },
+  {
+    itemId: "security-reviews",
+    path: "reviews",
+    permission: "security_review.view",
+    element: <ReviewsPage />,
+  },
+  {
+    itemId: "approvals",
+    path: "approvals",
+    permission: "approval.view",
+    element: <ApprovalsPage />,
+  },
+  {
+    itemId: "remediation",
+    path: "remediation",
+    permission: "remediation.view",
+    element: <RemediationPage />,
   },
   {
     itemId: "policies",

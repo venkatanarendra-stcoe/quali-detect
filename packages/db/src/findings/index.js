@@ -3,6 +3,8 @@
  * it. Prisma stays inside this package; services never import `@prisma/client`.
  */
 export * from "./not-implemented.js";
+export * from "./errors.js";
+export * from "./events.js";
 export * from "./transitions.js";
 export * from "./findings.js";
 export * from "./ingestion.js";

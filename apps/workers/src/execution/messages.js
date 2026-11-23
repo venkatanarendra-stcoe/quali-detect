@@ -98,6 +98,22 @@ export function createMessageProducer({ db }) {
           payload,
         }),
       ),
+    /**
+     * The SECOND row of the terminal event, for the findings ingestion (docs/modules/findings/SPEC.md IN-1): the same envelope and payload
+     * as `completed`, in the SAME transaction, to the `findings` queue under the message id `execution-completed-findings-<executionId>`.
+     * Written only while FINDINGS_INGESTION_ENABLED is true; the findings handler loads everything from the database and trusts the ids only.
+     */
+    completedForFindings: (tx, exec, payload, correlationId) =>
+      send(
+        tx,
+        QUEUE_NAMES.FINDINGS,
+        createEventEnvelope({
+          ...base(exec, `execution-completed-findings-${exec.id}`, correlationId),
+          type: "pipeline.execution.completed",
+          subject: { type: "execution", id: exec.id },
+          payload,
+        }),
+      ),
     taskRequested: (tx, exec, task, { trust, deadlineAt }, correlationId) => {
       const messageId = `scan-task-requested-${task.id}-${task.attempt}`;
       return send(

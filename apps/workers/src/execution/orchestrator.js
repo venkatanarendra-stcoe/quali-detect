@@ -460,17 +460,17 @@ export function createOrchestrator({
             truncated: byTask.get(t.id)?.truncated ?? false,
           })),
         });
-        await producer.completed(
-          tx,
-          row,
-          completedPayload(final, {
-            status: to,
-            reason,
-            resolutionEligible: eligible,
-            tasks: summary,
-          }),
-          row.correlationId,
-        );
+        const completed = completedPayload(final, {
+          status: to,
+          reason,
+          resolutionEligible: eligible,
+          tasks: summary,
+        });
+        await producer.completed(tx, row, completed, row.correlationId);
+        // Findings ingestion (docs/modules/findings/SPEC.md IN-1): a second row of the same event for the `findings` queue, in the same
+        // transaction, only while the flag is on (default off: nothing is written and nothing else changes)
+        if (config.findings?.ingestionEnabled === true)
+          await producer.completedForFindings(tx, row, completed, row.correlationId);
         await producer.statusChanged(tx, row, to, done.execution.statusRev, row.correlationId);
         return { lost: false, quotaReleased: done.quotaReleased };
       });

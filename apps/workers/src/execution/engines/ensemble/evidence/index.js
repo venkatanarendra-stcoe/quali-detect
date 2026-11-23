@@ -10,7 +10,7 @@ export {
   runBlockExtractor,
 } from "./block-extractor.js";
 export { CUT_MARKER, EVIDENCE_CAPS, WITHHELD_LINE } from "./constants.js";
-export { enrichFindings } from "./enrich.js";
+export { enrichFindings, evidenceCoverageOf } from "./enrich.js";
 export {
   MAX_LINE_CHARS,
   assignmentRhs,

@@ -12,7 +12,7 @@ import { loadRulePack } from "../sast/rule-pack.js";
 import { dropVendored, filterToChanged, planScope, scopedInventory } from "../sast/scope.js";
 import { createContainerToolRunner } from "./container-run.js";
 import { DEFAULT_TOOL_WAIT_MS, ENGINE_ID, ENSEMBLE_VERSION } from "./constants.js";
-import { enrichFindings } from "../evidence/index.js";
+import { enrichFindings, evidenceCoverageOf } from "../evidence/index.js";
 import { runManifestSha256 } from "./run-manifest.js";
 
 /**
@@ -206,8 +206,9 @@ export function createEnsembleSastEngine({
       });
       log(
         "info",
-        `SAST evidence: ${enriched.summary.blocks} blocks, ${enriched.summary.windows} windows, ${enriched.summary.capped} beyond the cap, extractor ${enriched.summary.extractor}`,
+        `SAST evidence: ${enriched.summary.blocks} blocks, ${enriched.summary.windows} windows, ${enriched.summary.capped} beyond the cap, extractor ${enriched.summary.extractor}, window reasons ${JSON.stringify(enriched.summary.fallbacks)}`,
       );
+      const evidenceCoverage = evidenceCoverageOf(enriched.summary);
       const rows = await toStorageRowsAsync(enriched.findings, platform.maxItems ?? 50_000);
       // a mixed tree: the languages no tool covers are named and the result is not complete
       const gapped = [5, 6].includes(rollup.matchedRow) && app.gaps.length > 0;
@@ -239,6 +240,8 @@ export function createEnsembleSastEngine({
             toolsDegraded: rollup.toolsDegraded,
             tools: toolRuns.map((r) => ({ toolId: r.toolId, status: r.status })),
             ...(enriched.summary.capped > 0 ? { notes: [EVIDENCE_CAPPED_NOTE_CODE] } : {}),
+            // how often the block extractor fell back to the line window, and why (SPEC 17.ac): counts and fixed words only
+            ...(evidenceCoverage ? { evidence: evidenceCoverage } : {}),
           },
           runManifestSha256: runManifestSha256({
             ensembleVersion: ENSEMBLE_VERSION,

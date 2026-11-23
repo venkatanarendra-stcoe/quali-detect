@@ -54,6 +54,7 @@ import {
 } from "./helpers/ensemble-guard-checks.js";
 import { ENSEMBLE_ENV_CHECKS } from "./helpers/ensemble-env-checks.js";
 import { ENSEMBLE_KILL_CHECKS } from "./helpers/ensemble-kill-checks.js";
+import { ENSEMBLE_TRIAGE_CHECKS } from "./helpers/ensemble-triage-checks.js";
 import { DBMIRROR_CHECKS } from "./helpers/dbmirror-checks.js";
 import { DBMIRROR_DB_CHECKS } from "./helpers/dbmirror-db-checks.js";
 import { IMAGE_CATALOG_CHECKS } from "./helpers/image-catalog-checks.js";
@@ -76,7 +77,7 @@ import { buildLlmConsentChecks } from "./helpers/llm-consent-checks.js";
 import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
-const EXPECTED_CHECKS = 898;
+const EXPECTED_CHECKS = 909;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -10444,6 +10445,7 @@ const schWorld = () =>
     ...ENSEMBLE_GUARD_CHECKS,
     ...ENSEMBLE_ENV_CHECKS,
     ...ENSEMBLE_KILL_CHECKS,
+    ...ENSEMBLE_TRIAGE_CHECKS,
     ...DBMIRROR_CHECKS,
   ])
     add(

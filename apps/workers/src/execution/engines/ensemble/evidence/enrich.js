@@ -1,5 +1,5 @@
 import { findCredentials } from "@qmentisai/infra";
-import { FINDING_LIMITS } from "@qmentisai/shared";
+import { FINDING_LIMITS, evidenceCoverageSchema } from "@qmentisai/shared";
 import { scrubDeep } from "../core/scrub.js";
 import { languageOfFile } from "../sast/languages.js";
 import { runBlockExtractor, locationKey } from "./block-extractor.js";
@@ -53,7 +53,7 @@ const linkLocation = (f) =>
  *   signal?: AbortSignal,
  *   now?: () => number
  * }} input `candidates`: the secret candidates before the merge (they hold the columns every tool reported)
- * @returns {Promise<{ findings: any[], summary: { linked: number, evidenced: number, blocks: number, windows: number, secretPreviews: number, secretOmitted: number, capped: number, extractor: string } }>}
+ * @returns {Promise<{ findings: any[], summary: { linked: number, evidenced: number, blocks: number, windows: number, secretPreviews: number, secretOmitted: number, capped: number, extractor: string, extractorRequested: number, extractorInvalid: number, fallbacks: Record<string, number> } }>}
  */
 export async function enrichFindings({
   findings,
@@ -72,6 +72,10 @@ export async function enrichFindings({
     secretOmitted: 0,
     capped: 0,
     extractor: "not_run",
+    // how often a code finding got the line window and not a block, by fixed reason word (SPEC 17.ac); counts only
+    extractorRequested: 0,
+    extractorInvalid: 0,
+    fallbacks: /** @type {Record<string, number>} */ ({}),
   };
   const out = findings.map((f) => {
     const link = scmLinkOf(repo, linkLocation(f));
@@ -106,6 +110,8 @@ export async function enrichFindings({
       })),
     ).catch(() => ({ status: "failed", blocks: new Map() }));
     summary.extractor = ran.status;
+    summary.extractorRequested = ran.requested ?? 0;
+    summary.extractorInvalid = ran.invalid ?? 0;
     blocks = ran.blocks;
   }
 
@@ -123,6 +129,7 @@ export async function enrichFindings({
       continue;
     }
     let evidence;
+    let blockFound = false;
     if (f.kind === "secret") {
       evidence = buildSecretEvidence({ finding: f, lines, index });
       if (evidence === null) summary.secretOmitted += 1;
@@ -134,6 +141,7 @@ export async function enrichFindings({
           endLine: f.location.endLine ?? f.location.startLine,
         }),
       );
+      blockFound = block !== undefined;
       const language = languageOfFile(f.location.path);
       // a hard-coded-credential rule points at a line that holds the value itself: its lines are masked whatever the key is called
       const credentialRule = /hard-?coded|credential|password|secret|B10[5-7]/i.test(
@@ -164,7 +172,37 @@ export async function enrichFindings({
     summary.evidenced += 1;
     if (f.kind === "secret") summary.secretPreviews += 1;
     else if (clean.kind === "block") summary.blocks += 1;
-    else summary.windows += 1;
+    else {
+      summary.windows += 1;
+      // why this code finding has the line window: the extractor did not answer (its status word), it found no enclosing block, or the block was refused
+      const reason =
+        summary.extractor !== "ok"
+          ? `extractor_${summary.extractor}`
+          : blockFound
+            ? "block_rejected"
+            : "no_block";
+      summary.fallbacks[reason] = (summary.fallbacks[reason] ?? 0) + 1;
+    }
   }
   return { findings: out, summary };
+}
+
+/**
+ * The evidence counts of a task for the stored coverage statement (`coverage.evidence`, SPEC 5.13.2, 17.ac): the extractor run word, the
+ * locations asked and the answers refused, the code findings that got a block and those that got the line window, by reason. Counts and
+ * fixed words only. `undefined` when the extractor did not run and no code finding has an excerpt, or when the object does not satisfy
+ * the shared schema (a statistics field never fails a scan).
+ * @param {{ blocks: number, windows: number, extractor: string, extractorRequested: number, extractorInvalid: number, fallbacks: Record<string, number> }} summary
+ */
+export function evidenceCoverageOf(summary) {
+  if (summary.blocks + summary.windows === 0 && summary.extractor === "not_run") return undefined;
+  const parsed = evidenceCoverageSchema.safeParse({
+    extractor: summary.extractor,
+    requested: summary.extractorRequested,
+    invalid: summary.extractorInvalid,
+    blocks: summary.blocks,
+    windows: summary.windows,
+    fallbacks: summary.fallbacks,
+  });
+  return parsed.success ? parsed.data : undefined;
 }

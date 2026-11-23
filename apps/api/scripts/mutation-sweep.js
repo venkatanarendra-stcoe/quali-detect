@@ -12,6 +12,9 @@
  *   node scripts/mutation-sweep.js list                                          count candidate mutants per file
  *   node scripts/mutation-sweep.js run     [--map-file F] [--out F] [--per-file N] [--only SUBSTR] [--jobs N] [--seed N]
  *   node scripts/mutation-sweep.js report  [--out F]                             markdown of the survivors grouped by file
+ *   node scripts/mutation-sweep.js one --file F --line N [--operator OP] [--only REGEX]
+ *                                                                                re-runs every mutant of ONE line against the Docker-free checks
+ *                                                                                (or the check ids matching REGEX): the triage tool (MUTATION_BACKLOG.md 4)
  * Deterministic: the same sources and seed give the same mutants. Operators: === and !==, && and ||, comparison boundaries, true and
  * false, a removed negation in a condition, an integer literal plus one, startsWith and endsWith, every and some, min and max, a removed
  * array element line (flag lists), a removed statement call, a removed continue, break or return.
@@ -979,6 +982,45 @@ function report() {
   console.log(lines.join("\n"));
 }
 
+/**
+ * Triage helper (MUTATION_BACKLOG.md section 4): applies, one at a time and IN MEMORY, every mutant of one source line and prints the
+ * verdict of each against the Docker-free checks (all of them, or the check ids matching `--only`). The working tree is never written.
+ */
+async function one() {
+  const file = path.resolve(repoRoot, opt("file", ""));
+  const line = Number(opt("line", "0"));
+  const operator = opt("operator", null);
+  const only = opt("only", null);
+  const src = readFileSync(file, "utf8");
+  const wanted = candidatesOf(src).filter(
+    (c) => c.line === line && (operator === null || c.operator === operator),
+  );
+  if (wanted.length === 0) console.log("no mutant on that line");
+  for (const [i, c] of wanted.entries()) {
+    const mutated = src.slice(0, c.offset) + c.replacement + src.slice(c.offset + c.length);
+    const before = src.slice(c.offset, c.offset + c.length).trim();
+    const label = `${i} ${c.operator} \`${before}\` -> \`${c.replacement.trim() || "(removed)"}\``;
+    if (!(await syntaxOk(mutated))) {
+      console.log(`${label}: invalid`);
+      continue;
+    }
+    const sourceFile = path.join(SCRATCH, `one-${process.pid}-${i}.js`);
+    writeFileSync(sourceFile, mutated);
+    const r = await runWorker({
+      hook: true,
+      env: {
+        MUTANT_FILE: file,
+        MUTANT_SOURCE_FILE: sourceFile,
+        ...(only ? { MUTATION_ONLY: only } : {}),
+      },
+    });
+    rmSync(sourceFile, { force: true });
+    console.log(
+      `${label}: ${r.timedOut ? "timeout" : r.json?.ok === true ? "SURVIVED" : `killed by ${r.json?.failed ?? "a crash"}`}`,
+    );
+  }
+}
+
 if (command === "map") await buildMap();
 else if (command === "list") {
   let total = 0;
@@ -994,4 +1036,5 @@ else if (command === "rerun") await rerun();
 else if (command === "confirm") await confirm();
 else if (command === "dbsweep") await dbsweep();
 else if (command === "report") report();
+else if (command === "one") await one();
 else throw new Error(`unknown command ${command}`);

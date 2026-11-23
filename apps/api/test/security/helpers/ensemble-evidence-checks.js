@@ -82,13 +82,13 @@ import { TASK_A } from "./ensemble-fakes.js";
 
 const ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
 const ENGINE_DIR = path.join(ROOT, "apps/workers/src/execution/engines/ensemble");
-const RULES_DIR = path.join(ENGINE_DIR, "sbom/rules");
-const FIX = path.join(ROOT, "apps/api/test/security/fixtures/scan-engines");
+export const RULES_DIR = path.join(ENGINE_DIR, "sbom/rules");
+export const FIX = path.join(ROOT, "apps/api/test/security/fixtures/scan-engines");
 const real = (dir, name) => readFileSync(path.join(FIX, dir, "real", name));
 const GL_TREE = real("secrets", "gitleaks-tree.json");
 const DS_TREE = real("secrets", "detect-secrets-tree.json");
-const OG_TREE = real("sast", "opengrep-tree.json");
-const BANDIT_TREE = real("sast", "bandit-tree.json");
+export const OG_TREE = real("sast", "opengrep-tree.json");
+export const BANDIT_TREE = real("sast", "bandit-tree.json");
 const EXT_REQ = JSON.parse(real("evidence", "extractor-sast-requests.json").toString("utf8"));
 const EXT_REAL = real("evidence", "extractor-sast-real.json");
 const HOSTILE_REQ = JSON.parse(
@@ -106,8 +106,8 @@ const same = (p, label, got, want) =>
     `${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
   );
 
-const SHA = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c";
-const REPO = { provider: "github", fullName: "acme/app", commitSha: SHA };
+export const SHA = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c";
+export const REPO = { provider: "github", fullName: "acme/app", commitSha: SHA };
 const FAKE_VARIANTS = Object.values(FAKE).flatMap((v) => secretVariants(v));
 const sha1 = (v) => createHash("sha1").update(v).digest("hex");
 const leaks = (value) => {
@@ -121,7 +121,7 @@ const partialLeaks = (value, text = JSON.stringify(value)) =>
     return false;
   });
 
-const sandboxConfig = (archiveRoot, rulesDir) => ({
+export const sandboxConfig = (archiveRoot, rulesDir) => ({
   runtimeBin: "podman",
   containerUser: "65534:65534",
   usernsMode: "keep-id",
@@ -133,7 +133,7 @@ const sandboxConfig = (archiveRoot, rulesDir) => ({
 });
 
 /** The committed lock with the named own builds given a mirror digest (a dev resolver, never production). */
-const resolverWith = (keys) => {
+export const resolverWith = (keys) => {
   const lock = JSON.parse(readFileSync(path.join(ENGINE_DIR, "catalog/images.lock.json"), "utf8"));
   keys.forEach((key, i) => {
     const entry = lock.images.find((e) => e.key === key);
@@ -143,12 +143,12 @@ const resolverWith = (keys) => {
   });
   return createImageResolver(lock, { production: false });
 };
-const PLATFORM = {
+export const PLATFORM = {
   tenantId: "aaaaaaaa-0000-4000-8000-00000000000a",
   deadlineEpoch: Math.floor(Date.now() / 1000) + 600,
   secondsToDeadline: 600,
 };
-const CONTEXT = (sourceDir, scanType) =>
+export const CONTEXT = (sourceDir, scanType) =>
   Object.freeze({
     executionId: "00000000-1111-4111-8111-000000000009",
     taskId: TASK_A,
@@ -158,7 +158,7 @@ const CONTEXT = (sourceDir, scanType) =>
   });
 
 /** A scripted extractor: echoes every request as a function block one line wider on each side. */
-const echoExtractor = (spec) => {
+export const echoExtractor = (spec) => {
   if (spec.toolId !== "block-extractor") return undefined;
   const requests = JSON.parse(spec.stdin);
   return {

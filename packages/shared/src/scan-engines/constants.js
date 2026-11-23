@@ -203,6 +203,29 @@ export const COVERAGE_NOTE_CODES = Object.freeze([
 ]);
 
 /**
+ * The block extractor and the line window fallback (docs/modules/scan-engines/SPEC.md 5.13.2, 17.ac; answers the follow-up of 17.aa
+ * decision 5). The run word of the extractor is the status word its runner already returns (`ok`, `none`, `unavailable`, `failed`,
+ * `cancelled`) plus `not_run`; the reason a code finding got the line window and not a block is one fixed word below. Counts only.
+ */
+export const EXTRACTOR_STATUSES = Object.freeze([
+  "ok",
+  "none",
+  "unavailable",
+  "failed",
+  "cancelled",
+  "not_run",
+]);
+export const EVIDENCE_FALLBACK_REASONS = Object.freeze([
+  "extractor_not_run",
+  "extractor_none",
+  "extractor_unavailable",
+  "extractor_failed",
+  "extractor_cancelled",
+  "no_block",
+  "block_rejected",
+]);
+
+/**
  * The coverage text of a Secrets task (owner decision of 2026-11-22, D-27 (2)): Gitleaks skips some paths by the allowlist of its default
  * configuration, detect-secrets scans them. Shown by the tenant UI under the Tools table of a Secrets task.
  */

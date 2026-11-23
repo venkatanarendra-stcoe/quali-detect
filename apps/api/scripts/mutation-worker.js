@@ -21,6 +21,7 @@ import { ENSEMBLE_YIELD_CHECKS } from "../test/security/helpers/ensemble-yield-c
 import { ENSEMBLE_GUARD_CHECKS } from "../test/security/helpers/ensemble-guard-checks.js";
 import { ENSEMBLE_ENV_CHECKS } from "../test/security/helpers/ensemble-env-checks.js";
 import { ENSEMBLE_KILL_CHECKS } from "../test/security/helpers/ensemble-kill-checks.js";
+import { ENSEMBLE_TRIAGE_CHECKS } from "../test/security/helpers/ensemble-triage-checks.js";
 import { DBMIRROR_CHECKS } from "../test/security/helpers/dbmirror-checks.js";
 
 const all = [
@@ -39,6 +40,7 @@ const all = [
   ...ENSEMBLE_GUARD_CHECKS,
   ...ENSEMBLE_ENV_CHECKS,
   ...ENSEMBLE_KILL_CHECKS,
+  ...ENSEMBLE_TRIAGE_CHECKS,
   ...DBMIRROR_CHECKS,
 ];
 const only = process.env.MUTATION_ONLY ? new RegExp(process.env.MUTATION_ONLY) : null;

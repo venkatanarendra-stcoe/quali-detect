@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { SEVERITIES, TOOL_REASONS, TOOL_STATUSES } from "./constants.js";
+import {
+  EVIDENCE_FALLBACK_REASONS,
+  EXTRACTOR_STATUSES,
+  SEVERITIES,
+  TOOL_REASONS,
+  TOOL_STATUSES,
+} from "./constants.js";
 
 /**
  * The tool-run and coverage part of the task DTO of `GET /executions/{id}` (docs/modules/scan-engines/SPEC.md 8, 17.o; Part L).
@@ -118,3 +124,21 @@ export const coverageDtoSchema = z.object({
   toolsTotal: count,
   gaps: z.array(z.enum(COVERAGE_GAP_NAMES)),
 });
+
+/**
+ * The evidence counts of a SAST result stored in `scan_results.coverage.evidence` (SPEC 5.13.2, 17.ac): how many code findings got the
+ * enclosing block and how many fell back to the line window, and why. Counts and fixed words only (no path, value or label from a tool);
+ * unknown keys are refused. The producer validates it before storing and omits it when it does not hold.
+ */
+export const evidenceCoverageSchema = z
+  .object({
+    extractor: z.enum(EXTRACTOR_STATUSES),
+    requested: count,
+    invalid: count,
+    blocks: count,
+    windows: count,
+    fallbacks: z
+      .object(Object.fromEntries(EVIDENCE_FALLBACK_REASONS.map((r) => [r, count.optional()])))
+      .strict(),
+  })
+  .strict();

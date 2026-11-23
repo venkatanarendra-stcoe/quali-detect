@@ -40,7 +40,7 @@ const apiDir = path.resolve(here, "..");
 const repoRoot = path.resolve(here, "../../..");
 
 /** The new scan-engine code (part M scope). Directories are walked for `.js`; plain files are taken as they are. */
-export const TARGETS = [
+const SCAN_ENGINE_TARGETS = [
   "packages/shared/src/scan-engines",
   "packages/infra/src/sandbox",
   "packages/infra/src/archive",
@@ -48,6 +48,14 @@ export const TARGETS = [
   "apps/workers/src/execution/engines/ensemble",
   "apps/workers/src/dbrefresh",
 ];
+
+/**
+ * The code the sweep mutates. `MUTATION_TARGETS` (comma separated repository-relative files or directories) replaces the scan-engine list,
+ * so the same tooling sweeps another module (Findings part F: `MUTATION_GROUP=findings` selects the matching checks in the worker).
+ */
+export const TARGETS = process.env.MUTATION_TARGETS
+  ? process.env.MUTATION_TARGETS.split(",").filter(Boolean)
+  : SCAN_ENGINE_TARGETS;
 
 const args = process.argv.slice(2);
 const command = args[0] ?? "run";
@@ -78,7 +86,11 @@ function walk(dir) {
   }
   return out;
 }
-const targetFiles = () => TARGETS.flatMap((t) => walk(path.join(repoRoot, t)));
+const targetFiles = () =>
+  TARGETS.flatMap((t) => {
+    const full = path.join(repoRoot, t);
+    return statSync(full).isDirectory() ? walk(full) : [full];
+  });
 
 // ---- seeded generator (mulberry32) ------------------------------------------------------------------------------------------
 function rng(seed) {
@@ -291,6 +303,7 @@ const workerEnvBase = () => ({
   PATH: process.env.PATH,
   HOME: process.env.HOME,
   MUTATION_SCRATCH: SCRATCH,
+  ...(process.env.MUTATION_GROUP ? { MUTATION_GROUP: process.env.MUTATION_GROUP } : {}),
 });
 
 /** Runs the worker once; resolves `{ code, json, timedOut, ms }`. */

@@ -24,25 +24,32 @@ import { ENSEMBLE_KILL_CHECKS } from "../test/security/helpers/ensemble-kill-che
 import { ENSEMBLE_TRIAGE_CHECKS } from "../test/security/helpers/ensemble-triage-checks.js";
 import { DBMIRROR_CHECKS } from "../test/security/helpers/dbmirror-checks.js";
 
-const all = [
-  ...SANDBOX_CHECKS,
-  ...IMAGE_CATALOG_CHECKS,
-  ...ARCHIVE_CHECKS,
-  ...ENSEMBLE_CORE_CHECKS,
-  ...ENSEMBLE_SBOM_CHECKS,
-  ...ENSEMBLE_SCA_CHECKS,
-  ...ENSEMBLE_SAST_CHECKS,
-  ...ENSEMBLE_SECRETS_CHECKS,
-  ...ENSEMBLE_EVIDENCE_CHECKS,
-  ...ENG_L20_CHECKS,
-  ...ENSEMBLE_ENGINE_CHECKS,
-  ...ENSEMBLE_YIELD_CHECKS,
-  ...ENSEMBLE_GUARD_CHECKS,
-  ...ENSEMBLE_ENV_CHECKS,
-  ...ENSEMBLE_KILL_CHECKS,
-  ...ENSEMBLE_TRIAGE_CHECKS,
-  ...DBMIRROR_CHECKS,
-];
+const FINDINGS = process.env.MUTATION_GROUP === "findings";
+/** The checks of the findings module that need no database (they ignore the world); the others report NEEDS_DB and are skipped. */
+const findingsChecks = FINDINGS
+  ? (await import("../test/security/helpers/findings/index.js")).FINDINGS_CHECKS
+  : [];
+const all = FINDINGS
+  ? findingsChecks
+  : [
+      ...SANDBOX_CHECKS,
+      ...IMAGE_CATALOG_CHECKS,
+      ...ARCHIVE_CHECKS,
+      ...ENSEMBLE_CORE_CHECKS,
+      ...ENSEMBLE_SBOM_CHECKS,
+      ...ENSEMBLE_SCA_CHECKS,
+      ...ENSEMBLE_SAST_CHECKS,
+      ...ENSEMBLE_SECRETS_CHECKS,
+      ...ENSEMBLE_EVIDENCE_CHECKS,
+      ...ENG_L20_CHECKS,
+      ...ENSEMBLE_ENGINE_CHECKS,
+      ...ENSEMBLE_YIELD_CHECKS,
+      ...ENSEMBLE_GUARD_CHECKS,
+      ...ENSEMBLE_ENV_CHECKS,
+      ...ENSEMBLE_KILL_CHECKS,
+      ...ENSEMBLE_TRIAGE_CHECKS,
+      ...DBMIRROR_CHECKS,
+    ];
 const only = process.env.MUTATION_ONLY ? new RegExp(process.env.MUTATION_ONLY) : null;
 const first = (process.env.MUTATION_ORDER ?? "").split(",").filter(Boolean);
 /** @param {{ id: string }} c */
@@ -57,9 +64,17 @@ if (process.env.MUTATION_LIST) {
   process.exit(0);
 }
 let ran = 0;
+const needsDatabase = new Proxy(
+  {},
+  {
+    get() {
+      throw new Error("NEEDS_DB");
+    },
+  },
+);
 for (const check of list) {
   try {
-    const problems = await check.run();
+    const problems = await check.run(FINDINGS ? needsDatabase : undefined);
     ran += 1;
     if (problems && problems.length > 0) {
       console.log(
@@ -73,6 +88,7 @@ for (const check of list) {
       process.exit(1);
     }
   } catch (error) {
+    if (FINDINGS && String(error?.message) === "NEEDS_DB") continue; // a database check: not part of the in-memory sweep
     console.log(
       JSON.stringify({
         ok: false,

@@ -6,6 +6,7 @@ import { FINDINGS_C_CHECKS } from "./findings-c-checks.js";
 import { FINDINGS_D_CHECKS } from "./findings-d-checks.js";
 import { FINDINGS_AMEND_CHECKS } from "./findings-amend-checks.js";
 import { FINDINGS_F_CHECKS } from "./findings-f-checks.js";
+import { FINDINGS_FIX1_CHECKS } from "./findings-fix1-checks.js";
 
 export { buildFindingsWorld } from "./findings-world.js";
 export { EXPECTED_FINDINGS_CHECKS, FINDINGS_CHECKS_TOTAL } from "./expected.js";
@@ -19,6 +20,7 @@ const BY_PART = Object.freeze({
   D: FINDINGS_D_CHECKS,
   F: FINDINGS_F_CHECKS,
   AM: FINDINGS_AMEND_CHECKS,
+  FX: FINDINGS_FIX1_CHECKS,
 });
 
 /**

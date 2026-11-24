@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { findingEtag } from "../../../../src/modules/findings/mappers/etag.js";
 import { buildFindingMessage } from "@qmentisai/db";
 import { FINDING_ACTIONS } from "@qmentisai/shared";
 import { createAuthResolvers } from "../../../../src/auth/context.js";
@@ -971,7 +972,13 @@ export const FINDINGS_B_CHECKS = [
         p,
         "the response is the finding AS THE CALLER now sees it",
         [done.json?.data?.id, done.headers.get("etag")],
-        [own.f.id, `W/"finding-${(await w.row(own.f)).rev}"`],
+        [own.f.id, findingEtag(done.json?.data)],
+      );
+
+      ok(
+        p,
+        done.headers.get("etag")?.startsWith(`W/"finding-${(await w.row(own.f)).rev}-`),
+        "the ETag carries the stored revision",
       );
 
       // ---- a false positive and a reopened finding go back to review

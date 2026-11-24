@@ -12,9 +12,10 @@
  *  - C: its share of `FND-S08` and `FND-S14` (assignment and SLA events);
  *  - D: `FPA-S01`..`FPA-S07`, `FND-S10` (agent parts);
  *  - AM: `FNDAM-01`..`FNDAM-07`, the pre-Wave-2 contract amendment round (2026-11-24: widened shared redaction, `workspaceId` in the detail DTO, the 409 status, the OD-8 role bundles); its own file and line, no other part touches it;
+ *  - FX: `FNDFX-01`, the fix round after part F (2026-11-24, `docs/modules/findings/AS_BUILT_FIX1.md`: the ETag of the finding detail, D-F4 / S-1); D-F1 and D-F2 flipped their pinning assertions in place, no new check;
  *  - F: `FND-S01` (write routes sweep), `FND-S14`, `FND-S16` when B is late, and anything cross-cutting.
  * A letter suffix splits a spec id into checks (`FND-S04a`); a check id is unique across the whole suite.
- * @type {Readonly<{ A0: number, A: number, B: number, C: number, D: number, F: number, AM: number }>}
+ * @type {Readonly<{ A0: number, A: number, B: number, C: number, D: number, F: number, AM: number, FX: number }>}
  */
 export const EXPECTED_FINDINGS_CHECKS = Object.freeze({
   A0: 15,
@@ -24,10 +25,11 @@ export const EXPECTED_FINDINGS_CHECKS = Object.freeze({
   D: 19,
   F: 8,
   AM: 7,
+  FX: 1,
 });
 
 /** The part names in registration order. */
-export const FINDINGS_PARTS = Object.freeze(["A0", "A", "B", "C", "D", "F", "AM"]);
+export const FINDINGS_PARTS = Object.freeze(["A0", "A", "B", "C", "D", "F", "AM", "FX"]);
 
 /** Sum of the expected counts, added to the base count of the suite (909 before the Findings module). */
 export const FINDINGS_CHECKS_TOTAL = Object.values(EXPECTED_FINDINGS_CHECKS).reduce(

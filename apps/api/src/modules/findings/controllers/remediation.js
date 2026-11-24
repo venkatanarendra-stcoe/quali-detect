@@ -1,5 +1,5 @@
 import { actorFrom } from "../../../lib/http.js";
-import { findingEtag } from "./review.js";
+import { findingEtag } from "../mappers/etag.js";
 
 /**
  * Thin controllers of the assignment, remediation and board routes (Part C, docs/modules/findings/SPEC.md 8.1, 8.2): parse nothing (the
@@ -17,7 +17,7 @@ export function createFindingsRemediationController({ remediation, board }) {
     workspaceId: request.authz.resource.workspaceId ?? request.authz.scope.workspaceId,
   });
   const send = (reply, dto, status = 200) => {
-    reply.set("ETag", findingEtag(dto.rev));
+    reply.set("ETag", findingEtag(dto));
     return reply.code(status).success(dto);
   };
   return {

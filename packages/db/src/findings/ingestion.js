@@ -10,8 +10,10 @@ import {
   SLA_DEFAULT_HOURS,
   agentRunsOn,
   hasCredentialShape,
+  hasSecretShape,
   isResolutionEligible,
   redactCredentialShapes,
+  redactSecretShapes,
 } from "@qmentisai/shared";
 import { FINDING_QUEUES, buildFindingMessage, enqueueFindingMessages } from "./events.js";
 import { transitionFinding } from "./transitions.js";
@@ -42,7 +44,8 @@ const addHours = (date, hours) => new Date(date.getTime() + hours * 3_600_000);
 const clean = (v, max) => {
   if (v === null || v === undefined) return null;
   const text = String(v);
-  const safe = hasCredentialShape(text) ? redactCredentialShapes(text) : text;
+  const safe =
+    hasCredentialShape(text) || hasSecretShape(text) ? redactCredentialShapes(text) : text;
   return safe.length > max ? safe.slice(0, max) : safe;
 };
 const posInt = (v) => (Number.isInteger(v) && v >= 1 ? v : null);
@@ -762,16 +765,26 @@ function evidenceRow(chain, findingId, observation, facts, capturedAt) {
       ? observation.url
       : null;
   const safeScm =
-    scmRef && !hasCredentialShape(JSON.stringify(scmRef)) && JSON.stringify(scmRef).length <= 2048
+    scmRef &&
+    !hasCredentialShape(JSON.stringify(scmRef)) &&
+    !hasSecretShape(JSON.stringify(scmRef)) &&
+    JSON.stringify(scmRef).length <= 2048
       ? scmRef
       : null;
-  const safeUrl = url && !hasCredentialShape(url) ? url : null;
+  const safeUrl = url && !hasCredentialShape(url) && !hasSecretShape(url) ? url : null;
   let snippet = typeof ev?.snippet === "string" ? ev.snippet : null;
   if (
     snippet !== null &&
     (Buffer.byteLength(snippet) > FINDINGS_LIMITS.snippetBytesMax || hasCredentialShape(snippet))
   )
     snippet = null;
+  // D-F2 (fixed 2026-11-24): the excerpt passes the FULL shared redaction (Stripe, Slack, JWT, quoted and Bandit-style password
+  // assignments, ...) BEFORE it is stored, so `finding_evidence` never holds a secret-shaped value; the marker holds no shape, so the
+  // database CHECK still passes. The cap is checked again because a marker can be longer than a short quoted value.
+  if (snippet !== null) {
+    snippet = redactSecretShapes(snippet);
+    if (Buffer.byteLength(snippet) > FINDINGS_LIMITS.snippetBytesMax) snippet = null;
+  }
   if (!ev && !safeScm && !safeUrl) return null;
   return {
     ...chain,

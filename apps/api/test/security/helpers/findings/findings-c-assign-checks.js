@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { findingEtag } from "../../../../src/modules/findings/mappers/etag.js";
 import {
   CANARY,
   UNKNOWN,
@@ -158,7 +159,12 @@ export const FINDINGS_C_ASSIGN_CHECKS = [
         a1.json?.data?.remediation?.assignment?.assignee?.id,
         users.dev,
       );
-      ok(p, a1.headers.get("etag") === `W/"finding-${r1.rev}"`, "the answer carries the new ETag");
+      ok(
+        p,
+        a1.headers.get("etag") === findingEtag(a1.json?.data) &&
+          a1.headers.get("etag").startsWith(`W/"finding-${r1.rev}-`),
+        "the answer carries the new ETag (the revision and the hash of the whole DTO)",
+      );
       // reassignment to the same person is not a reassignment
       const same = await api.post("devlead", url(f), await body(f, "dev"));
       eq(

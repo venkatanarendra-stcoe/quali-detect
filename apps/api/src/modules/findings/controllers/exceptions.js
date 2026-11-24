@@ -1,5 +1,5 @@
 import { actorFrom } from "../../../lib/http.js";
-import { findingEtag } from "./review.js";
+import { findingEtag } from "../mappers/etag.js";
 
 /**
  * Thin controllers of the exception routes (Part B, docs/modules/findings/SPEC.md 5.8, 8.2): request, withdraw, approve, reject and
@@ -13,7 +13,7 @@ export function createFindingsExceptionsController({ service }) {
     workspaceId: request.authz.resource.workspaceId ?? request.authz.scope.workspaceId,
   });
   const send = (reply, dto, status = 200) => {
-    reply.set("ETag", findingEtag(dto.rev));
+    reply.set("ETag", findingEtag(dto));
     return reply.code(status).success(dto);
   };
   const exceptionId = (request) => request.params.exceptionId;

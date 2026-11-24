@@ -1,6 +1,6 @@
 import { FindingNotFoundError } from "@qmentisai/db";
 import { ERROR_CODES } from "@qmentisai/contracts";
-import { AppError, NotFoundError } from "../../../errors/app-error.js";
+import { AppError, ConflictError, NotFoundError } from "../../../errors/app-error.js";
 import { toAdvisoryDto } from "../mappers/advisory.js";
 import { advisoryRequestPolicy } from "../policies/advisory.js";
 
@@ -27,6 +27,11 @@ export function createAdvisoryService({ repository, audit, enabled, now = () => 
       const scope = { tenantId: actor.tenantId, workspaceId: ref.workspaceId };
       try {
         return await repository.transaction(async (tx) => {
+          // an archived workspace refuses every mutation, like every other findings write (D-F1): before the finding is even locked
+          if ((await repository.workspaceStatus(tx, scope)) === "archived")
+            throw new ConflictError("The workspace is archived.", {
+              details: { reason: "workspace_archived" },
+            });
           const { finding } = await repository.lockForRequest(tx, scope, ref.id);
           const policy = advisoryRequestPolicy(finding);
           if (!policy.allowed)

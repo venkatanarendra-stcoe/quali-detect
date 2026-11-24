@@ -100,6 +100,19 @@ export function createFindingAdvisoriesRepository({ db }) {
     transaction: (fn) => db.$transaction(fn),
 
     /**
+     * Status of the workspace (`active`, `archived` or null when unknown), by tenant and id: an archived workspace refuses every mutation,
+     * the manual advisory request included (D-F1, fixed 2026-11-24).
+     * @type {(tx: any, scope: { tenantId: string, workspaceId: string }) => Promise<string | null>}
+     */
+    async workspaceStatus(tx, scope) {
+      const w = await tx.workspace.findFirst({
+        where: { tenantId: scope.tenantId, id: scope.workspaceId },
+        select: { status: true },
+      });
+      return w?.status ?? null;
+    },
+
+    /**
      * Inside the caller's transaction: serialises manual requests for the finding (so the hourly limits cannot be raced), loads the
      * finding by TENANT, WORKSPACE and id, and checks that the agent runs on it. Returns `{ finding, applicable }`; a finding of
      * another tenant or workspace throws `FindingNotFoundError` (the identical 404).

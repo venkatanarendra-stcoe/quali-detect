@@ -559,7 +559,7 @@ const stripped = (r) =>
   j({ status: r.status, error: r.json?.error ?? null, success: r.json?.success });
 
 /** Builds (once) the API, the principals and the entities the sweeps share. */
-function fWorld(c) {
+export function fWorld(c) {
   c.__fndF ??= (async () => {
     const { db, A, B } = c;
     const wsA = A.ws[0].id;
@@ -719,6 +719,7 @@ const REPOSITORY_COVERAGE = Object.freeze({
   "createFindingAdvisoriesRepository.requestAllowed": ["FPA-I04"],
   "createFindingAdvisoriesRepository.transaction": ["FPA-I04"],
   "createFindingAdvisoriesRepository.lockForRequest": ["FPA-I04"],
+  "createFindingAdvisoriesRepository.workspaceStatus": ["FND-S16b"],
   "createFindingAdvisoriesRepository.enqueueManual": ["FPA-I04"],
 });
 
@@ -962,7 +963,7 @@ export const FINDINGS_F_CHECKS = [
   },
   {
     id: "FND-S16b",
-    name: "an archived workspace refuses EVERY workspace write route of the manifest (SPEC 14.1 FND-S16, AUTHORIZATION 5.7, part F; part B proved its own routes): with the workspace archived, each of the 19 workspace write routes (reviews, approvals, exceptions, comments, assignment, remediation, the bulk calls and the advisory request) answers 409 CONFLICT workspace_archived for a principal holding every key, and nothing changes (revisions, history, reviews, exceptions, comments, audit, outbox); the reads of the same workspace still answer 200 by permission; the restored workspace writes again (the control)",
+    name: "an archived workspace refuses EVERY workspace write route of the manifest (SPEC 14.1 FND-S16, AUTHORIZATION 5.7, part F; part B proved its own routes): with the workspace archived, each of the 19 workspace write routes (reviews, approvals, exceptions, comments, assignment, remediation, the bulk calls and the advisory request, D-F1 fixed 2026-11-24) answers 409 CONFLICT workspace_archived for a principal holding every key, and nothing changes (revisions, history, reviews, exceptions, comments, audit, outbox: no job queued and no audit entry for the advisory request); the advisory request of the restored, non-archived workspace is accepted (202, the control); the reads of the same workspace still answer 200 by permission; the restored workspace writes again (the control)",
     async run(c) {
       const p = [];
       const w = await fWorld(c);
@@ -976,11 +977,14 @@ export const FINDINGS_F_CHECKS = [
         `control: ${writes.length} workspace write routes in the manifest`,
       );
       const before = await stateOf(w);
+      // the agent is ON for this check, so an advisory request that was not refused WOULD queue an outbox job and write an audit entry
+      // (with the agent off the request answers `not_configured` and writes nothing: the "nothing written" proof would be vacuous)
+      const agentWas = process.env.FINDINGS_AGENT_ENABLED;
+      process.env.FINDINGS_AGENT_ENABLED = "true";
       await w.db.workspace.update({
         where: { id: w.wsA2 },
         data: { status: "archived", archivedAt: new Date() },
       });
-      let advisoryAccepted = false;
       try {
         for (const row of writes) {
           const { path, body } = row.probe(eA2);
@@ -995,17 +999,6 @@ export const FINDINGS_F_CHECKS = [
               [r.status, items.map((i) => [i.ok, i.errorCode, i.reason])],
               [200, [[false, "CONFLICT", "workspace_archived"]]],
             );
-          } else if (row.path.endsWith("/advisory/request")) {
-            // KNOWN DEFECT (recorded in docs/modules/findings/MUTATION_BACKLOG.md, section 5, D-F1): the advisory request is accepted
-            // (202, one outbox job and one audit entry) in an archived workspace. It changes no finding, but FND-S16 says every mutation
-            // is refused. The day the route refuses it with 409 workspace_archived this assertion fails: replace it with the refusal.
-            advisoryAccepted = r.status === 202;
-            eq(
-              p,
-              `${label}: KNOWN DEFECT D-F1 (if this is now 409 the defect is fixed: replace this branch by the 409 assertion)`,
-              r.status,
-              202,
-            );
           } else {
             eq(
               p,
@@ -1015,15 +1008,14 @@ export const FINDINGS_F_CHECKS = [
             );
           }
         }
-        // (the advisory request of the known defect above writes one outbox job and one audit entry: compare without them)
+        // D-F1 fixed 2026-11-24: the advisory request is refused like every other write, so NOTHING changed, the outbox and the audit log
+        // included (stateOf covers revisions, history, reviews, exceptions, comments, audit and outbox)
         eq(
           p,
-          "an archived workspace changed nothing",
-          JSON.stringify(JSON.parse(await stateOf(w)).slice(0, 5)),
-          JSON.stringify(JSON.parse(before).slice(0, 5)),
+          "an archived workspace changed nothing (no outbox row, no audit row)",
+          await stateOf(w),
+          before,
         );
-        if (!advisoryAccepted)
-          eq(p, "a refused advisory request wrote nothing", await stateOf(w), before);
         for (const row of FINDINGS_ROUTE_MANIFEST.filter(
           (r) => r.method === "GET" && r.scope !== "tenant",
         )) {
@@ -1037,14 +1029,37 @@ export const FINDINGS_F_CHECKS = [
           data: { status: "active", archivedAt: null },
         });
       }
-      const again = await api.post("fFull2", `/findings/${eA2.f.id}/claim`, {
-        expectedRev: (await w.row(eA2.f)).rev,
-      });
-      ok(
-        p,
-        again.status === 200 || again.status === 201,
-        `control: the restored workspace writes (claim answered ${again.status} ${again.json?.error?.code ?? ""})`,
-      );
+      try {
+        // control (D-F1): the same advisory request in the restored, non-archived workspace is accepted, so the 409 above is the archive and not a
+        // blanket refusal of the route
+        const advisoryRow = writes.find((r) => r.path.endsWith("/advisory/request"));
+        const advisoryProbe = advisoryRow.probe(eA2);
+        const accepted = await api.post("fFull2", advisoryProbe.path, advisoryProbe.body);
+        eq(
+          p,
+          "control: the advisory request of a non-archived workspace is accepted",
+          accepted.status,
+          202,
+        );
+        const afterAccepted = JSON.parse(await stateOf(w));
+        eq(
+          p,
+          "control: the accepted request queued one job and one audit entry (so the empty comparison above is not vacuous)",
+          [afterAccepted[5] - JSON.parse(before)[5], afterAccepted[6] - JSON.parse(before)[6]],
+          [1, 1],
+        );
+        const again = await api.post("fFull2", `/findings/${eA2.f.id}/claim`, {
+          expectedRev: (await w.row(eA2.f)).rev,
+        });
+        ok(
+          p,
+          again.status === 200 || again.status === 201,
+          `control: the restored workspace writes (claim answered ${again.status} ${again.json?.error?.code ?? ""})`,
+        );
+      } finally {
+        if (agentWas === undefined) delete process.env.FINDINGS_AGENT_ENABLED;
+        else process.env.FINDINGS_AGENT_ENABLED = agentWas;
+      }
       return p;
     },
   },
@@ -1217,7 +1232,7 @@ export const FINDINGS_F_CHECKS = [
   },
   {
     id: "FND-S10e",
-    name: "no secret anywhere along the whole chain, ingestion to DTOs to advisory input to logs (SPEC 14.1 FND-S10, FS-5, SE-40, OD-3, part F; canary credentials assembled at run time): a SAST item whose title carries a Stripe key, a Slack token, an AWS key id and a GitHub token (and whose excerpt carries the shapes the scan layer lets through) is ingested through the real handler; the canaries (plain, base64 and URL-encoded) appear in NO row of the 14 findings tables, the outbox or the audit log (title redacted, history, events, audit clean), in NO response of the list, summary, board, review queue, approvals, history, comments and similar routes nor in the detail outside its evidence, in the advisory input at the snippet and the metadata level, in the advisory view row, or in the ingestion logs; a secret finding is unreadable for the agent; controls prove the excerpt itself is stored, shown and sent. KNOWN DEFECT D-F2 (MUTATION_BACKLOG 5): the evidence copy keeps a Stripe or Slack shape that only the widened shared list flags; it is allowed on the evidence surface alone, and the advisory input redacts it again",
+    name: "no secret anywhere along the whole chain, ingestion to DTOs to advisory input to logs (SPEC 14.1 FND-S10, FS-5, SE-40, OD-3, part F; canary credentials assembled at run time): a SAST item whose title carries a Stripe key, a Slack token, an AWS key id and a GitHub token (and whose excerpt carries the shapes the scan layer lets through) is ingested through the real handler; the canaries (plain, base64 and URL-encoded) appear in NO row of the 14 findings tables, the outbox or the audit log (title redacted, history, events, audit clean), in NO response of the list, summary, board, review queue, approvals, history, comments and similar routes nor in the detail (evidence included), in the advisory input at the snippet and the metadata level, in the advisory view row, or in the ingestion logs; a secret finding is unreadable for the agent; controls prove the excerpt itself is stored, shown and sent. D-F2 FIXED 2026-11-24 (MUTATION_BACKLOG 5, AS_BUILT_FIX1): the SAST excerpt passes the FULL shared redaction at ingestion, so the Stripe, Slack, JWT, AWS temporary key, quoted secret and Bandit-style password canaries of the excerpt are in NO row of finding_evidence and not in the detail DTO either (the redaction marker and the non-secret lines are stored: the positive control)",
     async run(c) {
       const p = [];
       const w = await fWorld(c);
@@ -1229,7 +1244,23 @@ export const FINDINGS_F_CHECKS = [
         github: `${"ghp"}_${"q1w2e3r4t5".repeat(4)}`,
         stripe: `${"sk"}_${"live"}_${"Zq8Lm3".repeat(5)}`,
         slack: `${"xox"}${"b"}-1234567890-0987654321-${"Ab1Cd2".repeat(4)}`,
+        awsTemp: `${"ASIA"}${"ZXCVBNMASD789012"}`,
+        jwt: `${"eyJ"}${"hbGciOiJIUzI1NiJ9"}.${"eyJ"}${"zdWIiOiJxbWVudGlzIn0"}.${"sig9Xk2Lm4Qw7Rt"}`,
+        quoted: `${"Zk9xP2mQ"}-${"7vLwT3nB"}`,
+        bandit: `${"hunter2"}-${"hunter2"}-${"hunter2"}`,
       };
+      // the value shapes go into the title as they are; the two assignments only make sense inside code, so they are in the excerpt only
+      const TITLE_KEYS = ["aws", "github", "stripe", "slack"]; // a title is at most 200 characters (a scan result CHECK)
+      // the excerpt: the classes the scan layer's own CHECK lets through, each in its natural spelling (D-F2, SPEC 9.3.2)
+      const EXCERPT = [
+        `charge_key = "${CANARY.stripe}"`,
+        `client = WebClient(token="${CANARY.slack}")`,
+        `session_id = "${CANARY.awsTemp}"`,
+        `header = "${CANARY.jwt}"`,
+        `secret = "${CANARY.quoted}"`,
+        `const dbPassword = "${CANARY.bandit}";`,
+      ];
+      const BENIGN_LINE = "total = sum(values)  # an ordinary line stays byte for byte";
       const MARK = "marker_call_7f3a(user_input)";
       const lines = [];
       const log = {
@@ -1243,20 +1274,23 @@ export const FINDINGS_F_CHECKS = [
         },
       };
       // the scan layer's own CHECK refuses some credential shapes in an evidence excerpt before a finding could ever see them (and none in
-      // a title): the excerpt carries the shapes the scan layer lets through, the title carries all of them
-      const passing = [];
-      for (const [name, value] of Object.entries(CANARY)) {
-        const probe = `value = "${value}"`;
-        const flagged = (await db.$queryRaw`SELECT qm_has_credential_shape(${probe}) AS x`)[0].x;
-        if (!flagged) passing.push(name);
+      // a title): the excerpt carries the shapes the scan layer lets through, the title carries the value shapes. Control: every
+      // excerpt canary really passes that CHECK, so the finding sees it (the test is not vacuous)
+      for (const line of EXCERPT) {
+        const flagged = (await db.$queryRaw`SELECT qm_has_credential_shape(${line}) AS x`)[0].x;
+        ok(
+          p,
+          !flagged,
+          `control: the scan layer's CHECK lets the excerpt line through (${line.slice(0, 14)})`,
+        );
       }
       const leaky = sast({
         path: "src/leaky.py",
         line: 5,
         code: MARK,
-        title: `Hardcoded ${Object.values(CANARY).join(" ")} in config`,
+        title: `Hardcoded ${TITLE_KEYS.map((k) => CANARY[k]).join(" ")} in config`,
       });
-      leaky.detail.evidence.snippet = `${passing.map((n) => `${n} = "${CANARY[n]}"`).join("\n")}\n${MARK}`;
+      leaky.detail.evidence.snippet = `${BENIGN_LINE}\n${EXCERPT.join("\n")}\n${MARK}`;
       const plain = sast({ path: "src/plain.py", line: 7, code: `${MARK}_b` });
       const sec = secret({ path: "config/app.env", line: 3, preview: "AKIA" });
       const e = await runExecution(scn, {
@@ -1280,16 +1314,13 @@ export const FINDINGS_F_CHECKS = [
       ok(p, !!leakyRow, "control: the finding with the canary title exists");
       const shapes = (v) => [v, Buffer.from(v).toString("base64"), encodeURIComponent(v)];
       /**
-       * Looks for every canary (plain, base64, URL-encoded) in a text. `exempt` names canaries allowed on this surface: the KNOWN DEFECT
-       * D-F2 of docs/modules/findings/MUTATION_BACKLOG.md section 5: the evidence copy keeps an excerpt when only the WIDENED shared
-       * redaction (Stripe, Slack, JWT) would flag it, because ingestion tests it with the narrower database-aligned list. It is exempted
-       * on the evidence surface ONLY (the table and the evidence part of the detail DTO); everything else must be clean.
+       * Looks for every canary (plain, base64, URL-encoded) in a text. NO surface is exempt any more (D-F2 fixed 2026-11-24: the evidence
+       * excerpt is redacted with the full shared list before it is stored).
        */
-      const leaks = (label, text, exempt = []) => {
+      const leaks = (label, text) => {
         for (const [name, value] of Object.entries(CANARY))
-          if (!exempt.includes(name))
-            for (const n of shapes(value))
-              if (text.includes(n)) p.push(`${label} holds the ${name} canary credential`);
+          for (const n of shapes(value))
+            if (text.includes(n)) p.push(`${label} holds the ${name} canary credential`);
       };
       // rows of every findings table of the tenant, the outbox and the audit log
       const tables = (
@@ -1301,11 +1332,7 @@ export const FINDINGS_F_CHECKS = [
           `SELECT row_to_json(t)::text AS r FROM "${t}" t WHERE tenant_id = $1::uuid`,
           scn.tenantId,
         );
-        leaks(
-          `the table ${t}`,
-          rows.map((r) => r.r).join("\n"),
-          t === "finding_evidence" ? passing : [],
-        );
+        leaks(`the table ${t}`, rows.map((r) => r.r).join("\n"));
       }
       const evidenceRows = await db.findingEvidence.findMany({ where: { tenantId: scn.tenantId } });
       ok(
@@ -1313,13 +1340,25 @@ export const FINDINGS_F_CHECKS = [
         evidenceRows.some((r) => r.snippet?.includes(MARK)),
         "control: the excerpt itself is stored (the marker is in the evidence copy)",
       );
-      // KNOWN DEFECT D-F2: the widened-list canaries ARE still stored in the evidence copy. When this fails the defect is fixed:
-      // remove the `passing` exemption of the evidence surface above and this control.
+      // positive control (D-F2): the non-secret text of the excerpt is stored intact, the secret lines keep their names and lose their values
+      const leakySnippet = evidenceRows.find((r) => r.findingId === leakyRow?.id)?.snippet ?? "";
       ok(
         p,
-        passing.length === 0 ||
-          evidenceRows.some((r) => passing.some((n) => r.snippet?.includes(CANARY[n]))),
-        "D-F2 seems fixed: the evidence copy no longer keeps a canary the widened redaction flags; remove the exemption",
+        leakySnippet.includes(BENIGN_LINE),
+        "control: the ordinary excerpt line is stored byte for byte",
+      );
+      ok(
+        p,
+        leakySnippet.includes("client = WebClient(token=") &&
+          leakySnippet.includes("const dbPassword = ") &&
+          leakySnippet.includes("secret = "),
+        "control: the code around a secret is kept",
+      );
+      eq(
+        p,
+        "every secret line of the excerpt carries the redaction marker",
+        (leakySnippet.match(/\[REDACTED\]/g) ?? []).length >= EXCERPT.length,
+        true,
       );
       // the DTOs of every read route
       const ids = found.map((f) => f.id);
@@ -1353,11 +1392,9 @@ export const FINDINGS_F_CHECKS = [
       for (const id of ids) {
         const r = await api.get("fFull", `/findings/${id}`);
         ok(p, r.status === 200, `control: the detail answered ${r.status}`);
-        // the evidence part of the detail is the one allowed surface (D-F2); everything else of the detail is clean
-        const rest = JSON.stringify(r.json, (k, v) => (k === "evidence" ? undefined : v));
-        leaks("the detail DTO without its evidence", rest);
+        // the whole detail, its evidence included, is clean (D-F2 fixed)
+        leaks("the detail DTO", j(r.json));
         if (j(r.json?.data?.evidence ?? null).includes(MARK)) detailHasMarker = true;
-        leaks("the evidence of the detail DTO", j(r.json?.data?.evidence ?? null), passing);
       }
       ok(p, detailHasMarker, "control: the detail DTO carries the stored excerpt (marker)");
       // the advisory input: the excerpt reaches it only through the redaction (a SAST finding at the snippet level), and a secret

@@ -38,9 +38,13 @@ export const SECRET_VALUE_SHAPES = Object.freeze([
   /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i,
 ]);
 
-/** A QUOTED value (six or more characters, no space) assigned to a secret-looking name: the name stays, the value goes. */
+/**
+ * A QUOTED value (six or more characters, no space) assigned to a secret-looking name: the name stays, the value goes. The name may
+ * carry an identifier prefix (`dbPassword`, `DB_PASSWORD`, `my_api_key`: the Bandit B105 to B107 spellings, 2026-11-24, D-F2); the
+ * secret word must still END the name (it is followed by the quote or the operator), so `secretsPolicy = "none"` stays untouched. A value that already starts with the marker (`[REDACTED]`, or the masked line of the scan engines `[REDACTED:api_key]`) is left as it is: the redaction is idempotent and keeps the engines' masks.
+ */
 const QUOTED_ASSIGNMENT =
-  /(\b(?:pass(?:word|wd)?|secret|client[_-]?secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|private[_-]?key)["']?\s*[:=]\s*["'])[^"'\s]{6,}(["'])/gi;
+  /(\b\w*?(?:pass(?:word|wd)?|secret|client[_-]?secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|private[_-]?key)["']?\s*[:=]\s*["'])(?!\[REDACTED)[^"'\s]{6,}(["'])/gi;
 
 const GLOBAL = SECRET_VALUE_SHAPES.map(
   (re) => new RegExp(re.source, `${re.flags.replace("g", "")}g`),

@@ -2837,6 +2837,7 @@ export const FINDINGS_A0_CHECKS = [
         "D",
         "F",
         "AM",
+        "FX",
       ]);
       // the worker flags
       const { loadWorkerConfig } = await import("../../../../../workers/src/config.js");

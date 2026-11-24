@@ -64,6 +64,11 @@ const ASSIGNMENTS = Object.freeze([
   ['const apiKey = "AbCdEf123456GhIj";', "AbCdEf123456GhIj"],
   ['{"token": "tok_9f8e7d6c5b4a"}', "tok_9f8e7d6c5b4a"],
   ['client_secret: "s3cr3tV4lue99"', "s3cr3tV4lue99"],
+  // Bandit B105 to B107 spellings: the secret word ENDS an identifier that has a prefix (D-F2, 2026-11-24)
+  ['const dbPassword = "hunter2-hunter2-hunter2";', "hunter2-hunter2-hunter2"],
+  ['DB_PASSWORD = "hunter2-hunter2-hunter2"', "hunter2-hunter2-hunter2"],
+  ["my_api_key: 'Zk9xP2mQ7vLw'", "Zk9xP2mQ7vLw"],
+  ['self.adminToken = "tok_9f8e7d6c5b4a"', "tok_9f8e7d6c5b4a"],
 ]);
 
 /** Ordinary prose, code and log lines that must come out BYTE FOR BYTE (the negative controls). */
@@ -78,6 +83,12 @@ const BENIGN = Object.freeze([
   "Slack channel #xoxo and AKIA are just words; sk_live is not a key",
   "def authenticate(user, passwd): return check(user, passwd)",
   "The build used 3 workers and finished in 41 seconds.",
+  // an identifier that merely CONTAINS a secret word, or a prefix before one that is not the end of the name (D-F2 negative controls)
+  'const passwordPolicy = "minimum-twelve-characters";',
+  'tokenizer = "bert-base-uncased-vocabulary"',
+  'const secretsManagerRegion = "eu-central-1-region";',
+  "const dbPassword = process.env.DB_PASSWORD; // a name next to a lookup, not a literal",
+  'const dbPassword = ""; // an empty literal',
 ]);
 
 /** Code lines the SHARED redaction and the advisory input leave alone; the older platform `password=`-pair rule (unchanged) still redacts them in a log. */

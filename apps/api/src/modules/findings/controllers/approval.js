@@ -1,5 +1,5 @@
 import { actorFrom } from "../../../lib/http.js";
-import { findingEtag } from "./review.js";
+import { findingEtag } from "../mappers/etag.js";
 
 /**
  * Thin controllers of the approval routes (Part B, docs/modules/findings/SPEC.md 8.1, 8.2): the Approvals queue, and approve and
@@ -13,7 +13,7 @@ export function createFindingsApprovalController({ service }) {
     workspaceId: request.authz.resource.workspaceId ?? request.authz.scope.workspaceId,
   });
   const send = (reply, dto) => {
-    reply.set("ETag", findingEtag(dto.rev));
+    reply.set("ETag", findingEtag(dto));
     return reply.success(dto);
   };
   return {

@@ -1,7 +1,7 @@
 import { actorFrom } from "../../../lib/http.js";
+import { findingEtag } from "../mappers/etag.js";
 
-/** A finding's ETag is its revision (the same value `GET /findings/{id}` sends). @param {number} rev */
-export const findingEtag = (rev) => `W/"finding-${rev}"`;
+export { findingEtag };
 
 /**
  * Thin controllers of the findings write routes (Part B, docs/modules/findings/SPEC.md 8.2): parse nothing (the route kit validated
@@ -18,7 +18,7 @@ export function createFindingsReviewController({ service }) {
   });
   /** @param {import("express").Response & { success: Function, code: Function }} reply @param {any} dto @param {number} [status] */
   const sendFinding = (reply, dto, status = 200) => {
-    reply.set("ETag", findingEtag(dto.rev));
+    reply.set("ETag", findingEtag(dto));
     return reply.code(status).success(dto);
   };
   return {

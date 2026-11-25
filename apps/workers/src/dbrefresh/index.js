@@ -8,11 +8,36 @@ import {
   createRedisClient,
   createSandboxRunner,
   closeRedis,
+  pingRedis,
 } from "@qmentisai/infra";
 import { loadImageLock } from "../execution/engines/ensemble/catalog/index.js";
 import { runWorker } from "../runtime/run-worker.js";
 import { createSandboxCanary } from "./canary.js";
 import { refreshTool } from "./refresh.js";
+
+/**
+ * B3 of the E2E run: the Redis client is lazy (`lazyConnect`, no offline queue), so the first lock call failed with "Stream isn't
+ * writeable". Every method of the lock now connects the client first (`pingRedis` connects when needed and is cheap once connected).
+ * @template {Record<string, any>} T
+ * @param {import("ioredis").Redis} redis
+ * @param {T} lock
+ * @returns {T}
+ */
+export function connectedBefore(redis, lock) {
+  return /** @type {T} */ (
+    Object.fromEntries(
+      Object.entries(lock).map(([name, fn]) => [
+        name,
+        typeof fn === "function"
+          ? async (...args) => {
+              await pingRedis(redis);
+              return fn(...args);
+            }
+          : fn,
+      ]),
+    )
+  );
+}
 
 /** Entry point of the `dbrefresh` platform worker role (docs/modules/scan-engines/SPEC.md SE-34, part F). */
 export const WORKER_NAME = "dbrefresh";
@@ -98,7 +123,10 @@ export function buildDbRefreshDeps({ db, config, logger, downloader }) {
   const runner = createSandboxRunner({
     runtime: createCliSandboxRuntime({ config: sandboxConfig }),
   });
-  const { resolver } = loadImageLock({ production: config.scanEngines?.production === true });
+  const { resolver } = loadImageLock({
+    production: config.scanEngines?.production === true,
+    localImages: config.scanEngines?.localImages ?? {},
+  });
   const redis = config.redisUrl
     ? createRedisClient({ url: config.redisUrl, name: "qmentisai-worker-dbrefresh", logger })
     : null;
@@ -112,7 +140,7 @@ export function buildDbRefreshDeps({ db, config, logger, downloader }) {
         resolver,
         rulesDir: config.scanEngines?.rulesDir ?? null,
       }),
-      lock: redis ? createLockManager({ redis }) : null,
+      lock: redis ? connectedBefore(redis, createLockManager({ redis })) : null,
     },
     close: async () => {
       if (redis) await closeRedis(redis);

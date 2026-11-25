@@ -94,6 +94,12 @@ const envSchema = z.object({
   // scan workers: while it is "true" the ensemble SBOM engine replaces the built-in one and the decision stores the changed paths.
   // The sandbox settings below only describe the container runtime CLI; no secret is involved.
   SCAN_ENGINES_ENSEMBLE_ENABLED: z.enum(["true", "false"]).default("false"),
+  // DEVELOPMENT ONLY (refused in production): `key=repository` pairs, comma separated, that resolve the own-built images from the local
+  // container store, for example `opengrep=qm-spike-opengrep,detect-secrets=qm-spike-detect-secrets,block-extractor=qm-block-extractor`
+  SCAN_ENGINES_LOCAL_IMAGES: z
+    .string()
+    .regex(/^([a-z0-9-]+=[a-z0-9][a-z0-9._/-]*)(,[a-z0-9-]+=[a-z0-9][a-z0-9._/-]*)*$/)
+    .optional(),
   // Findings (docs/modules/findings/SPEC.md IN-1, 9.2, owner decisions of 2026-11-23): BOTH flags default OFF and nothing is written, queued or
   // handled while they are "false". FINDINGS_AGENT_DATABASE_URL is the connection string of the restricted `qm_fp_agent` login role (read
   // view + advisory insert only; a secret: never logged). It is REQUIRED in production while FINDINGS_AGENT_ENABLED=true.
@@ -481,6 +487,14 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       ensembleEnabled: e.SCAN_ENGINES_ENSEMBLE_ENABLED === "true",
       sandbox: Object.freeze(sandbox),
       production: e.NODE_ENV === "production",
+      localImages: Object.freeze(
+        Object.fromEntries(
+          (e.SCAN_ENGINES_LOCAL_IMAGES ?? "")
+            .split(",")
+            .filter(Boolean)
+            .map((p) => p.split("=")),
+        ),
+      ),
       archiveRoot: e.SANDBOX_ARCHIVE_ROOT ?? null,
       rulesDir: e.SANDBOX_RULES_DIR ?? null,
       toolParallelism: e.SCAN_ENGINE_TOOL_PARALLELISM,

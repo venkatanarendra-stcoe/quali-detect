@@ -500,6 +500,43 @@ export const IMAGE_CATALOG_CHECKS = [
         throwsReason(() => loadImageLock({ production: true })) !== null,
         "production load of the committed lock must fail until the own builds have registry digests",
       );
+      // B2 (E2E run): the DEVELOPMENT path for the own-built images. A map of lock key to local repository resolves each own build as
+      // `repository@<recorded local image id>`; production, a key that is not an own build and an upstream digest are refused.
+      {
+        const local = {
+          opengrep: "qm-spike-opengrep",
+          "detect-secrets": "qm-spike-detect-secrets",
+          "block-extractor": "qm-block-extractor",
+        };
+        const dev = loadImageLock({ localImages: local });
+        for (const [key, repository] of Object.entries(local)) {
+          const r = dev.resolver.resolve(key);
+          const id = entryOf(realLock(), key).source.localImageId;
+          ok(p, r.image === `${repository}@${id}`, `${key}: local ref ${r.image}`);
+        }
+        ok(
+          p,
+          dev.resolver.resolve("trivy").image.startsWith("aquasec/trivy@sha256:"),
+          "an upstream image is untouched",
+        );
+        ok(
+          p,
+          throwsReason(() => loadImageLock({ production: true, localImages: local })) ===
+            "SCAN_ENGINES_LOCAL_IMAGES",
+          "production refuses the local image overrides",
+        );
+        for (const bad of [{ trivy: "x/trivy" }, { nonexistent: "x/y" }])
+          ok(
+            p,
+            throwsReason(() => loadImageLock({ localImages: bad })) === "SCAN_ENGINES_LOCAL_IMAGES",
+            `a non-own-build override ${JSON.stringify(bad)} is accepted`,
+          );
+        ok(
+          p,
+          throwsReason(() => loadImageLock().resolver.resolve("opengrep")) === "no_registry_digest",
+          "without the map an own build is still refused",
+        );
+      }
       ok(
         p,
         throwsReason(() =>

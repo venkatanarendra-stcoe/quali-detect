@@ -1,10 +1,13 @@
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { createGzip } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { createJobEnvelope, parseMessage } from "@qmentisai/contracts";
 import {
   ALLOWED_SOURCES,
+  DEFAULT_SNAPSHOT_ARCHIVE_CAPS,
   DbMirrorIntegrityError,
   DbMirrorTooLargeError,
   FakeSandboxRuntime,
@@ -13,6 +16,7 @@ import {
   classifyRecord,
   createSandboxRunner,
   inspectSnapshotArchive,
+  snapshotArchiveCapsFor,
 } from "@qmentisai/infra";
 import {
   DB_STALENESS_TIERS,
@@ -476,6 +480,70 @@ export const DBMIRROR_CHECKS = [
         await verdictOf(bundle({ padBytes: 4096 }), { maxTotalBytes: 2048 }),
         "archive_hostile",
       );
+      // B1 (E2E run): the real Trivy database is ONE unpacked file of about 1.7 GiB, over the 512 MiB single-file cap that rejected every
+      // real Trivy refresh. Only the vulnerability-database snapshot of that tool gets the higher cap; every other cap and every other
+      // tool stay as they were, and repository archives (another module) are not touched.
+      {
+        const GiB = 1024 * 1024 * 1024;
+        const trivy = snapshotArchiveCapsFor("trivy");
+        ok(p, trivy.maxFileBytes >= 2 * GiB, `trivy single-file cap ${trivy.maxFileBytes}`);
+        for (const [k, v] of Object.entries(DEFAULT_SNAPSHOT_ARCHIVE_CAPS))
+          if (k !== "maxFileBytes")
+            ok(p, trivy[k] === v, `trivy ${k} must stay ${v} (got ${trivy[k]})`);
+        for (const tool of [
+          "osv-scanner",
+          "grype",
+          "unknown",
+          "__proto__",
+          "constructor",
+          undefined,
+        ])
+          same(p, `caps of ${tool}`, snapshotArchiveCapsFor(tool), {
+            ...DEFAULT_SNAPSHOT_ARCHIVE_CAPS,
+          });
+        same(
+          p,
+          "an explicit override still wins",
+          snapshotArchiveCapsFor("trivy", { maxFileBytes: 1024 }).maxFileBytes,
+          1024,
+        );
+        // a REAL 520 MiB single file (incompressible 1 MiB blocks: ratio about 1, so only the single-file cap can refuse it), streamed
+        // through gzip without touching the disk: refused by default, accepted for trivy
+        const MiB = 1024 * 1024;
+        const block = randomBytes(MiB);
+        const huge = () => {
+          const size = 520 * MiB;
+          const header = Buffer.alloc(512);
+          header.write("bundle/trivy.db", 0);
+          header.write("0000644\0", 100);
+          header.write("0000000\0", 108);
+          header.write("0000000\0", 116);
+          header.write(`${size.toString(8).padStart(11, "0")}\0`, 124);
+          header.write("00000000000\0", 136);
+          header.write("        ", 148);
+          header.write("0", 156);
+          header.write("ustar\0", 257);
+          header.write("00", 263);
+          let sum = 0;
+          for (const byte of header) sum += byte;
+          header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148);
+          return Readable.from(
+            (async function* () {
+              yield header;
+              for (let i = 0; i < 520; i += 1) yield block;
+              yield Buffer.alloc(512 * 2);
+            })(),
+          ).pipe(createGzip({ level: 1 }));
+        };
+        const byDefault = await inspectSnapshotArchive(huge());
+        same(p, "520 MiB file, default caps", byDefault.verdict, "archive_hostile");
+        const forTrivy = await inspectSnapshotArchive(huge(), { tool: "trivy" });
+        ok(
+          p,
+          forTrivy.verdict !== "archive_hostile" && forTrivy.files === 1,
+          `520 MiB file, trivy caps: ${forTrivy.verdict} files ${forTrivy.files}`,
+        );
+      }
       // record-level verdicts
       const cga = bundle({ records: [rec("GHSA-aaaa-bbbb-cccc"), rec("CGA-xxxx-yyyy-zzzz")] });
       const wolfi = bundle({

@@ -30,6 +30,32 @@ export const DEFAULT_SNAPSHOT_ARCHIVE_CAPS = Object.freeze({
   maxPathLength: 512,
 });
 
+/**
+ * Per-tool overrides of the snapshot caps (B1 of the E2E run, 2026-11-23). The unpacked Trivy database is one file of about 1.7 GiB,
+ * so the 512 MiB single-file cap rejected every real Trivy refresh. ONLY the sealed vulnerability-database snapshot (what a scan
+ * mounts read-only at `/db`) gets the higher single-file cap, and only for the tool whose database needs it: the entry, total-size,
+ * expansion-ratio, depth and path caps stay as they are, and the caps of REPOSITORY archives (a different module) are not touched.
+ */
+export const SNAPSHOT_ARCHIVE_CAPS_BY_TOOL = Object.freeze({
+  trivy: Object.freeze({ maxFileBytes: 4 * 1024 * 1024 * 1024 }),
+});
+
+/**
+ * The caps of one tool's snapshot archive.
+ * @param {string | undefined} tool the tool id (`trivy`, `osv-scanner`)
+ * @param {Partial<ArchiveCaps>} [overrides]
+ * @returns {ArchiveCaps}
+ */
+export function snapshotArchiveCapsFor(tool, overrides = {}) {
+  return {
+    ...DEFAULT_SNAPSHOT_ARCHIVE_CAPS,
+    ...(Object.hasOwn(SNAPSHOT_ARCHIVE_CAPS_BY_TOOL, tool ?? "")
+      ? SNAPSHOT_ARCHIVE_CAPS_BY_TOOL[tool]
+      : {}),
+    ...overrides,
+  };
+}
+
 const MAX_RECORD_BYTES = 1024 * 1024;
 const MAX_METADATA_BYTES = 64 * 1024;
 
@@ -58,10 +84,10 @@ function collector(limit) {
 
 /**
  * @param {import("node:stream").Readable} source the stored (already hash-verified) archive
- * @param {{ caps?: Partial<ArchiveCaps> }} [options]
+ * @param {{ caps?: Partial<ArchiveCaps>, tool?: string }} [options] `tool` selects the per-tool caps (see `SNAPSHOT_ARCHIVE_CAPS_BY_TOOL`)
  * @returns {Promise<SnapshotInspection>}
  */
-export async function inspectSnapshotArchive(source, { caps = {} } = {}) {
+export async function inspectSnapshotArchive(source, { caps = {}, tool } = {}) {
   const out = {
     verdict: /** @type {SnapshotInspection["verdict"]} */ ("ok"),
     files: 0,
@@ -77,7 +103,7 @@ export async function inspectSnapshotArchive(source, { caps = {} } = {}) {
   let stats;
   try {
     stats = await walkTarGz(source, {
-      limits: { ...DEFAULT_SNAPSHOT_ARCHIVE_CAPS, ...caps },
+      limits: snapshotArchiveCapsFor(tool, caps),
       onFile({ path: rel, size }) {
         out.files += 1;
         if (rel === "metadata.json") {

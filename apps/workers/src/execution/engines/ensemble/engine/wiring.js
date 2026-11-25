@@ -49,7 +49,10 @@ export function buildEnsembleEngine({ config, db, logger, runtime }) {
     perTask: s.toolParallelism,
     forkShare,
   });
-  const { resolver, sha256 } = loadImageLock({ production: s.production === true });
+  const { resolver, sha256 } = loadImageLock({
+    production: s.production === true,
+    localImages: s.localImages ?? {},
+  });
   const engine = createEnsembleSbomEngine({
     runner,
     gate,

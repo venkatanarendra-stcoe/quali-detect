@@ -22,6 +22,7 @@ import { CANARY_FIXTURE, createSandboxCanary } from "../../../../workers/src/dbr
 import {
   DBREFRESH_CONSUMER,
   buildDbRefreshDeps,
+  connectedBefore,
   createDbRefreshHandlerFor,
 } from "../../../../workers/src/dbrefresh/index.js";
 import { promotionSanity, refreshTool } from "../../../../workers/src/dbrefresh/refresh.js";
@@ -483,6 +484,32 @@ export async function workerExtra(p) {
     buildDbRefreshDeps({ db: {}, config: on, downloader: custom }).deps.downloader === custom,
     "an injected downloader is used",
   );
+  // B3 (E2E run): the lock's lazy Redis client is connected before the first lock call (it used to fail with "Stream isn't writeable")
+  {
+    const seen = [];
+    const fake = {
+      status: "wait",
+      async connect() {
+        seen.push("connect");
+        this.status = "ready";
+      },
+      async ping() {
+        seen.push("ping");
+        return "PONG";
+      },
+    };
+    const lock = connectedBefore(fake, {
+      acquirePlatform: async (...a) => (seen.push(`acquire:${a.join(",")}`), { held: true }),
+      constant: 7,
+    });
+    const handle = await lock.acquirePlatform("trivy", { ttlMs: 1 }.ttlMs);
+    same(
+      p,
+      "lock connects first",
+      [seen, handle, lock.constant],
+      [["connect", "ping", "acquire:trivy,1"], { held: true }, 7],
+    );
+  }
   const enabled = createDbRefreshHandlerFor({ db: {}, config: on });
   ok(
     p,

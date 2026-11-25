@@ -6,7 +6,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DB_TOOL_IDS } from "@qmentisai/shared";
 import { extractTarGz } from "../archive/tar.js";
-import { DEFAULT_SNAPSHOT_ARCHIVE_CAPS } from "./inspect.js";
+import { snapshotArchiveCapsFor } from "./inspect.js";
 
 /** The stage or the stored object exceeded `maxBytes`. */
 export class DbMirrorTooLargeError extends Error {
@@ -73,7 +73,7 @@ async function sealTree(dir, top = true) {
  *   `<root>/db/<tool>/<sha256>.tar.gz`  the object, content addressed (written once, by rename)
  *   `<cache>/<tool>/<sha256>/`          the materialized tree (0555 / 0444), created by an atomic rename after the archive was
  *                                       hashed again and extracted with the hardened extractor
- * @param {{ root: string, cacheRoot: string, archiveCaps?: Partial<typeof DEFAULT_SNAPSHOT_ARCHIVE_CAPS> }} options absolute directories
+ * @param {{ root: string, cacheRoot: string, archiveCaps?: Partial<import("./inspect.js").ArchiveCaps> }} options absolute directories
  */
 export function createLocalDbMirrorStore({ root, cacheRoot, archiveCaps = {} }) {
   for (const dir of [root, cacheRoot])
@@ -241,7 +241,7 @@ export function createLocalDbMirrorStore({ root, cacheRoot, archiveCaps = {} }) 
       try {
         await extractTarGz(createReadStream(objectFile(ref)), {
           destDir: temp,
-          limits: { ...DEFAULT_SNAPSHOT_ARCHIVE_CAPS, ...archiveCaps },
+          limits: snapshotArchiveCapsFor(ref.tool, archiveCaps),
         });
         // Moving a directory needs write access to it, so the top directory is sealed after the rename.
         await sealTree(temp, false);

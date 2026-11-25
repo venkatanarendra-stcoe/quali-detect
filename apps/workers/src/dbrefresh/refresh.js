@@ -224,7 +224,9 @@ export async function refreshTool({ toolId, deps, scanDb, signal, log }) {
       if (staged.sha256 !== metadata.sha256 || staged.bytes !== metadata.sizeBytes)
         return fail("integrity_mismatch");
       // 6. inspection without extraction
-      const inspected = await inspectSnapshotArchive(store.openStaged(staged.stageId));
+      const inspected = await inspectSnapshotArchive(store.openStaged(staged.stageId), {
+        tool: toolId,
+      });
       const counts = {
         records: inspected.records,
         bySource: inspected.bySource,

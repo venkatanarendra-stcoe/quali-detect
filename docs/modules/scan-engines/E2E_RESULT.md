@@ -101,3 +101,22 @@ Working-tree changes made for this run and reverted at the end: `apps/workers/sr
 ## 8. Rows and files created
 
 Dev database (`qmentisai`, the developer's): `scan_db_snapshots` osv-scanner `edc4e1c6c24989d233e4c5f0d10521836e52669522b92eb8b9860c8f946170e6` (active), trivy `19632460b2fa9f26c1afbd4a864d1f80a25d75ce0af42ddcf9f82364b7ddb598` (active), trivy `bed4c8bb9c33b287133c4592bfa9f4cc1e88312847b44ec399e80ab77757462b` (rejected; the table forbids deletes); execution `f2768e05-6f05-40ed-b503-d7102dadbc9b` (pipeline `live-test`, `partial`, its tasks, one SBOM result, quota unit, audit entries); one login session of the demo admin on the developer's API. The executions `d008e29c`, `1d08acc8`, `dd76860f` and the pipeline `e2e-fixture` (`cd0b7608-8059-4c12-85b3-e65192877e02`) exist only in the isolated database that was removed with its container; a data-only dump of the result tables is `/tmp/qm-e2e/e2e-results-data.sql`.
+
+## 9. Live end-to-end on the developer's own stack, 2026-11-25 (fixture path; B1 to B3 fixed)
+
+Flag `SCAN_ENGINES_ENSEMBLE_ENABLED=true` and both Findings flags ON in `apps/workers/.env` (dev). Real Docker sandbox, real Trivy 0.76.2, OSV-Scanner 2.7.1, Syft 1.57.2, Opengrep 2.0.0, Bandit 1.9.4, Gitleaks 8.30.1, detect-secrets 1.5.0, the three own builds from the local container store (`SCAN_ENGINES_LOCAL_IMAGES`, B2), the real databases of 2026-11-25 promoted through the real refresh job (`apps/workers/scripts/eng-l09/load-local-bundles.js`; the real `trivy.db` is 1.82 GB: B1). The GitHub API was a local stand-in (`apps/workers/scripts/eng-e2e/github-stub.js`) serving the planted tree (`build-fixture.js --mode local`); everything after the fetch is the product. Pipeline `e2e-fixture` on repository `STCOE-TESTING/qm-test-2-renamed`, manual full run `92986223-b3fb-4b1a-bb84-f80138e5040a` (`succeeded`, about 60 s, commit `0cfe4583d3e4...` of the stand-in).
+
+| Stage | Result |
+|---|---|
+| Decision | floor rule FL-5 (full scan) selected sbom, sca, sast, secrets; agent `nothing_to_add` (LLM_PROVIDER=none), nothing not selected |
+| Tasks | 4 of 4 `succeeded`, results `complete`; 9 tool runs `succeeded`, 0 records dropped |
+| SBOM | 10 components (Syft 9, Trivy 9, built-in 11 raw); no findings (SBOM is not a finding type) |
+| SCA | 77 items (critical 17, high 27, medium 28, low 5) on 8 of 8 planted components; 76 carry both tools; DB snapshots Trivy `6410a9c8...`, OSV `9e60c304...` |
+| SAST | 36 items (Opengrep 29 + Bandit 15 raw; 8 merged, 21 Opengrep only, 7 Bandit only): 23 of 23 planted sink lines and 3 of 3 hard-coded credentials hit; the 3 clean controls were NOT flagged; 8 extra Bandit items (import and subprocess notes, hard-coded passwords in the secrets fixtures) |
+| Secrets | 19 items (Gitleaks 10 + detect-secrets 18 raw; 9 merged): 11 of 11 planted files, including the inline-allow lines and the vendored `node_modules` file |
+| Findings | 132 findings (sca 77, sast 36, secrets 19), all `new`; ingestion rows `ingested`, resolution eligible, 0 dropped; every finding has evidence and a permalink to the execution's commit (a PEM range ends `#L1-L7`) |
+| Redaction | 0 fixture values (raw, base64, reversed, fragments) in 396 API responses (detail, history, comments), in the rendered detail pages, or in any of the 76 tables; the masked previews read `AWS_ACCESS_KEY_ID=[REDACTED:aws_access_key]` |
+
+**Not verified:** the real GitHub path (fetch from GitHub, webhook), which waits for content in the test repository (`/home/narendra/qm-e2e-fixtures`); an LLM-assisted decision (an incremental scan with a provider); human review of the UI.
+
+**Incident of this run (caused by me):** the first workers I started included the `scm` worker pointed at the GitHub stand-in; its installation reconciliation got 404 and marked the real installation of `STCOE-TESTING` `revoked / not_found_on_github` and the repository `disconnected / installation_revoked` (4 audit events, `repository.disconnected`, installation and workspace link status changes, 2026-11-25 10:42:26Z). I restored both rows by hand to their previous state (`scm_installations.status = active`, `status_reason` and `status_changed_at` null, as the check constraint requires; `repositories.status = active`, disconnect fields null). The audit events stay (immutable). Lesson: a stand-in for GitHub must never be used by the `scm` or `scheduler` workers.

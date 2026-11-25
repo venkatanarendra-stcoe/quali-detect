@@ -16,9 +16,20 @@ import {
  * Connections are lazy; each registers a readiness check (/ready). `close()` shuts them down in reverse dependency order
  * (RabbitMQ publisher and connection, Redis, Prisma) and never throws, so a failing close cannot hide the others.
  * Tenant rules: the cache, locks and rate limiter require `tenantId` on every call; the publisher validates the job envelope.
- * @param {{ config: any, logger: import("pino").Logger, readiness: ReturnType<typeof import("./readiness.js").createReadiness> }} deps
+ * B4 of the E2E run: the Redis client is lazy and has no offline queue, so until something connected it every command failed with "Stream isn't
+ * writeable" (the first login or webhook after a boot answered 500 until `GET /ready` happened to ping it). The connection now STARTS at once and
+ * `ready()` waits for it, at most `redisStartupMs`: the API does not listen before its Redis answered (or the wait ran out, which is logged and
+ * leaves readiness to report it; the client keeps reconnecting by its own retry strategy).
+ * @param {{ config: any, logger: import("pino").Logger, readiness: ReturnType<typeof import("./readiness.js").createReadiness>,
+ *           redisFactory?: typeof createRedisClient, redisStartupMs?: number }} deps
  */
-export function createInfrastructure({ config, logger, readiness }) {
+export function createInfrastructure({
+  config,
+  logger,
+  readiness,
+  redisFactory = createRedisClient,
+  redisStartupMs = 5000,
+}) {
   const { databaseUrl, redisUrl, rabbitmqUrl } = config.infra;
   const infra = {
     db: null,
@@ -31,6 +42,8 @@ export function createInfrastructure({ config, logger, readiness }) {
   };
   /** @type {Array<{ name: string, close: () => Promise<unknown> }>} */
   const closers = [];
+  /** Resolves when the startup connections have been tried (never rejects). @type {Promise<boolean>} */
+  let startup = Promise.resolve(true);
 
   if (databaseUrl) {
     infra.db = getDbClient({ datasourceUrl: databaseUrl });
@@ -38,7 +51,7 @@ export function createInfrastructure({ config, logger, readiness }) {
     closers.push({ name: "database", close: async () => disconnectDbClient() });
   }
   if (redisUrl) {
-    const redis = createRedisClient({ url: redisUrl, name: "qmentisai-api", logger });
+    const redis = redisFactory({ url: redisUrl, name: "qmentisai-api", logger });
     Object.assign(infra, {
       redis,
       cache: createCache({ redis }),
@@ -46,6 +59,22 @@ export function createInfrastructure({ config, logger, readiness }) {
       rateLimiter: createRateLimiter({ redis }),
     });
     readiness.register("redis", () => pingRedis(redis));
+    let timer;
+    startup = Promise.race([
+      pingRedis(redis).then(
+        () => true,
+        (error) => {
+          logger.warn({ err: error }, "Redis did not answer at startup; readiness will report it");
+          return false;
+        },
+      ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          logger.warn({ waitedMs: redisStartupMs }, "Redis did not answer in time at startup");
+          resolve(false);
+        }, redisStartupMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
     closers.push({ name: "redis", close: async () => closeRedis(redis) });
   }
   if (rabbitmqUrl) {
@@ -71,6 +100,8 @@ export function createInfrastructure({ config, logger, readiness }) {
 
   return {
     infra: Object.freeze(infra),
+    /** Waits for the startup connections (Redis); resolves false when one did not answer in time. */
+    ready: () => startup,
     /** Closes RabbitMQ, then Redis, then Prisma (the reverse of the order they were opened in). */
     async close() {
       for (const { name, close } of closers.reverse()) {

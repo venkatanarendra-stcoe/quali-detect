@@ -44,7 +44,13 @@ export async function createApp({ config, modules = defaultModules, loggerOption
   configureCursorSigning(config.cursor.signingSecrets);
   const logger = createLogger(config, loggerOptions);
   const readiness = createReadiness({ logger });
-  const { infra, close: closeInfrastructure } = createInfrastructure({ config, logger, readiness });
+  const {
+    infra,
+    ready: infrastructureReady,
+    close: closeInfrastructure,
+  } = createInfrastructure({ config, logger, readiness });
+  // the API does not start before Redis answered (or the bounded wait ran out): the first request after a boot must not fail on it (B4)
+  await infrastructureReady();
   const audit = createAudit({ infra, logger });
   // Transactional outbox (writer side): modules enqueue messages inside their transactions; the relay worker publishes them.
   const outbox = createOutbox({ repository: createOutboxRepository({ db: infra.db }) });

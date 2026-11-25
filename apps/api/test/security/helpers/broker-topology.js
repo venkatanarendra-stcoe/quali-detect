@@ -22,6 +22,7 @@ import {
   publishConfirmed,
   resolveRetryPolicy,
 } from "@qmentisai/infra";
+import { createInfrastructure } from "../../../src/runtime/infrastructure.js";
 
 /**
  * Broker topology and publish safety (SPEC repositories-github §16.3 item 6, ADR-011): the shared topology definition and the
@@ -319,6 +320,57 @@ export const BROKER_CHECKS = [
       if (consumerBroker.depth(mainQueueName(QUEUE_NAMES.SCM)) !== 1)
         problems.push("control: the routable publish did not reach the queue");
       await ok.close();
+      // B4 (E2E run): the API connects Redis at startup and `ready()` waits for it, so the first request after a boot does not hit a
+      // lazy client with no offline queue ("Stream isn't writeable", HTTP 500). Fake clients model the three outcomes.
+      {
+        const events = [];
+        const client = (behaviour) => ({
+          status: "wait",
+          async connect() {
+            events.push("connect");
+            if (behaviour === "down") throw new Error("ECONNREFUSED");
+            if (behaviour === "slow") await new Promise(() => {});
+            this.status = "ready";
+          },
+          async ping() {
+            events.push("ping");
+            return "PONG";
+          },
+          async quit() {},
+          disconnect() {},
+        });
+        const config = { infra: { databaseUrl: null, redisUrl: "redis://x", rabbitmqUrl: null } };
+        const readiness = { register: (name) => events.push(`register:${name}`) };
+        const make = (behaviour, ms = 200) =>
+          createInfrastructure({
+            config,
+            logger: quiet,
+            readiness,
+            redisFactory: () => client(behaviour),
+            redisStartupMs: ms,
+          });
+        const up = make("up");
+        const upReady = await up.ready();
+        if (upReady !== true || !events.includes("connect") || !events.includes("ping"))
+          problems.push(`B4 up: ready ${upReady}, events ${events.join(",")}`);
+        const down = make("down");
+        if ((await down.ready()) !== false)
+          problems.push(
+            "B4 down: ready() must resolve false (and never reject) when Redis refuses",
+          );
+        const t0 = Date.now();
+        const slow = make("slow", 150);
+        const slowReady = await slow.ready();
+        const waited = Date.now() - t0;
+        if (slowReady !== false || waited < 100 || waited > 2000)
+          problems.push(`B4 slow: ready ${slowReady} after ${waited} ms (bounded wait expected)`);
+        const none = createInfrastructure({
+          config: { infra: { databaseUrl: null, redisUrl: null, rabbitmqUrl: null } },
+          logger: quiet,
+          readiness,
+        });
+        if ((await none.ready()) !== true) problems.push("B4: without a Redis URL ready() is true");
+      }
       return problems;
     },
   },

@@ -14,7 +14,8 @@ import { LLMError, toolResultMessage } from "./types.js";
  * - Turn 1 is `userData` (serialised as JSON, passed as DATA; the caller's system prompt says so). When the model asks for tools,
  *   ALL calls of ALL turns are collected, nothing is executed (the harness has no file, network or shell capability and offers
  *   only the `tools` the caller passed), and the loop answers with one documented tool-result user message
- *   (`toolResultMessage`) so the conversation can end. The loop ends on a turn without tool calls or at the turn cap.
+ *   (`toolResultMessage`) so the conversation can end. The loop ends on a turn without tool calls, at the turn cap, or as soon as the
+ *   optional `isComplete(collected)` says the answer is already final (a terminal tool).
  * - The collected `{ toolCalls, text }` goes to `validate`, which returns `{ ok: true, value }` or `{ ok: false }`. A validation
  *   failure (or a throw) is `invalid_output` and the WHOLE output is discarded.
  * - It NEVER throws for a model or provider failure. A failure in any turn discards what earlier turns collected.
@@ -24,6 +25,7 @@ import { LLMError, toolResultMessage } from "./types.js";
  *   provider: import("./types.js").LLMProvider, system: string, userData: unknown,
  *   tools: import("./types.js").LLMTool[], maxTurns: number, timeoutMs: number, maxOutputTokens: number,
  *   signal?: AbortSignal,
+ *   isComplete?: (collected: { toolCalls: import("./types.js").LLMToolCall[], text: string }) => boolean,
  *   validate: (collected: { toolCalls: import("./types.js").LLMToolCall[], text: string }) => { ok: true, value?: unknown } | { ok: false },
  *   logger?: { info?: Function, warn?: Function },
  * }} options
@@ -38,6 +40,7 @@ export async function runBoundedToolLoop({
   timeoutMs,
   maxOutputTokens,
   signal,
+  isComplete,
   validate,
   logger,
 }) {
@@ -110,6 +113,9 @@ export async function runBoundedToolLoop({
     if (result.text.trim() !== "") text = result.text;
     collected.push(...toolCalls);
     if (toolCalls.length === 0) break;
+    // a caller whose tool is TERMINAL (the first valid call is the answer) stops here: no tool result is sent back, so a model that
+    // would call the tool again on the next turn never gets the chance to (and a later call cannot spoil a good first one)
+    if (isComplete?.({ toolCalls: collected, text: result.text })) break;
     messages.push(
       {
         role: "assistant",

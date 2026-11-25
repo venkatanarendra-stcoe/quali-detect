@@ -419,7 +419,7 @@ export const FINDINGS_D_CHECKS = [
             ],
           },
         ],
-        ["second call", { calls: [advice(), advice({ suggestion: "uncertain" })] }],
+        // a repeated `submit_advice` is no longer hostile: the first valid call is the answer (FPA-S05, AS_BUILT_FIX2)
         [
           "submit plus transition",
           { calls: [advice(), { name: "transition_finding", args: { to: "approved" } }] },
@@ -1034,13 +1034,17 @@ export const FINDINGS_D_CHECKS = [
   },
   {
     id: "FPA-S05",
-    name: "Findings advisory output safety (SPEC 9.3.6, FPA-S05): whole-output-or-nothing through the real harness and adapter: the wrong tool name, an extra key, a second call, no call (text only), a confidence of 101, -1 and 50.5, a reasoning of 1001 characters and an empty one, an unknown suggestion, a string confidence and malformed tool arguments each give ONE stored invalid_output row with no suggestion, confidence or reasoning (no partial advice); the validator rejects the same cases directly and accepts the three suggestions at the bounds 0 and 100 and a 1000-character reasoning; the stored reasoning has the canary credential redacted, bidirectional and control characters stripped and whitespace collapsed; the valid control stores ok",
+    name: "Findings advisory output safety (SPEC 9.3.6, FPA-S05): whole-output-or-nothing through the real harness and adapter: the wrong tool name, an extra key, another tool after a valid call, a bad first call with a valid second, no call (text only), a confidence of 101, -1 and 50.5, a reasoning of 1001 characters and an empty one, an unknown suggestion, a string confidence and malformed tool arguments each give ONE stored invalid_output row with no suggestion, confidence or reasoning (no partial advice); the validator rejects the same cases directly and accepts the three suggestions at the bounds 0 and 100 and a 1000-character reasoning; the stored reasoning has the canary credential redacted, bidirectional and control characters stripped and whitespace collapsed; the valid control stores ok",
     async run() {
       const p = [];
       const bad = [
         ["wrong tool", { calls: [{ name: "other_tool", args: advice().args }] }],
         ["extra key", { calls: [advice({ extra: 1 })] }],
-        ["second call", { calls: [advice(), advice()] }],
+        [
+          "valid then another tool",
+          { calls: [advice(), { name: "other_tool", args: advice().args }] },
+        ],
+        ["invalid first, valid second", { calls: [advice({ confidence: 101 }), advice()] }],
         ["text only", { text: "likely_false_positive 99", calls: [] }],
         ["confidence 101", { calls: [advice({ confidence: 101 })] }],
         ["confidence -1", { calls: [advice({ confidence: -1 })] }],
@@ -1090,6 +1094,54 @@ export const FINDINGS_D_CHECKS = [
           message: messageFor(f),
         });
         same(p, "control", [r.status, rows[0]?.suggestion], ["ok", "likely_false_positive"]);
+        // REAL-MODEL SHAPE (found live against gpt-oss:20b, qwen and llama3.2): a model that answers the tool result with the tool call
+        // AGAIN. The FIRST valid call is the answer, the loop stops (no second request is sent), and a later call cannot spoil it.
+        {
+          const f2 = mkFinding();
+          const { repo: repo2, rows: rows2 } = mkRepo({ findings: [f2], evidence: mkEvidence() });
+          stub.requests.length = 0;
+          stub.state.allTurns = true;
+          stub.state.respond = (turn) =>
+            turn === 1
+              ? { calls: [advice({ reasoning: "first answer" })] }
+              : {
+                  calls: [
+                    advice({ suggestion: "likely_true_positive", reasoning: "second answer" }),
+                  ],
+                };
+          const r2 = await run({
+            repo: repo2,
+            llm: runtimeFor(repo2, "ollama", stub),
+            message: messageFor(f2),
+          });
+          same(
+            p,
+            "repeat on turn 2",
+            [r2.status, rows2[0]?.suggestion, rows2[0]?.reasoning, stub.requests.length],
+            ["ok", "likely_false_positive", "first answer", 1],
+          );
+          // two calls in ONE answer: the first is the answer
+          const f3 = mkFinding();
+          const { repo: repo3, rows: rows3 } = mkRepo({ findings: [f3], evidence: mkEvidence() });
+          stub.state.respond = () => ({
+            calls: [
+              advice({ reasoning: "first of two" }),
+              advice({ suggestion: "uncertain", reasoning: "second of two" }),
+            ],
+          });
+          const r3 = await run({
+            repo: repo3,
+            llm: runtimeFor(repo3, "ollama", stub),
+            message: messageFor(f3),
+          });
+          same(
+            p,
+            "two calls in one answer",
+            [r3.status, rows3[0]?.suggestion, rows3[0]?.reasoning],
+            ["ok", "likely_false_positive", "first of two"],
+          );
+          stub.state.allTurns = false;
+        }
         const reasoning = rows[0]?.reasoning ?? "";
         ok(
           p,
@@ -1124,9 +1176,20 @@ export const FINDINGS_D_CHECKS = [
       ok(
         p,
         !validateAdvice({ toolCalls: [], text: "x" }).ok &&
-          !validateAdvice({ toolCalls: [call({}).toolCalls[0], call({}).toolCalls[0]], text: "" })
-            .ok,
-        "empty or double calls accepted",
+          validateAdvice({
+            toolCalls: [
+              {
+                name: SUBMIT_ADVICE_TOOL,
+                input: { suggestion: "uncertain", confidence: 5, reasoning: "first" },
+              },
+              {
+                name: SUBMIT_ADVICE_TOOL,
+                input: { suggestion: "likely_true_positive", confidence: 9, reasoning: "second" },
+              },
+            ],
+            text: "",
+          }).value?.reasoning === "first",
+        "empty calls accepted, or a repeated call did not leave the first as the answer",
       );
       return p;
     },

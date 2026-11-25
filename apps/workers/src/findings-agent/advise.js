@@ -14,7 +14,7 @@ import {
 } from "./constants.js";
 import { startOfUtcDay } from "./controls.js";
 import { hardenAdvisoryInput } from "./harden.js";
-import { validateAdvice } from "./output.js";
+import { isAdviceComplete, validateAdvice } from "./output.js";
 import { ADVISORY_SYSTEM_PROMPT, SUBMIT_ADVICE_TOOL_DEFINITION } from "./prompt.js";
 
 /**
@@ -242,8 +242,9 @@ export async function runAdvisory({
         tools: [SUBMIT_ADVICE_TOOL_DEFINITION],
         maxTurns: ADVISORY_MAX_TURNS,
         timeoutMs: ADVISORY_TIMEOUT_MS,
-        maxOutputTokens: ADVISORY_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: config.findings?.agentMaxOutputTokens ?? ADVISORY_MAX_OUTPUT_TOKENS,
         signal,
+        isComplete: isAdviceComplete,
         validate: validateAdvice,
         logger,
       }),

@@ -6,6 +6,7 @@ import {
   createRabbitConnection,
   createRateLimiter,
   createRedisClient,
+  pingRedis,
 } from "@qmentisai/infra";
 import { runWorker } from "../runtime/run-worker.js";
 import { buildAdvisoryCompletedEnvelope } from "./completed.js";
@@ -46,6 +47,8 @@ async function start(env = process.env) {
   }
   /** Resources the handler owns; closed by the stop hook. */
   const owned = [];
+  /** Checks that must pass before the consumer starts (the Redis client is lazy: it must be connected, like every other worker's). */
+  const startupChecks = [];
   const build = ({ db, config, logger }) => {
     const restricted = config.findings.agentDatabaseUrl
       ? createDbClient({ datasourceUrl: config.findings.agentDatabaseUrl })
@@ -66,6 +69,7 @@ async function start(env = process.env) {
         logger,
       });
       owned.push(() => closeRedis(redis));
+      startupChecks.push(() => pingRedis(redis));
       rateLimiter = createRedisTenantRateLimiter({ limiter: createRateLimiter({ redis }) });
     } else {
       logger.warn("REDIS_URL is not set: the advisory rate limit is per process (development)");
@@ -92,6 +96,9 @@ async function start(env = process.env) {
     queue: QUEUE_NAMES.FINDINGS_AGENT,
     buildHandler: build,
     verifyOwnership: true,
+    beforeStart: async () => {
+      for (const check of startupChecks) await check();
+    },
   });
   // A signal makes the runtime stop its consumers and exit the process (which ends these resources); a programmatic stop closes them
   // AFTER the in-flight jobs finish.

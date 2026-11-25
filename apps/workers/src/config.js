@@ -103,6 +103,8 @@ const envSchema = z.object({
   FINDINGS_FIX_CONFIRMATIONS: z.coerce.number().int().min(1).max(5).default(1),
   FINDINGS_AGENT_MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(32).default(2),
   FINDINGS_AGENT_TENANT_DAILY_CAP: z.coerce.number().int().min(1).max(100000).default(500),
+  // output tokens per model call; a reasoning model spends part of it on thinking before it emits the tool call
+  FINDINGS_AGENT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(128).max(8192).default(1024),
   // The Docker-compatible CLI (execFile, never a shell). Nothing assumes a rootful runtime; rootless operation and uid mapping are
   // UNVERIFIED (SPEC D-20, ENG-L18). The Docker socket is never mounted into a container.
   SANDBOX_RUNTIME_BIN: z.enum(["docker", "podman"]).default("podman"),
@@ -496,6 +498,7 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       fixConfirmations: e.FINDINGS_FIX_CONFIRMATIONS,
       agentMaxConcurrentCalls: e.FINDINGS_AGENT_MAX_CONCURRENT_CALLS,
       agentTenantDailyCap: e.FINDINGS_AGENT_TENANT_DAILY_CAP,
+      agentMaxOutputTokens: e.FINDINGS_AGENT_MAX_OUTPUT_TOKENS,
     }),
     scanDecision: Object.freeze({
       secretsRule: e.SCAN_DECISION_SECRETS_RULE,

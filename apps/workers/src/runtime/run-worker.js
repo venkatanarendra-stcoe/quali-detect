@@ -17,7 +17,7 @@ import {
  * queue, and graceful shutdown on SIGINT/SIGTERM (stop consuming, wait for in-flight jobs up to the timeout, close
  * connections). A second signal exits immediately. Startup failures (bad config, unreachable broker) exit with code 1.
  * @typedef {{ queue: string, handler?: Function, buildHandler?: (context: { db: any, config: any, logger: any }) => Function, verifyOwnership?: boolean | ((config: any) => boolean), requireTenant?: boolean}} ConsumerSpec
- * @param {ConsumerSpec & { name: string, additional?: ConsumerSpec[], onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options
+ * @param {ConsumerSpec & { name: string, beforeStart?: (context: { db: any, config: any, logger: any }) => Promise<void> | void, additional?: ConsumerSpec[], onReady?: (context: { db: any, config: any, logger: any }) => (() => Promise<void>) | void }} options
  *   `handler` or `buildHandler` (when the handler needs the database or the config); `verifyOwnership` re-validates tenant and
  *   resource ownership against the database before the handler (needs DATABASE_URL); `additional` runs more consumers in the
  *   same process; `onReady` runs after the consumers started (for example a ticker) and may return a stop function
@@ -30,6 +30,7 @@ export async function runWorker({
   buildHandler,
   verifyOwnership = false,
   requireTenant = true,
+  beforeStart,
   additional = [],
   onReady,
 }) {
@@ -118,6 +119,8 @@ export async function runWorker({
   try {
     if (redis) await pingRedis(redis);
     if (db) await db.$queryRaw`SELECT 1`;
+    // a resource the handler builder owns (for example a lazily connected Redis client) is connected, or startup fails like any other
+    if (beforeStart) await beforeStart({ db, config, logger });
     for (const consumer of consumers) await consumer.start();
   } catch (error) {
     logger.fatal({ err: error }, "Worker failed to start");

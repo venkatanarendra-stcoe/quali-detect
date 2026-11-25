@@ -743,17 +743,21 @@ export function buildLlmConsentChecks({ S, once, db, withRole, loginAs }) {
     async () => {
       const problems = [];
       const table = [
-        ["ollama", "local", true],
+        ["ollama", "local", true, "http://127.0.0.1:11434"],
+        ["ollama", "local", true, "http://localhost:11434"],
+        // owner decision 2026-11-25: an Ollama on any other host (a LAN address included) is external
+        ["ollama", "external", true, "http://10.10.12.5:11434"],
         ["anthropic", "external", true],
         ["openai", "external", true],
         ["none", null, false],
         [undefined, null, false],
       ];
-      for (const [provider, kind, configured] of table) {
+      for (const [provider, kind, configured, ollamaBaseUrl] of table) {
         const dto = toAiSettingsDto(
           { externalConsent: true, updatedAt: new Date(), consentChangedAt: null },
           {
             provider,
+            ollamaBaseUrl,
             model: "model-canary-789",
             anthropicBaseUrl: "https://url-canary.example.test",
           },

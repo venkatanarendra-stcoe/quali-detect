@@ -1,5 +1,5 @@
 import {
-  PROVIDER_KIND,
+  providerKindFor,
   createEnvPlatformSecretProvider,
   missingLLMKeyProblems,
   resolveLLMProvider,
@@ -34,9 +34,10 @@ export function createFindingsAgentRuntime({
 }) {
   const llm = config.llm;
   if (!llm || llm.provider === "none") return NO_PROVIDER;
-  const providerKind = PROVIDER_KIND[llm.provider] ?? "none";
+  const providerKind = providerKindFor(llm) ?? "none";
   const secrets = createEnvPlatformSecretProvider({ env });
-  if (providerKind === "external") {
+  // the hosted-secret rule is about vendor KEYS: an Ollama needs none, even when it counts as external because its host is not loopback
+  if (providerKind === "external" && llm.provider !== "ollama") {
     if (config.environment === "production")
       throw new Error(
         "A hosted LLM provider needs a platform secret provider other than the environment one in production (not available yet); use a local provider or LLM_PROVIDER=none.",

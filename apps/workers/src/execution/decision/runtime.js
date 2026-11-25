@@ -1,6 +1,6 @@
 import { createLlmConsentGate, createTenantLlmSettingsRepository } from "@qmentisai/db";
 import {
-  PROVIDER_KIND,
+  providerKindFor,
   createEnvPlatformSecretProvider,
   missingLLMKeyProblems,
   resolveLLMProvider,
@@ -27,7 +27,7 @@ export function createDecisionAgentRuntime({ db, config, env = process.env, logg
   if (!llm || llm.provider === "none")
     return Object.freeze({ resolveProvider: async () => NO_PROVIDER });
   const secrets = createEnvPlatformSecretProvider({ env });
-  if (PROVIDER_KIND[llm.provider] === "external") {
+  if (providerKindFor(llm) === "external" && llm.provider !== "ollama") {
     if (config.environment === "production")
       throw new Error(
         "A hosted LLM provider needs a platform secret provider other than the environment one in production (not available yet); use a local provider or LLM_PROVIDER=none.",

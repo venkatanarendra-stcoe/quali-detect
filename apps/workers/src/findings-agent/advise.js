@@ -50,6 +50,8 @@ const FROM_HARNESS = Object.freeze({
 });
 
 const hourBucket = (now) => Math.floor(now.getTime() / 3_600_000);
+/** Manual retries of a row without advice, per input and hour. */
+const MANUAL_RETRY_LIMIT = 10;
 
 /** The stored level: a local provider that may carry code is recorded as `local` (ADVISORY_EGRESS_LEVELS). */
 const storedLevel = (providerKind, level) =>
@@ -160,15 +162,27 @@ export async function runAdvisory({
   } catch {
     inputError = true;
   }
-  const inputHash = advisoryInputHash({
+  const hashParts = {
     v: 1,
     level,
     providerKind: llm.providerKind,
     input: inputError ? { invalid: true } : input,
     ...(payload.reason === "manual" ? { manual: hourBucket(at) } : {}),
-  });
-  if (await repository.findAdvisoryByHash(tenantScope, finding.id, inputHash))
+  };
+  let inputHash = advisoryInputHash(hashParts);
+  if (payload.reason === "manual") {
+    // A manual retry after a row that holds NO advice (failed, invalid_output, timeout, consent_required...) is a new attempt with
+    // its own hash (the unique key is tenant + finding + hash); only a row that holds advice (`ok`) stays a duplicate in its hour.
+    // Bounded: after MANUAL_RETRY_LIMIT attempts in one hour the request is a duplicate again (the API limiter is the first guard).
+    for (let attempt = 1; ; attempt += 1) {
+      const found = await repository.findAdvisoryByHash(tenantScope, finding.id, inputHash);
+      if (!found) break;
+      if (found.status === "ok" || attempt > MANUAL_RETRY_LIMIT) return { outcome: "duplicate" };
+      inputHash = advisoryInputHash({ ...hashParts, retry: attempt });
+    }
+  } else if (await repository.findAdvisoryByHash(tenantScope, finding.id, inputHash)) {
     return { outcome: "duplicate" };
+  }
 
   const base = {
     tenantId: finding.tenantId,

@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFindingsAgentRepository, createTenantLlmSettingsRepository } from "@qmentisai/db";
-import { readLLMConfig } from "@qmentisai/infra";
+import { providerKindFor, readLLMConfig } from "@qmentisai/infra";
 import {
   ADVISORY_ROW_STATUSES,
   advisoryInputSchema,
@@ -138,6 +138,7 @@ function mkRepo({
   consent,
   count = 0,
   existing = new Set(),
+  statusByKey = new Map(),
   onConsent,
 } = {}) {
   const calls = [];
@@ -165,7 +166,9 @@ function mkRepo({
     },
     async findAdvisoryByHash(scope, findingId, hash) {
       calls.push({ m: "findAdvisoryByHash", scope });
-      return existing.has(`${findingId}:${hash}`) ? { id: "x" } : null;
+      return existing.has(`${findingId}:${hash}`)
+        ? { id: "x", status: statusByKey.get(`${findingId}:${hash}`) ?? "ok" }
+        : null;
     },
     async countAdvisoriesSince(scope) {
       calls.push({ m: "countAdvisoriesSince", scope });
@@ -175,6 +178,7 @@ function mkRepo({
       calls.push({ m: "insertAdvisory", row });
       rows.push(row);
       existing.add(`${row.findingId}:${row.inputHash}`);
+      statusByKey.set(`${row.findingId}:${row.inputHash}`, row.status);
       return { id: randomUUID(), created: true };
     },
   };
@@ -805,6 +809,109 @@ export const FINDINGS_D_CHECKS = [
             );
             ok(p, !calls.some((c) => c.m === "insertAdvisory"), `${kind} ${label}: a write`);
           }
+        // (owner decision 2026-11-25) an Ollama on a NON-loopback host, a LAN address included, is EXTERNAL: both consent tiers apply
+        for (const [url, kind] of [
+          ["http://localhost:11434", "local"],
+          ["http://127.0.0.1:11434", "local"],
+          ["http://[::1]:11434", "local"],
+          ["http://10.10.12.5:11434", "external"],
+          ["http://192.168.1.20:11434", "external"],
+          ["http://127.0.0.2:11434", "external"],
+          ["http://0.0.0.0:11434", "external"],
+          ["http://ollama.internal:11434", "external"],
+          ["not a url", "external"],
+        ])
+          same(
+            p,
+            `kind of ${url}`,
+            providerKindFor({ provider: "ollama", ollamaBaseUrl: url }),
+            kind,
+          );
+        same(
+          p,
+          "kind of the hosted vendors and none",
+          [
+            providerKindFor({ provider: "anthropic", ollamaBaseUrl: "http://127.0.0.1:1" }),
+            providerKindFor({ provider: "openai" }),
+            providerKindFor({ provider: "none" }),
+            providerKindFor(null),
+          ],
+          ["external", "external", null, null],
+        );
+        for (const [label, consent, wantStatus, wantRequests, wantSnippet] of [
+          [
+            "LAN, both off",
+            { externalConsent: false, codeSnippetConsent: false },
+            "consent_required",
+            0,
+            false,
+          ],
+          [
+            "LAN, snippet consent off",
+            { externalConsent: true, codeSnippetConsent: false },
+            "ok",
+            1,
+            false,
+          ],
+          [
+            "LAN, snippet on, external off",
+            { externalConsent: false, codeSnippetConsent: true },
+            "consent_required",
+            0,
+            false,
+          ],
+          ["LAN, both on", { externalConsent: true, codeSnippetConsent: true }, "ok", 1, true],
+        ]) {
+          const f = mkFinding();
+          const { repo, rows } = mkRepo({ findings: [f], evidence: mkEvidence(), consent });
+          const seen = [];
+          // the base URL is the LAN host; the fetch is the only thing that touches the stub, so nothing leaves this machine
+          const lanEnv = {
+            LLM_PROVIDER: "ollama",
+            LLM_MODEL: "suite-model",
+            LLM_OLLAMA_BASE_URL: "http://10.10.12.5:11434",
+            LLM_REQUEST_TIMEOUT_SECONDS: "5",
+          };
+          const { config: lanLlm } = readLLMConfig(lanEnv, { production: false });
+          const lan = createFindingsAgentRuntime({
+            repository: repo,
+            config: { environment: "test", llm: lanLlm },
+            env: lanEnv,
+            fetchImpl: (url, init) => {
+              seen.push(String(url));
+              return fetch(String(url).replace(/^http:\/\/[^/]+/, stub.url), init);
+            },
+          });
+          stub.requests.length = 0;
+          const r = await run({ repo, llm: lan, message: messageFor(f) });
+          same(
+            p,
+            `${label}`,
+            [
+              lan.providerKind,
+              r.status,
+              rows[0]?.status,
+              turn1(stub),
+              seen.length > 0 ? seen.every((u) => u.startsWith("http://10.10.12.5:11434")) : true,
+              stub.requests.some((q) => q.raw.includes(SNIPPET_MARK)),
+            ],
+            [
+              "external",
+              wantStatus,
+              wantStatus === "ok" ? "ok" : "consent_required",
+              wantRequests,
+              true,
+              wantSnippet,
+            ],
+          );
+          if (wantStatus === "consent_required")
+            same(
+              p,
+              `${label}: nothing requested`,
+              [seen.length, rows[0]?.egressLevel],
+              [0, "none"],
+            );
+        }
         // no provider configured: nothing requested, stored not_configured
         const f = mkFinding();
         const { repo, rows } = mkRepo({ findings: [f], evidence: mkEvidence() });
@@ -1380,6 +1487,57 @@ export const FINDINGS_D_CHECKS = [
           [r1.status, r2.outcome, turn1(stub), dup.rows.length],
           ["ok", "duplicate", 1, 1],
         );
+        // MANUAL retries (owner decision 2026-11-25): a row WITHOUT advice (failed, invalid_output...) does not block a manual retry in
+        // the same hour and a row WITH advice (ok) still does; a non-manual message after a failed row stays a duplicate (below)
+        for (const [label, bad] of [
+          ["failed (HTTP 500)", { status: 500 }],
+          ["invalid_output", { calls: [advice({ confidence: 101 })] }],
+        ]) {
+          const f6 = mkFinding();
+          const retry = mkRepo({ findings: [f6], evidence: mkEvidence() });
+          const llm6 = runtimeFor(retry.repo, "ollama", stub);
+          stub.requests.length = 0;
+          stub.state.respond = () => bad;
+          const a1 = await run({ repo: retry.repo, llm: llm6, message: messageFor(f6, "manual") });
+          stub.state.respond = () => ({ calls: [advice()] });
+          const a2 = await run({ repo: retry.repo, llm: llm6, message: messageFor(f6, "manual") });
+          const a3 = await run({ repo: retry.repo, llm: llm6, message: messageFor(f6, "manual") });
+          same(
+            p,
+            `manual retry after ${label}`,
+            [
+              ["failed", "invalid_output"].includes(a1.status),
+              a2.status,
+              a3.outcome,
+              retry.rows.map((r) => (r.status === "ok" ? "ok" : "no-advice")),
+              new Set(retry.rows.map((r) => r.inputHash)).size,
+            ],
+            [true, "ok", "duplicate", ["no-advice", "ok"], 2],
+          );
+        }
+        {
+          const f7 = mkFinding();
+          const created = mkRepo({ findings: [f7], evidence: mkEvidence() });
+          const llm7 = runtimeFor(created.repo, "ollama", stub);
+          stub.state.respond = () => ({ status: 500 });
+          const c1 = await run({
+            repo: created.repo,
+            llm: llm7,
+            message: messageFor(f7, "created"),
+          });
+          stub.state.respond = () => ({ calls: [advice()] });
+          const c2 = await run({
+            repo: created.repo,
+            llm: llm7,
+            message: messageFor(f7, "created"),
+          });
+          same(
+            p,
+            "non-manual after a failed row stays a duplicate",
+            [c1.status, c2.outcome, created.rows.length],
+            ["failed", "duplicate", 1],
+          );
+        }
         // infrastructure error propagates; hint failure is swallowed; a stored result publishes one hint
         const f5 = mkFinding();
         const bad = mkRepo({ findings: [f5], evidence: mkEvidence() });

@@ -9,3 +9,12 @@ Found by the first run of the advisory agent against a real Ollama endpoint (gpt
 | 3 | Output cap 400 tokens per call: too small for a reasoning model that thinks before it emits the call. | Default 1,024, `FINDINGS_AGENT_MAX_OUTPUT_TOKENS` (128 to 8,192). |
 
 Tests: `FPA-S05` extended (the repeat on turn 2 with the stub's `allTurns` mode, two calls in one answer, valid then another tool, a bad first call, the validator directly). A real-model-shaped transcript is now in the suite.
+
+## Close-out round (same day)
+
+| # | Change | Where |
+|---|---|---|
+| 4 | An Ollama is "local, no consent" only on a loopback host (`localhost`, `127.0.0.1`, `::1`); any other host, a LAN address included, is external and needs both consents (`consent_required` with none, metadata only with the first, the excerpt with both). Also applies to the scan decision agent's consent gate (shared `resolveLLMProvider`) and the `providerKind` of `GET /settings/ai`. A non-loopback Ollama needs no vendor key, so the "hosted provider in production" refusal stays for vendors only. | `providerKindFor` in `packages/infra/src/llm/types.js`; `resolve.js`, both runtimes, the AI settings mapper |
+| 5 | A manual retry after a row without advice is a new attempt (`retry` joins the input hash, at most 10 per hour); `ok` rows keep the dedup. | `apps/workers/src/findings-agent/advise.js` |
+
+Tests (inside `FPA-S03b` and `FPA-S06`, check count unchanged): the kind of 9 base URLs and the vendors; a LAN Ollama with both consents off (nothing requested), with the first only (no excerpt on the wire), with the second only (nothing), with both (excerpt); manual retry after a 500 and after an invalid answer, the `ok` dedup, the non-manual duplicate.

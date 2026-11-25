@@ -72,9 +72,33 @@ export function assertLLMProvider(value) {
     throw new TypeError("Not an LLMProvider: needs info.id, info.model and complete().");
 }
 
-/** Provider kinds: a local provider needs no data-egress consent, an external one does (ADR-013, AP-6). */
+/** Provider kinds of the PROVIDER, before the host is looked at (use `providerKindFor`, which does). */
 export const PROVIDER_KIND = Object.freeze({
   ollama: "local",
   anthropic: "external",
   openai: "external",
 });
+
+/** The only hosts that count as "this machine" (a LAN address does not: the data leaves the machine). */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/**
+ * The kind of provider a deployment configuration really is (ADR-013, AP-6; owner decision 2026-11-25): a local provider needs no
+ * data-egress consent, an external one does. A hosted vendor is always external. Ollama is local ONLY when its base URL is a loopback
+ * host (`localhost`, `127.0.0.1`, `::1`); an Ollama on any other host, a LAN address included, sends the data off this machine and is
+ * external, so both consent tiers apply to it. An unparseable URL is external (fail closed). `null` for no provider.
+ * @param {{ provider?: string, ollamaBaseUrl?: string } | null | undefined} config
+ * @returns {"local" | "external" | null}
+ */
+export function providerKindFor(config) {
+  const base = PROVIDER_KIND[config?.provider];
+  if (!base) return null;
+  if (config.provider !== "ollama") return base;
+  try {
+    return LOOPBACK_HOSTS.has(new URL(config.ollamaBaseUrl).hostname.toLowerCase())
+      ? "local"
+      : "external";
+  } catch {
+    return "external";
+  }
+}

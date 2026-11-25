@@ -2,7 +2,7 @@ import { createAnthropicProvider } from "./anthropic.js";
 import { LLM_KEY_SECRETS } from "./config.js";
 import { createOllamaProvider } from "./ollama.js";
 import { createOpenAIProvider } from "./openai.js";
-import { LLMError, PROVIDER_KIND } from "./types.js";
+import { LLMError, providerKindFor } from "./types.js";
 
 /** @typedef {"ok" | "not_configured" | "consent_required" | "key_missing"} LLMResolution */
 
@@ -56,7 +56,7 @@ function limiterFor(max) {
 /**
  * Resolves the provider for a purpose and a tenant. THE CONSENT GATE LIVES HERE (SPEC scan-decisioning AG-9, ADR-013): an
  * external provider (anthropic, openai) is built only when `consent.isExternalAllowed(tenantId)` is true, and no adapter (and
- * therefore no request) exists before that; a local provider (ollama) needs none. The tenant id is used only for the consent
+ * therefore no request) exists before that; a local provider (Ollama on a loopback host) needs none; an Ollama on any other host counts as external. The tenant id is used only for the consent
  * lookup and is never passed to an adapter or a request. A provider may be absent: `provider: null` is a normal result and the
  * caller continues without a model.
  *
@@ -87,7 +87,7 @@ export async function resolveLLMProvider({
     throw new TypeError("resolveLLMProvider needs a purpose and a trusted tenantId.");
   if (!config || config.provider === "none" || !config.model)
     return { provider: null, status: "not_configured" };
-  const kind = PROVIDER_KIND[config.provider];
+  const kind = providerKindFor(config);
   if (!kind) return { provider: null, status: "not_configured" };
   if (kind === "external" && (await consent.isExternalAllowed(tenantId)) !== true)
     return { provider: null, status: "consent_required" };

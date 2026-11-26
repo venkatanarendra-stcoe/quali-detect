@@ -55,7 +55,7 @@ export * from "./not-implemented.js";
  * @property {(args: { tenantId: Uuid, rows: ExecutionsDayRow[] }) => Promise<number>} upsertExecutionsDays
  * @property {(args: { tenantId: Uuid, rows: DecisionsDayRow[] }) => Promise<number>} upsertDecisionsDays
  * @property {(args: { tenantId: Uuid, rows: SbomDayRow[] }) => Promise<number>} upsertSbomDays
- * @property {(args: { tenantId: Uuid, from: DayString, to: DayString }) => Promise<number>} clearRange removes the daily rows of the tenant in an inclusive day range (through `qm_reporting_clear_range`; the role has no DELETE); returns the rows removed
+ * @property {(args: { tenantId: Uuid, from: DayString, to: DayString, voidCoverage?: boolean }) => Promise<number>} clearRange removes the daily rows of the tenant in an inclusive day range (through `qm_reporting_clear_range`; the role has no DELETE); returns the rows removed. `voidCoverage: true` (the rebuild after a time-zone change) also marks the succeeded runs touching the range `failed` / `invalid_range`, so the cleared days read as unknown again
  * @property {(args: { rollupBefore: DayString, runsBefore: Date, exportsBefore: Date, limit: number }) => Promise<number>} purgeExpired the retention purge (through `qm_reporting_purge`); returns the rows removed
  */
 

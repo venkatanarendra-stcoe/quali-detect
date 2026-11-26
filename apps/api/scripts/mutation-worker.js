@@ -24,11 +24,16 @@ import { ENSEMBLE_KILL_CHECKS } from "../test/security/helpers/ensemble-kill-che
 import { ENSEMBLE_TRIAGE_CHECKS } from "../test/security/helpers/ensemble-triage-checks.js";
 import { DBMIRROR_CHECKS } from "../test/security/helpers/dbmirror-checks.js";
 
-const FINDINGS = process.env.MUTATION_GROUP === "findings";
-/** The checks of the findings module that need no database (they ignore the world); the others report NEEDS_DB and are skipped. */
-const findingsChecks = FINDINGS
-  ? (await import("../test/security/helpers/findings/index.js")).FINDINGS_CHECKS
-  : [];
+/** `MUTATION_GROUP=findings` or `reporting` runs the checks of that module (Reporting part E reuses the Findings mechanism). */
+const GROUP = process.env.MUTATION_GROUP;
+const FINDINGS = GROUP === "findings" || GROUP === "reporting";
+/** The checks of the module that need no database (they ignore the world); the others report NEEDS_DB and are skipped. */
+const findingsChecks =
+  GROUP === "findings"
+    ? (await import("../test/security/helpers/findings/index.js")).FINDINGS_CHECKS
+    : GROUP === "reporting"
+      ? (await import("../test/security/helpers/reporting/index.js")).REPORTING_CHECKS
+      : [];
 const all = FINDINGS
   ? findingsChecks
   : [

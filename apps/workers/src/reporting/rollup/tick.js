@@ -8,6 +8,8 @@ import {
   isValidTimeZone,
   localDayOf,
 } from "@qmentisai/shared";
+import { createReportObjectStore } from "../export/object-store.js";
+import { expireReportFiles } from "../export/retention.js";
 import { subtractMonths } from "./job.js";
 
 /**
@@ -24,6 +26,8 @@ const TENANT_PAGE = 200;
 const PURGE_LIMIT = 5000;
 const PURGE_MAX_CALLS = 20;
 const PURGE_EVERY_MS = 24 * 60 * 60 * 1000;
+const EXPIRE_LIMIT = 100;
+const EXPIRE_MAX_CALLS = 10;
 const MONTH_MS = 30.4375 * 24 * 60 * 60 * 1000;
 
 /** The deterministic message id: `<tenant>-<mode>-<day>-<hour>`; `hour` is the epoch hour (unique, unlike a local hour on a fall-back day). */
@@ -157,6 +161,46 @@ export async function runPurge({ rollupRepository: repo, config, logger, now = (
 }
 
 /**
+ * The file retention of the exports (SPEC 8.6, owner ruling: 30 days), once an hour from the tick: a `ready` report past `expires_at` (or
+ * deleted) becomes `expired` and its file is removed, so the files of a tenant that never exports again do not stay forever. Bounded
+ * (at most 10 calls of 100 reports per tick), best effort (a failure is logged by code and never stops the tick), and a no-op unless the module
+ * is enabled and the artifact store root is configured. `store` is for tests.
+ * @param {{ exportRepository?: any, config: any, logger: any, now?: () => Date, store?: { delete: Function } }} deps
+ * @returns {Promise<{ expired: number, removed: number }>}
+ */
+export async function runFileRetention({
+  exportRepository,
+  config,
+  logger,
+  now = () => new Date(),
+  store,
+}) {
+  const none = { expired: 0, removed: 0 };
+  const root = config?.execution?.artifactStoreRoot ?? null;
+  if (config?.reporting?.enabled !== true || !exportRepository || (!store && !root)) return none;
+  const files = store ?? createReportObjectStore({ root });
+  const total = { expired: 0, removed: 0 };
+  try {
+    for (let i = 0; i < EXPIRE_MAX_CALLS; i += 1) {
+      const r = await expireReportFiles({
+        exportRepository,
+        store: files,
+        now: now(),
+        limit: EXPIRE_LIMIT,
+        logger,
+      });
+      total.expired += r.expired;
+      total.removed += r.removed;
+      if (r.expired < EXPIRE_LIMIT) break;
+    }
+  } catch (error) {
+    logger.warn({ code: error?.code }, "reporting tick: the export file retention pass failed");
+  }
+  if (total.expired > 0) logger.info(total, "reporting export files expired");
+  return total;
+}
+
+/**
  * @param {import("./index.js").ReportingWorkerDeps & { db: any }} deps
  * @returns {{ stop: () => Promise<void> } | null}
  */
@@ -171,6 +215,7 @@ export function buildRollupTick(deps) {
     try {
       const result = await runTick(deps);
       logger.info(result, "reporting tick queued the rollups");
+      await runFileRetention(deps);
       if (now().getTime() - lastPurge >= PURGE_EVERY_MS) {
         await runPurge(deps);
         lastPurge = now().getTime();

@@ -21,6 +21,8 @@ Suggested module specification order:
 15. Dashboards and reporting.
 16. Root Console administration.
 
+`reporting-dashboards` (item 15, Dashboards and reporting): `SPEC.md` plus the as-built notes of Parts A0, A, B, C, D, AM and E (`AS_BUILT_*.md`), `MUTATION_BACKLOG.md` and `LIVE_TEST_PLAN.md` (what only the owner's machine can prove); built, everything OFF behind `REPORTING_ENABLED=false`.
+
 Specifications written so far (folders in this directory): `access-management`, `repositories-github`, `pipelines-triggers`, `user-preferences` (per-user interface preferences such as the accent colour; not part of the order above), `executions` (items 7 and 9 of the order above: pipeline execution lifecycle and scan orchestration, with T-28 and T-29 and the pipeline Executions tab; **Approved, 2026-11-16**, nothing implemented; T-30 manual DAST/Asset Discovery scans are out of it and belong to a separate manual-scan module later).
 
 `scan-decisioning` (the Analysis and Scan Decisioning stage, workflow steps 4 and 5, inserted into the Executions `preparing` state; deterministic floor plus an optional LLM agent that can only add scans; with `SCREENS.md` for the T-29 section; **Approved 2026-11-17**, implementation in parts A to G; the LLM layer is ADR-013, Approved).

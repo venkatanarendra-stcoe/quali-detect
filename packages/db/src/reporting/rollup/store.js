@@ -233,16 +233,28 @@ export function buildStore(db) {
     ),
     upsertSbomDays: simple("report_daily_sbom", ["tenant_id", "pipeline_id", "day"], SBOM, {}),
 
-    /** @param {{ tenantId: string, from: string, to: string }} args */
-    async clearRange({ tenantId, from, to }) {
+    /**
+     * Removes the daily rows of the range (the SECURITY DEFINER function). With `voidCoverage` (the REBUILD after a tenant time-zone change)
+     * it ALSO voids the run-ledger coverage of the range in the same transaction: every succeeded run that touches a cleared day is marked
+     * `failed` / `invalid_range` (the role has UPDATE on the ledger, never DELETE), so the days it covered read as NULL again (not as
+     * covered zeros) until a run that is written after the clear covers them. Voiding is whole-run: a backfill batch that sticks out of
+     * the range loses its coverage outside it too (a gap is honest, a false zero is not). Without the flag nothing but the rows changes.
+     * @param {{ tenantId: string, from: string, to: string, voidCoverage?: boolean }} args
+     */
+    async clearRange({ tenantId, from, to, voidCoverage = false }) {
       assertUuid(tenantId, "tenantId");
       if (!DAY.test(from) || !DAY.test(to) || from > to)
         throw new RollupInputError("invalid_range", "bad day range");
-      const rows = await inTransaction(
-        db,
-        (tx) =>
-          tx.$queryRaw`SELECT qm_reporting_clear_range(${tenantId}::uuid, ${from}::date, ${to}::date) AS n`,
-      );
+      const rows = await inTransaction(db, async (tx) => {
+        const cleared =
+          await tx.$queryRaw`SELECT qm_reporting_clear_range(${tenantId}::uuid, ${from}::date, ${to}::date) AS n`;
+        if (voidCoverage === true)
+          await tx.$executeRaw`
+            UPDATE report_rollup_runs SET status = 'failed', error_code = 'invalid_range'
+            WHERE tenant_id = ${tenantId}::uuid AND status = 'succeeded'
+              AND day <= ${to}::date AND COALESCE(range_to, day) >= ${from}::date`;
+        return cleared;
+      });
       return num(rows[0]?.n);
     },
 

@@ -31,7 +31,7 @@ export const EXPECTED_REPORTING_CHECKS = Object.freeze({
   B: 11,
   AM: 7,
   C: 16,
-  E: 0,
+  E: 12,
 });
 
 /** What SPEC 16.2 pre-assigns to each part (documentation; not asserted). */

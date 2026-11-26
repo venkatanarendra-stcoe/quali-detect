@@ -253,7 +253,9 @@ export async function runBackfill(deps, { tenantId, timeZone }, { from, to, reas
   const end = to > today ? today : to;
   if (start > end) return { batches: 0, skipped: 0, rowsWritten: 0 };
   const recompute = reason === "timezone_changed" || reason === "repair";
-  if (reason === "timezone_changed") await deps.repo.clearRange({ tenantId, from: start, to: end });
+  // the rebuild also voids the run coverage of the range, so a day only the old zone's runs covered reads as unknown again, not as zeros
+  if (reason === "timezone_changed")
+    await deps.repo.clearRange({ tenantId, from: start, to: end, voidCoverage: true });
   const covered = recompute
     ? []
     : (await deps.repo.listRuns({ tenantId, from: start, to: end, mode: "backfill" })).filter(

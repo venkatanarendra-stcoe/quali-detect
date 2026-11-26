@@ -141,7 +141,7 @@ The top bar was removed. Sidebar, top to bottom: Logo · organization name (Orga
 | Security | Approvals | `/workspaces/:id/approvals` | `finding.approve` *(Rec.)* | **No** |
 | Security | Remediation | `/workspaces/:id/remediation` | `remediation.view` *(Rec.)* | **No** |
 | Security | Policies | `/workspaces/:id/policies` | `policy.view` | Yes |
-| Security | Reports | `/workspaces/:id/reports` | `report.view` *(Rec.)* | **No** |
+| Security | Reports | `/workspaces/:id/reports` | `report.view` *(catalogue; owner ruling C-2, 2026-11-26: every built-in role sees Reports, only Admin, Manager and Lead generate)* | **No** |
 | Workspace Admin | Members & Groups | `/workspaces/:id/members` | `workspace.view` | Yes |
 | Workspace Admin | Roles & Permissions | `/workspaces/:id/roles` | `workspace.view_roles` | Yes |
 | Workspace Admin | Integrations | `/workspaces/:id/integrations` | `integration.view` *(Rec.)* | **No** |
@@ -169,7 +169,7 @@ Legend: ● visible · ◐ visible, read-only (actions hidden/disabled) · — h
 | Approvals | ● | ◐ | ● | — | — | — | — |
 | Remediation | ● | ● | ● | ◐ | ● | ● | ◐ |
 | Policies | ● | ◐ | ● | ◐ | ◐ | — | — |
-| Reports | ● | ● | ● | ● | ● | — | ◐ |
+| Reports | ● | ● | ● | ● | ● | ◐ | ◐ |
 | Members & Groups | ● | ● | ◐ | ◐ | ◐ | ◐ | ◐ |
 | WS Roles | ● | ◐ | — | — | — | — | — |
 | WS Integrations | ● | ● | ◐ | — | ◐ | — | — |

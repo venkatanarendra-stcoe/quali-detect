@@ -36,7 +36,8 @@ export const postureEmpty = (posture) =>
  * period ends before `stateSeriesFrom` or holds no known day, else null. @param {any} trends
  */
 export function trendsEmpty(trends) {
-  if (trends.stateSeriesFrom === null) return "empty";
+  // findings may well exist: the per-day open series is forward-only and has simply not started recording yet
+  if (trends.stateSeriesFrom === null) return "notrecorded";
   return statePoints(trends).length === 0 ? "period" : null;
 }
 

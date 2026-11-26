@@ -467,11 +467,17 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                   icon={Workflow}
                   query={posture}
                   value={
-                    p?.pipelinesHealthy
+                    p?.pipelinesHealthy && p.pipelinesHealthy.total > 0
                       ? `${p.pipelinesHealthy.healthy} of ${p.pipelinesHealthy.total}`
                       : null
                   }
-                  unavailable={p && !p.pipelinesHealthy ? "Not available" : undefined}
+                  unavailable={
+                    p && !p.pipelinesHealthy
+                      ? "Not available"
+                      : p && p.pipelinesHealthy.total === 0
+                        ? "No pipeline runs yet"
+                        : undefined
+                  }
                   href={`/workspaces/${workspaceId}/pipelines`}
                 />
               ) : null}

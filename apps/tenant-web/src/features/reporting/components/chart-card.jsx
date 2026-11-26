@@ -109,6 +109,19 @@ export function CardError({ error, onRetry }) {
 
 /** The "No data" bodies: nothing yet (with the next step) or nothing in this period (with the range and a way to widen it). */
 export function CardEmpty({ kind, rangeText, onWiden, next }) {
+  if (kind === "notrecorded")
+    return (
+      <div className="flex flex-col items-start gap-2 py-6 text-sm">
+        <p className="flex items-center gap-2 font-medium">
+          <Inbox aria-hidden="true" className="size-4 text-muted-foreground" />
+          This trend has not started recording yet
+        </p>
+        <p className="text-muted-foreground">
+          Open findings are recorded once a day from the first snapshot onward, so this fills in as
+          days pass. Earlier days cannot be reconstructed.
+        </p>
+      </div>
+    );
   if (kind === "period")
     return (
       <div className="flex flex-col items-start gap-2 py-6 text-sm">
@@ -178,9 +191,9 @@ function ViewToggle({ id, showTable, onChange }) {
 /**
  * The frame of every chart or table of the reporting screens: title, the Chart / Table toggle, the one-sentence summary (the text
  * alternative), the body with every state, a legend slot, a "View details" link and the "data as of" footer.
- * `state` is computed by the screen from its data: `"empty"` (nothing yet) or `"period"` (nothing in this period).
+ * `state` is computed by the screen from its data: `"empty"` (no findings yet), `"period"` (nothing in this period) or `"notrecorded"` (the findings exist but the daily open-findings series has not started recording).
  * @param {{ id: string, title: string, summary?: string, note?: string, query: { isPending: boolean, isError: boolean, error: unknown, refetch: () => void, data?: { meta?: any } },
- *   state?: "empty" | "period" | null, rangeText?: string, onWiden?: () => void, next?: import("react").ReactNode,
+ *   state?: "empty" | "period" | "notrecorded" | null, rangeText?: string, onWiden?: () => void, next?: import("react").ReactNode,
  *   table?: import("react").ReactNode, legend?: import("react").ReactNode, link?: { to: string, label: string },
  *   recomputing?: boolean, skeletonHeight?: string, className?: string, children: import("react").ReactNode }} props
  */

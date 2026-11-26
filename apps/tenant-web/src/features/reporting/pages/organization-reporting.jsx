@@ -197,7 +197,7 @@ function OrgTrend({ workspaces, params }) {
       id="org-trend"
       title="Findings over time"
       query={virtual}
-      state={merged && merged.dataFrom === null ? "empty" : null}
+      state={merged && merged.dataFrom === null ? "notrecorded" : null}
       note={
         merged?.dataFrom && merged.periodFrom < merged.dataFrom
           ? `Severity trend starts on ${dayLabel(merged.dataFrom)}: earlier days were not recorded.`

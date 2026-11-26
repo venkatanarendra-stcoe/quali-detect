@@ -1,9 +1,10 @@
+import { buildRollupHandler } from "./handler.js";
+import { buildRollupTick } from "./tick.js";
+
 /**
  * Part A (rollup core) owns this directory (docs/modules/reporting-dashboards/SPEC.md 7.2, 18). Part A0 froze the two factory signatures below;
- * `../handlers.js` calls them and `../index.js` starts the worker, and neither is edited by a part. Put the code in files next to this one.
- *
- * Until Part A fills them: `createRollupHandler` returns null (the dispatcher dead-letters `reporting.rollup.requested`) and `startRollupTick`
- * returns null (no tick).
+ * `../handlers.js` calls them and `../index.js` starts the worker, and neither is edited by a part. The code is in `handler.js` (the message
+ * handler), `job.js` (incremental, close, backfill, rebuild) and `tick.js` (the hourly tick, the first-enablement backfill, the retention purge).
  */
 
 /**
@@ -13,6 +14,7 @@
  * @property {any} config the worker configuration (`config.reporting`)
  * @property {any} logger a Pino logger (ids, counts and codes only, never a value)
  * @property {() => Date} [now] a clock (tests)
+ * @property {Partial<{ backfillBatchDays: number, throttleMs: number, closeStateMaxLagMs: number }>} [options] job tunables (tests)
  */
 
 /**
@@ -20,8 +22,8 @@
  * @param {ReportingWorkerDeps} _deps
  * @returns {((message: any, context: { log?: any, attempt?: number, signal?: AbortSignal }) => Promise<void>) | null}
  */
-export function createRollupHandler(_deps) {
-  return null;
+export function createRollupHandler(deps) {
+  return buildRollupHandler(deps);
 }
 
 /**
@@ -30,6 +32,6 @@ export function createRollupHandler(_deps) {
  * @param {ReportingWorkerDeps & { db: any }} _deps
  * @returns {{ stop: () => Promise<void> } | null}
  */
-export function startRollupTick(_deps) {
-  return null;
+export function startRollupTick(deps) {
+  return buildRollupTick(deps);
 }

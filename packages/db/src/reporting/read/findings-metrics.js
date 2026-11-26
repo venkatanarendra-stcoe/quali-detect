@@ -34,12 +34,13 @@ export function buildFindingsMetricMethods(db) {
         const first = await tx.$queryRaw`
           SELECT (min(d.day))::text AS day FROM report_daily_findings d
           WHERE d.tenant_id = ${tenantId}::uuid AND d.workspace_id = ${workspaceId}::uuid`;
-        // a day is covered when a succeeded run touched it (a day without a run is a GAP, not a zero)
+        // a day is covered when a succeeded run touched it (a day without a run is a GAP, not a zero); DISTINCT folds the hourly runs of a day into one row
         const runs = await tx.$queryRaw`
-          SELECT mode::text AS mode, day::text AS day, range_to::text AS "rangeTo"
+          SELECT DISTINCT mode::text AS mode, day::text AS day, range_to::text AS "rangeTo"
           FROM report_rollup_runs
           WHERE tenant_id = ${tenantId}::uuid AND status = 'succeeded'
             AND day <= ${to}::date AND COALESCE(range_to, day) >= ${from}::date
+          ORDER BY 2, 1
           LIMIT 5000`;
         return {
           rows: rows.map((r) => ({
@@ -188,14 +189,15 @@ export function buildFindingsMetricMethods(db) {
           WHERE f.tenant_id = ${tenantId}::uuid AND f.workspace_id = ${workspaceId}::uuid
             AND f.status IN (${OPEN_SQL}) AND f.sla_due_at IS NOT NULL AND f.severity <> 'info'
           GROUP BY f.severity`;
-        // R-4: closed in the period; the stopped clock keeps `sla_started_at`, so the target (the shared default hours: the views do not
-        // expose the tenant's overrides) is added to it
+        // R-4: closed in the period; the stopped clock keeps `sla_started_at`, so the TENANT's target hours (`report_sla_targets_v`, AM) or, with
+        // no row for that severity, the shared default hours are added to it
         const closed = await tx.$queryRaw`
           SELECT f.severity::text AS severity, count(*)::int AS "withTarget",
-                 (count(*) FILTER (WHERE f.verified_at <= f.sla_started_at + (CASE f.severity::text
+                 (count(*) FILTER (WHERE f.verified_at <= f.sla_started_at + COALESCE(t.hours, CASE f.severity::text
                      WHEN 'critical' THEN ${h.critical}::int WHEN 'high' THEN ${h.high}::int
                      WHEN 'medium' THEN ${h.medium}::int ELSE ${h.low}::int END) * interval '1 hour'))::int AS "withinSla"
           FROM report_findings_v f
+          LEFT JOIN report_sla_targets_v t ON t.tenant_id = f.tenant_id AND t.severity = f.severity
           WHERE f.tenant_id = ${tenantId}::uuid AND f.workspace_id = ${workspaceId}::uuid
             AND f.verified_at >= ${s}::timestamptz AND f.verified_at < ${e}::timestamptz
             AND f.sla_started_at IS NOT NULL AND f.severity <> 'info'

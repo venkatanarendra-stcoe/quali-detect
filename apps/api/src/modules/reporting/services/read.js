@@ -127,13 +127,19 @@ export function createReportingReadService({ repository, cache, now = () => new 
           }
           if (asOfDay >= localDayOf(at, timeZone))
             throw new AppError(ERROR_CODES.REPORT_PERIOD_INVALID, "asOf must be a past day.");
-          const raw = await repository.getPostureAsOf({ ...base(actor, query), day: asOfDay });
+          const [raw, freshness] = await Promise.all([
+            repository.getPostureAsOf({ ...base(actor, query), day: asOfDay }),
+            repository.getRollupFreshness({ tenantId: actor.tenantId }),
+          ]);
           if (!raw)
             throw new AppError(
               ERROR_CODES.REPORT_AS_OF_UNAVAILABLE,
               "No rolled-up data exists for that day.",
             );
-          return { data: toPostureAsOfDto(raw), rollup: true };
+          // forward-only state (AM 17.5): before the first exact day, or on a day no live run wrote, every state field is null
+          const exact =
+            raw.exact && freshness.firstExactDay !== null && asOfDay >= freshness.firstExactDay;
+          return { data: toPostureAsOfDto(exact ? raw : null, asOfDay), rollup: true, freshness };
         },
       });
     },
@@ -153,14 +159,20 @@ export function createReportingReadService({ repository, cache, now = () => new 
             repository.getTrends({ ...base(actor, query), from: p.from, to: p.to, series }),
             repository.getRollupFreshness({ tenantId: actor.tenantId }),
           ]);
-          const points = toTrendPoints(raw, { from: p.from, to: p.to, series });
+          const points = toTrendPoints(raw, {
+            from: p.from,
+            to: p.to,
+            series,
+            firstExactDay: freshness.firstExactDay,
+          });
           return {
             rollup: true,
             freshness,
             data: {
               period: toPeriod(p),
               points,
-              severityBackfilled: raw.runs.some((r) => r.mode === "backfill"),
+              severityBackfilled: false,
+              stateSeriesFrom: freshness.firstExactDay,
               dataFrom: raw.dataFrom,
               recomputing: freshness.recomputing,
               projection: series.includes("backlog") ? toProjection(points) : null,

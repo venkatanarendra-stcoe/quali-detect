@@ -26,6 +26,10 @@ const VIEWS = [
   "report_executions_v",
   "report_sbom_latest_v",
   "report_tenant_settings_v",
+  // amendment AM (migration 20261126110000_reporting_views_amendment)
+  "report_repositories_v",
+  "report_pipelines_v",
+  "report_sla_targets_v",
 ];
 const TABLES = [
   "report_daily_findings",

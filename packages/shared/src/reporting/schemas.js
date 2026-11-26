@@ -38,8 +38,6 @@ const recordOf = (value, keys) =>
 
 const bySeverity = recordOf(count, FINDING_SEVERITIES);
 const byScanType = recordOf(count, FINDING_SCAN_TYPES);
-const byStatus = recordOf(count, FINDING_STATUSES);
-const byGroup = recordOf(count, LIFECYCLE_GROUP_IDS);
 
 // ---- Requests --------------------------------------------------------------------------------------------------------------
 
@@ -173,7 +171,10 @@ export const createReportBodySchema = z
     from: day.optional(),
     to: day.optional(),
     asOfDay: day.optional(),
-    options: z.object({ distinctIssues: z.boolean().optional() }).strict().optional(),
+    options: z
+      .object({ distinctIssues: z.boolean().optional(), bom: z.boolean().optional() })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -248,35 +249,57 @@ const rate = z
   })
   .strict();
 
+/**
+ * The posture tiles. LIVE (`partial: false`): every field is known and a count is never null. AS OF a past day (`partial: true`): the daily
+ * rollup keeps only some counters, so every field it cannot tell is `null` (NEVER 0: a 0 would read as "none"): the statuses other than
+ * `fixed_pending_verification`, the groups other than `awaiting_verification` and `accepted_or_suppressed`, `exceptions.expiringWithin30Days`,
+ * `awaitingDecision.*`, `newLast24Hours`, `pipelinesHealthy` and `githubConnections`. For a day BEFORE the first exact state day (the series are
+ * forward-only, ADR-015 item 3) every state field is `null`. `githubConnections` (repository counts per connection state of the workspace) and
+ * `pipelinesHealthy` need `execution.view` and are `null` without it.
+ */
 export const postureDtoSchema = z
   .object({
     asOfDay: day.nullable(),
-    open: count,
-    bySeverity,
-    byType: byScanType,
-    byGroup,
-    byStatus,
-    backlog: count,
-    workInProgress: count,
-    criticalHighOpen: count,
-    exceptions: z.object({ inForce: count, expiringWithin30Days: count }).strict(),
-    awaitingDecision: z.object({ awaitingApproval: count, pendingExceptions: count }).strict(),
+    partial: z.boolean(),
+    open: count.nullable(),
+    bySeverity: bySeverity.nullable(),
+    byType: byScanType.nullable(),
+    byGroup: recordOf(count.nullable(), LIFECYCLE_GROUP_IDS).nullable(),
+    byStatus: recordOf(count.nullable(), FINDING_STATUSES).nullable(),
+    backlog: count.nullable(),
+    workInProgress: count.nullable(),
+    criticalHighOpen: count.nullable(),
+    exceptions: z
+      .object({ inForce: count.nullable(), expiringWithin30Days: count.nullable() })
+      .strict(),
+    awaitingDecision: z
+      .object({ awaitingApproval: count.nullable(), pendingExceptions: count.nullable() })
+      .strict(),
     newLast24Hours: count.nullable(),
     pipelinesHealthy: z.object({ healthy: count, total: count }).strict().nullable(),
+    githubConnections: z
+      .object({ active: count, unavailable: count, disconnected: count })
+      .strict()
+      .nullable(),
   })
   .strict();
 
+/**
+ * One day of the trend series. `day` is always present; every series key of the REQUESTED series is present too: a number when the series is
+ * known for that day and an explicit `null` when it is not (a day no rollup run touched, or a state series before the first exact day). A gap
+ * is never a 0. A key of a series that was not requested is absent.
+ */
 export const trendPointSchema = z
   .object({
     day,
-    new: count.optional(),
-    fixed: count.optional(),
-    closedWithoutFix: count.optional(),
-    reopened: count.optional(),
-    openBySeverity: bySeverity.optional(),
-    open: count.optional(),
-    netChange: z.number().int().optional(),
-    awaitingVerification: count.optional(),
+    new: count.nullable().optional(),
+    fixed: count.nullable().optional(),
+    closedWithoutFix: count.nullable().optional(),
+    reopened: count.nullable().optional(),
+    openBySeverity: bySeverity.nullable().optional(),
+    open: count.nullable().optional(),
+    netChange: z.number().int().nullable().optional(),
+    awaitingVerification: count.nullable().optional(),
   })
   .strict();
 
@@ -284,9 +307,11 @@ export const trendsDtoSchema = z
   .object({
     period: periodDtoSchema,
     points: z.array(trendPointSchema).max(REPORT_MAX_PERIOD_DAYS),
-    /** Backfilled severity series exist only when the equivalence proof held (ADR-015 item 3); false means forward-only. */
-    severityBackfilled: z.boolean(),
-    /** The first day with a rollup row; days before it carry no data (not zero). */
+    /** ALWAYS false: the per-severity and state series are FORWARD-ONLY (owner ruling 0.1; a past day cannot be reconstructed exactly). Kept for compatibility. */
+    severityBackfilled: z.literal(false),
+    /** The first day of the exact state series (the earliest succeeded live run of the tenant), or null when none ran: the severity, backlog and awaiting-verification series are null before it. */
+    stateSeriesFrom: day.nullable(),
+    /** The first day with a rollup row; the flow series are backfilled from the earliest history, the state series start at `stateSeriesFrom`. */
     dataFrom: day.nullable(),
     recomputing: z.boolean(),
     projection: z

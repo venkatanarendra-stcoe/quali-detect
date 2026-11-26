@@ -64,6 +64,7 @@ export function toPostureDto(raw) {
     byGroup[LIFECYCLE_GROUP_OF_STATUS[status]] += n;
   return {
     asOfDay: null,
+    partial: false,
     open: sumBy(OPEN_FINDING_STATUSES, (s) => byStatus[s]),
     bySeverity,
     byType,
@@ -82,15 +83,40 @@ export function toPostureDto(raw) {
     },
     newLast24Hours: sumBy(raw.groups, (g) => g.newLast24Hours),
     pipelinesHealthy: raw.pipelines ?? null,
+    githubConnections: raw.connections ?? null,
   };
 }
 
 /**
- * The point-in-time posture from the daily rollup. The rollup keeps the open, backlog, work-in-progress, awaiting-verification and
- * exception COUNTS per type and severity, not one count per status: the statuses and groups it cannot tell apart are 0 (see AS_BUILT_B.md).
- * @param {{ day: string, rows: any[] }} raw
+ * The point-in-time posture from the daily rollup (AM): `partial: true`. The rollup keeps the open, backlog, work-in-progress,
+ * awaiting-verification and exception COUNTS per type and severity, not one count per status: every status, group or tile it cannot tell is
+ * `null`, never 0. When the state of the day is not exact (`raw` is null: the day is before the first exact day, or no live run wrote it; the
+ * series are forward-only) every state field is `null`.
+ * @param {{ day: string, rows: any[] } | null} raw
+ * @param {string} day the requested day
  */
-export function toPostureAsOfDto(raw) {
+export function toPostureAsOfDto(raw, day) {
+  const base = {
+    asOfDay: day,
+    partial: true,
+    newLast24Hours: null,
+    pipelinesHealthy: null,
+    githubConnections: null,
+    awaitingDecision: { awaitingApproval: null, pendingExceptions: null },
+  };
+  if (!raw)
+    return {
+      ...base,
+      open: null,
+      bySeverity: null,
+      byType: null,
+      byGroup: null,
+      byStatus: null,
+      backlog: null,
+      workInProgress: null,
+      criticalHighOpen: null,
+      exceptions: { inForce: null, expiringWithin30Days: null },
+    };
   const bySeverity = zeroed(FINDING_SEVERITIES);
   const byType = zeroed(FINDING_SCAN_TYPES);
   for (const r of raw.rows) {
@@ -99,13 +125,13 @@ export function toPostureAsOfDto(raw) {
   }
   const awaitingVerification = sumBy(raw.rows, (r) => r.awaitingVerification);
   const exceptionsInForce = sumBy(raw.rows, (r) => r.exceptionsInForce);
-  const byStatus = zeroed(FINDING_STATUSES);
+  const byStatus = Object.fromEntries(FINDING_STATUSES.map((s) => [s, null]));
   byStatus.fixed_pending_verification = awaitingVerification;
-  const byGroup = zeroed(LIFECYCLE_GROUP_IDS);
+  const byGroup = Object.fromEntries(LIFECYCLE_GROUP_IDS.map((g) => [g, null]));
   byGroup.awaiting_verification = awaitingVerification;
   byGroup.accepted_or_suppressed = exceptionsInForce;
   return {
-    asOfDay: raw.day,
+    ...base,
     open: sumBy(raw.rows, (r) => r.open),
     bySeverity,
     byType,
@@ -114,38 +140,42 @@ export function toPostureAsOfDto(raw) {
     backlog: sumBy(raw.rows, (r) => r.backlog),
     workInProgress: sumBy(raw.rows, (r) => r.wip),
     criticalHighOpen: bySeverity.critical + bySeverity.high,
-    exceptions: { inForce: exceptionsInForce, expiringWithin30Days: 0 },
-    awaitingDecision: { awaitingApproval: 0, pendingExceptions: 0 },
-    newLast24Hours: null,
-    pipelinesHealthy: null,
+    exceptions: { inForce: exceptionsInForce, expiringWithin30Days: null },
   };
 }
 
 /**
- * T-1 to T-5 on a continuous day axis. A day that NO rollup run touched is a gap: the point carries the day only (the strict point schema
- * has no null; an absent series key is the gap marker, never a 0). A covered day without rows is a real zero (the rollup is sparse).
+ * T-1 to T-5 on a continuous day axis (AM). Each REQUESTED series is a number or an explicit `null` per day, never a 0 for "unknown":
+ *  - the FLOW series (`flow`, `net_change`) are `null` on a day no succeeded run (of any mode) touched; a covered day without rows is a real 0
+ *    (the rollup is sparse);
+ *  - the STATE series (`severity`, `backlog`, `awaiting_verification`) are `null` on a day before `firstExactDay` (forward-only: the severity
+ *    split of a past day cannot be reconstructed exactly) and on a later day no live run (incremental or close) wrote.
  * @param {{ rows: any[], runs: any[], dataFrom: string | null }} raw
- * @param {{ from: string, to: string, series: string[], severityBackfilled?: boolean }} options
+ * @param {{ from: string, to: string, series: string[], firstExactDay?: string | null }} options
  */
-export function toTrendPoints(raw, { from, to, series }) {
+export function toTrendPoints(raw, { from, to, series, firstExactDay = null }) {
   const covered = new Set();
+  const stateCovered = new Set();
   for (const r of raw.rows) covered.add(r.day);
   for (const run of raw.runs) {
     const last = run.rangeTo ?? run.day;
-    for (const d of listDays(run.day < from ? from : run.day, last > to ? to : last))
+    for (const d of listDays(run.day < from ? from : run.day, last > to ? to : last)) {
       covered.add(d);
+      if (run.mode === "incremental" || run.mode === "close") stateCovered.add(d);
+    }
   }
+  const empty = () => ({
+    new: 0,
+    fixed: 0,
+    closedOther: 0,
+    reopened: 0,
+    open: 0,
+    awaitingVerification: 0,
+    severity: zeroed(FINDING_SEVERITIES),
+  });
   const byDay = new Map();
   for (const r of raw.rows) {
-    const d = byDay.get(r.day) ?? {
-      new: 0,
-      fixed: 0,
-      closedOther: 0,
-      reopened: 0,
-      open: 0,
-      awaitingVerification: 0,
-      severity: zeroed(FINDING_SEVERITIES),
-    };
+    const d = byDay.get(r.day) ?? empty();
     d.new += r.new;
     d.fixed += r.fixed;
     d.closedOther += r.closedOther;
@@ -157,28 +187,28 @@ export function toTrendPoints(raw, { from, to, series }) {
   }
   const want = new Set(series);
   return listDays(from, to).map((day) => {
-    if (!covered.has(day)) return { day };
-    const d = byDay.get(day) ?? {
-      new: 0,
-      fixed: 0,
-      closedOther: 0,
-      reopened: 0,
-      open: 0,
-      awaitingVerification: 0,
-      severity: zeroed(FINDING_SEVERITIES),
-    };
+    const flowKnown = covered.has(day);
+    const stateKnown = firstExactDay !== null && day >= firstExactDay && stateCovered.has(day);
+    const d = byDay.get(day) ?? empty();
+    const flow = (value) => (flowKnown ? value : null);
+    const state = (value) => (stateKnown ? value : null);
     return {
       day,
       ...(want.has("flow")
-        ? { new: d.new, fixed: d.fixed, closedWithoutFix: d.closedOther, reopened: d.reopened }
+        ? {
+            new: flow(d.new),
+            fixed: flow(d.fixed),
+            closedWithoutFix: flow(d.closedOther),
+            reopened: flow(d.reopened),
+          }
         : {}),
-      ...(want.has("severity") ? { openBySeverity: d.severity } : {}),
-      ...(want.has("backlog") ? { open: d.open } : {}),
+      ...(want.has("severity") ? { openBySeverity: state(d.severity) } : {}),
+      ...(want.has("backlog") ? { open: state(d.open) } : {}),
       ...(want.has("net_change")
-        ? { netChange: d.new + d.reopened - d.fixed - d.closedOther }
+        ? { netChange: flow(d.new + d.reopened - d.fixed - d.closedOther) }
         : {}),
       ...(want.has("awaiting_verification")
-        ? { awaitingVerification: d.awaitingVerification }
+        ? { awaitingVerification: state(d.awaitingVerification) }
         : {}),
     };
   });
@@ -319,18 +349,26 @@ export function toScanActivityDto(raw, p) {
 }
 
 /**
- * S-4 and S-5 with reasons, as OBSERVED in the executions and SBOM views (no configuration view exists).
+ * S-4 and S-5 with reasons (AM: from the repositories, pipelines, executions and SBOM views). The universe is the enabled, not archived,
+ * not disconnected repositories. The reason of an uncovered one, first match: `connection_unavailable` (the GitHub connection is
+ * unavailable), `no_pipeline` (no live pipeline), `pipeline_disabled` (live pipelines, none enabled), `no_recent_scan` (no succeeded, trusted
+ * branch execution of a live pipeline in the window), `last_scan_partial` (the latest finished execution has an incomplete result). S-5:
+ * a scan type is `enabled` when the pipeline is enabled AND its current configuration version enables the type.
  * @param {{ repositories: any[], pipelines: any[] }} raw
  */
 export function toCoverageDto(raw) {
   const reasonOf = (r) =>
-    r.livePipelines === 0
-      ? "no_pipeline"
-      : !r.recentSuccess
-        ? "no_recent_scan"
-        : r.lastIncomplete
-          ? "last_scan_partial"
-          : null;
+    r.connectionStatus === "unavailable"
+      ? "connection_unavailable"
+      : r.livePipelines === 0
+        ? "no_pipeline"
+        : r.enabledPipelines === 0
+          ? "pipeline_disabled"
+          : !r.recentSuccess
+            ? "no_recent_scan"
+            : r.lastIncomplete
+              ? "last_scan_partial"
+              : null;
   const uncovered = raw.repositories
     .map((r) => ({
       repositoryId: r.repositoryId,
@@ -348,18 +386,12 @@ export function toCoverageDto(raw) {
       pipelineId: p.pipelineId,
       pipelineName: p.pipelineName,
       repositoryId: p.repositoryId,
-      scanTypes: [
-        {
-          type: "sbom",
-          enabled: p.sbomCompleteness !== null,
-          lastComplete: p.sbomCompleteness === null ? null : p.sbomCompleteness === "complete",
-        },
-        ...["sca", "sast", "secrets"].map((type) => ({
-          type,
-          enabled: p.findingTypes.includes(type),
-          lastComplete: null,
-        })),
-      ],
+      scanTypes: ["sbom", "sca", "sast", "secrets"].map((type) => ({
+        type,
+        enabled: p.pipelineEnabled === true && p.scanTypesEnabled.includes(type),
+        lastComplete:
+          type === "sbom" && p.sbomCompleteness !== null ? p.sbomCompleteness === "complete" : null,
+      })),
     })),
   };
 }

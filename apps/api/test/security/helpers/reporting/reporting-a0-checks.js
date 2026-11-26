@@ -243,6 +243,28 @@ const VIEW_COLUMNS = {
     "pipeline_name",
   ],
   report_tenant_settings_v: ["tenant_id", "tenant_status", "reporting_timezone"],
+  // amendment AM (migration 20261126110000_reporting_views_amendment)
+  report_repositories_v: [
+    "tenant_id",
+    "workspace_id",
+    "repository_id",
+    "repository_name",
+    "provider",
+    "connection_status",
+    "enabled",
+    "archived",
+  ],
+  report_pipelines_v: [
+    "tenant_id",
+    "workspace_id",
+    "repository_id",
+    "pipeline_id",
+    "pipeline_name",
+    "enabled",
+    "pipeline_deleted",
+    "scan_types_enabled",
+  ],
+  report_sla_targets_v: ["tenant_id", "severity", "hours"],
 };
 const VIEWS = Object.keys(VIEW_COLUMNS);
 /** Column names no reporting view may ever carry (SPEC 8.1): free text of reviews, comments, advisories, exceptions, evidence, e-mail. */
@@ -958,7 +980,7 @@ export const REPORTING_A0_CHECKS = [
   },
   {
     id: "RPTA0-05",
-    name: "Reporting views expose ONLY non-sensitive columns (SPEC 8.1, RPT-011, ADR-015 item 5): exactly the seven views report_findings_v, report_status_events_v, report_decisions_v, report_advisories_v, report_executions_v, report_sbom_latest_v (and report_tenant_settings_v for the time zone) exist and no other report_*_v; the column list of each is EXACTLY the one frozen in this check (compared with information_schema); no column of any view has a name that is evidence, snippet, rationale, comment body, advisory reasoning, exception justification, compensating controls, scm_ref, a status-history note, an input hash, usage, a fingerprint, a token, a url or an e-mail; the only user reference is the assignee id and display name",
+    name: "Reporting views expose ONLY non-sensitive columns (SPEC 8.1, RPT-011, ADR-015 item 5): exactly the ten views report_findings_v, report_status_events_v, report_decisions_v, report_advisories_v, report_executions_v, report_sbom_latest_v (and report_tenant_settings_v for the time zone, plus report_repositories_v, report_pipelines_v and report_sla_targets_v of the AM amendment) exist and no other report_*_v; the column list of each is EXACTLY the one frozen in this check (compared with information_schema); no column of any view has a name that is evidence, snippet, rationale, comment body, advisory reasoning, exception justification, compensating controls, scm_ref, a status-history note, an input hash, usage, a fingerprint, a token, a url or an e-mail; the only user reference is the assignee id and display name",
     async run(c) {
       const p = [];
       const { db } = c;
@@ -1113,7 +1135,7 @@ export const REPORTING_A0_CHECKS = [
   },
   {
     id: "RPTA0-07",
-    name: "Reporting read role qm_reporting_ro (SPEC 12 item 7, owner ruling): a NOLOGIN group that is not a superuser; for EVERY table and view of the public schema its privileges are EXACTLY SELECT on the seven report views and the six report_* tables and nothing else (no INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES or TRIGGER anywhere), checked with has_table_privilege so inheritance and PUBLIC are counted; as the role SELECT works on every view and table and is DENIED on finding_evidence, finding_comments, finding_reviews, finding_ai_advisories, finding_exceptions, findings, the status history, tenant_llm_settings, users, tenants and every other source table; every write to a report table is denied and so is TRUNCATE and a call of the clear and purge functions; the role has default_transaction_read_only on and a 5 second statement timeout",
+    name: "Reporting read role qm_reporting_ro (SPEC 12 item 7, owner ruling): a NOLOGIN group that is not a superuser; for EVERY table and view of the public schema its privileges are EXACTLY SELECT on the ten report views and the six report_* tables and nothing else (no INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES or TRIGGER anywhere), checked with has_table_privilege so inheritance and PUBLIC are counted; as the role SELECT works on every view and table and is DENIED on finding_evidence, finding_comments, finding_reviews, finding_ai_advisories, finding_exceptions, findings, the status history, tenant_llm_settings, users, tenants and every other source table; every write to a report table is denied and so is TRUNCATE and a call of the clear and purge functions; the role has default_transaction_read_only on and a 5 second statement timeout",
     async run(c) {
       const p = [];
       const { db } = c;
@@ -1225,7 +1247,7 @@ export const REPORTING_A0_CHECKS = [
   },
   {
     id: "RPTA0-08",
-    name: "Reporting worker role qm_reporting (SPEC 12 item 7, owner ruling): a NOLOGIN group, not a superuser; for EVERY table and view of the public schema its privileges are EXACTLY SELECT on the seven views and the six report_* tables plus INSERT and UPDATE on the six report_* tables and nothing else (no DELETE or TRUNCATE; none on any source table, evidence, comment, review, advisory, exception, history, execution, scan result, user, tenant, tenant_llm_settings or tenant_reporting_settings); as the role INSERT and UPDATE of a daily row succeed (controls) and DELETE, TRUNCATE, every write to a source table and every read of a source table or of tenant_llm_settings are denied; it may run the clear and purge functions, which delete only what they are told to (a tenant's day range, an expired row), and the functions are NOT executable by PUBLIC or by the read role",
+    name: "Reporting worker role qm_reporting (SPEC 12 item 7, owner ruling): a NOLOGIN group, not a superuser; for EVERY table and view of the public schema its privileges are EXACTLY SELECT on the ten views and the six report_* tables plus INSERT and UPDATE on the six report_* tables and nothing else (no DELETE or TRUNCATE; none on any source table, evidence, comment, review, advisory, exception, history, execution, scan result, user, tenant, tenant_llm_settings or tenant_reporting_settings); as the role INSERT and UPDATE of a daily row succeed (controls) and DELETE, TRUNCATE, every write to a source table and every read of a source table or of tenant_llm_settings are denied; it may run the clear and purge functions, which delete only what they are told to (a tenant's day range, an expired row), and the functions are NOT executable by PUBLIC or by the read role",
     async run(c) {
       const p = [];
       const { db } = c;

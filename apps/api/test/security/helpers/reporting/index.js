@@ -2,6 +2,7 @@ import { buildFindingsWorld } from "../findings/findings-world.js";
 import { EXPECTED_REPORTING_CHECKS, REPORTING_PARTS } from "./expected.js";
 import { REPORTING_A0_CHECKS } from "./reporting-a0-checks.js";
 import { REPORTING_A_CHECKS } from "./reporting-a-checks.js";
+import { REPORTING_AM_CHECKS } from "./reporting-am-checks.js";
 import { REPORTING_B_CHECKS } from "./reporting-b-checks.js";
 import { REPORTING_C_CHECKS } from "./reporting-c-checks.js";
 import { REPORTING_E_CHECKS } from "./reporting-e-checks.js";
@@ -20,6 +21,7 @@ const BY_PART = Object.freeze({
   A0: REPORTING_A0_CHECKS,
   A: REPORTING_A_CHECKS,
   B: REPORTING_B_CHECKS,
+  AM: REPORTING_AM_CHECKS,
   C: REPORTING_C_CHECKS,
   E: REPORTING_E_CHECKS,
 });

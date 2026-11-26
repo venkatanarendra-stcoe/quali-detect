@@ -17,17 +17,19 @@
  *    day boundaries, rebuild after a time-zone change);
  *  - B (read API): `RPT-S01` (isolation, identical 404), `RPT-S02` (permission matrix 403), `RPT-S03` (no-leak DTO), `RPT-S04` (role grants in
  *    use: the read pool cannot write or read evidence), `RPT-S11` (cache scoping and invalidation);
+ *  - AM (amendment of A0/A/B, SPEC 17.5): `RPTAM-NN` (the three added views, their grants and tenant scoping, GitHub connection counts, forward-only state series, amended DTOs);
  *  - C (exports): `RPT-S05` (redaction canary in rollup rows, DTOs, CSV and PDF), `RPT-S06` (CSV and PDF safety), `RPT-S07` (export object
  *    scoping and traversal), `RPT-S08` (limits, authenticated download, expiry), `RPT-S12`;
  *  - D (UI): none, UI tests are outside the suite;
  *  - E (cross-cutting): `RPT-S13`, `RPT-S14` and the sweeps.
  * A letter suffix splits a spec id into checks (`RPT-S05a`); a check id is unique across the whole suite.
- * @type {Readonly<{ A0: number, A: number, B: number, C: number, E: number }>}
+ * @type {Readonly<{ A0: number, A: number, B: number, AM: number, C: number, E: number }>}
  */
 export const EXPECTED_REPORTING_CHECKS = Object.freeze({
   A0: 16,
   A: 9,
   B: 11,
+  AM: 7,
   C: 16,
   E: 0,
 });
@@ -42,7 +44,7 @@ export const PLANNED_REPORTING_CHECKS = Object.freeze({
 });
 
 /** The part names in registration order. */
-export const REPORTING_PARTS = Object.freeze(["A0", "A", "B", "C", "E"]);
+export const REPORTING_PARTS = Object.freeze(["A0", "A", "B", "AM", "C", "E"]);
 
 /** Sum of the expected counts, added to the base count of the suite (909 before Findings plus the Findings total). */
 export const REPORTING_CHECKS_TOTAL = Object.values(EXPECTED_REPORTING_CHECKS).reduce(

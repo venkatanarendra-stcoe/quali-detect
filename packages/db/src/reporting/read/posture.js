@@ -26,6 +26,7 @@ export function buildPostureMethods(db) {
         (tx) => tx.$queryRaw`
           SELECT max(finished_at) FILTER (WHERE status = 'succeeded') AS "lastSuccessAt",
                  (min(day) FILTER (WHERE status = 'succeeded'))::text AS "firstDay",
+                 (min(day) FILTER (WHERE status = 'succeeded' AND mode IN ('incremental', 'close')))::text AS "firstExactDay",
                  COALESCE(bool_or(status = 'running' AND mode = 'backfill' AND started_at > now() - interval '6 hours'), false) AS recomputing
           FROM report_rollup_runs WHERE tenant_id = ${tenantId}::uuid`,
       );
@@ -33,6 +34,8 @@ export function buildPostureMethods(db) {
       return {
         lastSuccessAt: r.lastSuccessAt ? new Date(r.lastSuccessAt) : null,
         firstDay: r.firstDay ?? null,
+        // the first day of the EXACT state series (AM 17.5): the earliest succeeded live run (incremental or close); a backfill never counts
+        firstExactDay: r.firstExactDay ?? null,
         recomputing: r.recomputing === true,
       };
     },
@@ -58,19 +61,29 @@ export function buildPostureMethods(db) {
           WHERE f.tenant_id = ${tenantId}::uuid AND f.workspace_id = ${workspaceId}::uuid
           GROUP BY f.status, f.severity, f.scan_type`;
         let pipelines = null;
+        let connections = null;
         if (includePipelines) {
-          // P-10: the latest FINISHED outcome of each live pipeline that ran in the last 90 days (the views carry no "enabled" flag)
+          // P-10 (AM): enabled, not deleted pipelines (`report_pipelines_v`) whose latest FINISHED execution of the last 90 days succeeded
           const p = await tx.$queryRaw`
             SELECT count(*)::int AS total, (count(*) FILTER (WHERE x.status = 'succeeded'))::int AS healthy
-            FROM (
-              SELECT DISTINCT ON (e.pipeline_id) e.pipeline_id, e.status::text AS status
+            FROM report_pipelines_v p
+            LEFT JOIN LATERAL (
+              SELECT e.status::text AS status
               FROM report_executions_v e
-              WHERE e.tenant_id = ${tenantId}::uuid AND e.workspace_id = ${workspaceId}::uuid
-                AND NOT e.pipeline_deleted AND e.requested_at >= ${windowStart}::timestamptz
-                AND e.status IN ('succeeded', 'failed', 'timed_out')
-              ORDER BY e.pipeline_id, e.requested_at DESC
-            ) x`;
+              WHERE e.tenant_id = p.tenant_id AND e.workspace_id = p.workspace_id AND e.pipeline_id = p.pipeline_id
+                AND e.requested_at >= ${windowStart}::timestamptz AND e.status IN ('succeeded', 'failed', 'timed_out')
+              ORDER BY e.requested_at DESC LIMIT 1
+            ) x ON true
+            WHERE p.tenant_id = ${tenantId}::uuid AND p.workspace_id = ${workspaceId}::uuid AND p.enabled AND NOT p.pipeline_deleted`;
           pipelines = { healthy: cnt(p[0]?.healthy), total: cnt(p[0]?.total) };
+          // the GitHub connection tile (C-4, O-5): the workspace's repositories by connection state
+          const c = await tx.$queryRaw`
+            SELECT r.connection_status AS status, count(*)::int AS n
+            FROM report_repositories_v r
+            WHERE r.tenant_id = ${tenantId}::uuid AND r.workspace_id = ${workspaceId}::uuid
+            GROUP BY 1`;
+          connections = { active: 0, unavailable: 0, disconnected: 0 };
+          for (const row of c) if (row.status in connections) connections[row.status] = cnt(row.n);
         }
         return {
           groups: groups.map((g) => ({
@@ -84,6 +97,7 @@ export function buildPostureMethods(db) {
             slaBreached: cnt(g.slaBreached),
           })),
           pipelines,
+          connections,
         };
       });
     },
@@ -100,6 +114,13 @@ export function buildPostureMethods(db) {
             AND day <= ${asOfDay}::date AND COALESCE(range_to, day) >= ${asOfDay}::date
           LIMIT 1`;
         if (runs.length === 0) return null;
+        // the state counters of a day are EXACT only when a live run (incremental or close) wrote that day: a backfill writes flow, never state,
+        // and a day before the first live run has no state at all (forward-only series, ADR-015 item 3, AM 17.5)
+        const exact = await tx.$queryRaw`
+          SELECT 1 AS ok FROM report_rollup_runs
+          WHERE tenant_id = ${tenantId}::uuid AND status = 'succeeded' AND mode IN ('incremental', 'close') AND day = ${asOfDay}::date
+          LIMIT 1`;
+        if (exact.length === 0) return { day: asOfDay, exact: false, rows: [] };
         const rows = await tx.$queryRaw`
           SELECT d.scan_type::text AS "scanType", d.severity::text AS severity,
                  sum(d.open_count)::int AS open, sum(d.backlog_count)::int AS backlog, sum(d.wip_count)::int AS wip,
@@ -110,6 +131,7 @@ export function buildPostureMethods(db) {
           GROUP BY 1, 2`;
         return {
           day: asOfDay,
+          exact: true,
           rows: rows.map((r) => ({
             scanType: r.scanType,
             severity: r.severity,

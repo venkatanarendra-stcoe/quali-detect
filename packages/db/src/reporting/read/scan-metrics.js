@@ -1,9 +1,9 @@
 import { cnt, day, iso, num, readTx, uuid, OPEN_SQL } from "./tx.js";
 
 /**
- * Scan activity (S-1 to S-3, S-6, S-7: rollup rows plus live percentiles), coverage (S-4, S-5) and SBOM (S-8). Coverage and SBOM read
- * the executions and SBOM views only: the views carry no "enabled" flag, no scan-type configuration and no repository connection state, so
- * what is reported is what was OBSERVED (see AS_BUILT_B.md, frozen-view findings).
+ * Scan activity (S-1 to S-3, S-6, S-7: rollup rows plus live percentiles), coverage (S-4, S-5) and SBOM (S-8). Coverage reads the
+ * repositories, pipelines, executions and SBOM views (the first two added by amendment AM: connection state, enabled flags and the enabled
+ * scan types of the current configuration version).
  * @param {any} db the read client
  */
 export function buildScanMetricMethods(db) {
@@ -70,57 +70,62 @@ export function buildScanMetricMethods(db) {
       uuid("workspaceId", workspaceId);
       const windowStart = iso(new Date(now.getTime() - Number(windowDays) * 86_400_000));
       return readTx(db, async (tx) => {
+        // S-4 (AM): the universe is the workspace's repositories that are enabled, not archived and not disconnected (`report_repositories_v`),
+        // with their LIVE pipelines and how many of those are enabled (`report_pipelines_v`) and what the executions of the live pipelines show
         const repos = await tx.$queryRaw`
-          SELECT x.repository_id::text AS "repositoryId", x.repository_name AS "repositoryName",
-                 x.live_pipelines AS "livePipelines", x.recent_success AS "recentSuccess",
+          SELECT r.repository_id::text AS "repositoryId", r.repository_name AS "repositoryName", r.connection_status AS "connectionStatus",
+                 COALESCE(pl.live, 0)::int AS "livePipelines", COALESCE(pl.enabled, 0)::int AS "enabledPipelines",
+                 COALESCE(ex.recent_success, false) AS "recentSuccess",
                  l.status AS "lastStatus", l.incomplete AS "lastIncomplete"
-          FROM (
-            SELECT e.repository_id, max(e.repository_name) AS repository_name,
-                   (count(DISTINCT e.pipeline_id) FILTER (WHERE NOT e.pipeline_deleted))::int AS live_pipelines,
+          FROM report_repositories_v r
+          LEFT JOIN (
+            SELECT p.repository_id, count(*)::int AS live, (count(*) FILTER (WHERE p.enabled))::int AS enabled
+            FROM report_pipelines_v p
+            WHERE p.tenant_id = ${tenantId}::uuid AND p.workspace_id = ${workspaceId}::uuid AND NOT p.pipeline_deleted
+            GROUP BY p.repository_id
+          ) pl ON pl.repository_id = r.repository_id
+          LEFT JOIN (
+            SELECT e.repository_id,
                    bool_or(e.status = 'succeeded' AND e.ref_type = 'branch' AND e.trust = 'trusted'
                            AND e.finished_at >= ${windowStart}::timestamptz) AS recent_success
             FROM report_executions_v e
-            WHERE e.tenant_id = ${tenantId}::uuid AND e.workspace_id = ${workspaceId}::uuid
+            WHERE e.tenant_id = ${tenantId}::uuid AND e.workspace_id = ${workspaceId}::uuid AND NOT e.pipeline_deleted
             GROUP BY e.repository_id
-          ) x
+          ) ex ON ex.repository_id = r.repository_id
           LEFT JOIN LATERAL (
             SELECT e2.status::text AS status, (e2.results_incomplete > 0) AS incomplete
             FROM report_executions_v e2
             WHERE e2.tenant_id = ${tenantId}::uuid AND e2.workspace_id = ${workspaceId}::uuid
-              AND e2.repository_id = x.repository_id AND NOT e2.pipeline_deleted
+              AND e2.repository_id = r.repository_id AND NOT e2.pipeline_deleted
               AND e2.status IN ('succeeded', 'failed', 'timed_out')
             ORDER BY e2.requested_at DESC LIMIT 1
           ) l ON true
-          ORDER BY x.repository_name, x.repository_id
+          WHERE r.tenant_id = ${tenantId}::uuid AND r.workspace_id = ${workspaceId}::uuid
+            AND r.enabled AND NOT r.archived AND r.connection_status <> 'disconnected'
+          ORDER BY r.repository_name, r.repository_id
           LIMIT 5000`;
+        // S-5 (AM): the enabled scan types come from the CURRENT configuration version of each live pipeline; the SBOM completeness is the
+        // latest SBOM result of the pipeline (`lastComplete` of the other types is not known to the views)
         const pipes = await tx.$queryRaw`
           SELECT p.pipeline_id::text AS "pipelineId", p.pipeline_name AS "pipelineName", p.repository_id::text AS "repositoryId",
-                 COALESCE(t.types, ARRAY[]::text[]) AS "findingTypes", s.completeness AS "sbomCompleteness"
-          FROM (
-            SELECT e.pipeline_id, max(e.pipeline_name) AS pipeline_name, e.repository_id
-            FROM report_executions_v e
-            WHERE e.tenant_id = ${tenantId}::uuid AND e.workspace_id = ${workspaceId}::uuid AND NOT e.pipeline_deleted
-            GROUP BY e.pipeline_id, e.repository_id
-          ) p
-          LEFT JOIN (
-            SELECT f.pipeline_id, array_agg(DISTINCT f.scan_type::text) AS types
-            FROM report_findings_v f
-            WHERE f.tenant_id = ${tenantId}::uuid AND f.workspace_id = ${workspaceId}::uuid AND f.status IN (${OPEN_SQL})
-            GROUP BY f.pipeline_id
-          ) t ON t.pipeline_id = p.pipeline_id
+                 p.enabled AS "pipelineEnabled", p.scan_types_enabled AS "scanTypesEnabled", s.completeness AS "sbomCompleteness"
+          FROM report_pipelines_v p
           LEFT JOIN (
             SELECT b.pipeline_id, max(b.result_completeness::text) AS completeness
             FROM report_sbom_latest_v b
             WHERE b.tenant_id = ${tenantId}::uuid AND b.workspace_id = ${workspaceId}::uuid
             GROUP BY b.pipeline_id
           ) s ON s.pipeline_id = p.pipeline_id
+          WHERE p.tenant_id = ${tenantId}::uuid AND p.workspace_id = ${workspaceId}::uuid AND NOT p.pipeline_deleted
           ORDER BY p.pipeline_name, p.pipeline_id
           LIMIT 500`;
         return {
           repositories: repos.map((r) => ({
             repositoryId: r.repositoryId,
             repositoryName: r.repositoryName,
+            connectionStatus: r.connectionStatus,
             livePipelines: cnt(r.livePipelines),
+            enabledPipelines: cnt(r.enabledPipelines),
             recentSuccess: r.recentSuccess === true,
             lastStatus: r.lastStatus ?? null,
             lastIncomplete: r.lastIncomplete === true,
@@ -129,7 +134,8 @@ export function buildScanMetricMethods(db) {
             pipelineId: p.pipelineId,
             pipelineName: p.pipelineName,
             repositoryId: p.repositoryId,
-            findingTypes: p.findingTypes ?? [],
+            pipelineEnabled: p.pipelineEnabled === true,
+            scanTypesEnabled: p.scanTypesEnabled ?? [],
             sbomCompleteness: p.sbomCompleteness ?? null,
           })),
         };

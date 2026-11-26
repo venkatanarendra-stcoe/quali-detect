@@ -93,13 +93,15 @@ export async function runTick({
         });
         queued += 1;
         // the close of the previous local day, until one succeeded (right after each tenant-local midnight)
-        const closes = await repo.listRuns({
-          tenantId,
-          from: yesterday,
-          to: yesterday,
-          mode: "close",
-        });
-        if (!closes.some((r) => r.status === "succeeded" && r.day === yesterday)) {
+        // a close that came too late to write exact state is recorded as a one-day `backfill` (flow series only), so it counts as done too
+        const closes = await repo.listRuns({ tenantId, from: yesterday, to: yesterday });
+        const closed = closes.some(
+          (r) =>
+            r.status === "succeeded" &&
+            (r.mode === "close" ||
+              (r.mode === "backfill" && r.day <= yesterday && (r.rangeTo ?? r.day) >= yesterday)),
+        );
+        if (!closed) {
           await enqueue(db, tenantId, rollupMessageId(tenantId, "close", yesterday, hour), {
             mode: "close",
             day: yesterday,

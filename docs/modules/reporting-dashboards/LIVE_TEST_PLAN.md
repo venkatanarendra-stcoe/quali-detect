@@ -71,13 +71,20 @@ Expected: expired file removed by the tick even if the tenant never exports agai
 
 ## Outcome log
 
+Live run of 2026-11-26 on the developer's own stack (dev database, real RabbitMQ and Redis, flag ON, the shared database pool because the reporting logins were not provisioned yet). Numbers were read from the database, the API and the processes of that run.
+
 | Gate | Date | Result | Notes |
 |---|---|---|---|
-| R-1 | | | |
-| R-2 | | | |
-| R-3 | | | |
-| R-4 | | | |
-| R-5 | | | |
-| R-6 | | | |
-| R-7 | | | |
-| R-8 | | | |
+| R-1 | 2026-11-26 | PASS | The first tick queued 3 jobs (incremental, close, first-enablement backfill); the queue `qmentis.reporting` had 0 ready messages and 1 consumer, its dead-letter queue 0; the runs are `succeeded` (incremental, close, 6 backfill batches from the earliest history day 2026-04-04). A restarted worker queued nothing new within the same hour (deterministic message ids). |
+| R-2 | 2026-11-26 | PENDING (owner) | The migration could not create the group roles (the migration user lacks CREATEROLE: NOTICE path); an admin runs `provision-reporting-logins.js`, which creates the groups, the grants and the two logins. Until then the API and worker use the shared pool and log a warning. |
+| R-3 | 2026-11-26 | PASS, one step not run | A posture read missed (60 ms) then hit (38 ms); the key carries the tenant id; a real transition (a review started on a finding) created the epoch keys (value 1, tenant and workspace) and the next read was a miss with new counts (new 53 to 52, in review 14 to 15). The Redis-down fallback was NOT run live (it would stop the Redis your whole stack uses); it is proven in the suite with a double. |
+| R-4 | 2026-11-26 | PASS | A backup was taken first (pg_dump). The backfill ran in 6 succeeded batches; the sum of `new_count` over all days is 497 and the number of creation rows in the finding history is 497. The flow series start 2026-04-04; the severity/state series start with the first live run (forward-only) and the UI says so. |
+| R-5 | 2026-11-26 | PARTIAL | Machine part PASS: all nine reporting screens render against the real API in headless Chrome (14 distinct reporting calls, none non-2xx, no failed calls). The human review of the PDFs was NOT done (the 12 generated PDFs are in the scratch folder of the run). |
+| R-6 | | NOT DONE | needs a human and a screen reader |
+| R-7 | 2026-11-26 | PASS with a GAP | The rebuild voided the old runs (`failed`/`invalid_range`) and wrote new `backfill` runs; totals unchanged (497); per-day counts equal a manual count in the zone. The zone was changed by writing the settings row directly, because **no API route or screen sets the tenant reporting time zone** (the data model and the rebuild exist, SPEC D-5 and RPT-020 were not given a route in any part): it is a gap to build. The test data does not straddle a day boundary, so the DST/boundary proof stays the suite's (RPT-S10). |
+| R-8 | 2026-11-26 | PASS | A ready report was set past its expiry and the worker's tick removed the file within seconds, set the row `expired`, and the download answered 410 while a live report still downloaded (200). |
+| Exports | 2026-11-26 | PASS | 12 reports (CSV and PDF, 7 template and scope combinations, both workspaces) generated in 1.2 to 2.4 s each; 0 hits for 145 needles (every evidence line, rationale, comment, advisory reasoning, justification and note of the database plus the fake token values) in the CSV text and in the decoded and inflated PDF streams. |
+| Concurrency and load | 2026-11-26 | PASS | A burst of 5 export requests gave 202, 202, 429 `REPORT_LIMIT_REACHED`, 202 and a 404 for a workspace the caller cannot see; an idempotent replay returned the same report with `Idempotent-Replayed`; 120 concurrent reads over 4 endpoints: 0 errors, p95 734 ms. |
+
+Defects found by this run and fixed: a close job that ran after its day's lag was recorded as a `close` run although it wrote no state, which made the state series start a day early with zeros drawn as data; it is now recorded as a one-day `backfill` and the tick counts it as done (`RPT-S10` check extended; the `RPT-S10f` setup built the way a live worker builds it).
+Found and NOT fixed: no route to set the tenant reporting time zone; the Organization Overview chart "Findings over time" says "No findings yet. Run a scan." when the state series has fewer than two days (wrong wording for "not recorded yet"); `Pipelines healthy` reads "0 of 0" for a workspace whose pipelines never ran.

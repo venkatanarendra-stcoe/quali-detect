@@ -16,6 +16,7 @@ import {
 import {
   CSV_BOM,
   addDays,
+  dayCloseInstant,
   csvSafeCell,
   getPermission,
   isValidTimeZone,
@@ -736,7 +737,14 @@ const S10F = {
       const today = localDayOf(clock.now, "Europe/Berlin");
       const D = (n) => addDays(today, -n);
       // the live history of the OLD zone: a close per day for six days and an incremental today, plus ten days of flow
-      for (let n = 6; n >= 1; n -= 1) await run({ mode: "close", day: D(n) });
+      // each close runs one hour after ITS day ended (within the lag): a close that comes later cannot write exact state and is recorded as a
+      // one-day backfill, not as a close (RPT-S10 family), so the live history of the old zone must be built the way a live worker builds it
+      const realNow = clock.now;
+      for (let n = 6; n >= 1; n -= 1) {
+        clock.now = new Date(dayCloseInstant(D(n), "Europe/Berlin").getTime() + 60 * 60 * 1000);
+        await run({ mode: "close", day: D(n) });
+      }
+      clock.now = realNow;
       await run({ mode: "incremental", day: today });
       await run({ mode: "backfill", from: D(9), to: today });
       const before = await series("Europe/Berlin", D(9), today);

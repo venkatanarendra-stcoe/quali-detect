@@ -202,11 +202,16 @@ export async function runClose(deps, { tenantId, timeZone }, day) {
     throw new NonRetryableError("a day closes only after it ended", { reason: "invalid_range" });
   const options = { ...ROLLUP_DEFAULTS, ...deps.options };
   const closeAt = dayCloseInstant(day, timeZone);
-  return inRun(deps, { tenantId, mode: "close", day, timeZone }, async () => {
+  const withinLag = now.getTime() - closeAt.getTime() <= options.closeStateMaxLagMs;
+  // A close that comes too late (the worker was down at midnight) cannot write exact state, so it must NOT be recorded as a `close` run:
+  // the first exact day of the state series is read from the succeeded `close` and `incremental` runs, and a late close would make a day
+  // without state rows look covered (zeros drawn as data). It is recorded as a one-day `backfill` (the flow series only) instead.
+  const run = withinLag ? { mode: "close", rangeTo: null } : { mode: "backfill", rangeTo: day };
+  return inRun(deps, { tenantId, ...run, day, timeZone }, async () => {
     let rowsWritten = 0;
     let stateWritten = false;
     let asOfHistoryId = null;
-    if (now.getTime() - closeAt.getTime() <= options.closeStateMaxLagMs) {
+    if (withinLag) {
       const state = await deps.repo.computeFindingsStateAsOf({ tenantId, instant: closeAt });
       asOfHistoryId = state.asOfHistoryId ?? null;
       if (state.every((r) => r.severityExact)) {

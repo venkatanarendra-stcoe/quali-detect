@@ -1275,6 +1275,17 @@ export const REPORTING_A_CHECKS = [
         ),
         0,
       );
+      // ... and it is recorded as a one-day `backfill` (flow only), NEVER as a `close`: the first exact day of the state series is read from
+      // the succeeded incremental and close runs, so a late close recorded as `close` would make a day without state rows look covered
+      const lateRun = await db.$queryRaw`
+        SELECT mode, status FROM report_rollup_runs
+        WHERE tenant_id = ${A}::uuid AND day = ${yesterday}::date ORDER BY started_at DESC, id DESC LIMIT 1`;
+      same(
+        p,
+        "a close past the lag is recorded as a succeeded one-day backfill, not as a close",
+        [lateRun[0]?.mode, lateRun[0]?.status],
+        ["backfill", "succeeded"],
+      );
       // an override decided after T is in the way: pick the day before an override of the dataset
       const mineA = new Set([h.data.pipelines.A1.id, h.data.pipelines.A2.id]);
       const override = h.data.truths.find(

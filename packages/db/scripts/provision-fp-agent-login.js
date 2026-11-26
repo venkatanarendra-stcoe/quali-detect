@@ -13,8 +13,6 @@
  *
  * Run: FINDINGS_AGENT_DB_PASSWORD=... pnpm --filter @qmentisai/db provision:fp-agent-login
  */
-import { PrismaClient } from "@prisma/client";
-
 const GROUP_ROLE = "qm_fp_agent";
 /** The exact privileges of the group role (migration 20261123100000_findings_core, section 17): nothing else is ever granted. */
 const GROUP_GRANTS = [
@@ -41,7 +39,11 @@ if (!adminUrl) {
   process.exit(2);
 }
 
-const prisma = new PrismaClient();
+// Imported only AFTER the checks above: importing @prisma/client loads a `.env` file that sits next to the schema into process.env, which
+// would silently supply an admin URL the caller never passed (a suite run or a stray invocation would then reach whatever database that
+// file names). The client also gets the admin URL EXPLICITLY, so no file can redirect it. Inert unless explicitly invoked with its inputs.
+const { PrismaClient } = await import("@prisma/client");
+const prisma = new PrismaClient({ datasourceUrl: adminUrl });
 try {
   // The migration creates the group role and its grants when the migration user may create roles; with a less privileged migration user
   // (the development database) this admin step does it, idempotently, with exactly the same grants.

@@ -6,6 +6,7 @@ import { REPORTING_AM_CHECKS } from "./reporting-am-checks.js";
 import { REPORTING_B_CHECKS } from "./reporting-b-checks.js";
 import { REPORTING_C_CHECKS } from "./reporting-c-checks.js";
 import { REPORTING_E_CHECKS } from "./reporting-e-checks.js";
+import { REPORTING_TZ_CHECKS } from "./reporting-tz-checks.js";
 
 export { EXPECTED_REPORTING_CHECKS, REPORTING_CHECKS_TOTAL } from "./expected.js";
 
@@ -24,6 +25,7 @@ const BY_PART = Object.freeze({
   AM: REPORTING_AM_CHECKS,
   C: REPORTING_C_CHECKS,
   E: REPORTING_E_CHECKS,
+  TZ: REPORTING_TZ_CHECKS,
 });
 
 /**

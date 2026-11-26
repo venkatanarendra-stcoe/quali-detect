@@ -1,5 +1,6 @@
 import { reportingExportRoutes } from "./export.routes.js";
 import { reportingReadRoutes } from "./read.routes.js";
+import { reportingSettingsRoutes } from "./settings.routes.js";
 
 /**
  * Everything a route file may build its own wiring from. Part A0 fixes this shape; a part never adds a field here (it builds what it needs
@@ -25,4 +26,5 @@ export const reportingRoutes = (deps) =>
   async function reporting(app) {
     await reportingReadRoutes(deps)(app);
     await reportingExportRoutes(deps)(app);
+    await reportingSettingsRoutes(deps)(app);
   };

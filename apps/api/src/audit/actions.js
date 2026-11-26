@@ -92,6 +92,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   // Tenant data-egress consent for an external LLM provider (docs/modules/scan-decisioning/SPEC.md 7.2a). Metadata: previous and new value only.
   TENANT_LLM_CONSENT_CHANGED: "tenant.llm_consent_changed",
   TENANT_LLM_CODE_CONSENT_CHANGED: "tenant.llm_code_consent_changed",
+  // Tenant reporting time zone (docs/modules/reporting-dashboards/AS_BUILT_TZ.md). Metadata: previous and new zone name only.
+  TENANT_REPORTING_TIMEZONE_CHANGED: "tenant.reporting_timezone_changed",
   // Secret storage (ADR-009). Entries never contain a value.
   SECRET_CREATED: "secret.created",
   SECRET_ROTATED: "secret.rotated",

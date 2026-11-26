@@ -269,7 +269,7 @@ const RANK = { critical: 4, high: 3, medium: 2, low: 1 };
  * different counts, plus the second API process. Every tenant owns one tag string that appears in its finding titles, paths, rule ids, one
  * repository name and one pipeline name, so what leaks is searchable. Built once per world.
  */
-function eWorld(c) {
+export function eWorld(c) {
   c.__rptE ??= (async () => {
     const { db } = c;
     const api = await startApi();
@@ -1099,6 +1099,26 @@ export const REPORTING_ROUTE_MANIFEST = Object.freeze([
     idempotent: false,
     probe: (_ws, id) => ({ path: `/reporting/reports/${id}` }),
   }),
+  // the tenant reporting time zone (AS_BUILT_TZ.md): tenant scope, the Organization Settings keys; the PUT probe saves UTC (a no-op on a
+  // UTC tenant), so the sweep never changes a zone it did not find
+  Object.freeze({
+    method: "GET",
+    url: "/reporting/settings",
+    permission: "tenant_settings.view",
+    scope: "tenant",
+    rateLimit: "read",
+    idempotent: false,
+    probe: () => ({ path: "/reporting/settings" }),
+  }),
+  Object.freeze({
+    method: "PUT",
+    url: "/reporting/settings",
+    permission: "tenant_settings.manage",
+    scope: "tenant",
+    rateLimit: "write",
+    idempotent: true,
+    probe: () => ({ path: "/reporting/settings", body: { reportingTimezone: "UTC" } }),
+  }),
 ]);
 
 /**
@@ -1362,7 +1382,7 @@ const S14B = {
       inventoryProblems(table, REPORTING_ROUTE_MANIFEST),
       [],
     );
-    same(p, "the number of routes", [table.length, REPORTING_ROUTE_MANIFEST.length], [18, 18]);
+    same(p, "the number of routes", [table.length, REPORTING_ROUTE_MANIFEST.length], [20, 20]);
     // the comparison itself can fail
     const plant = (label, mutate, expect) => {
       const copy = table.map((r) => ({ ...r }));

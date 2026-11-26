@@ -31,7 +31,12 @@ export const readResponses = Object.freeze({
 export const readQueries = Object.freeze(
   Object.fromEntries(
     Object.entries(REPORTING_ROUTE_SCHEMAS)
-      .filter(([key]) => key.startsWith("GET /reporting/") && !key.includes("/reports"))
+      .filter(
+        ([key]) =>
+          key.startsWith("GET /reporting/") &&
+          !key.includes("/reports") &&
+          key !== "GET /reporting/settings",
+      )
       .map(([key, value]) => [key, /** @type {any} */ (value).query]),
   ),
 );

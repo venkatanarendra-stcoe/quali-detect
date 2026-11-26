@@ -2401,7 +2401,7 @@ export const REPORTING_A0_CHECKS = [
         REPORTING_PERMISSION_BY_ROUTE["POST /reporting/reports"],
         "report.export",
       );
-      same(p, "the route count of SPEC 9", Object.keys(REPORTING_PERMISSION_BY_ROUTE).length, 18);
+      same(p, "the route count of SPEC 9", Object.keys(REPORTING_PERMISSION_BY_ROUTE).length, 20);
       same(
         p,
         "every route has schemas",

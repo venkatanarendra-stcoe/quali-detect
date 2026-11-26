@@ -14,6 +14,10 @@ import {
   TREND_SERIES,
 } from "./constants.js";
 import { isDayString, isValidTimeZone } from "./period.js";
+import {
+  reportingSettingsDtoSchema,
+  updateReportingSettingsBodySchema,
+} from "./reporting-settings.js";
 import { REPORT_TEMPLATE_BY_ID } from "./templates.js";
 
 /**
@@ -701,4 +705,9 @@ export const REPORTING_ROUTE_SCHEMAS = Object.freeze({
   "GET /reporting/reports/{id}": { params: reportIdParamsSchema, data: reportRunDtoSchema },
   "GET /reporting/reports/{id}/download": { params: reportIdParamsSchema },
   "DELETE /reporting/reports/{id}": { params: reportIdParamsSchema },
+  "GET /reporting/settings": { data: reportingSettingsDtoSchema },
+  "PUT /reporting/settings": {
+    body: updateReportingSettingsBodySchema,
+    data: reportingSettingsDtoSchema,
+  },
 });

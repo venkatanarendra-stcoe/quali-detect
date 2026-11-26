@@ -79,6 +79,8 @@ const envSchema = z.object({
   // (select on the report views only, read-only transactions): a SECRET, never logged. Optional in development (the shared pool is used and a
   // warning is logged), REQUIRED in production while the flag is on. Provision it with `pnpm --filter @qmentisai/db provision:reporting-logins`.
   REPORTING_ENABLED: booleanFlag.default("false"),
+  // the directory the reporting worker writes generated reports to (the same ARTIFACT_STORE_ROOT of the worker; an absolute path); the API only reads it
+  ARTIFACT_STORE_ROOT: z.string().optional(),
   REPORTING_RO_DATABASE_URL: z.string().url().optional(),
   REPORTING_EXPORT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   // Realtime (docs/modules/executions/SPEC.md §9.4 and §17.ad): Socket.IO hints, OFF unless enabled. Single instance only (no Redis
@@ -370,6 +372,7 @@ export function loadConfig(env = process.env) {
     }),
     reporting: Object.freeze({
       enabled: e.REPORTING_ENABLED,
+      artifactStoreRoot: e.ARTIFACT_STORE_ROOT ?? null,
       /** Restricted read-role connection string (a secret: never log); null in development when unset (the shared pool is used, with a warning). */
       readDatabaseUrl: e.REPORTING_RO_DATABASE_URL ?? null,
       exportRetentionDays: e.REPORTING_EXPORT_RETENTION_DAYS,

@@ -38,7 +38,7 @@ export const reportingExportRoutes = (deps) =>
       countExportRows: (args) =>
         createReportingExportWorkerRepository({ db: deps.readDb() }).countExportRows(args),
     };
-    const root = process.env.ARTIFACT_STORE_ROOT;
+    const root = deps.config?.reporting?.artifactStoreRoot ?? process.env.ARTIFACT_STORE_ROOT;
     const reader = root && path.isAbsolute(root) ? createReportObjectReader({ root }) : null;
     const service = createReportExportService({
       db: deps.db,

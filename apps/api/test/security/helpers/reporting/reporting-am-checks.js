@@ -10,13 +10,7 @@ import {
 import { buildFindingsWorld } from "../findings/findings-world.js";
 import { driveExecution } from "../execution-db.js";
 import { attempt, mustAccept, mustReject } from "../pipeline-db.js";
-import {
-  dayOffset,
-  daysAgo,
-  hoursAgo,
-  makeUser,
-  startReadApi,
-} from "./reporting-b-fixtures.js";
+import { dayOffset, daysAgo, hoursAgo, makeUser, startReadApi } from "./reporting-b-fixtures.js";
 
 /**
  * Reporting amendment AM checks (ADR-008 area 20; docs/modules/reporting-dashboards/AS_BUILT_AM.md, SPEC 17.5): the three views added to the
@@ -106,7 +100,7 @@ function amWorld(c) {
     };
 
     // tenant A, workspace 0: repo0 (the tree's own) active with an enabled pipeline that succeeded and a deleted one; rE active whose
-    // enabled pipeline failed; rP active with only a disabled pipeline; rN active with none; rU unavailable; rD disconnected; rX archived
+    // enabled pipeline failed; rP active with only a disabled pipeline; rN active with none (repo0 also holds a disabled pipeline without a version); rU unavailable; rD disconnected; rX archived
     const repo0 = await db.repository.update({
       where: { id: A.repo[0].id },
       data: {
@@ -139,23 +133,40 @@ function amWorld(c) {
       { scans: { sca: { enabled: true } } },
       { enabled: true, deletedAt: new Date(), deletedByUserId: A.user.id },
     );
-    const pA4 = await publish(A, 0, rE, { scans: { secrets: { enabled: true } } }, { enabled: true });
+    const pA4 = await publish(
+      A,
+      0,
+      rE,
+      { scans: { secrets: { enabled: true } } },
+      { enabled: true },
+    );
     const pA2 = await publish(A, 0, rP, { scans: { sast: { enabled: true } } }, { enabled: false });
     const pAU = await publish(A, 0, rU, { scans: { sca: { enabled: true } } }, { enabled: true });
-    const pNoVersion = await f.pipeline(A, 0, { repositoryId: rN.id, enabled: false });
+    const pNoVersion = await f.pipeline(A, 0, { repositoryId: repo0.id, enabled: false });
     await run(pA1, "succeeded", hoursAgo(5));
     await run(pA4, "failed", hoursAgo(6));
     // tenant A, workspace 1: only the tree's repository
     // tenant B: its repository plus one unavailable, a pipeline
     const rBU = await addRepo(B, 0, "rBU", { status: "unavailable" });
-    const pB = await publish(B, 0, B.repo[0], { scans: { sast: { enabled: true } } }, { enabled: true });
+    const pB = await publish(
+      B,
+      0,
+      B.repo[0],
+      { scans: { sast: { enabled: true } } },
+      { enabled: true },
+    );
     await run(pB, "succeeded", hoursAgo(4));
     // SLA targets: tenant A critical 10 hours, tenant B critical 9999 hours (high and the rest: the shared default)
     await db.findingSlaTarget.create({
       data: { tenantId: A.tenant.id, severity: "critical", hours: 10, updatedByUserId: A.user.id },
     });
     await db.findingSlaTarget.create({
-      data: { tenantId: B.tenant.id, severity: "critical", hours: 9999, updatedByUserId: B.user.id },
+      data: {
+        tenantId: B.tenant.id,
+        severity: "critical",
+        hours: 9999,
+        updatedByUserId: B.user.id,
+      },
     });
     // closed findings (verified 9 days ago): A critical 40 h after its clock started (over A's 10 h, under the 168 h default), A high 40 h
     // (under the 720 h default), B critical 400 h (over the 168 h default, under B's 9999 h)
@@ -247,15 +258,22 @@ export const REPORTING_AM_CHECKS = [
       const { db } = c;
       const tenant = w.A.tenant.id;
       const seen = await asRole(db, "qm_reporting_ro", async (tx) => ({
-        repos: await tx.$queryRaw`SELECT * FROM report_repositories_v WHERE tenant_id = ${tenant}::uuid`,
-        pipes: await tx.$queryRaw`SELECT * FROM report_pipelines_v WHERE tenant_id = ${tenant}::uuid`,
+        repos:
+          await tx.$queryRaw`SELECT * FROM report_repositories_v WHERE tenant_id = ${tenant}::uuid`,
+        pipes:
+          await tx.$queryRaw`SELECT * FROM report_pipelines_v WHERE tenant_id = ${tenant}::uuid`,
         sla: await tx.$queryRaw`SELECT * FROM report_sla_targets_v WHERE tenant_id = ${tenant}::uuid`,
       }));
       ok(p, seen.repos.length === 8, `control: ${seen.repos.length} repository rows, want 8`);
       ok(p, seen.pipes.length === 6, `control: ${seen.pipes.length} pipeline rows, want 6`);
-      eq(p, "A's SLA target rows", seen.sla.map((r) => [r.severity, r.hours]), [["critical", 10]]);
+      eq(
+        p,
+        "A's SLA target rows",
+        seen.sla.map((r) => [r.severity, r.hours]),
+        [["critical", 10]],
+      );
       const serialised = text(seen);
-      ok(p, !serialised.includes(w.tag), "a planted canary reached a reporting view");
+      ok(p, !serialised.includes("CANARY-AM-"), "a planted canary reached a reporting view");
       ok(p, !/canaryNote|schemaVersion|triggers/.test(serialised), "the configuration JSON leaked");
       ok(
         p,
@@ -276,10 +294,12 @@ export const REPORTING_AM_CHECKS = [
       eq(p, "pA1 types", pipe(w.pipes.pA1)?.scan_types_enabled, ["sbom", "sca"]);
       eq(p, "pA2 types", pipe(w.pipes.pA2)?.scan_types_enabled, ["sast"]);
       eq(p, "pA4 types", pipe(w.pipes.pA4)?.scan_types_enabled, ["secrets"]);
-      eq(p, "pA3 deleted", [pipe(w.pipes.pA3)?.pipeline_deleted, pipe(w.pipes.pA3)?.enabled], [
-        true,
-        true,
-      ]);
+      eq(
+        p,
+        "pA3 deleted",
+        [pipe(w.pipes.pA3)?.pipeline_deleted, pipe(w.pipes.pA3)?.enabled],
+        [true, true],
+      );
       eq(p, "pA2 enabled flag", pipe(w.pipes.pA2)?.enabled, false);
       const noVersion = seen.pipes.find((r) => r.pipeline_id === w.pipes.pNoVersion.id);
       eq(p, "a pipeline without a version", noVersion?.scan_types_enabled, []);
@@ -358,7 +378,11 @@ export const REPORTING_AM_CHECKS = [
         SELECT c.relname AS name, c.relkind AS kind, c.reloptions AS options FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relname = ANY(${VIEWS})`;
       eq(p, "the three views exist", views.map((v) => v.name).sort(), [...VIEWS].sort());
-      ok(p, views.every((v) => v.kind === "v"), "a new relation is not a plain view");
+      ok(
+        p,
+        views.every((v) => v.kind === "v"),
+        "a new relation is not a plain view",
+      );
       ok(
         p,
         views.every((v) => !(v.options ?? []).some((o) => /security_invoker/.test(o))),
@@ -366,7 +390,10 @@ export const REPORTING_AM_CHECKS = [
       );
       const script = await import("node:fs").then((fs) =>
         fs.readFileSync(
-          new URL("../../../../../../packages/db/scripts/provision-reporting-logins.js", import.meta.url),
+          new URL(
+            "../../../../../../packages/db/scripts/provision-reporting-logins.js",
+            import.meta.url,
+          ),
           "utf8",
         ),
       );
@@ -383,40 +410,94 @@ export const REPORTING_AM_CHECKS = [
       const p = [];
       const w = await amWorld(c);
       const { repo, readDb } = w;
-      const [who] = await readDb.$queryRaw`SELECT current_user AS u, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS su`;
+      const [who] =
+        await readDb.$queryRaw`SELECT current_user AS u, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS su`;
       eq(p, "the read connection", [who.u, who.su], [w.login, false]);
       const now = new Date();
-      const cov = (tenantId, workspaceId) => repo.getCoverage({ tenantId, workspaceId, now, windowDays: 30 });
+      const cov = (tenantId, workspaceId) =>
+        repo.getCoverage({ tenantId, workspaceId, now, windowDays: 30 });
       const a = await cov(w.A.tenant.id, w.wsA0);
       const b = await cov(w.B.tenant.id, w.wsB0);
-      const idsOf = (x) => [...x.repositories.map((r) => r.repositoryId), ...x.pipelines.map((r) => r.pipelineId)];
+      const idsOf = (x) => [
+        ...x.repositories.map((r) => r.repositoryId),
+        ...x.pipelines.map((r) => r.pipelineId),
+      ];
       const aOwn = new Set(
         (
-          await c.db.$queryRaw`SELECT id::text AS id FROM repositories WHERE tenant_id = ${w.A.tenant.id}::uuid UNION ALL SELECT id::text FROM pipelines WHERE tenant_id = ${w.A.tenant.id}::uuid`
+          await c.db
+            .$queryRaw`SELECT id::text AS id FROM repositories WHERE tenant_id = ${w.A.tenant.id}::uuid UNION ALL SELECT id::text FROM pipelines WHERE tenant_id = ${w.A.tenant.id}::uuid`
         ).map((r) => r.id),
       );
-      ok(p, a.repositories.length === 5 && a.pipelines.length === 4, `control: A has ${a.repositories.length} repositories and ${a.pipelines.length} pipelines, want 5 and 4`);
-      ok(p, b.repositories.length === 2 && b.pipelines.length === 1, `control: B has ${b.repositories.length} repositories and ${b.pipelines.length} pipelines, want 2 and 1`);
-      ok(p, idsOf(a).every((id) => aOwn.has(id)), "tenant A's coverage names a row that is not tenant A's");
-      ok(p, idsOf(b).every((id) => !aOwn.has(id)), "tenant B's coverage names a row of tenant A");
+      ok(
+        p,
+        a.repositories.length === 5 && a.pipelines.length === 5,
+        `control: A has ${a.repositories.length} repositories and ${a.pipelines.length} pipelines, want 5 and 5`,
+      );
+      ok(
+        p,
+        b.repositories.length === 2 && b.pipelines.length === 1,
+        `control: B has ${b.repositories.length} repositories and ${b.pipelines.length} pipelines, want 2 and 1`,
+      );
+      ok(
+        p,
+        idsOf(a).every((id) => aOwn.has(id)),
+        "tenant A's coverage names a row that is not tenant A's",
+      );
+      ok(
+        p,
+        idsOf(b).every((id) => !aOwn.has(id)),
+        "tenant B's coverage names a row of tenant A",
+      );
       const cross = await cov(w.B.tenant.id, w.wsA0);
-      eq(p, "tenant B asking for A's workspace", [cross.repositories.length, cross.pipelines.length], [0, 0]);
-      const range = { start: new Date(now.getTime() - 30 * 86_400_000), endExclusive: new Date(now.getTime() + 1000) };
+      eq(
+        p,
+        "tenant B asking for A's workspace",
+        [cross.repositories.length, cross.pipelines.length],
+        [0, 0],
+      );
+      const range = {
+        start: new Date(now.getTime() - 30 * 86_400_000),
+        endExclusive: new Date(now.getTime() + 1000),
+      };
       const slaOf = async (tenantId, workspaceId) =>
-        Object.fromEntries((await repo.getSla({ tenantId, workspaceId, ...range, now })).closed.map((r) => [r.severity, [r.withTarget, r.withinSla]]));
-      eq(p, "A's closed SLA (critical over A's 10 h, high within the default)", await slaOf(w.A.tenant.id, w.wsA0), { critical: [1, 0], high: [1, 1] });
-      eq(p, "B's closed SLA (critical within B's 9999 h)", await slaOf(w.B.tenant.id, w.wsB0), { critical: [1, 1] });
-      const g = (tenantId, workspaceId) => repo.getPosture({ tenantId, workspaceId, now, includePipelines: true });
+        Object.fromEntries(
+          (await repo.getSla({ tenantId, workspaceId, ...range, now })).closed.map((r) => [
+            r.severity,
+            [r.withTarget, r.withinSla],
+          ]),
+        );
+      eq(
+        p,
+        "A's closed SLA (critical over A's 10 h, high within the default)",
+        await slaOf(w.A.tenant.id, w.wsA0),
+        { critical: [1, 0], high: [1, 1] },
+      );
+      eq(p, "B's closed SLA (critical within B's 9999 h)", await slaOf(w.B.tenant.id, w.wsB0), {
+        critical: [1, 1],
+      });
+      const g = (tenantId, workspaceId) =>
+        repo.getPosture({ tenantId, workspaceId, now, includePipelines: true });
       const pa = await g(w.A.tenant.id, w.wsA0);
       const pb = await g(w.B.tenant.id, w.wsB0);
-      ok(p, JSON.stringify(pa.connections) !== JSON.stringify(pb.connections), "control: both tenants show the same connections");
+      ok(
+        p,
+        JSON.stringify(pa.connections) !== JSON.stringify(pb.connections),
+        "control: both tenants show the same connections",
+      );
       for (const [tenant, other] of [
         [w.A.tenant.id, w.B.tenant.id],
         [w.B.tenant.id, w.A.tenant.id],
       ])
         for (const view of VIEWS) {
-          const rows = await readDb.$queryRawUnsafe(`SELECT DISTINCT tenant_id::text AS t FROM ${view} WHERE tenant_id = $1::uuid`, tenant);
-          ok(p, rows.every((r) => r.t === tenant) && rows.length === 1, `${view} filtered by one tenant returned ${JSON.stringify(rows)}`);
+          const rows = await readDb.$queryRawUnsafe(
+            `SELECT DISTINCT tenant_id::text AS t FROM ${view} WHERE tenant_id = $1::uuid`,
+            tenant,
+          );
+          ok(
+            p,
+            rows.every((r) => r.t === tenant) && rows.length === 1,
+            `${view} filtered by one tenant returned ${JSON.stringify(rows)}`,
+          );
           ok(p, !rows.some((r) => r.t === other), `${view} leaked a row of another tenant`);
         }
       return p;
@@ -424,13 +505,14 @@ export const REPORTING_AM_CHECKS = [
   },
   {
     id: "RPTAM-04",
-    name: "GitHub connection summary per tenant and workspace (SPEC 6.1, C-4, O-5): the posture read shows the repository counts by connection state of the REQUESTED workspace only, equal to an independent count of the repositories table (tenant A workspace 0: 5 active, 1 unavailable, 1 disconnected; workspace 1: 1 active; tenant B: 1 active, 1 unavailable), never another tenant's or workspace's, shown only to a caller with execution.view (null otherwise, like pipelines healthy), and `partial` is false for the live posture; pipelines healthy counts enabled, not deleted pipelines whose latest finished execution succeeded (tenant A workspace 0: 1 of 2); every response parses against the strict posture schema",
+    name: "GitHub connection summary per tenant and workspace (SPEC 6.1, C-4, O-5): the posture read shows the repository counts by connection state of the REQUESTED workspace only, equal to an independent count of the repositories table (tenant A workspace 0: 5 active, 1 unavailable, 1 disconnected; workspace 1: 1 active; tenant B: 1 active, 1 unavailable), never another tenant's or workspace's, shown only to a caller with execution.view (null otherwise, like pipelines healthy), and `partial` is false for the live posture; pipelines healthy counts enabled, not deleted pipelines whose latest finished execution succeeded (tenant A workspace 0: 1 of 3); every response parses against the strict posture schema",
     async run(c) {
       const p = [];
       const w = await amWorld(c);
       const { api } = w;
       const truth = async (tenantId, workspaceId) => {
-        const rows = await c.db.$queryRaw`SELECT status::text AS s, count(*)::int AS n FROM repositories WHERE tenant_id = ${tenantId}::uuid AND workspace_id = ${workspaceId}::uuid GROUP BY 1`;
+        const rows = await c.db
+          .$queryRaw`SELECT status::text AS s, count(*)::int AS n FROM repositories WHERE tenant_id = ${tenantId}::uuid AND workspace_id = ${workspaceId}::uuid GROUP BY 1`;
         const out = { active: 0, unavailable: 0, disconnected: 0 };
         for (const r of rows) out[r.s] = r.n;
         return out;
@@ -445,13 +527,30 @@ export const REPORTING_AM_CHECKS = [
         const r = await get(who, ws);
         ok(p, r.status === 200, `${who} ${ws}: status ${r.status}`);
         eq(p, `${who} connections`, r.json?.data?.githubConnections, want);
-        eq(p, `${who} connections equal the repositories table`, r.json?.data?.githubConnections, await truth(tenantId, ws));
+        eq(
+          p,
+          `${who} connections equal the repositories table`,
+          r.json?.data?.githubConnections,
+          await truth(tenantId, ws),
+        );
         eq(p, `${who} partial`, r.json?.data?.partial, false);
         const parsed = postureDtoSchema.safeParse(r.json?.data);
-        ok(p, parsed.success, `${who}: the posture does not parse: ${parsed.success ? "" : parsed.error.issues[0]?.message}`);
+        ok(
+          p,
+          parsed.success,
+          `${who}: the posture does not parse: ${parsed.success ? "" : parsed.error.issues[0]?.message}`,
+        );
       }
-      eq(p, "pipelines healthy, A workspace 0", (await get("am", w.wsA0)).json?.data?.pipelinesHealthy, { healthy: 1, total: 2 });
-      eq(p, "pipelines healthy, B", (await get("amB", w.wsB0)).json?.data?.pipelinesHealthy, { healthy: 1, total: 1 });
+      eq(
+        p,
+        "pipelines healthy, A workspace 0",
+        (await get("am", w.wsA0)).json?.data?.pipelinesHealthy,
+        { healthy: 1, total: 3 },
+      );
+      eq(p, "pipelines healthy, B", (await get("amB", w.wsB0)).json?.data?.pipelinesHealthy, {
+        healthy: 1,
+        total: 1,
+      });
       const noExec = await get("amNoExec", w.wsA0);
       ok(p, noExec.status === 200, `no execution.view: status ${noExec.status}`);
       eq(p, "no execution.view: connections", noExec.json?.data?.githubConnections, null);
@@ -459,7 +558,11 @@ export const REPORTING_AM_CHECKS = [
       // another tenant's workspace is the same 404 as a missing one (the existing isolation), never counts
       const foreign = await api.get("amB", `/reporting/posture?workspaceId=${w.wsA0}`);
       ok(p, foreign.status === 404, `tenant B asking for A's workspace: ${foreign.status}`);
-      ok(p, !JSON.stringify(foreign.json).includes('"active"'), "the foreign answer carries counts");
+      ok(
+        p,
+        !JSON.stringify(foreign.json).includes('"active"'),
+        "the foreign answer carries counts",
+      );
       return p;
     },
   },
@@ -495,7 +598,11 @@ export const REPORTING_AM_CHECKS = [
       ok(p, trends.status === 200, `trends: status ${trends.status}`);
       const data = trends.json?.data;
       const parsedTrends = REPORTING_ROUTE_SCHEMAS["GET /reporting/trends"].data.safeParse(data);
-      ok(p, parsedTrends.success, `trends do not parse: ${parsedTrends.success ? "" : JSON.stringify(parsedTrends.error.issues[0])}`);
+      ok(
+        p,
+        parsedTrends.success,
+        `trends do not parse: ${parsedTrends.success ? "" : JSON.stringify(parsedTrends.error.issues[0])}`,
+      );
       eq(p, "stateSeriesFrom", data?.stateSeriesFrom, d(5));
       eq(p, "severityBackfilled with a succeeded backfill run", data?.severityBackfilled, false);
       ok(p, data?.dataFrom === d(20), `dataFrom ${data?.dataFrom}`);
@@ -503,7 +610,11 @@ export const REPORTING_AM_CHECKS = [
       const stateKeys = ["openBySeverity", "open", "awaitingVerification"];
       for (const n of [29, 25, 12, 10, 8, 7, 6, 4, 2, 1, 0])
         for (const k of stateKeys)
-          ok(p, point(d(n))?.[k] === null, `${d(n)} ${k}: ${JSON.stringify(point(d(n))?.[k])}, want null`);
+          ok(
+            p,
+            point(d(n))?.[k] === null,
+            `${d(n)} ${k}: ${JSON.stringify(point(d(n))?.[k])}, want null`,
+          );
       for (const k of stateKeys) ok(p, k in (point(d(5)) ?? {}), `${d(5)} lacks ${k}`);
       eq(p, "open at D", point(d(5))?.open, 3);
       eq(p, "open by severity at D", point(d(5))?.openBySeverity?.critical, 3);
@@ -511,43 +622,108 @@ export const REPORTING_AM_CHECKS = [
       eq(p, "open on the close day", point(d(3))?.open, 2);
       // flow: backfill days d(40)..d(6) (visible from d(29)), live days d(5) and d(3); gaps d(4), d(2), d(1), d(0)
       eq(p, "new on a backfilled day", [point(d(20))?.new, point(d(20))?.fixed], [2, 1]);
-      eq(p, "a covered day without rows is a real zero", [point(d(15))?.new, point(d(15))?.netChange], [0, 0]);
+      eq(
+        p,
+        "a covered day without rows is a real zero",
+        [point(d(15))?.new, point(d(15))?.netChange],
+        [0, 0],
+      );
       for (const n of [4, 2, 1, 0])
         for (const k of ["new", "fixed", "closedWithoutFix", "reopened", "netChange"])
           ok(p, point(d(n))?.[k] === null, `${d(n)} ${k} is not null on a gap day`);
       ok(p, !JSON.stringify(data?.points).includes("NaN"), "NaN in the points");
       // a series that was not requested is absent, not null
       const only = await api.get("am", `/reporting/trends?${ws}&period=30&series=backlog`);
-      ok(p, only.json?.data?.points?.every((x) => !("new" in x) && "open" in x), "an unrequested series is present or the requested one is missing");
+      ok(
+        p,
+        only.json?.data?.points?.every((x) => !("new" in x) && "open" in x),
+        "an unrequested series is present or the requested one is missing",
+      );
       // as-of posture
       const asOf = (day) => api.get("am", `/reporting/posture?${ws}&asOf=${day}`);
       const before = await asOf(d(8));
       ok(p, before.status === 200, `as-of before D: status ${before.status}`);
       const b = before.json?.data;
       eq(p, "as-of before D: partial", b?.partial, true);
-      for (const k of ["open", "bySeverity", "byType", "byGroup", "byStatus", "backlog", "workInProgress", "criticalHighOpen", "newLast24Hours", "pipelinesHealthy", "githubConnections"])
+      for (const k of [
+        "open",
+        "bySeverity",
+        "byType",
+        "byGroup",
+        "byStatus",
+        "backlog",
+        "workInProgress",
+        "criticalHighOpen",
+        "newLast24Hours",
+        "pipelinesHealthy",
+        "githubConnections",
+      ])
         ok(p, b?.[k] === null, `as-of before D: ${k} is ${JSON.stringify(b?.[k])}, want null`);
-      eq(p, "as-of before D: exceptions and decisions", [b?.exceptions, b?.awaitingDecision], [{ inForce: null, expiringWithin30Days: null }, { awaitingApproval: null, pendingExceptions: null }]);
+      eq(
+        p,
+        "as-of before D: exceptions and decisions",
+        [b?.exceptions, b?.awaitingDecision],
+        [
+          { inForce: null, expiringWithin30Days: null },
+          { awaitingApproval: null, pendingExceptions: null },
+        ],
+      );
       ok(p, postureDtoSchema.safeParse(b).success, "as-of before D does not parse");
       const live = await asOf(d(5));
       const l = live.json?.data;
       ok(p, live.status === 200 && l?.partial === true, `as-of live day: ${live.status}`);
       eq(p, "as-of live: open, backlog, wip", [l?.open, l?.backlog, l?.workInProgress], [3, 2, 1]);
       eq(p, "as-of live: exceptions in force", l?.exceptions?.inForce, 2);
-      eq(p, "as-of live: the one status the rollup knows", l?.byStatus?.fixed_pending_verification, 1);
-      eq(p, "as-of live: a status it does not know", [l?.byStatus?.assigned, l?.byStatus?.new, l?.byGroup?.needs_triage], [null, null, null]);
-      eq(p, "as-of live: groups it knows", [l?.byGroup?.awaiting_verification, l?.byGroup?.accepted_or_suppressed], [1, 2]);
-      eq(p, "as-of live: expiring and awaiting decision", [l?.exceptions?.expiringWithin30Days, l?.awaitingDecision?.awaitingApproval], [null, null]);
+      eq(
+        p,
+        "as-of live: the one status the rollup knows",
+        l?.byStatus?.fixed_pending_verification,
+        1,
+      );
+      eq(
+        p,
+        "as-of live: a status it does not know",
+        [l?.byStatus?.assigned, l?.byStatus?.new, l?.byGroup?.needs_triage],
+        [null, null, null],
+      );
+      eq(
+        p,
+        "as-of live: groups it knows",
+        [l?.byGroup?.awaiting_verification, l?.byGroup?.accepted_or_suppressed],
+        [1, 2],
+      );
+      eq(
+        p,
+        "as-of live: expiring and awaiting decision",
+        [l?.exceptions?.expiringWithin30Days, l?.awaitingDecision?.awaitingApproval],
+        [null, null],
+      );
       ok(p, postureDtoSchema.safeParse(l).success, "as-of live does not parse");
       const gap = await asOf(d(4));
-      ok(p, gap.status === 409 && gap.json?.error?.code === "REPORT_AS_OF_UNAVAILABLE", `as-of a day no run covers: ${gap.status} ${gap.json?.error?.code}`);
+      ok(
+        p,
+        gap.status === 409 && gap.json?.error?.code === "REPORT_AS_OF_UNAVAILABLE",
+        `as-of a day no run covers: ${gap.status} ${gap.json?.error?.code}`,
+      );
       // controls: the live-day numbers are not an artifact of a missing row (the planted pre-D row exists)
-      const planted = await db.$queryRaw`SELECT open_count::int AS n FROM report_daily_findings WHERE tenant_id = ${tenant}::uuid AND day = ${d(8)}::date`;
-      eq(p, "control: the pre-D state row exists", planted.map((r) => r.n), [4]);
+      const planted =
+        await db.$queryRaw`SELECT open_count::int AS n FROM report_daily_findings WHERE tenant_id = ${tenant}::uuid AND day = ${d(8)}::date`;
+      eq(
+        p,
+        "control: the pre-D state row exists",
+        planted.map((r) => r.n),
+        [4],
+      );
       // a tenant with no run at all: every state value null, no first exact day
       const none = await api.get("amB", `/reporting/trends?workspaceId=${w.wsB0}&period=7`);
       eq(p, "no runs: stateSeriesFrom", none.json?.data?.stateSeriesFrom, null);
-      ok(p, none.json?.data?.points?.every((x) => x.open === null && x.openBySeverity === null && x.new === null), "no runs: a series is not null");
+      ok(
+        p,
+        none.json?.data?.points?.every(
+          (x) => x.open === null && x.openBySeverity === null && x.new === null,
+        ),
+        "no runs: a series is not null",
+      );
       return p;
     },
   },
@@ -561,27 +737,48 @@ export const REPORTING_AM_CHECKS = [
       ok(p, r.status === 200, `coverage: status ${r.status}`);
       const data = r.json?.data;
       const parsed = REPORTING_ROUTE_SCHEMAS["GET /reporting/coverage"].data.safeParse(data);
-      ok(p, parsed.success, `coverage does not parse: ${parsed.success ? "" : JSON.stringify(parsed.error.issues[0])}`);
+      ok(
+        p,
+        parsed.success,
+        `coverage does not parse: ${parsed.success ? "" : JSON.stringify(parsed.error.issues[0])}`,
+      );
       eq(p, "covered and total", [data?.repositories?.covered, data?.repositories?.total], [1, 5]);
-      const reasons = Object.fromEntries((data?.uncovered ?? []).map((u) => [u.repositoryName.split("-").pop(), u.reason]));
-      eq(p, "reasons", reasons, { rU: "connection_unavailable", rP: "pipeline_disabled", rN: "no_pipeline", rE: "no_recent_scan" });
+      const reasons = Object.fromEntries(
+        (data?.uncovered ?? []).map((u) => [u.repositoryName.split("-").pop(), u.reason]),
+      );
+      eq(p, "reasons", Object.entries(reasons).sort(), [
+        ["rE", "no_recent_scan"],
+        ["rN", "no_pipeline"],
+        ["rP", "pipeline_disabled"],
+        ["rU", "connection_unavailable"],
+      ]);
       const pipes = data?.pipelines ?? [];
       const byId = (x) => pipes.find((q) => q.pipelineId === x.pipeline.id);
       ok(p, !byId(w.pipes.pA3), "the soft-deleted pipeline is listed");
-      ok(p, pipes.length === 4, `${pipes.length} pipelines listed, want 4`);
+      ok(p, pipes.length === 5, `${pipes.length} pipelines listed, want 5`);
       const enabled = (x) => (byId(x)?.scanTypes ?? []).filter((s) => s.enabled).map((s) => s.type);
       eq(p, "pA1 enabled types", enabled(w.pipes.pA1), ["sbom", "sca"]);
       eq(p, "pA4 enabled types", enabled(w.pipes.pA4), ["secrets"]);
       eq(p, "pA2 (disabled pipeline) enabled types", enabled(w.pipes.pA2), []);
-      eq(p, "scan type order", (byId(w.pipes.pA1)?.scanTypes ?? []).map((s) => s.type), ["sbom", "sca", "sast", "secrets"]);
-      ok(p, !JSON.stringify(data).includes(w.B.repo[0].id) && !JSON.stringify(data).includes(w.pipes.pB.pipeline.id), "tenant B appears in A's coverage");
+      eq(
+        p,
+        "scan type order",
+        (byId(w.pipes.pA1)?.scanTypes ?? []).map((s) => s.type),
+        ["sbom", "sca", "sast", "secrets"],
+      );
+      ok(
+        p,
+        !JSON.stringify(data).includes(w.B.repo[0].id) &&
+          !JSON.stringify(data).includes(w.pipes.pB.pipeline.id),
+        "tenant B appears in A's coverage",
+      );
       return p;
     },
   },
   {
     id: "RPTAM-07",
     name: "Amended DTO contract (SPEC 17.5): the posture schema accepts the live shape and the partial shape with nulls in every field the rollup cannot tell, refuses a negative count, a missing `partial`, a missing `githubConnections` and any extra key; the trend point accepts an explicit null per series and still refuses a string, a negative count and an extra key; the trends schema refuses `severityBackfilled: true` and requires `stateSeriesFrom`; none of the amended DTOs carries a forbidden key",
-    async run(c) {
+    async run() {
       const p = [];
       const zero = (keys) => Object.fromEntries(keys.map((k) => [k, 0]));
       const sev = zero(["critical", "high", "medium", "low", "info"]);
@@ -614,7 +811,11 @@ export const REPORTING_AM_CHECKS = [
         partial: false,
         open: 0,
         bySeverity: sev,
-        byType: Object.fromEntries(Object.keys(types).filter((k) => k !== "sbom").map((k) => [k, 0])),
+        byType: Object.fromEntries(
+          Object.keys(types)
+            .filter((k) => k !== "sbom")
+            .map((k) => [k, 0]),
+        ),
         byGroup: zero(groups),
         byStatus: zero(statuses),
         backlog: 0,
@@ -662,21 +863,56 @@ export const REPORTING_AM_CHECKS = [
       accepts("posture with nothing known", postureDtoSchema, allNull);
       refuses("negative open", postureDtoSchema, { ...live, open: -1 });
       refuses("missing partial", postureDtoSchema, { ...live, partial: undefined });
-      refuses("missing githubConnections", postureDtoSchema, { ...live, githubConnections: undefined });
+      refuses("missing githubConnections", postureDtoSchema, {
+        ...live,
+        githubConnections: undefined,
+      });
       refuses("extra key", postureDtoSchema, { ...live, tenantId: "x" });
       refuses("a fractional count", postureDtoSchema, { ...live, backlog: 1.5 });
-      refuses("a connection count that is null inside", postureDtoSchema, { ...live, githubConnections: { active: null, unavailable: 0, disconnected: 0 } });
-      accepts("a gap point", trendPointSchema, { day: "2026-11-01", new: null, fixed: null, closedWithoutFix: null, reopened: null, openBySeverity: null, open: null, netChange: null, awaitingVerification: null });
-      accepts("a known point", trendPointSchema, { day: "2026-11-01", open: 3, netChange: -2, openBySeverity: sev });
+      refuses("a connection count that is null inside", postureDtoSchema, {
+        ...live,
+        githubConnections: { active: null, unavailable: 0, disconnected: 0 },
+      });
+      accepts("a gap point", trendPointSchema, {
+        day: "2026-11-01",
+        new: null,
+        fixed: null,
+        closedWithoutFix: null,
+        reopened: null,
+        openBySeverity: null,
+        open: null,
+        netChange: null,
+        awaitingVerification: null,
+      });
+      accepts("a known point", trendPointSchema, {
+        day: "2026-11-01",
+        open: 3,
+        netChange: -2,
+        openBySeverity: sev,
+      });
       accepts("a day only", trendPointSchema, { day: "2026-11-01" });
       refuses("a string count", trendPointSchema, { day: "2026-11-01", open: "3" });
       refuses("a negative count", trendPointSchema, { day: "2026-11-01", new: -1 });
       refuses("a point extra key", trendPointSchema, { day: "2026-11-01", tenantId: "x" });
-      const trends = { period: { from: "2026-11-01", to: "2026-11-01", dayCount: 1, preset: null }, points: [{ day: "2026-11-01", open: null }], severityBackfilled: false, stateSeriesFrom: null, dataFrom: null, recomputing: false, projection: null };
+      const trends = {
+        period: { from: "2026-11-01", to: "2026-11-01", dayCount: 1, preset: null },
+        points: [{ day: "2026-11-01", open: null }],
+        severityBackfilled: false,
+        stateSeriesFrom: null,
+        dataFrom: null,
+        recomputing: false,
+        projection: null,
+      };
       accepts("trends", trendsDtoSchema, trends);
       refuses("severityBackfilled true", trendsDtoSchema, { ...trends, severityBackfilled: true });
-      refuses("missing stateSeriesFrom", trendsDtoSchema, { ...trends, stateSeriesFrom: undefined });
-      refuses("a bad stateSeriesFrom", trendsDtoSchema, { ...trends, stateSeriesFrom: "yesterday" });
+      refuses("missing stateSeriesFrom", trendsDtoSchema, {
+        ...trends,
+        stateSeriesFrom: undefined,
+      });
+      refuses("a bad stateSeriesFrom", trendsDtoSchema, {
+        ...trends,
+        stateSeriesFrom: "yesterday",
+      });
       const forbidden = new Set(FORBIDDEN_REPORTING_DTO_KEYS);
       const keysOf = (v, out = new Set()) => {
         if (Array.isArray(v)) v.forEach((x) => keysOf(x, out));
@@ -687,7 +923,12 @@ export const REPORTING_AM_CHECKS = [
           }
         return out;
       };
-      eq(p, "forbidden keys in the amended DTO examples", [...keysOf([live, partial, allNull, trends])].filter((k) => forbidden.has(k)), []);
+      eq(
+        p,
+        "forbidden keys in the amended DTO examples",
+        [...keysOf([live, partial, allNull, trends])].filter((k) => forbidden.has(k)),
+        [],
+      );
       return p;
     },
   },

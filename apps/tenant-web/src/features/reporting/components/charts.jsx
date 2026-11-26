@@ -65,7 +65,7 @@ function NoDataBand({ points, dataFrom }) {
       fillOpacity={0.7}
       ifOverflow="visible"
       label={{
-        value: "no data",
+        value: "not recorded",
         fill: "var(--subtle-foreground)",
         fontSize: 11,
         position: "insideTop",
@@ -159,7 +159,13 @@ export function LifecycleChart({ byGroup }) {
 /** Open findings by severity per day, stacked areas, Critical at the base. `hidden` = severities switched off. */
 export function SeverityAreaChart({ points, dataFrom, hidden = [], height = 240 }) {
   const id = useSafeId();
-  const data = points.map((p) => ({ day: p.day, ...(p.openBySeverity ?? {}) }));
+  // a day without the state series is an explicit null for every severity: a gap, never a zero
+  const data = points.map((p) => ({
+    day: p.day,
+    ...Object.fromEntries(
+      SEVERITY_ORDER.map((s) => [s, p.openBySeverity ? p.openBySeverity[s] : null]),
+    ),
+  }));
   const shown = SEVERITY_ORDER.filter((s) => !hidden.includes(s));
   return (
     <ResponsiveContainer width="100%" height={height} minWidth={0}>

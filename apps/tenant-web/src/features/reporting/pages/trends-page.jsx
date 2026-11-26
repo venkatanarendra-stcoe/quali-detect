@@ -17,15 +17,17 @@ import { FlowChart, LinesChart, SeverityAreaChart } from "../components/charts.j
 import { Legend } from "../components/chart-parts.jsx";
 import { SeverityFilter } from "../components/dashboard-controls.jsx";
 import { GenerateReportDialog } from "../components/generate-report-dialog.jsx";
+import { MaybeCount } from "../components/not-available.jsx";
 import { KpiCard } from "../components/kpi-card.jsx";
 import { ReportTable } from "../components/report-table.jsx";
 import { ReportingPage } from "../components/reporting-page.jsx";
 import { usePosture, useTrends } from "../hooks/use-reporting.js";
 import { useReportingParams } from "../hooks/use-reporting-params.js";
 import {
-  dataPoints,
+  statePoints,
   flowEmpty,
   flowSummary,
+  forwardOnlyNote,
   openChangeSummary,
   trendsEmpty,
 } from "../schemas/derive.js";
@@ -58,11 +60,57 @@ export function TrendsPage() {
   const [exporting, setExporting] = useState(false);
   const t = trends.data?.data;
   const p = posture.data?.data;
-  const sparse = t && t.dataFrom !== null && dataPoints(t).length < 3;
+  const sparse = t && t.stateSeriesFrom !== null && statePoints(t).length < 3;
   const rangeText = `${dayLabel(t?.period.from ?? params.today)} to ${dayLabel(t?.period.to ?? params.today)}`;
   const asOfUnavailable =
     isApiError(posture.error) && posture.error.code === "REPORT_AS_OF_UNAVAILABLE";
 
+  // a tile whose value is null is NOT AVAILABLE and is hidden (as of a past day only some counters exist)
+  const tileDefs = p
+    ? [
+        {
+          id: "open",
+          label: asOf ? "Open findings then" : "Open findings",
+          value: p.open,
+          href: !asOf ? openFindingsUrl(workspaceId) : undefined,
+        },
+        {
+          id: "crit-high",
+          label: "Critical and high open",
+          tone: "critical",
+          value: p.criticalHighOpen,
+          href: !asOf ? openFindingsUrl(workspaceId, ["critical", "high"]) : undefined,
+        },
+        { id: "backlog", label: "Backlog", value: p.backlog, sub: "Not yet in anyone's hands" },
+        {
+          id: "wip",
+          label: "Work in progress",
+          value: p.workInProgress,
+          sub: "Assigned, in remediation or awaiting verification",
+        },
+        {
+          id: "awaiting-ver",
+          label: "Awaiting verification",
+          value: p.byGroup?.awaiting_verification ?? null,
+        },
+        {
+          id: "exceptions",
+          label: "Accepted or suppressed",
+          value: p.byGroup?.accepted_or_suppressed ?? null,
+        },
+      ]
+    : [];
+  const tiles = !p
+    ? [
+        { id: "open", label: "Open findings" },
+        { id: "crit-high", label: "Critical and high open" },
+        { id: "backlog", label: "Backlog" },
+        { id: "wip", label: "Work in progress" },
+      ]
+    : tileDefs
+        .filter((d) => d.value !== null && d.value !== undefined)
+        .map(({ value, ...rest }) => ({ ...rest, value: formatCount(value) }));
+  // while loading, the four main tiles show their skeleton
   const projection = t?.projection ?? null;
   const burn = t
     ? [
@@ -122,8 +170,8 @@ export function TrendsPage() {
           className="mb-4 flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
         >
           <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          Showing {dayLong(asOf)}, end of day ({timeZone ?? "organization time zone"}). The numbers
-          below the charts stay live.
+          Showing {dayLong(asOf)}, end of day ({timeZone ?? "organization time zone"}). The charts
+          keep showing the whole period.
         </p>
       ) : null}
       {asOfUnavailable ? (
@@ -134,40 +182,34 @@ export function TrendsPage() {
           There is no data for that day yet. Choose a later day.
         </p>
       ) : (
-        <section
-          aria-label={asOf ? "Point-in-time numbers" : "Current numbers"}
-          className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4"
-        >
-          <KpiCard
-            id="open"
-            label={asOf ? "Open findings then" : "Open findings"}
-            query={posture}
-            value={p ? formatCount(p.open) : null}
-            href={!asOf && p ? openFindingsUrl(workspaceId) : undefined}
-          />
-          <KpiCard
-            id="crit-high"
-            label="Critical and high open"
-            tone="critical"
-            query={posture}
-            value={p ? formatCount(p.criticalHighOpen) : null}
-            href={!asOf && p ? openFindingsUrl(workspaceId, ["critical", "high"]) : undefined}
-          />
-          <KpiCard
-            id="backlog"
-            label="Backlog"
-            query={posture}
-            value={p ? formatCount(p.backlog) : null}
-            sub="Not yet in anyone's hands"
-          />
-          <KpiCard
-            id="wip"
-            label="Work in progress"
-            query={posture}
-            value={p ? formatCount(p.workInProgress) : null}
-            sub="Assigned, in remediation or awaiting verification"
-          />
-        </section>
+        <>
+          {asOf && p?.partial ? (
+            <p
+              role="status"
+              data-testid="partial-snapshot"
+              className="mb-4 flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
+            >
+              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span>
+                <span className="font-medium">Partial snapshot.</span> A past day keeps only some
+                figures; the tiles that cannot be known for this day are hidden.
+                {tiles.length === 0
+                  ? ` No exact snapshot exists for this day${t?.stateSeriesFrom ? `: exact days start on ${dayLabel(t.stateSeriesFrom)}` : ""}.`
+                  : ""}
+              </span>
+            </p>
+          ) : null}
+          {tiles.length ? (
+            <section
+              aria-label={asOf ? "Point-in-time numbers" : "Current numbers"}
+              className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4"
+            >
+              {tiles.map((tile) => (
+                <KpiCard key={tile.id} query={posture} {...tile} />
+              ))}
+            </section>
+          ) : null}
+        </>
       )}
 
       {sparse ? (
@@ -176,18 +218,11 @@ export function TrendsPage() {
           className="mb-4 flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
         >
           <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          Trends need at least 3 days of data. Only {dataPoints(t).length}{" "}
-          {dataPoints(t).length === 1 ? "day is" : "days are"} available so far; earlier days show
+          Trends need at least 3 days of data. Only {statePoints(t).length}{" "}
+          {statePoints(t).length === 1 ? "day is" : "days are"} available so far; earlier days show
           no data.
         </p>
       ) : null}
-      {t && !t.severityBackfilled ? (
-        <p role="status" className="mb-4 text-xs text-muted-foreground">
-          The severity series starts when reporting was switched on; earlier days cannot be rebuilt
-          exactly.
-        </p>
-      ) : null}
-
       <div className="grid gap-4 xl:grid-cols-2">
         <ChartCard
           id="trend-severity"
@@ -198,6 +233,7 @@ export function TrendsPage() {
           onWiden={() => params.setPreset(90)}
           recomputing={t?.recomputing}
           summary={t ? openChangeSummary(t, days) : undefined}
+          note={t ? forwardOnlyNote(t) : undefined}
           link={{
             to: findingsUrl(workspaceId, { view: "all_open", severity: severities }),
             label: "Open in Findings",
@@ -228,7 +264,7 @@ export function TrendsPage() {
                     key: s,
                     header: SEVERITY_LABELS[s],
                     align: "right",
-                    cell: (r) => (r.openBySeverity ? r.openBySeverity[s] : "no data"),
+                    cell: (r) => <MaybeCount value={r.openBySeverity?.[s]} />,
                   })),
                 ]}
               />
@@ -236,7 +272,7 @@ export function TrendsPage() {
           }
         >
           {t ? (
-            <SeverityAreaChart points={t.points} dataFrom={t.dataFrom} hidden={hiddenSev} />
+            <SeverityAreaChart points={t.points} dataFrom={t.stateSeriesFrom} hidden={hiddenSev} />
           ) : null}
         </ChartCard>
 
@@ -277,24 +313,29 @@ export function TrendsPage() {
                 maxHeight="18rem"
                 columns={[
                   { key: "day", header: "Day", cell: (r) => dayLabel(r.day) },
-                  { key: "new", header: "New", align: "right", cell: (r) => r.new ?? "no data" },
+                  {
+                    key: "new",
+                    header: "New",
+                    align: "right",
+                    cell: (r) => <MaybeCount value={r.new} />,
+                  },
                   {
                     key: "fixed",
                     header: "Fixed",
                     align: "right",
-                    cell: (r) => r.fixed ?? "no data",
+                    cell: (r) => <MaybeCount value={r.fixed} />,
                   },
                   {
                     key: "closed",
                     header: "Closed without a fix",
                     align: "right",
-                    cell: (r) => r.closedWithoutFix ?? "no data",
+                    cell: (r) => <MaybeCount value={r.closedWithoutFix} />,
                   },
                   {
                     key: "reopened",
                     header: "Reopened",
                     align: "right",
-                    cell: (r) => r.reopened ?? "no data",
+                    cell: (r) => <MaybeCount value={r.reopened} />,
                   },
                 ]}
               />
@@ -314,6 +355,7 @@ export function TrendsPage() {
         <ChartCard
           id="trend-burndown"
           title="Backlog burn-down"
+          note={t ? forwardOnlyNote(t, "Burn-down") : undefined}
           query={trends}
           state={t ? trendsEmpty(t) : null}
           rangeText={rangeText}
@@ -350,7 +392,12 @@ export function TrendsPage() {
                 maxHeight="18rem"
                 columns={[
                   { key: "day", header: "Day", cell: (r) => dayLabel(r.day) },
-                  { key: "open", header: "Open", align: "right", cell: (r) => r.open ?? "no data" },
+                  {
+                    key: "open",
+                    header: "Open",
+                    align: "right",
+                    cell: (r) => <MaybeCount value={r.open} />,
+                  },
                   {
                     key: "projection",
                     header: "Estimate",
@@ -366,7 +413,7 @@ export function TrendsPage() {
             <LinesChart
               data={burn}
               points={t.points}
-              dataFrom={t.dataFrom}
+              dataFrom={t.stateSeriesFrom}
               series={[
                 { key: "open", label: "Open", stroke: "var(--chart-1)", width: 2.5 },
                 { key: "projection", label: "Estimate", stroke: "var(--chart-3)", dash: "6 4" },
@@ -378,6 +425,7 @@ export function TrendsPage() {
         <ChartCard
           id="trend-awaiting"
           title="Awaiting verification"
+          note={t ? forwardOnlyNote(t, "Awaiting-verification series") : undefined}
           query={trends}
           state={t ? trendsEmpty(t) : null}
           rangeText={rangeText}
@@ -400,7 +448,7 @@ export function TrendsPage() {
                     key: "n",
                     header: "Awaiting verification",
                     align: "right",
-                    cell: (r) => r.awaitingVerification ?? "no data",
+                    cell: (r) => <MaybeCount value={r.awaitingVerification} />,
                   },
                 ]}
               />
@@ -415,7 +463,7 @@ export function TrendsPage() {
                 awaiting: pt.awaitingVerification ?? null,
               }))}
               points={t.points}
-              dataFrom={t.dataFrom}
+              dataFrom={t.stateSeriesFrom}
               series={[
                 { key: "awaiting", label: "Awaiting verification", stroke: "var(--chart-2)" },
               ]}

@@ -53,7 +53,7 @@ export const setMockScenario = (name) => {
   scenario = name;
 };
 /** Request counters for the walk (polling evidence). */
-export const mockCalls = { list: 0, read: 0 };
+export const mockCalls = { list: 0, read: 0, lastBody: null };
 if (typeof window !== "undefined")
   window.__reportingMock = { set: setMockScenario, calls: mockCalls };
 
@@ -206,32 +206,72 @@ function posture(query) {
     (a, s) => a + status[s],
     0,
   );
+  const live = !asOfDay;
+  const na = (value) => value; // known fields pass through
+  // AS OF a past day the rollup keeps only some counters; the rest are null (never 0). A day before the first exact day: all null.
+  const first = firstExactDay();
+  const exact = live || (first !== null && asOfDay >= first);
+  const known = (value) => (live || exact ? value : null);
+  const knownStatus = Object.fromEntries(
+    Object.entries(status).map(([k, v]) => [
+      k,
+      live ? v : exact && k === "fixed_pending_verification" ? v : null,
+    ]),
+  );
+  const knownGroups = Object.fromEntries(
+    Object.entries(groups).map(([k, v]) => [
+      k,
+      live
+        ? v
+        : exact && ["awaiting_verification", "accepted_or_suppressed"].includes(k)
+          ? v
+          : null,
+    ]),
+  );
+  const conn =
+    scenario === "connections"
+      ? { active: 6, unavailable: 3, disconnected: 2 }
+      : scenario === "empty"
+        ? { active: 0, unavailable: 0, disconnected: 0 }
+        : { active: 9, unavailable: 0, disconnected: 1 };
   return {
     asOfDay,
-    open,
-    bySeverity: sev,
-    byType,
-    byGroup: groups,
-    byStatus: status,
-    backlog,
-    workInProgress: open - backlog,
-    criticalHighOpen: sev.critical + sev.high,
+    partial: !live,
+    open: known(open),
+    bySeverity: known(sev),
+    byType: known(byType),
+    byGroup: live || exact ? knownGroups : null,
+    byStatus: live || exact ? knownStatus : null,
+    backlog: known(backlog),
+    workInProgress: known(open - backlog),
+    criticalHighOpen: known(sev.critical + sev.high),
     exceptions: {
-      inForce: status.accepted_risk + status.suppressed,
-      expiringWithin30Days: open ? between(rand, 0, 3) : 0,
+      inForce: known(status.accepted_risk + status.suppressed),
+      expiringWithin30Days: live ? (open ? between(rand, 0, 3) : 0) : null,
     },
     awaitingDecision: {
-      awaitingApproval: status.awaiting_approval,
-      pendingExceptions: open ? between(rand, 1, 4) : 0,
+      awaitingApproval: live ? status.awaiting_approval : null,
+      pendingExceptions: live ? (open ? between(rand, 1, 4) : 0) : null,
     },
     newLast24Hours: asOfDay ? null : open ? between(rand, 2, 9) : 0,
     pipelinesHealthy:
-      scenario === "partial"
+      scenario === "partial" || !live
         ? null
         : open === 0 && scenario === "empty"
           ? { healthy: 0, total: 0 }
           : { healthy: 11, total: 12 },
+    githubConnections: scenario === "partial" || !live ? null : na(conn),
   };
+}
+
+/** The first day of the exact state series (forward-only): `stateSeriesFrom` of the trends. */
+function firstExactDay() {
+  const today = todayOf();
+  if (scenario === "empty") return null;
+  if (scenario === "young") return addDays(today, -1);
+  if (scenario === "forwardonly") return addDays(today, -10);
+  if (scenario === "asofpartial") return addDays(today, -5);
+  return addDays(today, -150);
 }
 
 function trends(query) {
@@ -240,13 +280,15 @@ function trends(query) {
   const today = todayOf();
   const dataFrom =
     scenario === "empty" ? null : scenario === "young" ? addDays(today, -1) : addDays(today, -150);
+  const stateFrom = firstExactDay();
   const series = (query.series ?? "flow,severity,backlog,net_change,awaiting_verification").split(
     ",",
   );
   const final = currentCounts(wid).sev;
   const days = listDays(period.from, period.to);
   const points = days.map((day) => {
-    if (dataFrom === null || day < dataFrom) return { day };
+    const flowKnown = dataFrom !== null && day >= dataFrom;
+    const stateKnown = stateFrom !== null && day >= stateFrom;
     const back = diffDays(day, today);
     const rand = rng(`trend${wid}${day}`);
     const weekend = [0, 6].includes(new Date(`${day}T12:00:00Z`).getUTCDay());
@@ -261,26 +303,28 @@ function trends(query) {
     const fixed = idle ? 0 : weekend ? between(rand, 0, 2) : between(rand, 2, 8);
     const created = idle ? 0 : weekend ? between(rand, 0, 3) : between(rand, 2, 9);
     const point = { day };
+    // every requested series is a number or an explicit null (a gap is never 0)
     if (series.includes("flow"))
       Object.assign(point, {
-        new: created,
-        fixed,
-        closedWithoutFix: idle ? 0 : between(rand, 0, 3),
-        reopened: idle ? 0 : between(rand, 0, 1),
+        new: flowKnown ? created : null,
+        fixed: flowKnown ? fixed : null,
+        closedWithoutFix: flowKnown ? (idle ? 0 : between(rand, 0, 3)) : null,
+        reopened: flowKnown ? (idle ? 0 : between(rand, 0, 1)) : null,
       });
-    if (series.includes("severity")) point.openBySeverity = openBySeverity;
-    if (series.includes("backlog")) point.open = sum(openBySeverity);
-    if (series.includes("net_change")) point.netChange = created - fixed;
+    if (series.includes("severity")) point.openBySeverity = stateKnown ? openBySeverity : null;
+    if (series.includes("backlog")) point.open = stateKnown ? sum(openBySeverity) : null;
+    if (series.includes("net_change")) point.netChange = flowKnown ? created - fixed : null;
     if (series.includes("awaiting_verification"))
-      point.awaitingVerification = idle ? 0 : between(rand, 4, 22);
+      point.awaitingVerification = stateKnown ? (idle ? 0 : between(rand, 4, 22)) : null;
     return point;
   });
-  const lastOpen = points.length ? points[points.length - 1].open : 0;
-  const firstOpen = points.find((p) => p.open !== undefined && p.open > 0)?.open ?? 0;
+  const lastOpen = points.length ? (points[points.length - 1].open ?? 0) : 0;
+  const firstOpen =
+    points.find((p) => p.open !== undefined && p.open !== null && p.open > 0)?.open ?? 0;
   let projection = null;
   if (
     series.includes("backlog") &&
-    dataFrom &&
+    stateFrom &&
     lastOpen > 0 &&
     firstOpen > lastOpen &&
     points.length >= 14
@@ -298,7 +342,8 @@ function trends(query) {
   return {
     period,
     points,
-    severityBackfilled: scenario !== "young",
+    severityBackfilled: false,
+    stateSeriesFrom: stateFrom,
     dataFrom,
     recomputing: scenario === "recomputing",
     projection,
@@ -476,6 +521,38 @@ function scanActivity(query) {
 }
 
 function coverage() {
+  if (scenario === "connections")
+    return {
+      repositories: { covered: 6, total: 11 },
+      uncovered: [
+        {
+          repositoryId: "c0000000-0000-4000-8000-000000000021",
+          repositoryName: "legacy-reports",
+          reason: "no_pipeline",
+        },
+        {
+          repositoryId: "c0000000-0000-4000-8000-000000000022",
+          repositoryName: "infra-tools",
+          reason: "pipeline_disabled",
+        },
+        {
+          repositoryId: "c0000000-0000-4000-8000-000000000023",
+          repositoryName: "ledger-service",
+          reason: "connection_unavailable",
+        },
+        {
+          repositoryId: "c0000000-0000-4000-8000-000000000024",
+          repositoryName: "<b>old</b>-gateway",
+          reason: "connection_unavailable",
+        },
+        {
+          repositoryId: "c0000000-0000-4000-8000-000000000025",
+          repositoryName: "notifier",
+          reason: "no_recent_scan",
+        },
+      ],
+      pipelines: [],
+    };
   if (scenario === "empty")
     return { repositories: { covered: 0, total: 0 }, uncovered: [], pipelines: [] };
   const types = (flags) =>
@@ -1034,6 +1111,7 @@ export function createMockReportingService() {
     async createReport(body, key) {
       await wait(400);
       const parsed = createReportBodySchema.parse(body);
+      mockCalls.lastBody = parsed;
       if (scenario === "toolarge")
         throw new ApiError({
           status: 422,

@@ -1,4 +1,13 @@
-import { BarChart3, Clock, Inbox, RefreshCw, ShieldOff, Table2, TriangleAlert } from "lucide-react";
+import {
+  BarChart3,
+  Clock,
+  Inbox,
+  Info,
+  RefreshCw,
+  ShieldOff,
+  Table2,
+  TriangleAlert,
+} from "lucide-react";
 import { useId } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button.jsx";
@@ -170,7 +179,7 @@ function ViewToggle({ id, showTable, onChange }) {
  * The frame of every chart or table of the reporting screens: title, the Chart / Table toggle, the one-sentence summary (the text
  * alternative), the body with every state, a legend slot, a "View details" link and the "data as of" footer.
  * `state` is computed by the screen from its data: `"empty"` (nothing yet) or `"period"` (nothing in this period).
- * @param {{ id: string, title: string, summary?: string, query: { isPending: boolean, isError: boolean, error: unknown, refetch: () => void, data?: { meta?: any } },
+ * @param {{ id: string, title: string, summary?: string, note?: string, query: { isPending: boolean, isError: boolean, error: unknown, refetch: () => void, data?: { meta?: any } },
  *   state?: "empty" | "period" | null, rangeText?: string, onWiden?: () => void, next?: import("react").ReactNode,
  *   table?: import("react").ReactNode, legend?: import("react").ReactNode, link?: { to: string, label: string },
  *   recomputing?: boolean, skeletonHeight?: string, className?: string, children: import("react").ReactNode }} props
@@ -179,6 +188,7 @@ export function ChartCard({
   id,
   title,
   summary,
+  note,
   query,
   state = null,
   rangeText,
@@ -214,6 +224,16 @@ export function ChartCard({
         {hasContent && summary ? (
           <p id={summaryId} className="text-sm text-muted-foreground">
             {summary}
+          </p>
+        ) : null}
+        {ready && note ? (
+          <p
+            role="note"
+            data-testid="forward-only-note"
+            className="flex items-start gap-1.5 rounded-sm border border-border bg-secondary/50 px-2 py-1 text-xs text-muted-foreground"
+          >
+            <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+            {note}
           </p>
         ) : null}
         {query.isPending ? (

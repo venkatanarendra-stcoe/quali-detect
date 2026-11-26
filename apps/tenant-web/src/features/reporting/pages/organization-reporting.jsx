@@ -19,6 +19,7 @@ import { CardError, ChartCard, DataFooter } from "../components/chart-card.jsx";
 import { SeverityAreaChart } from "../components/charts.jsx";
 import { Legend, Swatch } from "../components/chart-parts.jsx";
 import { GenerateReportDialog } from "../components/generate-report-dialog.jsx";
+import { MaybeCount } from "../components/not-available.jsx";
 import { KpiCard } from "../components/kpi-card.jsx";
 import { PeriodControl } from "../components/period-control.jsx";
 import { RefreshButton } from "../components/reporting-page.jsx";
@@ -27,7 +28,7 @@ import { reportingKeys, useReportingOverview } from "../hooks/use-reporting.js";
 import { useReportingParams } from "../hooks/use-reporting-params.js";
 import { retryTransient } from "../hooks/use-reporting.js";
 import { sumOf } from "../schemas/derive.js";
-import { formatCount, formatPercent } from "../schemas/format.js";
+import { dayLabel, formatCount, formatPercent } from "../schemas/format.js";
 import { reportingService } from "../services/reporting-service.js";
 import { useReportingUiStore } from "../stores/reporting-ui-store.js";
 
@@ -147,11 +148,14 @@ function OrgTrend({ workspaces, params }) {
   const merged =
     !tooMany && !pending && ok.length === results.length && ok.length > 0
       ? {
-          dataFrom:
-            ok
-              .map((r) => r.data.data.dataFrom)
-              .filter(Boolean)
-              .sort()[0] ?? null,
+          // the sum is exact only from the day EVERY workspace has its state series (forward-only): the latest start
+          dataFrom: ok.some((r) => !r.data.data.stateSeriesFrom)
+            ? null
+            : ok
+                .map((r) => r.data.data.stateSeriesFrom)
+                .sort()
+                .at(-1),
+          periodFrom: ok[0].data.data.period.from,
           points: ok[0].data.data.points.map((p, i) => ({
             day: p.day,
             openBySeverity: ok.every((r) => r.data.data.points[i].openBySeverity)
@@ -161,7 +165,7 @@ function OrgTrend({ workspaces, params }) {
                     ok.reduce((a, r) => a + r.data.data.points[i].openBySeverity[s], 0),
                   ]),
                 )
-              : undefined,
+              : null,
           })),
         }
       : null;
@@ -194,6 +198,11 @@ function OrgTrend({ workspaces, params }) {
       title="Findings over time"
       query={virtual}
       state={merged && merged.dataFrom === null ? "empty" : null}
+      note={
+        merged?.dataFrom && merged.periodFrom < merged.dataFrom
+          ? `Severity trend starts on ${dayLabel(merged.dataFrom)}: earlier days were not recorded.`
+          : undefined
+      }
       summary={
         merged
           ? `Open findings summed over ${ok.length} workspaces: ${first === last ? `stayed at ${formatCount(last)}` : `${last < first ? "fell" : "rose"} from ${formatCount(first)} to ${formatCount(last)}`} over the period.`
@@ -225,7 +234,7 @@ function OrgTrend({ workspaces, params }) {
                 key: s,
                 header: SEVERITY_LABELS[s],
                 align: "right",
-                cell: (r) => (r.openBySeverity ? r.openBySeverity[s] : "no data"),
+                cell: (r) => <MaybeCount value={r.openBySeverity?.[s]} />,
               })),
             ]}
           />

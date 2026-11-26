@@ -1,5 +1,15 @@
 import { LIFECYCLE_GROUP_IDS } from "@qmentisai/shared";
-import { AlertTriangle, Bug, Clock, FileCheck2, ShieldAlert, Workflow } from "lucide-react";
+import {
+  AlertTriangle,
+  Bug,
+  CircleCheck,
+  Clock,
+  FileCheck2,
+  ShieldAlert,
+  TriangleAlert,
+  Unplug,
+  Workflow,
+} from "lucide-react";
 import { Link } from "react-router";
 import { isApiError } from "@/lib/api/index.js";
 import { LinkButton } from "@/components/common/link-button.jsx";
@@ -25,6 +35,7 @@ import {
 import { CardError, ChartCard, DataFooter } from "../components/chart-card.jsx";
 import { Legend } from "../components/chart-parts.jsx";
 import { DashboardViewToggle, SeverityFilter } from "../components/dashboard-controls.jsx";
+import { MaybeCount } from "../components/not-available.jsx";
 import { KpiCard } from "../components/kpi-card.jsx";
 import { ReportTable } from "../components/report-table.jsx";
 import { ReportingPage } from "../components/reporting-page.jsx";
@@ -121,6 +132,71 @@ function CoverageCard({ query, workspaceId }) {
                   Every active repository was scanned.
                 </p>
               )}
+            </>
+          )
+        ) : null}
+        <DataFooter meta={query.data?.meta} />
+      </CardContent>
+    </Card>
+  );
+}
+
+const CONNECTION_ROWS = [
+  { key: "active", label: "Active", icon: CircleCheck, tone: "" },
+  { key: "unavailable", label: "Unavailable", icon: TriangleAlert, tone: "text-status-warning" },
+  { key: "disconnected", label: "Disconnected", icon: Unplug, tone: "text-muted-foreground" },
+];
+
+/** GitHub connection state of the workspace's repositories (O-5: GitHub only): counts with an icon and the word, never colour alone. */
+function ConnectionCard({ query, workspaceId }) {
+  const data = query.data?.data;
+  const c = data?.githubConnections;
+  const total = c ? c.active + c.unavailable + c.disconnected : 0;
+  return (
+    <Card data-testid="card-connections" className="min-w-0">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">GitHub connection</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {query.isPending ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading connections…
+          </p>
+        ) : null}
+        {query.isError ? <CardError error={query.error} onRetry={query.refetch} /> : null}
+        {data && !c ? (
+          <p className="text-sm text-muted-foreground">
+            Connection state is not available for this view.
+          </p>
+        ) : null}
+        {c ? (
+          total === 0 ? (
+            <p className="text-sm text-muted-foreground">No repositories are connected yet.</p>
+          ) : (
+            <>
+              <p className="text-sm">
+                <span className="font-medium tabular-nums">{total}</span>{" "}
+                {total === 1 ? "repository" : "repositories"} by connection state.
+              </p>
+              <ul aria-label="Repository connection state" className="space-y-1.5 text-sm">
+                {CONNECTION_ROWS.map(({ key, label, icon: Icon, tone }) => (
+                  <li key={key} className="flex items-center justify-between gap-2">
+                    <span className={`inline-flex items-center gap-1.5 ${tone}`}>
+                      <Icon aria-hidden="true" className="size-4" />
+                      {label}
+                    </span>
+                    <span className="font-medium tabular-nums">{c[key]}</span>
+                  </li>
+                ))}
+              </ul>
+              {c.unavailable + c.disconnected > 0 ? (
+                <Link
+                  to={`/workspaces/${workspaceId}/repositories`}
+                  className="block w-fit rounded-sm text-xs text-primary-text underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Open repositories
+                </Link>
+              ) : null}
             </>
           )
         ) : null}
@@ -233,6 +309,8 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
   if (canAssign && refused(workload)) hidden.push("team workload");
   if (canQuality && refused(quality)) hidden.push("detection quality");
   const p = posture.data?.data;
+  const ps = p?.bySeverity ? p : null;
+  const pg = p?.byGroup ? p : null;
   const t = trends.data?.data;
   const r = remediation.data?.data;
   const trendsKnown = Boolean(t);
@@ -332,7 +410,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                     icon={ShieldAlert}
                     tone="critical"
                     query={posture}
-                    value={p ? formatCount(p.bySeverity.critical) : null}
+                    value={p ? formatCount(p.bySeverity?.critical) : null}
                     href={p ? openFindingsUrl(workspaceId, "critical") : undefined}
                     change={
                       trendsKnown ? changeOver(t, (pt) => pt.openBySeverity?.critical) : undefined
@@ -418,7 +496,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                 }
                 next={<span>Findings appear after the first scan finishes.</span>}
                 table={
-                  p ? (
+                  ps ? (
                     <ReportTable
                       caption="Open findings by severity"
                       rows={SEVERITY_ORDER.map((s) => ({ severity: s, count: p.bySeverity[s] }))}
@@ -447,7 +525,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                   ) : undefined
                 }
                 legend={
-                  p ? (
+                  ps ? (
                     <Legend
                       label="Severity filter"
                       onToggle={params.toggleSeverity}
@@ -465,7 +543,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                   ) : undefined
                 }
               >
-                {p ? (
+                {ps ? (
                   <SeverityBarsChart
                     counts={p.bySeverity}
                     selected={severities}
@@ -480,7 +558,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                 state={p ? postureEmpty(p) : null}
                 summary={p ? lifecycleSummary(p) : undefined}
                 table={
-                  p ? (
+                  pg ? (
                     <ReportTable
                       caption="Findings by lifecycle group"
                       rows={LIFECYCLE_GROUP_IDS.map((g) => ({ group: g, count: p.byGroup[g] }))}
@@ -505,7 +583,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                   ) : undefined
                 }
                 legend={
-                  p ? (
+                  pg ? (
                     <Legend
                       label="Lifecycle groups"
                       items={LIFECYCLE_GROUP_IDS.map((g) => ({
@@ -520,7 +598,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
                   ) : undefined
                 }
               >
-                {p ? <LifecycleChart byGroup={p.byGroup} /> : null}
+                {pg ? <LifecycleChart byGroup={p.byGroup} /> : null}
               </ChartCard>
             </Grid>
           ) : null}
@@ -605,7 +683,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
             ) : null}
           </Grid>
 
-          <Grid className="lg:grid-cols-3">
+          <Grid className="lg:grid-cols-2 xl:grid-cols-4">
             {canFinding ? (
               <ChartCard
                 id="sla"
@@ -666,6 +744,7 @@ export function WorkspaceDashboardView({ workspaceId, workspaceName }) {
               </ChartCard>
             ) : null}
             {canExec ? <CoverageCard query={coverage} workspaceId={workspaceId} /> : null}
+            {canExec ? <ConnectionCard query={posture} workspaceId={workspaceId} /> : null}
             {canAssign ? <WorkloadCard query={workload} workspaceId={workspaceId} /> : null}
           </Grid>
 
@@ -693,25 +772,25 @@ function FlowTable({ points }) {
           key: "new",
           header: "New",
           align: "right",
-          cell: (row) => (row.new === undefined ? "no data" : row.new),
+          cell: (row) => <MaybeCount value={row.new} />,
         },
         {
           key: "fixed",
           header: "Fixed",
           align: "right",
-          cell: (row) => (row.fixed === undefined ? "no data" : row.fixed),
+          cell: (row) => <MaybeCount value={row.fixed} />,
         },
         {
           key: "closed",
           header: "Closed without a fix",
           align: "right",
-          cell: (row) => (row.closedWithoutFix === undefined ? "no data" : row.closedWithoutFix),
+          cell: (row) => <MaybeCount value={row.closedWithoutFix} />,
         },
         {
           key: "reopened",
           header: "Reopened",
           align: "right",
-          cell: (row) => (row.reopened === undefined ? "no data" : row.reopened),
+          cell: (row) => <MaybeCount value={row.reopened} />,
         },
       ]}
     />

@@ -1,38 +1,43 @@
 import { LIFECYCLE_GROUP_IDS } from "@qmentisai/shared";
 import { GROUP_LABELS, SEVERITY_LABELS, SEVERITY_ORDER } from "../constants/index.js";
-import { formatCount, formatDays } from "./format.js";
+import { dayLabel, formatCount, formatDays } from "./format.js";
 
 /** Pure derivations over the DTOs: the one-sentence chart summaries, the empty-state decisions and the changes since the period start. */
 
 export const sumOf = (obj) => Object.values(obj ?? {}).reduce((a, b) => a + b, 0);
 
-/** The points of a trends DTO that carry data (days before `dataFrom` have none). @param {any} trends */
+/** The points of a trends DTO whose FLOW series are known (a number, never a gap). @param {any} trends */
 export const dataPoints = (trends) =>
-  trends.points.filter((p) => trends.dataFrom !== null && p.day >= trends.dataFrom);
+  trends.points.filter((p) => p.new !== null && p.new !== undefined);
+
+/** The points whose STATE series (open by severity, backlog, awaiting verification) exist: forward-only, from `stateSeriesFrom`. @param {any} trends */
+export const statePoints = (trends) => trends.points.filter((p) => p.openBySeverity);
 
 /**
- * Change from the first to the last day with data, or null when there are fewer than two days.
- * @param {any} trends @param {(point: any) => number | undefined} pick
+ * Change from the first to the last day with a known value, or null when there are fewer than two days. A null (gap) is skipped,
+ * never read as 0.
+ * @param {any} trends @param {(point: any) => number | null | undefined} pick
  */
 export function changeOver(trends, pick) {
-  const points = dataPoints(trends).filter((p) => pick(p) !== undefined);
+  const points = trends.points.filter((p) => pick(p) !== undefined && pick(p) !== null);
   if (points.length < 2) return null;
   return pick(points[points.length - 1]) - pick(points[0]);
 }
 
-/** Total of one flow field over the period. */
+/** Total of one flow field over the days that have it. */
 export const flowTotal = (trends, key) => dataPoints(trends).reduce((a, p) => a + (p[key] ?? 0), 0);
 
-/** `"empty"` when the workspace never had a finding, else null. @param {any} posture */
-export const postureEmpty = (posture) => (sumOf(posture.byStatus) === 0 ? "empty" : null);
+/** `"empty"` when the workspace never had a finding (a null count is "not available", never none), else null. @param {any} posture */
+export const postureEmpty = (posture) =>
+  posture.byStatus && sumOf(posture.byStatus) === 0 ? "empty" : null;
 
-/** `"empty"` without any rollup day, `"period"` when the period has no flow, else null. @param {any} trends */
+/**
+ * The state charts (open by severity, burn-down, awaiting verification): `"empty"` before any exact day exists, `"period"` when the
+ * period ends before `stateSeriesFrom` or holds no known day, else null. @param {any} trends
+ */
 export function trendsEmpty(trends) {
-  if (trends.dataFrom === null) return "empty";
-  const active = dataPoints(trends).some(
-    (p) => (p.new ?? 0) + (p.fixed ?? 0) + (p.closedWithoutFix ?? 0) + (p.reopened ?? 0) > 0,
-  );
-  return active || dataPoints(trends).some((p) => (p.open ?? 0) > 0) ? null : "period";
+  if (trends.stateSeriesFrom === null) return "empty";
+  return statePoints(trends).length === 0 ? "period" : null;
 }
 
 /** The flow charts (new, fixed, closed, reopened): `"empty"` without a rollup day, `"period"` when nothing happened in the period. @param {any} trends */
@@ -45,9 +50,20 @@ export function flowEmpty(trends) {
     : "period";
 }
 
+/**
+ * The visible note of a forward-only chart, once per chart: "Severity trend starts on 17 Nov: earlier days were not recorded".
+ * Null when the whole period is covered. @param {any} trends @param {string} [what]
+ */
+export function forwardOnlyNote(trends, what = "Severity trend") {
+  if (!trends.stateSeriesFrom || trends.period.from >= trends.stateSeriesFrom) return null;
+  return `${what} starts on ${dayLabel(trends.stateSeriesFrom)}: earlier days were not recorded.`;
+}
+
 const plural = (n, one, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 export function postureSummary(posture) {
+  if (!posture.bySeverity || posture.open === null)
+    return "These counts are not available for this view.";
   const parts = SEVERITY_ORDER.map(
     (s) => `${formatCount(posture.bySeverity[s])} ${SEVERITY_LABELS[s].toLowerCase()}`,
   );
@@ -55,6 +71,8 @@ export function postureSummary(posture) {
 }
 
 export function lifecycleSummary(posture) {
+  if (!posture.byGroup || posture.open === null)
+    return "These counts are not available for this view.";
   const open = LIFECYCLE_GROUP_IDS.slice(0, 4).map(
     (g) => `${formatCount(posture.byGroup[g])} ${GROUP_LABELS[g].toLowerCase()}`,
   );
@@ -70,7 +88,7 @@ export function flowSummary(trends, days) {
 }
 
 export function openChangeSummary(trends, days) {
-  const points = dataPoints(trends).filter((p) => p.openBySeverity);
+  const points = statePoints(trends);
   if (points.length < 2) return "Not enough days of data to describe a change yet.";
   const first = points[0];
   const last = points[points.length - 1];

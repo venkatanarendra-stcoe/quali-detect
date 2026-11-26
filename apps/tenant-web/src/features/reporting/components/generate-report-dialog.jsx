@@ -98,6 +98,8 @@ export function GenerateReportDialog({
   const [from, setFrom] = useState(initial.period?.from ?? "");
   const [to, setTo] = useState(initial.period?.to ?? "");
   const [asOfDay, setAsOfDay] = useState(initial.asOfDay ?? "");
+  const [bom, setBom] = useState(false);
+  const bomId = useId();
   const [error, setError] = useState("");
   const fromId = useId();
   const toId = useId();
@@ -142,6 +144,8 @@ export function GenerateReportDialog({
       ...(scope === "workspace" ? { workspaceId } : {}),
       ...(needsPeriod ? (custom ? { from, to } : { period: String(preset) }) : {}),
       ...(needsAsOf ? { asOfDay } : {}),
+      // the byte-order mark is a CSV option only and is sent only when chosen
+      ...(effectiveFormat === "csv" && bom ? { options: { bom: true } } : {}),
     };
     generate.mutate(body, {
       onSuccess: () => onOpenChange(false),
@@ -329,6 +333,20 @@ export function GenerateReportDialog({
                     <p className="text-xs text-subtle-foreground">
                       The open findings at the end of that day.
                     </p>
+                  </div>
+                ) : null}
+                {effectiveFormat === "csv" ? (
+                  <div className="flex items-start gap-2">
+                    <input
+                      id={bomId}
+                      type="checkbox"
+                      checked={bom}
+                      onChange={(e) => setBom(e.target.checked)}
+                      className="mt-0.5 size-4 accent-[var(--primary)]"
+                    />
+                    <Label htmlFor={bomId} className="text-sm font-normal">
+                      Add a byte-order mark for Excel
+                    </Label>
                   </div>
                 ) : null}
                 {assigneeNote ? (

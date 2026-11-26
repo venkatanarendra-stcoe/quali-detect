@@ -144,7 +144,7 @@ export function ChartTooltip({ active, payload, label, labelFormatter, valueForm
             </span>
             <span className="font-medium tabular-nums">
               {entry.value === null || entry.value === undefined
-                ? "no data"
+                ? "not available"
                 : valueFormatter
                   ? valueFormatter(entry.value, entry)
                   : String(entry.value)}

@@ -23,3 +23,16 @@ Screens T-06, T-20, T-21, T-39, T-46 to T-51 at 1440 and 390 px, dark and light;
 ## 4. Not verified
 
 No human and no screen-reader review. No run against the real API (Parts A to C are not merged here), so response shapes were checked only against the shared schemas, drill-down counts were not compared with real lists, the realtime hint was not exercised (no socket with the mock), and print styling was not checked. `pnpm test:security` could not run in this worktree (the Prisma client is not generated and there is no database or `.env`); Part D changes no file the suite covers.
+
+## 5. Round 2 (amended DTOs, `AS_BUILT_AM.md`)
+
+Built on main `47d5b0d`. UI files only (`apps/tenant-web/src/features/reporting/**`; the two existing pages needed no further edit).
+
+- **Nulls are "not available", never 0.** `NotAvailable` and `MaybeCount` (a dash with the reason in the tooltip and in screen-reader text) in every table; the chart tooltip says "not available"; null points are explicit gaps (areas, lines and bars skip them, no zero bar).
+- **Forward-only state series.** The open-by-severity area, the burn-down and awaiting-verification charts take `stateSeriesFrom` for the "not recorded" band and show once per chart, in a note: "Severity trend starts on Nov 16: earlier days were not recorded." (burn-down and awaiting verification use their own name). Flow charts keep `dataFrom`. The Overview sums per-workspace trends from the LATEST `stateSeriesFrom` of the workspaces and says so. `stateSeriesFrom: null` is the empty state; fewer than 3 exact days keeps the "needs at least 3 days" notice. `severityBackfilled` is no longer read.
+- **As-of view.** A "Partial snapshot" banner; tiles whose value is null are hidden (plus two tiles that exist as of a day: awaiting verification, accepted or suppressed); a day before the first exact day shows no tile and says where exact days start.
+- **GitHub connection card (T-20 row 4)** from `posture.githubConnections`: active, unavailable, disconnected with icon and text; "not available for this view" when null; a link to the repositories when any is not active. Coverage tables show all five reasons through the label map.
+- **Generate dialog:** CSV only, "Add a byte-order mark for Excel", off by default, sent as `options.bom: true` (the key is absent when off).
+- **Mock:** validates against the new schemas; scenarios `forwardonly` (state series from 10 days ago), `asofpartial` (first exact day 5 days ago: a snapshot of 20 days ago is all null), `connections` (3 unavailable, 2 disconnected, the five coverage reasons); `lastBody` is exposed for the walk.
+- **Re-walked** (headless Chrome, mock on, 1440 and 390 px, dark and light): dashboard default, connections, partial, forwardonly; trends default, forwardonly, as of a covered day, as of a day before the first exact day, young; scan activity with the new reasons; Overview forwardonly; Generate with and without the BOM (request bodies compared). No overflow, no text under 4.5:1.
+- **Still not expressible with the DTOs:** per-day state counters for a past day beyond the ten known as-of fields; a connection state per repository (only counts); the cause of a gap day (no run versus not recorded). No human or screen-reader review; no real API run.

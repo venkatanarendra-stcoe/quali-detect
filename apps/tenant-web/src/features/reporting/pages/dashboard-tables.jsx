@@ -7,7 +7,7 @@ import {
   StatusBadge,
   TimeAgo,
 } from "@/features/findings/components/finding-bits.jsx";
-import { SEVERITY_ORDER } from "../constants/index.js";
+import { COVERAGE_REASON_LABELS, SEVERITY_ORDER } from "../constants/index.js";
 import { CardError, DataFooter } from "../components/chart-card.jsx";
 import { ReportTable } from "../components/report-table.jsx";
 import { useBreakdown, useTopRisk } from "../hooks/use-reporting.js";
@@ -273,7 +273,7 @@ export function DashboardTables({
               cell: (r) =>
                 canExec
                   ? uncovered.get(r.key)
-                    ? `Not scanned: ${uncovered.get(r.key).replaceAll("_", " ")}`
+                    ? `Not scanned: ${COVERAGE_REASON_LABELS[uncovered.get(r.key)] ?? uncovered.get(r.key)}`
                     : "Scanned"
                   : "—",
             },

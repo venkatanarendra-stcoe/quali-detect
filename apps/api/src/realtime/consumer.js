@@ -77,9 +77,10 @@ export function createHintResolver({ repository }) {
 }
 
 /**
- * @param {{ resolver: ReturnType<typeof createHintResolver>, realtime: { emit: (hint: { event: string, rooms: string[], payload: object }) => void } }} deps
+ * @param {{ resolver: ReturnType<typeof createHintResolver>, realtime: { emit: (hint: { event: string, rooms: string[], payload: object }) => void }, onFindingChanged?: (target: { tenantId: string, workspaceId: string }) => Promise<void> }} deps
+ * `onFindingChanged` (Reporting, SPEC 17 D-4): called with the verified (tenant, workspace) of a `finding.changed` hint so the reporting cache epoch moves; it never fails the hint.
  */
-export function createHintHandler({ resolver, realtime }) {
+export function createHintHandler({ resolver, realtime, onFindingChanged }) {
   return async function handleHint(message) {
     const target = resolver.targetOf(message);
     if (!target)
@@ -88,6 +89,10 @@ export function createHintHandler({ resolver, realtime }) {
       ? buildFindingHint(message, /** @type {any} */ (target))
       : buildHint(message, /** @type {HintTarget} */ (target));
     if (hint) realtime.emit(hint);
+    if (onFindingChanged && isFindingHintType(message.type))
+      await onFindingChanged({ tenantId: target.tenantId, workspaceId: target.workspaceId }).catch(
+        () => {},
+      );
   };
 }
 
@@ -95,6 +100,7 @@ export function createHintHandler({ resolver, realtime }) {
  * @param {{
  *   connection: any, repository: ReturnType<typeof import("./repository.js").createRealtimeRepository>,
  *   realtime: { emit: Function }, idempotency: any, logger: any, prefetch?: number, retryPolicy?: object,
+ *   onFindingChanged?: (target: { tenantId: string, workspaceId: string }) => Promise<void>,
  * }} deps
  */
 export function createRealtimeConsumer({
@@ -105,13 +111,14 @@ export function createRealtimeConsumer({
   logger,
   prefetch = 20,
   retryPolicy,
+  onFindingChanged,
 }) {
   const resolver = createHintResolver({ repository });
   return createConsumer({
     connection,
     queue: QUEUE_NAMES.REALTIME,
     verify: (message) => resolver.verify(message),
-    handler: createHintHandler({ resolver, realtime }),
+    handler: createHintHandler({ resolver, realtime, onFindingChanged }),
     idempotency,
     logger,
     prefetch,

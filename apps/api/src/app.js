@@ -25,6 +25,8 @@ import { createSecrets } from "./runtime/secrets.js";
 import { registerModules } from "./runtime/modules.js";
 import { createReadiness } from "./runtime/readiness.js";
 import { createRealtime } from "./realtime/index.js";
+import { disconnectReportingReadClient } from "./modules/reporting/index.js";
+import { disconnectReportingReadCache } from "./modules/reporting/read-cache.js";
 
 /**
  * Builds the Express application (ADR-007). Everything is created per call (no module-level state), so several
@@ -151,6 +153,8 @@ export async function createApp({ config, modules = defaultModules, loggerOption
     /** Releases realtime, RabbitMQ, Redis and Prisma. The HTTP server is closed by the caller first. */
     close: async () => {
       await realtime?.close();
+      await disconnectReportingReadClient();
+      await disconnectReportingReadCache();
       await closeInfrastructure();
     },
   };

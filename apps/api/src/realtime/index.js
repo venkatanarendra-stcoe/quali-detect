@@ -1,4 +1,5 @@
 import { createProcessedMessageStore } from "@qmentisai/db";
+import { createReportingEpochBumper } from "../modules/reporting/read-cache.js";
 import { createRealtimeConsumer } from "./consumer.js";
 import { createRealtimeRepository } from "./repository.js";
 import { createRealtimeServer } from "./server.js";
@@ -35,6 +36,12 @@ export function createRealtime({ config, infra, auth, authz, logger }) {
         realtime: server,
         idempotency: createProcessedMessageStore({ db: infra.db }),
         logger,
+        // Reporting cache epoch (SPEC 17 D-4): one INCR per (tenant, workspace) on every verified finding hint
+        onFindingChanged: createReportingEpochBumper({
+          redis: infra.redis,
+          enabled: config.reporting?.enabled === true,
+          log: logger,
+        }),
       });
       await consumer.start();
     } catch (error) {

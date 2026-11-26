@@ -15,7 +15,6 @@
  *
  * Run: REPORTING_DB_PASSWORD=... REPORTING_RO_DB_PASSWORD=... pnpm --filter @qmentisai/db provision:reporting-logins
  */
-import { PrismaClient } from "@prisma/client";
 
 const WORKER_GROUP = "qm_reporting";
 const READ_GROUP = "qm_reporting_ro";
@@ -96,7 +95,11 @@ if (!adminUrl) {
   process.exit(2);
 }
 
-const prisma = new PrismaClient();
+// Imported only AFTER the checks above: importing @prisma/client loads a `.env` file that sits next to the schema into process.env, which
+// would silently supply an admin URL the caller never passed (and the test of this script would then run against whatever database that
+// file names). The client also gets the admin URL EXPLICITLY, so no file can redirect it.
+const { PrismaClient } = await import("@prisma/client");
+const prisma = new PrismaClient({ datasourceUrl: adminUrl });
 try {
   // The migration creates the group roles and their grants when the migration user may create roles; with a less privileged migration user
   // (the development database) this admin step does it, idempotently, with exactly the same grants.

@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 168,
+  "operationCount": 170,
   "operations": [
     {
       "method": "GET",
@@ -6801,6 +6801,152 @@
         ]
       },
       "summary": "Executions per day, success rate, duration and ingestion share (S-1 to S-3, S-6, S-7)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/settings",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ reportingTimezone, updatedAt, updatedBy, recomputing }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "The tenant reporting time zone and whether a rebuild is running"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/reporting/settings",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": null,
+      "permissionScope": null,
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "REPORT_AS_OF_UNAVAILABLE",
+            "status": 409
+          },
+          {
+            "code": "REPORT_EXPIRED",
+            "status": 410
+          },
+          {
+            "code": "REPORT_LIMIT_REACHED",
+            "status": 429
+          },
+          {
+            "code": "REPORT_NOT_READY",
+            "status": 409
+          },
+          {
+            "code": "REPORT_PERIOD_INVALID",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TEMPLATE_UNKNOWN",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TOO_LARGE",
+            "status": 422
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ reportingTimezone }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ reportingTimezone, updatedAt, updatedBy, recomputing }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Set the tenant reporting time zone (audited). A real change rebuilds the trends in the new zone; the same zone is a no-op"
     },
     {
       "method": "GET",

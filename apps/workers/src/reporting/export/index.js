@@ -21,6 +21,8 @@ export { ReportTooLargeError, createPdfReport } from "./pdf-kit.js";
  * @returns {((message: any, context: { log?: any, attempt?: number, signal?: AbortSignal }) => Promise<void>) | null}
  */
 export function createExportHandler(deps) {
+  // module off: nothing is built, so a message that reaches the worker anyway is dead-lettered and no file or row is written (like the rollup handler)
+  if (deps.config?.reporting && deps.config.reporting.enabled !== true) return null;
   const root = deps.config?.execution?.artifactStoreRoot ?? null;
   if (!root) {
     deps.logger?.warn(

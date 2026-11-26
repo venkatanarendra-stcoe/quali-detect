@@ -39,7 +39,7 @@
       }
     }
   },
-  "operationCount": 150,
+  "operationCount": 168,
   "operations": [
     {
       "method": "GET",
@@ -5779,6 +5779,1306 @@
         ]
       },
       "summary": "One board column, keyset paged (most severe first)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/aging",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ buckets, oldest }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Aging buckets and the ten oldest critical and high findings (R-6)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/breakdown",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "by",
+          "period",
+          "from",
+          "to",
+          "limit",
+          "cursor"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ by, items, nextCursor }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Open findings by repository, pipeline, scan type or rule (B-2, B-3, B-5; keyset pages)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/coverage",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ repositories, uncovered, pipelines }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Repository and scan-type coverage with reasons (S-4, S-5)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/overview",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "dashboard.view",
+      "permissionScope": "tenant",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "period",
+          "from",
+          "to"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ period, workspaces, totals, topRisk }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Organization overview across the workspaces the caller can see (B-1; tenant-scope dashboard.view; no workspace parameter)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/posture",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "asOf"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ asOfDay, partial, open, bySeverity, byType, byGroup, byStatus, backlog, workInProgress, criticalHighOpen, exceptions, awaitingDecision, newLast24Hours, pipelinesHealthy, githubConnections }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Current posture of one workspace (P-1 to P-10), or as of a past day"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/quality",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "security_review.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "period",
+          "from",
+          "to"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ period, falsePositiveRate, noisyRules, advisoryCoverage, advisoryAgreement, humanOverrideRate, advisoryOutcomes }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Detection quality: false-positive rate, advisory agreement, noisiest rules (Q-1 to Q-6)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/remediation",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "period",
+          "from",
+          "to"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ period, timeToRemediate, velocity, timeToFirstDecision, verificationLag, reopenRate }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Remediation performance (R-1 to R-3, R-7, R-8, velocity)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/reports",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "report.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "INVALID_CURSOR",
+            "status": 400
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "status",
+          "limit",
+          "cursor"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items, nextCursor }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "The generated reports of a workspace (or the tenant-wide ones without workspaceId)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reporting/reports",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "report.export (tenant-wide: dashboard.view and report.export)",
+      "permissionScope": "workspace",
+      "successStatus": 202,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "REPORT_AS_OF_UNAVAILABLE",
+            "status": 409
+          },
+          {
+            "code": "REPORT_EXPIRED",
+            "status": 410
+          },
+          {
+            "code": "REPORT_LIMIT_REACHED",
+            "status": 429
+          },
+          {
+            "code": "REPORT_NOT_READY",
+            "status": 409
+          },
+          {
+            "code": "REPORT_PERIOD_INVALID",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TEMPLATE_UNKNOWN",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TOO_LARGE",
+            "status": 422
+          }
+        ]
+      },
+      "request": {
+        "params": [],
+        "query": [],
+        "body": "{ template, format, workspaceId, period, from, to, asOfDay, options }"
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ reportId }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Generate a report (CSV or PDF) asynchronously; 202 with the report id. Idempotency-Key is REQUIRED. Refused, never truncated, above 250,000 CSV rows"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/reporting/reports/{id}",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "report.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": [
+          {
+            "code": "CONFLICT",
+            "status": 409
+          },
+          {
+            "code": "REPORT_AS_OF_UNAVAILABLE",
+            "status": 409
+          },
+          {
+            "code": "REPORT_EXPIRED",
+            "status": 410
+          },
+          {
+            "code": "REPORT_LIMIT_REACHED",
+            "status": 429
+          },
+          {
+            "code": "REPORT_NOT_READY",
+            "status": 409
+          },
+          {
+            "code": "REPORT_PERIOD_INVALID",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TEMPLATE_UNKNOWN",
+            "status": 400
+          },
+          {
+            "code": "REPORT_TOO_LARGE",
+            "status": 422
+          }
+        ]
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ deleted }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "Delete a finished report (the requester or a report.export holder; audited; the file is purged)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/reports/{id}",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "report.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ id, template, format, workspaceId, status, errorCode, period, asOfDay, requestedBy, createdAt, startedAt, finishedAt, expiresAt, bytes, rowCount, canDownload }",
+        "metaKeys": [
+          "correlationId"
+        ]
+      },
+      "summary": "One report run: status, never the file"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/reports/{id}/download",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "report.view",
+      "permissionScope": "workspace",
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [
+          "id"
+        ],
+        "query": [],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": null,
+        "metaKeys": []
+      },
+      "summary": "Download a ready report: an authenticated stream (attachment, no-store, audited); the requester or a report.export holder only"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/sbom",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "period",
+          "from",
+          "to"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ components, vulnerable, byEcosystem, trend }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "SBOM component counts and trend (S-8)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/scan-activity",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "execution.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "period",
+          "from",
+          "to"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ period, perDay, successRate, duration, queueWait, completeness, ingestionEligibleShare }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Executions per day, success rate, duration and ingestion share (S-1 to S-3, S-6, S-7)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/sla",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ closed, open }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "SLA compliance of closed findings and SLA status of open ones (R-4, R-5)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/top-risk",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "limit"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ items }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId",
+          "formula"
+        ]
+      },
+      "summary": "Top risky repositories by risk points, formula in meta (B-4)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/trends",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.view",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId",
+          "period",
+          "from",
+          "to",
+          "series"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ period, points, severityBackfilled, stateSeriesFrom, dataFrom, recomputing, projection }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Daily trends of one workspace (T-1 to T-5), zero-filled, gaps marked"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/workload",
+      "module": "reporting",
+      "audience": "tenant",
+      "permission": "finding.assign",
+      "permissionScope": "workspace",
+      "successStatus": 200,
+      "documentedErrorStatuses": [
+        400,
+        401,
+        403,
+        404,
+        429
+      ],
+      "errorCodes": {
+        "transport": [
+          {
+            "code": "FORBIDDEN",
+            "status": 403
+          },
+          {
+            "code": "INTERNAL_ERROR",
+            "status": 500
+          },
+          {
+            "code": "RESOURCE_NOT_FOUND",
+            "status": 404
+          },
+          {
+            "code": "TENANT_CONTEXT_REQUIRED",
+            "status": 403
+          },
+          {
+            "code": "TENANT_SUSPENDED",
+            "status": 403
+          },
+          {
+            "code": "UNAUTHENTICATED",
+            "status": 401
+          },
+          {
+            "code": "VALIDATION_FAILED",
+            "status": 400
+          }
+        ],
+        "domain": []
+      },
+      "request": {
+        "params": [],
+        "query": [
+          "workspaceId"
+        ],
+        "body": null
+      },
+      "response": {
+        "envelope": "success",
+        "dataShape": "{ assignees, unassigned }",
+        "metaKeys": [
+          "asOf",
+          "source",
+          "stale",
+          "timeZone",
+          "correlationId"
+        ]
+      },
+      "summary": "Per-assignee open, due-soon and breached counts, never ranked (B-6)"
     },
     {
       "method": "GET",

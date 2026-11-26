@@ -94,6 +94,19 @@ const NAMED_GATES = Object.freeze({
   },
 });
 
+/**
+ * The reporting export routes build their gates in the service (composite: `report.export` at the workspace, or `dashboard.view` AND
+ * `report.export` in every workspace for a tenant-wide report; reads need `report.view`, and a download or delete also needs the requester
+ * or `report.export`), so the snapshot names them here instead of reading a literal.
+ */
+const REPORT_EXPORT_GATES = Object.freeze({
+  create: {
+    permission: "report.export (tenant-wide: dashboard.view and report.export)",
+    scope: "workspace",
+  },
+  read: { permission: "report.view", scope: "workspace" },
+});
+
 function extractRoutes(moduleName) {
   const routesDir = path.join(apiDir, "src/modules", moduleName, "routes");
   // A module that splits its routes into `routes/<part>.routes.js` files (the findings module, one file per building part) is read as ONE
@@ -130,6 +143,9 @@ function extractRoutes(moduleName) {
     if (ident && consts.has(ident)) ({ permission, scope } = consts.get(ident));
     else if (/^(\w+)\s*,/.test(handler) && NAMED_GATES[handler.match(/^(\w+)/)[1]])
       ({ permission, scope } = NAMED_GATES[handler.match(/^(\w+)/)[1]]);
+    else if (/gate\.create\b/.test(handler)) ({ permission, scope } = REPORT_EXPORT_GATES.create);
+    else if (/gate\.(list|item)\b/.test(handler))
+      ({ permission, scope } = REPORT_EXPORT_GATES.read);
     else if (/^policies\.(cancelPolicy|retryPolicy)\b/.test(handler))
       ({ permission, scope } = POLICY_PERMISSIONS[handler.match(/^policies\.(\w+)/)[1]]);
     else if (/^authz\.context\b/.test(handler))

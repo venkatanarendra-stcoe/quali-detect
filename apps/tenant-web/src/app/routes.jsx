@@ -8,6 +8,13 @@ import {
   ReviewsPage,
 } from "@/features/findings/index.js";
 import {
+  QualityPage,
+  RemediationPerformancePage,
+  ReportsPage,
+  ScanActivityPage,
+  TrendsPage,
+} from "@/features/reporting/index.js";
+import {
   GitHubCallbackPage,
   GitHubSetupPage,
   IntegrationDetailPage,
@@ -133,6 +140,33 @@ export const WORKSPACE_ROUTES = [
     path: "dashboard",
     permission: "workspace.view",
     element: <WorkspaceDashboardPage />,
+  },
+  // The four analysis screens (T-46 to T-49) open from the dashboard tiles; they are not sidebar items (reporting SPEC D-2).
+  {
+    path: "dashboard/trends",
+    permission: "finding.view",
+    element: <TrendsPage />,
+  },
+  {
+    path: "dashboard/remediation",
+    permission: "finding.view",
+    element: <RemediationPerformancePage />,
+  },
+  {
+    path: "dashboard/scan-activity",
+    permission: "execution.view",
+    element: <ScanActivityPage />,
+  },
+  {
+    path: "dashboard/quality",
+    permission: "security_review.view",
+    element: <QualityPage />,
+  },
+  {
+    itemId: "reports",
+    path: "reports",
+    permission: "report.view",
+    element: <ReportsPage />,
   },
   {
     itemId: "repositories",

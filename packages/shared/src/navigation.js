@@ -68,7 +68,7 @@ export const WORKSPACE_NAV_GROUPS = Object.freeze([
     item("approvals", "approval.view", "workspace", true),
     item("remediation", "remediation.view", "workspace", true),
     item("policies", "policy.view", "workspace", true),
-    item("reports", "report.view", "workspace", false),
+    item("reports", "report.view", "workspace", true),
   ]),
   group("workspace-administration", [
     item("members", "workspace.view", "workspace", true),

@@ -1,4 +1,4 @@
-import { Boxes, Building2 } from "lucide-react";
+import { Boxes } from "lucide-react";
 import { Link } from "react-router";
 import { AppPageLayout } from "@qmentisai/ui";
 import { StatusChip } from "@/components/common/status-chip.jsx";
@@ -19,6 +19,7 @@ import { useSession } from "@/features/auth/hooks/use-session.js";
 import { PermissionGate } from "@/features/authorization/components/permission-gate.jsx";
 import { useCan } from "@/features/authorization/hooks/use-permissions.js";
 import { useTotal } from "@/features/directory/hooks/use-directory.js";
+import { OrganizationReporting } from "@/features/reporting/index.js";
 import { useOverview } from "../hooks/use-overview.js";
 import { useWorkspaceList } from "@/features/workspaces/hooks/use-workspaces.js";
 
@@ -113,6 +114,8 @@ export function OverviewPage() {
         </PermissionGate>
       </section>
 
+      <OrganizationReporting />
+
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Workspaces</CardTitle>
@@ -177,17 +180,6 @@ export function OverviewPage() {
               ) : null}
             </>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Security posture</CardTitle>
-          <CardDescription>Findings, SLA and pipeline health across workspaces.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Building2 aria-hidden="true" className="size-4" />
-          Security metrics appear here once repositories, pipelines and findings are available.
         </CardContent>
       </Card>
     </AppPageLayout>

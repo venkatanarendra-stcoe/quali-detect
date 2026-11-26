@@ -28,6 +28,9 @@ export const REPORTING_PERMISSION_BY_ROUTE = Object.freeze({
   "GET /reporting/reports/{id}/download": "report.view",
   // the requester or a `report.export` holder of the workspace: the service checks it; the route needs the page's key
   "DELETE /reporting/reports/{id}": "report.view",
+  // tenant scope, the Organization Settings keys (not a new key): the zone decides every report day of the tenant
+  "GET /reporting/settings": "tenant_settings.view",
+  "PUT /reporting/settings": "tenant_settings.manage",
 });
 
 /** Dashboard section to the key that gates its data (SPEC 3, D-2): a tile without its key is hidden and the API answers 403. @type {Readonly<Record<string, string>>} */

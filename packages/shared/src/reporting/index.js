@@ -6,3 +6,4 @@ export * from "./metrics.js";
 export * from "./templates.js";
 export * from "./permissions-map.js";
 export * from "./schemas.js";
+export * from "./reporting-settings.js";

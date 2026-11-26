@@ -175,3 +175,27 @@ export function createReportingEpochBumper({ redis, enabled, log }) {
     }
   };
 }
+
+/**
+ * Invalidates every cached reporting read of a tenant (the time-zone change: the cached days were bucketed in the old zone). It bumps the
+ * epoch of each of the tenant's workspaces and of the tenant-wide overview through {@link createReportingEpochBumper} (the keys are built
+ * there only). The Redis client is the one of the read cache (the same lazy connection, or the injected test seam); with no Redis the
+ * entries expire by TTL (5 minutes at most) and nothing fails.
+ * @param {{ config: any, log?: import("pino").Logger, tenantId: string, workspaceIds: readonly string[] }} input
+ */
+export async function bumpTenantReportingEpochs({ config, log, tenantId, workspaceIds }) {
+  let redis = null;
+  if (config?.reporting && Object.hasOwn(config.reporting, "cacheRedis"))
+    redis = config.reporting.cacheRedis ?? null;
+  else if (config?.reporting?.enabled === true && log) {
+    getReportingReadCache({ config, log }); // creates the shared lazy connection when it does not exist yet
+    redis = globalThis[KEY]?.redis ?? null;
+  }
+  const bump = createReportingEpochBumper({
+    redis,
+    enabled: config?.reporting?.enabled === true,
+    log,
+  });
+  for (const workspaceId of workspaceIds.length > 0 ? workspaceIds : [TENANT_WIDE])
+    await bump({ tenantId, workspaceId });
+}

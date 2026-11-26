@@ -1,6 +1,7 @@
 import { AppPageLayout } from "@qmentisai/ui";
 import { FindingsSlaCard } from "@/features/findings/index.js";
 import { AnalysisAssistantCard } from "../components/analysis-assistant-card.jsx";
+import { ReportingSettingsCard } from "../components/reporting-settings-card.jsx";
 
 /**
  * Organization settings (route guard: `tenant_settings.view`). Holds the Analysis assistant consent card (two switches: file names
@@ -15,6 +16,7 @@ export function OrganizationSettingsPage() {
       <div className="max-w-3xl space-y-4">
         <AnalysisAssistantCard />
         <FindingsSlaCard />
+        <ReportingSettingsCard />
       </div>
     </AppPageLayout>
   );

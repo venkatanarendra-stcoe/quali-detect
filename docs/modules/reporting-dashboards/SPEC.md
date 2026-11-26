@@ -297,7 +297,7 @@ A row is written only for combinations that have data (sparse); the API fills ze
 
 ### 8.4 Tenant setting
 
-`tenant_settings.reporting_timezone` (IANA name, default `UTC`, validated against the runtime database, the rule of PIPE time zones in `pipelines-triggers` section 5), edited by `tenant_settings.update` holders (audited). Today the product stores **no tenant time zone** (only per-trigger zones on pipelines); D-5.
+`tenant_settings.reporting_timezone` (IANA name, default `UTC`, validated against the runtime database, the rule of PIPE time zones in `pipelines-triggers` section 5), edited by `tenant_settings.manage` holders (audited; the key name was corrected, see 17.6). Today the product stores **no tenant time zone** (only per-trigger zones on pipelines); D-5.
 
 ### 8.5 Reserved shape for scheduled delivery (not built)
 
@@ -498,6 +498,10 @@ Deviations from the text above, none changing a ruling: (1) the tenant time zone
 ### 17.5 Amendment AM (2026-11-26; details in `AS_BUILT_AM.md`)
 
 Part A proved that the per-severity split of a past day cannot be reconstructed exactly, so by owner ruling 0.1 the state series are **forward-only**. Part B, written in parallel, had seven defects against the frozen views. The amendment (sanctioned by the lead): (1) a second additive migration `20261126110000_reporting_views_amendment` with three redaction-safe views, `report_repositories_v`, `report_pipelines_v` (scan types enabled in the CURRENT configuration version, folded into `scan_types_enabled`) and `report_sla_targets_v`, SELECT-only to both roles (ten views now); (2) DTO nullability: the posture gains `partial` and `githubConnections` and its unknown fields are `null` (never 0) in the as-of posture; trend points carry an explicit `null` per requested series for a day that is not known; `severityBackfilled` is always `false`; `stateSeriesFrom` is the first exact day (the earliest succeeded `incremental` or `close` run of the tenant); (3) the read paths use the new views (P-10, S-4 reasons including `pipeline_disabled` and `connection_unavailable`, S-5, the connection tile, R-4 with the tenant's targets). `createReportBodySchema.options` also allows `bom`.
+
+### 17.6 Tenant reporting time-zone setting (2026-11-26; details in `AS_BUILT_TZ.md`)
+
+D-5 and RPT-020 get their route and screen: `GET` and `PUT /reporting/settings` (tenant scope; **`tenant_settings.view` and `tenant_settings.manage`**, the keys the Organization Settings screen already uses, so no key is added; the 8.4 text "`tenant_settings.update`" is superseded). The PUT is audited (`tenant.reporting_timezone_changed`, previous and new zone) and, only for a real change, queues a `timezone_changed` rebuild through the outbox in the same transaction, with a message id that is distinct per change (no hour bucket), and bumps the reporting cache epochs of the tenant. The zone must be a canonical name of the runtime (`Intl.supportedValuesOf("timeZone")` plus `UTC`). The Organization Settings screen has a "Reporting" card with the "Recomputing" state. Security suite part `TZ`, `RPTTZ-01` to `RPTTZ-08`.
 
 ## 18. Build plan (after approval; each part verified by gates, not before)
 

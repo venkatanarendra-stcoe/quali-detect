@@ -21,7 +21,8 @@
  *  - C (exports): `RPT-S05` (redaction canary in rollup rows, DTOs, CSV and PDF), `RPT-S06` (CSV and PDF safety), `RPT-S07` (export object
  *    scoping and traversal), `RPT-S08` (limits, authenticated download, expiry), `RPT-S12`;
  *  - D (UI): none, UI tests are outside the suite;
- *  - E (cross-cutting): `RPT-S13`, `RPT-S14` and the sweeps.
+ *  - E (cross-cutting): `RPT-S13`, `RPT-S14` and the sweeps;
+ *  - TZ (tenant reporting time-zone setting, AS_BUILT_TZ.md): `RPTTZ-01` to `RPTTZ-08`.
  * A letter suffix splits a spec id into checks (`RPT-S05a`); a check id is unique across the whole suite.
  * @type {Readonly<{ A0: number, A: number, B: number, AM: number, C: number, E: number }>}
  */
@@ -32,6 +33,7 @@ export const EXPECTED_REPORTING_CHECKS = Object.freeze({
   AM: 7,
   C: 16,
   E: 12,
+  TZ: 8,
 });
 
 /** What SPEC 16.2 pre-assigns to each part (documentation; not asserted). */
@@ -44,7 +46,7 @@ export const PLANNED_REPORTING_CHECKS = Object.freeze({
 });
 
 /** The part names in registration order. */
-export const REPORTING_PARTS = Object.freeze(["A0", "A", "B", "AM", "C", "E"]);
+export const REPORTING_PARTS = Object.freeze(["A0", "A", "B", "AM", "C", "E", "TZ"]);
 
 /** Sum of the expected counts, added to the base count of the suite (909 before Findings plus the Findings total). */
 export const REPORTING_CHECKS_TOTAL = Object.values(EXPECTED_REPORTING_CHECKS).reduce(

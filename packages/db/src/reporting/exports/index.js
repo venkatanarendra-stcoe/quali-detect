@@ -1,21 +1,12 @@
 /**
- * Part C (exports) owns this directory: write the methods named in `REPORTING_EXPORT_METHODS` (API side) and
- * `REPORTING_EXPORT_WORKER_METHODS` (worker side) of ../index.js here and return them from the two builders. Do not edit ../index.js.
- * Until Part C fills it the frozen methods reject with `ReportingNotImplementedError`.
+ * Part C (exports) owns this directory (docs/modules/reporting-dashboards/SPEC.md 7.3, 8.3, 12; ADR-015). The two builders return the methods
+ * named in `REPORTING_EXPORT_METHODS` (API side) and `REPORTING_EXPORT_WORKER_METHODS` (worker side) of ../index.js, which Part A0 froze and
+ * which is not edited here.
+ *
+ *  - `api-methods.js`    the run row and its limits (the API's normal client, tenant scoped, transaction aware);
+ *  - `worker-methods.js` claim, page, complete, fail, expire (the `qm_reporting` client);
+ *  - `datasets.js`       the SQL of every template over the `report_*_v` views (no source table, no rollup table);
+ *  - `mappers.js`        row mapping.
  */
-
-/**
- * @param {{ db: any }} deps the API's normal client
- * @returns {Record<string, (...args: any[]) => any>}
- */
-export function buildExportMethods({ db: _db }) {
-  return {};
-}
-
-/**
- * @param {{ db: any }} deps the worker client (`qm_reporting`)
- * @returns {Record<string, (...args: any[]) => any>}
- */
-export function buildExportWorkerMethods({ db: _db }) {
-  return {};
-}
+export { buildExportMethods } from "./api-methods.js";
+export { buildExportWorkerMethods } from "./worker-methods.js";

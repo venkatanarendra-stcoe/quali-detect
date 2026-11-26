@@ -28,7 +28,7 @@ export const EXPECTED_REPORTING_CHECKS = Object.freeze({
   A0: 16,
   A: 9,
   B: 11,
-  C: 0,
+  C: 16,
   E: 0,
 });
 

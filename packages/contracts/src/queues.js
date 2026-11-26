@@ -32,6 +32,13 @@ export const QUEUE_NAMES = Object.freeze({
   FINDINGS: "findings",
   /** The false-positive advisory agent's jobs (`finding.advisory.requested`), hosted by the `findings-agent` worker (FINDINGS_AGENT_ENABLED, default off; SPEC 9.2). */
   FINDINGS_AGENT: "findings-agent",
+  /**
+   * Reporting jobs (docs/modules/reporting-dashboards/SPEC.md 10, ADR-015): `reporting.rollup.requested` (one per tenant per hour from the
+   * scheduler tick, plus backfills) and `reporting.export.requested` (the transactional outbox, same transaction as the `report_exports`
+   * row). Hosted by the `reporting` worker, only while REPORTING_ENABLED=true (default off). Main queue, retry tiers and dead letter come
+   * from the shared broker topology.
+   */
+  REPORTING: "reporting",
 });
 
 /** Topic exchange for webhook-derived SCM events; routing key `scm.github.<event>` (SPEC Q11). */

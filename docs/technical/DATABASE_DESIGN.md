@@ -74,6 +74,10 @@ Use one PostgreSQL database initially with logical separation between platform a
 
 **Indexes.** Partial indexes for the open set (severity, SLA, assignee, pipeline and type, exception expiry); unique per tenant, pipeline and fingerprint; one pending and one approved exception per finding, one pending review per finding. Measured on 100,000 findings: list and detail inside the targets (`AS_BUILT_A1.md` 5).
 
+### Reporting (derived and operational, `reporting.prisma`, migration `20261126100000_reporting_core`; SPEC `docs/modules/reporting-dashboards/SPEC.md` 8, as built `AS_BUILT_A0.md` 3)
+
+Seven tables: four sparse daily rollup tables (`report_daily_findings`, `_executions`, `_decisions`, `_sbom`; tenant-local `day`, composite foreign key to `(tenant_id, workspace_id, repository_id, pipeline_id)`, `ON DELETE CASCADE`: derived data is disposable and rebuilt from the sources), `report_rollup_runs`, `report_exports` (server-built `object_key`), and `tenant_reporting_settings` (the tenant time zone, no row means `UTC`). Seven `report_*_v` views are the ONLY way the reporting roles read sources (no evidence, rationale, comment, advisory reasoning, justification or e-mail); two NOLOGIN roles, `qm_reporting` (worker: select on the views, insert and update on the report tables) and `qm_reporting_ro` (API: select only, read-only transactions, 5 s timeout), have no grant on any source table; rebuild and retention go through two `SECURITY DEFINER` functions.
+
 ## Data modeling rules
 
 - Use stable primary keys.

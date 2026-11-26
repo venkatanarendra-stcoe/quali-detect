@@ -74,6 +74,13 @@ const envSchema = z.object({
   PIPELINE_CANCEL_GRACE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
   EXECUTION_ABORT_GRACE_SECONDS: z.coerce.number().int().min(0).max(600).default(10),
   EXECUTION_RETRY_CHAIN_MAX: z.coerce.number().int().min(1).max(20).default(5),
+  // Reporting (docs/modules/reporting-dashboards/SPEC.md 10, 12, ADR-015): OFF unless REPORTING_ENABLED=true (nothing is read, queued or
+  // written for it while false). REPORTING_RO_DATABASE_URL is the connection string of the LOGIN role that is a member of `qm_reporting_ro`
+  // (select on the report views only, read-only transactions): a SECRET, never logged. Optional in development (the shared pool is used and a
+  // warning is logged), REQUIRED in production while the flag is on. Provision it with `pnpm --filter @qmentisai/db provision:reporting-logins`.
+  REPORTING_ENABLED: booleanFlag.default("false"),
+  REPORTING_RO_DATABASE_URL: z.string().url().optional(),
+  REPORTING_EXPORT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   // Realtime (docs/modules/executions/SPEC.md §9.4 and §17.ad): Socket.IO hints, OFF unless enabled. Single instance only (no Redis
   // adapter): the `realtime` queue consumer and the sockets live in this process.
   REALTIME_ENABLED: booleanFlag.optional(),
@@ -257,6 +264,12 @@ function crossChecks(e, allowedOrigins) {
     if (e.COOKIE_SECURE === false)
       problems.push({ variable: "COOKIE_SECURE", message: "must not be false in production" });
   }
+  if (production && e.REPORTING_ENABLED === true && !e.REPORTING_RO_DATABASE_URL)
+    problems.push({
+      variable: "REPORTING_RO_DATABASE_URL",
+      message:
+        "required in production while REPORTING_ENABLED=true (the restricted qm_reporting_ro login role)",
+    });
   if (e.SESSION_IDLE_TIMEOUT_SECONDS > e.SESSION_TTL_SECONDS)
     problems.push({
       variable: "SESSION_IDLE_TIMEOUT_SECONDS",
@@ -354,6 +367,12 @@ export function loadConfig(env = process.env) {
       cancelGraceSeconds: e.PIPELINE_CANCEL_GRACE_SECONDS,
       abortGraceSeconds: e.EXECUTION_ABORT_GRACE_SECONDS,
       retryChainMax: e.EXECUTION_RETRY_CHAIN_MAX,
+    }),
+    reporting: Object.freeze({
+      enabled: e.REPORTING_ENABLED,
+      /** Restricted read-role connection string (a secret: never log); null in development when unset (the shared pool is used, with a warning). */
+      readDatabaseUrl: e.REPORTING_RO_DATABASE_URL ?? null,
+      exportRetentionDays: e.REPORTING_EXPORT_RETENTION_DAYS,
     }),
     realtime: Object.freeze({
       enabled: e.REALTIME_ENABLED ?? false,

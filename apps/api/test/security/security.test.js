@@ -69,6 +69,11 @@ import {
   FINDINGS_CHECKS_TOTAL,
 } from "./helpers/findings/index.js";
 import {
+  buildReportingWorld,
+  REPORTING_CHECKS,
+  REPORTING_CHECKS_TOTAL,
+} from "./helpers/reporting/index.js";
+import {
   DAY_FIRES,
   NEXT_FIRES,
   OVERLAP_WALKS,
@@ -83,7 +88,7 @@ import { buildPreferenceChecks } from "./helpers/user-preferences.js";
 import { buildWorld } from "./helpers/world.js";
 
 /** 909 checks before the Findings module (ADR-008 area 19); each part's range is pre-assigned in helpers/findings/expected.js. */
-const EXPECTED_CHECKS = 909 + FINDINGS_CHECKS_TOTAL;
+const EXPECTED_CHECKS = 909 + FINDINGS_CHECKS_TOTAL + REPORTING_CHECKS_TOTAL;
 const env = (name) => {
   const value = process.env[name];
   if (!value)
@@ -5744,6 +5749,24 @@ const TOKEN_MATERIAL = /ghs_stub_|ghu_stub_|BEGIN (RSA )?PRIVATE KEY/;
       name,
       { status: 200 },
       async () => ({ status: 200, json: null, problems: await run(await findingsWorld()) }),
+      (r) => r.problems,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Reporting and Dashboards (ADR-008 area 20, docs/modules/reporting-dashboards/SPEC.md 16.2): the contract freeze (Part A0) and, as the parts
+// land, their own checks. ONE aggregated block: each part registers in its own file (helpers/reporting/reporting-<part>-checks.js) and its own
+// line of helpers/reporting/expected.js; a part that is not built yet counts 0 and cannot fail the suite.
+// ---------------------------------------------------------------------------------------------------------------------
+{
+  const add = group("Reporting: contract freeze, database integrity and shared properties");
+  const reportingWorld = () => once("reporting", () => buildReportingWorld(suiteDb()));
+  for (const { id, name, run } of REPORTING_CHECKS)
+    add(
+      id,
+      name,
+      { status: 200 },
+      async () => ({ status: 200, json: null, problems: await run(await reportingWorld()) }),
       (r) => r.problems,
     );
 }

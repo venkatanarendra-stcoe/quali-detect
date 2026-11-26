@@ -37,4 +37,16 @@ export const ERROR_CODES = Object.freeze({
   // Findings (docs/modules/findings/SPEC.md 8): a stale `expectedRev`, a refused state-machine transition, a pending exception, a
   // deleted pipeline or an already decided request. `details.reason` is one of FINDING_CONFLICT_REASONS (@qmentisai/shared).
   FINDING_STATE_CONFLICT: "FINDING_STATE_CONFLICT",
+  // Reporting (docs/modules/reporting-dashboards/SPEC.md 9): stable codes of the period and report-run rules.
+  REPORT_PERIOD_INVALID: "REPORT_PERIOD_INVALID",
+  REPORT_PERIOD_TOO_LONG: "REPORT_PERIOD_TOO_LONG",
+  // A point-in-time day before the rollup start (or beyond its retention).
+  REPORT_AS_OF_UNAVAILABLE: "REPORT_AS_OF_UNAVAILABLE",
+  // A report over the row cap (CSV 250,000 rows) or the PDF page cap: refused, never truncated; narrow the scope.
+  REPORT_TOO_LARGE: "REPORT_TOO_LARGE",
+  // 3 running exports per tenant or 20 requests per hour per user.
+  REPORT_LIMIT_REACHED: "REPORT_LIMIT_REACHED",
+  REPORT_NOT_READY: "REPORT_NOT_READY",
+  REPORT_EXPIRED: "REPORT_EXPIRED",
+  REPORT_TEMPLATE_UNKNOWN: "REPORT_TEMPLATE_UNKNOWN",
 });

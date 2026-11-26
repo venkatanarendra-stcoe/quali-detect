@@ -19,7 +19,8 @@
     "./scm": "./src/scm/index.js",
     "./dbrefresh": "./src/dbrefresh/index.js",
     "./findings": "./src/findings/index.js",
-    "./findings-agent": "./src/findings-agent/index.js"
+    "./findings-agent": "./src/findings-agent/index.js",
+    "./reporting": "./src/reporting/index.js"
   },
   "scripts": {
     "lint": "eslint .",
@@ -45,13 +46,16 @@
     "start:findings": "node --env-file-if-exists=.env src/findings/main.js",
     "dev:findings": "node --watch --env-file-if-exists=.env src/findings/main.js",
     "start:findings-agent": "node --env-file-if-exists=.env src/findings-agent/main.js",
-    "dev:findings-agent": "node --watch --env-file-if-exists=.env src/findings-agent/main.js"
+    "dev:findings-agent": "node --watch --env-file-if-exists=.env src/findings-agent/main.js",
+    "start:reporting": "node --env-file-if-exists=.env src/reporting/main.js",
+    "dev:reporting": "node --watch --env-file-if-exists=.env src/reporting/main.js"
   },
   "dependencies": {
     "@qmentisai/contracts": "workspace:*",
     "@qmentisai/db": "workspace:*",
     "@qmentisai/infra": "workspace:*",
     "@qmentisai/shared": "workspace:*",
+    "pdfkit": "0.21.0",
     "pino": "catalog:",
     "zod": "catalog:"
   },

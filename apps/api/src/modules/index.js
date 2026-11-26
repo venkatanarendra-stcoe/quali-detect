@@ -5,6 +5,7 @@ import { executionsModule } from "./executions/index.js";
 import { findingsModule } from "./findings/index.js";
 import { pipelinesModule } from "./pipelines/index.js";
 import { repositoriesModule } from "./repositories/index.js";
+import { reportingModule } from "./reporting/index.js";
 import { groupsModule } from "./groups/index.js";
 import { identityModule } from "./identity/index.js";
 import { platformAuditLogsModule } from "./platform-audit-logs/index.js";
@@ -41,4 +42,5 @@ export const modules = [
   userPreferencesModule,
   tenantAiSettingsModule,
   findingsModule,
+  reportingModule,
 ];

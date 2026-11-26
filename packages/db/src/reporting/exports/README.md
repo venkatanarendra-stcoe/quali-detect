@@ -1,0 +1,1 @@
+Owned by Reporting Part C (exports). Part A0 froze the method names in `../index.js`; put the bodies here (the report-run lifecycle and the export row readers; the export worker reads the `report_*_v` views only).

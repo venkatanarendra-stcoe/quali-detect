@@ -1,0 +1,192 @@
+// ---------------------------------------------------------------- Reporting (docs/modules/reporting-dashboards/SPEC.md section 8, ADR-015, Part A0)
+// DERIVED and operational tables only (rollups, rollup runs, report-run rows, the tenant reporting time zone); no source table changes meaning.
+// Conventions as the Findings tables: `tenant_id` in every primary key, COMPOSITE foreign keys that carry tenant, workspace, repository and
+// pipeline wherever a pipeline is referenced (a row for a wrong tenant/workspace/repository/pipeline combination is unrepresentable). The rollup
+// foreign keys CASCADE: derived data is disposable (SPEC 5 rule 11) and a purged pipeline or tenant takes its rollups with it. Rollup rows are
+// SPARSE (only combinations that have data). CHECK constraints, the six `report_*_v` views, the two NOLOGIN roles and their grants live in the
+// migration SQL because Prisma cannot express them. User columns are plain uuids without a foreign key (the Findings precedent).
+
+/// Findings state and flow per tenant-local day (SPEC 8.2). `open_count` and the lifecycle counters are the snapshot at the day's close
+/// (or at the last run for today); the flow counters count status-history rows of that local day.
+model ReportDailyFindings {
+  tenantId                  String          @map("tenant_id") @db.Uuid
+  workspaceId               String          @map("workspace_id") @db.Uuid
+  repositoryId              String          @map("repository_id") @db.Uuid
+  pipelineId                String          @map("pipeline_id") @db.Uuid
+  day                       DateTime        @db.Date
+  scanType                  FindingScanType @map("scan_type")
+  severity                  FindingSeverity
+  openCount                 Int             @default(0) @map("open_count")
+  backlogCount              Int             @default(0) @map("backlog_count")
+  wipCount                  Int             @default(0) @map("wip_count")
+  awaitingVerificationCount Int             @default(0) @map("awaiting_verification_count")
+  slaOnTrack                Int             @default(0) @map("sla_on_track")
+  slaDueSoon                Int             @default(0) @map("sla_due_soon")
+  slaBreached               Int             @default(0) @map("sla_breached")
+  exceptionsInForce         Int             @default(0) @map("exceptions_in_force")
+  openAgeSecondsSum         BigInt          @default(0) @map("open_age_seconds_sum")
+  newCount                  Int             @default(0) @map("new_count")
+  fixedCount                Int             @default(0) @map("fixed_count")
+  closedOtherCount          Int             @default(0) @map("closed_other_count")
+  reopenedCount             Int             @default(0) @map("reopened_count")
+  computedAt                DateTime        @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_daily_findings_tenant_id_fkey")
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Cascade, map: "report_daily_findings_pipeline_fkey")
+
+  @@id([tenantId, pipelineId, day, scanType, severity])
+  @@index([tenantId, workspaceId, day], map: "report_daily_findings_workspace_day_idx")
+  @@index([tenantId, pipelineId, day], map: "report_daily_findings_pipeline_day_idx")
+  @@map("report_daily_findings")
+}
+
+/// Executions per tenant-local day (by `requested_at`), one counter per status (SPEC 8.2).
+model ReportDailyExecutions {
+  tenantId            String   @map("tenant_id") @db.Uuid
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  repositoryId        String   @map("repository_id") @db.Uuid
+  pipelineId          String   @map("pipeline_id") @db.Uuid
+  day                 DateTime @db.Date
+  total               Int      @default(0)
+  succeededCount      Int      @default(0) @map("succeeded_count")
+  failedCount         Int      @default(0) @map("failed_count")
+  partialCount        Int      @default(0) @map("partial_count")
+  timedOutCount       Int      @default(0) @map("timed_out_count")
+  cancelledCount      Int      @default(0) @map("cancelled_count")
+  skippedCount        Int      @default(0) @map("skipped_count")
+  blockedCount        Int      @default(0) @map("blocked_count")
+  durationMsSum       BigInt   @default(0) @map("duration_ms_sum")
+  queueWaitMsSum      BigInt   @default(0) @map("queue_wait_ms_sum")
+  eligibleCount       Int      @default(0) @map("eligible_count")
+  resultCompleteCount Int      @default(0) @map("result_complete_count")
+  resultPartialCount  Int      @default(0) @map("result_partial_count")
+  computedAt          DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_daily_executions_tenant_id_fkey")
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Cascade, map: "report_daily_executions_pipeline_fkey")
+
+  @@id([tenantId, pipelineId, day])
+  @@index([tenantId, workspaceId, day], map: "report_daily_executions_workspace_day_idx")
+  @@index([tenantId, pipelineId, day], map: "report_daily_executions_pipeline_day_idx")
+  @@map("report_daily_executions")
+}
+
+/// Analyst decisions and advisory agreement per tenant-local day and scan type (SPEC 8.2; Q-1 to Q-5).
+model ReportDailyDecisions {
+  tenantId          String          @map("tenant_id") @db.Uuid
+  workspaceId       String          @map("workspace_id") @db.Uuid
+  repositoryId      String          @map("repository_id") @db.Uuid
+  pipelineId        String          @map("pipeline_id") @db.Uuid
+  day               DateTime        @db.Date
+  scanType          FindingScanType @map("scan_type")
+  tpCount           Int             @default(0) @map("tp_count")
+  fpCount           Int             @default(0) @map("fp_count")
+  withAdvisory      Int             @default(0) @map("with_advisory")
+  agreeFp           Int             @default(0) @map("agree_fp")
+  agreeTp           Int             @default(0) @map("agree_tp")
+  advisoryFpHumanTp Int             @default(0) @map("advisory_fp_human_tp")
+  advisoryTpHumanFp Int             @default(0) @map("advisory_tp_human_fp")
+  advisoryUncertain Int             @default(0) @map("advisory_uncertain")
+  overrideConfident Int             @default(0) @map("override_confident")
+  computedAt        DateTime        @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_daily_decisions_tenant_id_fkey")
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Cascade, map: "report_daily_decisions_pipeline_fkey")
+
+  @@id([tenantId, pipelineId, day, scanType])
+  @@index([tenantId, workspaceId, day], map: "report_daily_decisions_workspace_day_idx")
+  @@index([tenantId, pipelineId, day], map: "report_daily_decisions_pipeline_day_idx")
+  @@map("report_daily_decisions")
+}
+
+/// SBOM component counts per tenant-local day: the last SBOM result of the day (SPEC 8.2; S-8 trend).
+model ReportDailySbom {
+  tenantId             String   @map("tenant_id") @db.Uuid
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  repositoryId         String   @map("repository_id") @db.Uuid
+  pipelineId           String   @map("pipeline_id") @db.Uuid
+  day                  DateTime @db.Date
+  components           Int      @default(0)
+  componentsVulnerable Int      @default(0) @map("components_vulnerable")
+  computedAt           DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_daily_sbom_tenant_id_fkey")
+  pipeline Pipeline @relation(fields: [tenantId, workspaceId, repositoryId, pipelineId], references: [tenantId, workspaceId, repositoryId, id], onDelete: Cascade, map: "report_daily_sbom_pipeline_fkey")
+
+  @@id([tenantId, pipelineId, day])
+  @@index([tenantId, workspaceId, day], map: "report_daily_sbom_workspace_day_idx")
+  @@index([tenantId, pipelineId, day], map: "report_daily_sbom_pipeline_day_idx")
+  @@map("report_daily_sbom")
+}
+
+/// One rollup job run (SPEC 8.3). `day` is the tenant-local day (the first day of a backfill range, whose last day is `range_to`);
+/// `as_of_history_id` is the newest status-history row the run read, so "data as of" is exact.
+model ReportRollupRun {
+  id            String    @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  day           DateTime  @db.Date
+  rangeTo       DateTime? @map("range_to") @db.Date
+  mode          String
+  status        String    @default("running")
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt    DateTime? @map("finished_at") @db.Timestamptz(6)
+  rowsWritten   Int       @default(0) @map("rows_written")
+  errorCode     String?   @map("error_code")
+  asOfHistoryId String?   @map("as_of_history_id") @db.Uuid
+  timeZone      String    @default("UTC") @map("time_zone")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_rollup_runs_tenant_id_fkey")
+
+  @@id([tenantId, id])
+  @@unique([tenantId, day, mode, startedAt], map: "report_rollup_runs_slot_key")
+  @@index([tenantId, status, finishedAt(sort: Desc)], map: "report_rollup_runs_latest_idx")
+  @@map("report_rollup_runs")
+}
+
+/// One generated report (SPEC 8.3, 7.4). `workspace_id` null means tenant-wide (the composite foreign key to workspaces is in the migration,
+/// Prisma cannot express a partly optional composite). `object_key` is built by the server (CHECK: `reports/<tenant>/<id>.<format>`).
+model ReportExport {
+  id                String    @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  workspaceId       String?   @map("workspace_id") @db.Uuid
+  template          String
+  format            String
+  params            Json      @default("{}")
+  periodFrom        DateTime? @map("period_from") @db.Date
+  periodTo          DateTime? @map("period_to") @db.Date
+  asOfDay           DateTime? @map("as_of_day") @db.Date
+  status            String    @default("queued")
+  errorCode         String?   @map("error_code")
+  requestedByUserId String    @map("requested_by_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt         DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(6)
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz(6)
+  objectKey         String?   @map("object_key")
+  bytes             BigInt?
+  sha256            String?
+  rowCount          Int?      @map("row_count")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, map: "report_exports_tenant_id_fkey")
+
+  @@id([tenantId, id])
+  @@index([tenantId, workspaceId, createdAt(sort: Desc)], map: "report_exports_workspace_idx")
+  @@index([tenantId, requestedByUserId, createdAt(sort: Desc)], map: "report_exports_requester_idx")
+  @@map("report_exports")
+}
+
+/// Tenant reporting time zone (SPEC 8.4, D-5): one row per tenant, created on the first change; NO row means `UTC`. The IANA name is validated in
+/// code against the runtime; the database only bounds the length. Read by the reporting roles through `report_tenant_settings_v`.
+/// Deviation from the SPEC wording `tenant_settings.reporting_timezone`: the product has no `tenant_settings` table, only one settings table
+/// per module (`tenant_llm_settings`, `tenant_integration_settings`), so this follows that pattern.
+model TenantReportingSettings {
+  tenantId          String   @id @map("tenant_id") @db.Uuid
+  reportingTimezone String   @default("UTC") @map("reporting_timezone")
+  updatedByUserId   String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, map: "tenant_reporting_settings_tenant_id_fkey")
+
+  @@map("tenant_reporting_settings")
+}

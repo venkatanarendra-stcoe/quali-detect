@@ -13,6 +13,14 @@ import { messageEnvelopeSchema } from "./messages.js";
  * handlers must be naturally idempotent.
  */
 const uuid = z.string().uuid();
+/** A tenant-local calendar day `YYYY-MM-DD` (a real date). */
+const reportDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((d) => {
+    const t = new Date(`${d}T00:00:00Z`);
+    return !Number.isNaN(t.getTime()) && t.toISOString().startsWith(d);
+  }, "not a calendar day");
 const findingSeverity = z.enum(["critical", "high", "medium", "low", "info"]);
 const findingStatus = z.enum([
   "new",
@@ -749,6 +757,49 @@ export const MESSAGE_TYPES = Object.freeze({
     scope: "platform",
     schemaVersion: 1,
     payload: z.object({ bucket: z.number().int().min(0) }).strict(),
+  }),
+  // ---- Reporting (docs/modules/reporting-dashboards/SPEC.md 10, ADR-015, contract freeze Part A0). Ids, enums and days ONLY. Both are jobs
+  // for the `reporting` queue, OFF while REPORTING_ENABLED=false. The consumer loads everything by tenant and id from the database.
+  /**
+   * Build (or rebuild) rollups for one tenant. `incremental` (hourly: today, T = now) and `close` (a finished tenant-local day) carry a
+   * `day` (optional for `incremental`, required for `close`); `backfill` carries `from` and `to` (tenant-local days, at most the rollup
+   * retention). `reason` is informational. messageId `reporting-rollup-<tenant>-<mode>-<day>-<hour>`. `tenantId` MUST equal the
+   * envelope's (the handler checks).
+   */
+  "reporting.rollup.requested": Object.freeze({
+    kind: "job",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z
+      .object({
+        tenantId: uuid,
+        mode: z.enum(["incremental", "close", "backfill"]),
+        day: reportDay.optional(),
+        from: reportDay.optional(),
+        to: reportDay.optional(),
+        reason: z.enum(["scheduled", "first_enablement", "timezone_changed", "repair"]).optional(),
+      })
+      .strict()
+      .superRefine((p, ctx) => {
+        const bad = (message) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+        if (p.mode === "backfill") {
+          if (!p.from || !p.to) bad("backfill needs from and to");
+          else if (p.from > p.to) bad("from is after to");
+          else if ((Date.parse(p.to) - Date.parse(p.from)) / 86400000 > 800)
+            bad("backfill range is longer than the rollup retention");
+          if (p.day) bad("backfill takes no day");
+        } else {
+          if (p.from || p.to) bad("only a backfill takes from and to");
+          if (p.mode === "close" && !p.day) bad("close needs a day");
+        }
+      }),
+  }),
+  /** Build one report file. Only the report id travels: the worker loads the row BY TENANT AND ID and ignores anything else. */
+  "reporting.export.requested": Object.freeze({
+    kind: "job",
+    scope: "tenant",
+    schemaVersion: 1,
+    payload: z.object({ reportId: uuid }).strict(),
   }),
 });
 

@@ -111,6 +111,14 @@ const envSchema = z.object({
   FINDINGS_AGENT_TENANT_DAILY_CAP: z.coerce.number().int().min(1).max(100000).default(500),
   // output tokens per model call; a reasoning model spends part of it on thinking before it emits the tool call
   FINDINGS_AGENT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(128).max(8192).default(1024),
+  // Reporting (docs/modules/reporting-dashboards/SPEC.md 10, 12, ADR-015): OFF BY DEFAULT; nothing is rolled up, queued or exported while
+  // "false". REPORTING_DATABASE_URL is the connection string of the LOGIN role that is a member of `qm_reporting` (select on the report views,
+  // insert and update on the report tables, nothing else): a SECRET, never logged. REQUIRED in production while REPORTING_ENABLED=true; in
+  // development, when unset, the shared pool is used (still only through the frozen repositories) and a warning is logged.
+  REPORTING_ENABLED: z.enum(["true", "false"]).default("false"),
+  REPORTING_DATABASE_URL: z.string().url().optional(),
+  REPORTING_ROLLUP_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(25),
+  REPORTING_EXPORT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   // The Docker-compatible CLI (execFile, never a shell). Nothing assumes a rootful runtime; rootless operation and uid mapping are
   // UNVERIFIED (SPEC D-20, ENG-L18). The Docker socket is never mounted into a container.
   SANDBOX_RUNTIME_BIN: z.enum(["docker", "podman"]).default("podman"),
@@ -282,6 +290,12 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       variable: "FINDINGS_AGENT_DATABASE_URL",
       message:
         "required in production while FINDINGS_AGENT_ENABLED=true (the restricted qm_fp_agent login role)",
+    });
+  if (e.REPORTING_ENABLED === "true" && e.NODE_ENV === "production" && !e.REPORTING_DATABASE_URL)
+    executionProblems.push({
+      variable: "REPORTING_DATABASE_URL",
+      message:
+        "required in production while REPORTING_ENABLED=true (the restricted qm_reporting login role)",
     });
   const sandbox = {
     runtimeBin: e.SANDBOX_RUNTIME_BIN,
@@ -513,6 +527,13 @@ export function loadWorkerConfig(env = process.env, { workerName } = {}) {
       agentMaxConcurrentCalls: e.FINDINGS_AGENT_MAX_CONCURRENT_CALLS,
       agentTenantDailyCap: e.FINDINGS_AGENT_TENANT_DAILY_CAP,
       agentMaxOutputTokens: e.FINDINGS_AGENT_MAX_OUTPUT_TOKENS,
+    }),
+    reporting: Object.freeze({
+      enabled: e.REPORTING_ENABLED === "true",
+      /** The restricted worker-role connection string; null in development when unset (the shared pool is used, with a warning). */
+      databaseUrl: e.REPORTING_DATABASE_URL ?? null,
+      rollupRetentionMonths: e.REPORTING_ROLLUP_RETENTION_MONTHS,
+      exportRetentionDays: e.REPORTING_EXPORT_RETENTION_DAYS,
     }),
     scanDecision: Object.freeze({
       secretsRule: e.SCAN_DECISION_SECRETS_RULE,

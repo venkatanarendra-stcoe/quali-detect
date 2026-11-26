@@ -117,17 +117,21 @@ model Pipeline {
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
   deletedByUserId  String?   @map("deleted_by_user_id") @db.Uuid
 
-  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  workspace         Workspace                 @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
-  repository        Repository                @relation(fields: [tenantId, workspaceId, repositoryId], references: [tenantId, workspaceId, id], onDelete: Restrict)
-  currentConfig     PipelineConfigVersion?    @relation("PipelineCurrentVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
-  versions          PipelineConfigVersion[]   @relation("PipelineVersions")
-  triggers          PipelineTrigger[]
-  executions        Execution[]
-  triggerDecisions  PipelineTriggerDecision[]
-  findings          Finding[]
-  findingState      FindingPipelineState?
-  findingIngestions FindingIngestion[]
+  tenant                Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  workspace             Workspace                 @relation(fields: [tenantId, workspaceId], references: [tenantId, id], onDelete: Restrict)
+  repository            Repository                @relation(fields: [tenantId, workspaceId, repositoryId], references: [tenantId, workspaceId, id], onDelete: Restrict)
+  currentConfig         PipelineConfigVersion?    @relation("PipelineCurrentVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, pipelineId, id], onDelete: Restrict)
+  versions              PipelineConfigVersion[]   @relation("PipelineVersions")
+  triggers              PipelineTrigger[]
+  executions            Execution[]
+  triggerDecisions      PipelineTriggerDecision[]
+  findings              Finding[]
+  findingState          FindingPipelineState?
+  findingIngestions     FindingIngestion[]
+  reportDailyFindings   ReportDailyFindings[]
+  reportDailyExecutions ReportDailyExecutions[]
+  reportDailyDecisions  ReportDailyDecisions[]
+  reportDailySbom       ReportDailySbom[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, workspaceId, repositoryId, id])

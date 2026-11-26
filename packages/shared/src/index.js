@@ -12,4 +12,5 @@ export * from "./executions/index.js";
 export * from "./scan-decisioning/index.js";
 export * from "./scan-engines/index.js";
 export * from "./findings/index.js";
+export * from "./reporting/index.js";
 export * from "./secret-redaction.js";

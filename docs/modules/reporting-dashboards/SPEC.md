@@ -491,6 +491,10 @@ Navigation stays defined once in `@qmentisai/shared`: flip `reports.implemented`
 | O-10 | ADR-008 **area 20** and the ADR for the rollup design | approve the scope sentence (16.2) and an ADR |
 | O-11 | Reporting database role and an optional **read replica** (`REPORTING_DATABASE_URL`, the `FINDINGS_AGENT_DATABASE_URL` pattern): the shared pool in development, a replica later | accept; no replica is required for v1 |
 
+### 17.4 As built, Part A0 (2026-11-26; details in `AS_BUILT_A0.md`)
+
+Deviations from the text above, none changing a ruling: (1) the tenant time zone is `tenant_reporting_settings.reporting_timezone` (no `tenant_settings` table exists; one settings table per module is the pattern); (2) a seventh view `report_tenant_settings_v`, repository, pipeline and assignee display names in the views, and `report_decisions_v` carries review decisions and exception outcomes in one timeline; (3) two `SECURITY DEFINER` functions (`qm_reporting_clear_range`, `qm_reporting_purge`) because the roles have no DELETE; (4) the message payload schemas live in `@qmentisai/contracts`, and `reporting.rollup.requested` has an informational `reason`; (5) `REPORT_TOO_LARGE` is 422 and `REPORT_AS_OF_UNAVAILABLE` 409; (6) `report_rollup_runs` has `range_to` and `time_zone`.
+
 ## 18. Build plan (after approval; each part verified by gates, not before)
 
 | Part | Content | Parallel |

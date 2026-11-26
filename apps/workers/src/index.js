@@ -8,4 +8,5 @@ export const WORKER_NAMES = Object.freeze([
   "outbox",
   "scm",
   "findings",
+  "reporting",
 ]);

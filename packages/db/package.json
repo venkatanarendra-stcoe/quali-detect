@@ -20,7 +20,8 @@
     "db:seed": "node --env-file-if-exists=.env prisma/seed.js",
     "seed:findings": "node --env-file-if-exists=.env prisma/seed-findings.js",
     "db:format": "prisma format",
-    "provision:fp-agent-login": "node --env-file-if-exists=.env scripts/provision-fp-agent-login.js"
+    "provision:fp-agent-login": "node --env-file-if-exists=.env scripts/provision-fp-agent-login.js",
+    "provision:reporting-logins": "node --env-file-if-exists=.env scripts/provision-reporting-logins.js"
   },
   "dependencies": {
     "@prisma/client": "catalog:",
